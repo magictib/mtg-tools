@@ -9,6 +9,9 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>MTG Tools</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
+<!-- Firebase compat (expose firebase.* global) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -404,6 +407,19 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 <div id="ctip"><img id="ctipimg" src="" alt=""></div>
 
 <script>
+// ===== FIREBASE INIT =====
+const firebaseConfig = {
+  apiKey: "AIzaSyDXQMM4HgsFclxozzqJc4Hdp_ehxYBQUj4",
+  authDomain: "mtg-tools-5ea4b.firebaseapp.com",
+  projectId: "mtg-tools-5ea4b",
+  storageBucket: "mtg-tools-5ea4b.firebasestorage.app",
+  messagingSenderId: "170178284849",
+  appId: "1:170178284849:web:016b542e847a5ede973410"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+var userId = 'default_user';
+
 // ===== MAPPINGS =====
 var L2L={fr:'French',en:'English',de:'German',es:'Spanish',it:'Italian',pt:'Portuguese',ja:'Japanese',ko:'Korean',ru:'Russian'};
 var L2S={};
@@ -612,8 +628,25 @@ function doExport() {
 }
 
 // ===== PROFILS =====
-function loadProfs(){try{var s=localStorage.getItem('mtg_profs');if(s)profs=JSON.parse(s);}catch(e){profs=[null,null,null];}renderProfs();}
-function saveProfs(){try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}}
+function loadProfs(){
+  try{var s=localStorage.getItem('mtg_profs');if(s)profs=JSON.parse(s);}catch(e){profs=[null,null,null];}
+  renderProfs();
+  db.collection('users').doc(userId).collection('data').doc('profs').get()
+    .then(function(doc){
+      if(doc.exists){
+        var d=doc.data();
+        profs=[d.p0||null,d.p1||null,d.p2||null];
+        try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
+        renderProfs();updPStat();
+      }
+    }).catch(function(){});
+}
+function saveProfs(){
+  try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
+  db.collection('users').doc(userId).collection('data').doc('profs').set({
+    p0:profs[0]||null, p1:profs[1]||null, p2:profs[2]||null
+  }).catch(function(e){console.warn('Firestore saveProfs',e);});
+}
 function selProf(i){actP=(actP===i)?-1:i;renderProfs();updPStat();}
 function setEMode(m){
   eMode=m;
@@ -721,8 +754,25 @@ function scState(s,msg){
 }
 
 // ===== DECK =====
-function loadDecks(){try{var s=localStorage.getItem('mtg_decks');if(s)decks=JSON.parse(s);}catch(e){decks={};}renderDBar();}
-function saveDecks(){try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}}
+function loadDecks(){
+  try{var s=localStorage.getItem('mtg_decks');if(s)decks=JSON.parse(s);}catch(e){decks={};}
+  renderDBar();
+  db.collection('users').doc(userId).collection('decks').get()
+    .then(function(snapshot){
+      var d={};
+      snapshot.forEach(function(doc){d[doc.id]=doc.data();});
+      decks=d;
+      try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
+      renderDBar();
+    }).catch(function(){});
+}
+function saveDecks(){
+  try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
+  var batch=db.batch();
+  var ref=db.collection('users').doc(userId).collection('decks');
+  Object.keys(decks).forEach(function(id){batch.set(ref.doc(id),decks[id]);});
+  batch.commit().catch(function(e){console.warn('Firestore saveDecks',e);});
+}
 function renderDBar(){
   var bar=document.getElementById('dprofs');
   var ids=Object.keys(decks);
@@ -813,7 +863,10 @@ function saveDeck(){
 function deleteDeck(){
   if(!actDeck)return;
   if(!confirm('Supprimer ce deck ?'))return;
-  delete decks[actDeck];saveDecks();newDeck();
+  var id=actDeck;
+  delete decks[id];saveDecks();
+  db.collection('users').doc(userId).collection('decks').doc(id).delete().catch(function(){});
+  newDeck();
 }
 function clearDeckEditor(){
   document.getElementById('ta-name').value='';
