@@ -197,6 +197,15 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:var(--s1)}
 ::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+.collhdr{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
+.collrow{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:default}
+.collrow:hover{background:var(--s3)}
+.cname{color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cset{color:var(--tx2);font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cqty{font-family:'Cinzel',serif;font-size:11px;font-weight:600;color:var(--gold2);text-align:center}
+.ccond{text-align:center;font-size:.7rem;color:var(--tx3)}
+.cfoil{text-align:center;font-size:.7rem;color:var(--ac2)}
+.cprice{text-align:right;font-size:.75rem;color:var(--gr2)}
 @media(max-width:480px){
   .g4{grid-template-columns:1fr 1fr}
   .sccard.active{flex-direction:column}
@@ -204,6 +213,10 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   .prig{grid-template-columns:1fr 1fr}
   .tab-btn{font-size:8px;padding:7px 2px}
   .dhdr,.drow{grid-template-columns:22px 1fr 58px 58px 58px;font-size:.72rem}
+  .collhdr,.collrow{grid-template-columns:1fr 40px 64px}
+  .collhdr>div:nth-child(2),.collrow>div:nth-child(2),
+  .collhdr>div:nth-child(4),.collrow>div:nth-child(4),
+  .collhdr>div:nth-child(5),.collrow>div:nth-child(5){display:none}
 }
 </style>
 </head>
@@ -221,8 +234,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 </header>
 
 <div class="tabs">
-  <button class="tab-btn active" id="tb-conv" onclick="goTab('conv')">⇄ Convertisseur</button>
+  <button class="tab-btn active" id="tb-conv" onclick="goTab('conv')">⇄ Conv.</button>
   <button class="tab-btn" id="tb-scry" onclick="goTab('scry')">✦ Scryfall</button>
+  <button class="tab-btn" id="tb-coll" onclick="goTab('coll')">◈ Collection</button>
   <button class="tab-btn" id="tb-deck" onclick="goTab('deck')">♥ Deck</button>
 </div>
 
@@ -288,6 +302,27 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     <div class="lbl">Aperçu</div>
     <div class="tblwrap"><table class="prev" id="prevtbl"></table></div>
   </div>
+</div>
+
+<!-- COLLECTION -->
+<div class="page" id="pg-coll">
+  <div class="card">
+    <div class="lbl">Profil</div>
+    <div class="pg">
+      <div class="pb active" id="cpb0" onclick="setCollProf(0)"><div class="pdot"></div><div class="pname">Thibaud</div><div class="pinfo" id="cpi0">Vide</div></div>
+      <div class="pb" id="cpb1" onclick="setCollProf(1)"><div class="pdot"></div><div class="pname">Gérémy</div><div class="pinfo" id="cpi1">Vide</div></div>
+      <div class="pb" id="cpb2" onclick="setCollProf(2)"><div class="pdot"></div><div class="pname">Antoine</div><div class="pinfo" id="cpi2">Vide</div></div>
+    </div>
+    <input type="text" id="collsrch" placeholder="Rechercher une carte..." oninput="renderColl()" style="margin-top:6px">
+  </div>
+  <div class="card" id="collcard" style="display:none">
+    <div class="g3" id="collstats" style="margin-bottom:10px"></div>
+    <div class="collhdr">
+      <div>Carte</div><div>Extension</div><div style="text-align:center">Qté</div><div style="text-align:center">Cond</div><div style="text-align:center">Foil</div><div style="text-align:right">Prix</div>
+    </div>
+    <div id="colllist"></div>
+  </div>
+  <div id="collempty" style="text-align:center;color:var(--tx3);font-style:italic;padding:2rem 1rem;font-size:.9rem">Importez un fichier CSV dans le Convertisseur pour alimenter la collection.</div>
 </div>
 
 <!-- SCRYFALL -->
@@ -477,11 +512,35 @@ var PN=['Thibaud','Gérémy','Antoine'];
 
 // ===== STATE =====
 var srcF='A', dstF='C';
-var csvRows=[], outRows=[], prevSnap=[];
+var csvRows=[], outRows=[], prevSnap=new Map();
 var profs=[null,null,null], actP=-1, eMode='new';
 var scAllP=[], scFlips=[], scFlipN=0, scSugTO=null;
 var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0, dCmpMode='name';
 var dbarOpen=[true,true,true];
+var collP=0;
+
+function normalizeRow(r,fmt){
+  var nF={A:'name',B:'Card Name',C:'Name'};
+  var sF={A:'expansion',B:'Set Name',C:'Edition'};
+  var nrF={A:'printNumber',B:'Collector Number',C:'Collector Number'};
+  var qF={A:'totalQtyOwned',B:'Quantity',C:'Count'};
+  var lgF={A:'language',B:'Language',C:'Language'};
+  var condF={A:'condition',B:'Condition',C:'Condition'};
+  var finF={A:'finish',B:'Finish',C:'Foil'};
+  var prF={A:'price',B:'Price (EUR)',C:'Purchase Price'};
+  return {
+    name:r[nF[fmt]]||'',set:r[sF[fmt]]||'',num:r[nrF[fmt]]||'',
+    qty:parseInt(r[qF[fmt]])||1,lang:r[lgF[fmt]]||'',
+    cond:r[condF[fmt]]||'',finish:r[finF[fmt]]||'',price:parseFloat(r[prF[fmt]])||0
+  };
+}
+
+function getProfCards(i){
+  var p=profs[i];
+  if(!p||!p.length)return [];
+  if(typeof p[0]==='string')return []; // ancien format clés-seulement
+  return p;
+}
 
 // ===== TABS =====
 function goTab(id) {
@@ -570,10 +629,22 @@ function loadFile(file) {
     var res=parseCSV(e.target.result);
     csvRows=res.data;outRows=convRows(res.data,key);
     if(actP!==-1){
-      prevSnap=profs[actP]?profs[actP].slice():[]; 
-      profs[actP]=res.data.map(function(r){return profKey(r,srcF);});
+      // Build prevSnap as Map<rawKey,qty> from old collection
+      prevSnap=new Map();
+      var old=getProfCards(actP);
+      old.forEach(function(c){
+        var k=c.name.toLowerCase().trim()+'||'+c.set.toLowerCase().trim()+'||'+c.num.toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
+        prevSnap.set(k,(prevSnap.get(k)||0)+(c.qty||1));
+      });
+      // Old key-string format fallback
+      if(!old.length&&profs[actP]&&typeof profs[actP][0]==='string'){
+        profs[actP].forEach(function(k){prevSnap.set(k,(prevSnap.get(k)||0)+1);});
+      }
+      // Replace collection with normalized rows
+      profs[actP]=res.data.map(function(r){return normalizeRow(r,srcF);});
       saveProfs();renderProfs();updPStat();
-    } else {prevSnap=[];}
+      renderColl();
+    } else {prevSnap=new Map();}
     var fok=document.getElementById('fok');
     fok.style.display='block';
     var pm=actP!==-1?' — <span style="color:var(--gr2)">✓ sauvegardé dans '+PN[actP]+'</span>':'';
@@ -609,10 +680,15 @@ function doExport() {
   var key=srcF+dstF;
   var hdrs=(MAPS[key]||[]).map(function(m){return m.d;});
   var filtered=outRows,isFiltered=false;
-  if(actP!==-1&&eMode==='new'&&prevSnap&&prevSnap.length>0){
-    var known=new Set(prevSnap);
+  if(actP!==-1&&eMode==='new'&&prevSnap&&prevSnap.size>0){
+    var qF={A:'totalQtyOwned',B:'Quantity',C:'Count'}[srcF]||'totalQtyOwned';
     var ni=[];
-    csvRows.forEach(function(r,i){if(!known.has(profKey(r,srcF)))ni.push(i);});
+    csvRows.forEach(function(r,i){
+      var k=profKey(r,srcF);
+      var newQty=parseInt(r[qF])||1;
+      var oldQty=prevSnap.get(k)||0;
+      if(newQty!==oldQty)ni.push(i);
+    });
     if(ni.length<outRows.length){filtered=ni.map(function(i){return outRows[i];});isFiltered=true;}
   }
   if(filtered.length===0){document.getElementById('pst').innerHTML='<span style="color:var(--am)">⚠ Aucune nouvelle carte</span>';return;}
@@ -631,21 +707,23 @@ function doExport() {
 function loadProfs(){
   try{var s=localStorage.getItem('mtg_profs');if(s)profs=JSON.parse(s);}catch(e){profs=[null,null,null];}
   renderProfs();
-  db.collection('users').doc(userId).collection('data').doc('profs').get()
-    .then(function(doc){
-      if(doc.exists){
-        var d=doc.data();
-        profs=[d.p0||null,d.p1||null,d.p2||null];
-        try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
-        renderProfs();updPStat();
-      }
-    }).catch(function(){});
+  var ref=db.collection('users').doc(userId).collection('profs');
+  Promise.all([0,1,2].map(function(i){
+    return ref.doc(String(i)).get().then(function(doc){
+      if(doc.exists)profs[i]=doc.data().cards||null;
+    });
+  })).then(function(){
+    try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
+    renderProfs();updPStat();renderColl();
+  }).catch(function(){});
 }
 function saveProfs(){
   try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
-  db.collection('users').doc(userId).collection('data').doc('profs').set({
-    p0:profs[0]||null, p1:profs[1]||null, p2:profs[2]||null
-  }).catch(function(e){console.warn('Firestore saveProfs',e);});
+  var ref=db.collection('users').doc(userId).collection('profs');
+  [0,1,2].forEach(function(i){
+    ref.doc(String(i)).set({cards:profs[i]||null})
+      .catch(function(e){console.warn('Firestore saveProfs '+i,e);});
+  });
 }
 function selProf(i){actP=(actP===i)?-1:i;renderProfs();updPStat();}
 function setEMode(m){
@@ -658,19 +736,30 @@ function renderProfs(){
   for(var i=0;i<3;i++){
     var btn=document.getElementById('pb'+i);
     var inf=document.getElementById('pi'+i);
-    var has=profs[i]&&profs[i].length>0;
+    var cards=getProfCards(i);
+    var has=cards.length>0||(profs[i]&&profs[i].length>0);
     if(actP===i)btn.classList.add('active');else btn.classList.remove('active');
     if(has)btn.classList.add('hasdata');else btn.classList.remove('hasdata');
-    inf.textContent=has?profs[i].length+' cartes':'Vide';
+    if(cards.length>0){
+      var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+      inf.textContent=tot+' cartes';
+    }else if(profs[i]&&profs[i].length>0){
+      inf.textContent=profs[i].length+' entrées';
+    }else{
+      inf.textContent='Vide';
+    }
   }
 }
 function updPStat(){
   var el=document.getElementById('pst');
   if(actP===-1){el.textContent='Aucun profil sélectionné — export total';return;}
-  var p=profs[actP],has=p&&p.length>0,n=PN[actP];
+  var cards=getProfCards(actP);
+  var has=cards.length>0||(profs[actP]&&profs[actP].length>0);
+  var n=PN[actP];
+  var tot=cards.length>0?cards.reduce(function(s,c){return s+(c.qty||1);},0):(profs[actP]?profs[actP].length:0);
   if(eMode==='all')el.innerHTML=n+' actif — <strong style="color:var(--gold2)">Export total</strong>';
   else if(!has)el.innerHTML=n+' vide — premier import sera la référence';
-  else el.innerHTML=n+' actif — <strong style="color:var(--gr2)">Nouvelles cartes</strong> vs '+p.length+' connues';
+  else el.innerHTML=n+' actif — <strong style="color:var(--gr2)">Nouvelles cartes</strong> vs '+tot+' connues';
 }
 
 // ===== SCRYFALL =====
@@ -938,7 +1027,17 @@ function getProfKey(profKey,mode){
 function getPMap(i){
   var p=profs[i];if(!p||!p.length)return new Map();
   var m=new Map();
-  p.forEach(function(k){var key=getProfKey(k,dCmpMode);m.set(key,(m.get(key)||0)+1);});
+  if(typeof p[0]==='string'){
+    // Ancien format : tableau de clés
+    p.forEach(function(k){var key=getProfKey(k,dCmpMode);m.set(key,(m.get(key)||0)+1);});
+  }else{
+    // Nouveau format : objets normalisés
+    p.forEach(function(c){
+      var rawKey=c.name.toLowerCase().trim()+'||'+c.set.toLowerCase().trim()+'||'+c.num.toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
+      var key=getProfKey(rawKey,dCmpMode);
+      m.set(key,(m.get(key)||0)+(c.qty||1));
+    });
+  }
   return m;
 }
 function analyzeDeck(){
@@ -1108,6 +1207,58 @@ function dlTxt(content,filename){
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');a.href=url;a.download=filename;
   document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+
+// ===== COLLECTION =====
+function setCollProf(i){
+  collP=i;
+  [0,1,2].forEach(function(j){
+    var b=document.getElementById('cpb'+j);
+    if(j===i)b.classList.add('active');else b.classList.remove('active');
+  });
+  renderColl();
+}
+function renderColl(){
+  // Update all profile info badges
+  [0,1,2].forEach(function(i){
+    var cards=getProfCards(i);
+    var b=document.getElementById('cpb'+i);
+    var inf=document.getElementById('cpi'+i);
+    if(!b||!inf)return;
+    var has=cards.length>0;
+    if(has)b.classList.add('hasdata');else b.classList.remove('hasdata');
+    if(has){var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);inf.textContent=tot+' cartes';}
+    else inf.textContent='Vide';
+  });
+  var cards=getProfCards(collP);
+  var srch=(document.getElementById('collsrch')?document.getElementById('collsrch').value:'').toLowerCase().trim();
+  var card=document.getElementById('collcard');
+  var empty=document.getElementById('collempty');
+  if(!cards.length){if(card)card.style.display='none';if(empty)empty.style.display='block';return;}
+  if(card)card.style.display='block';if(empty)empty.style.display='none';
+  var filtered=srch?cards.filter(function(c){return c.name.toLowerCase().indexOf(srch)>=0;}):cards;
+  var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+  var val=cards.reduce(function(s,c){return s+(c.qty||1)*(c.price||0);},0);
+  document.getElementById('collstats').innerHTML=
+    '<div class="stat"><div class="sv">'+cards.length+'</div><div class="sl">Entrées</div></div>'+
+    '<div class="stat"><div class="sv">'+tot+'</div><div class="sl">Cartes</div></div>'+
+    '<div class="stat"><div class="sv">'+val.toFixed(2)+'€</div><div class="sl">Valeur</div></div>';
+  if(!filtered.length){
+    document.getElementById('colllist').innerHTML='<div style="text-align:center;color:var(--tx3);padding:1rem;font-style:italic">Aucune carte trouvée</div>';
+    return;
+  }
+  document.getElementById('colllist').innerHTML=filtered.map(function(c){
+    var foilStr=fNF(c.finish)==='foil'?'✦':'';
+    var priceStr=c.price>0?c.price.toFixed(2)+'€':'—';
+    return '<div class="collrow" onmouseenter="showTip(\''+c.name.replace(/'/g,"&#39;")+'\',event)" onmouseleave="hideTip()">'+
+      '<div class="cname" title="'+esc(c.name)+'">'+esc(c.name)+'</div>'+
+      '<div class="cset">'+esc(c.set)+'</div>'+
+      '<div class="cqty">'+c.qty+'</div>'+
+      '<div class="ccond">'+esc(c.cond)+'</div>'+
+      '<div class="cfoil">'+foilStr+'</div>'+
+      '<div class="cprice">'+priceStr+'</div>'+
+    '</div>';
+  }).join('');
 }
 
 // ===== TOOLTIP =====
