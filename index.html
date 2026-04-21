@@ -395,9 +395,43 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     <div class="card" id="cmdedrec-data">
       <div id="cmdedhrec-info" style="margin-bottom:.75rem"></div>
       <div class="lbl" style="margin-bottom:4px">Cartes recommandées</div>
-      <div id="cmdedhrec-cards" style="margin-bottom:1rem"></div>
-      <div class="lbl" style="margin-bottom:4px" id="cmddeckslbl" style="display:none">Decks populaires</div>
-      <div id="cmdedhrec-decks"></div>
+      <div id="cmdedhrec-cards" style="margin-bottom:.5rem"></div>
+    </div>
+
+    <!-- Générateur de deck -->
+    <div class="card" id="cmddeckgen" style="display:none">
+      <div class="lbl">Générer un deck suggéré</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-bottom:.75rem">
+        <div>
+          <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:4px">BRACKET</div>
+          <div style="display:flex;gap:4px" id="cmd-brackets">
+            <button class="dm" onclick="setCmdBracket(1,this)">1</button>
+            <button class="dm" onclick="setCmdBracket(2,this)">2</button>
+            <button class="dm active" onclick="setCmdBracket(3,this)">3</button>
+            <button class="dm" onclick="setCmdBracket(4,this)">4</button>
+            <button class="dm" onclick="setCmdBracket(5,this)">5</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:4px">BUDGET</div>
+          <div style="display:flex;gap:4px" id="cmd-budgets">
+            <button class="dm active" onclick="setCmdBudget('low',this)">$</button>
+            <button class="dm" onclick="setCmdBudget('mid',this)">$$</button>
+            <button class="dm" onclick="setCmdBudget('high',this)">$$$</button>
+          </div>
+        </div>
+        <button class="btn btnp" style="margin-top:18px" onclick="generateCmdDecks()">Générer</button>
+      </div>
+      <!-- Navigation deck -->
+      <div id="cmddecknav" style="display:none">
+        <div class="row" style="margin-bottom:8px">
+          <button class="btn btnsm" onclick="prevCmdDeck()">← Précédent</button>
+          <span id="cmddecklabel" style="font-size:.82rem;color:var(--tx2);flex:1;text-align:center"></span>
+          <button class="btn btnsm" onclick="nextCmdDeck()">Suivant →</button>
+        </div>
+        <textarea id="cmddecktext" style="width:100%;min-height:240px;padding:10px 12px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-family:monospace;font-size:.78rem;line-height:1.6;outline:none;resize:vertical" readonly></textarea>
+        <button class="btn btnp" style="margin-top:8px;width:100%" onclick="importCmdDeck()">📋 Importer dans Deck Manager</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1326,7 +1360,8 @@ function dlTxt(content,filename){
 
 // ===== COMMANDANTS =====
 var cmdFmt='commander', cmdColors=new Set(), cmdActive=null, cmdRarity='';
-var cmdCardsMap={};
+var cmdCardsMap={}, cmdEDHCardlist=[], cmdEDHCmdName='';
+var cmdDeckList=[], cmdDeckIdx=0, cmdDeckBracket=3, cmdDeckBudget='low';
 var CMD_FORMATS_WITH_CMDR=['commander','paupercommander','oathbreaker'];
 
 function setCmdFmt(fmt,btn){
@@ -1488,6 +1523,109 @@ function selectCmd(name,slug){
     .catch(function(){});
 }
 
+function setCmdBracket(n,btn){
+  cmdDeckBracket=n;
+  document.querySelectorAll('#cmd-brackets .dm').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+}
+function setCmdBudget(b,btn){
+  cmdDeckBudget=b;
+  document.querySelectorAll('#cmd-budgets .dm').forEach(function(b2){b2.classList.remove('active');});
+  btn.classList.add('active');
+}
+
+// Bracket price caps ($ per card max)
+var BRACKET_PRICE={1:0.5, 2:1, 3:3, 4:10, 5:999};
+var BUDGET_MULT={low:1, mid:3, high:999};
+
+function generateCmdDecks(){
+  if(!cmdEDHCardlist.length){
+    alert('Sélectionnez d\'abord un commandant pour charger les recommandations EDHREC.');
+    return;
+  }
+  var maxPrice=BRACKET_PRICE[cmdDeckBracket]*(BUDGET_MULT[cmdDeckBudget]||1);
+  var name=cmdEDHCmdName;
+
+  function score(c,mode){
+    var syn=parseFloat(c.synergy)||0;
+    var inc=c.num_decks&&c.potential_decks?(c.num_decks/c.potential_decks):0;
+    var pr=parseFloat(c.price)||0;
+    if(mode==='syn') return syn*2+inc;
+    if(mode==='pop') return inc*2+syn;
+    if(mode==='bud') return (pr<maxPrice?1:0)*(syn+inc);
+    return syn+inc;
+  }
+
+  function buildVariant(mode){
+    var eligible=cmdEDHCardlist.filter(function(c){
+      if(mode==='bud'){var pr=parseFloat(c.price)||0;return pr<=maxPrice||pr===0;}
+      return true;
+    });
+    var lands=eligible.filter(function(c){return /Land/i.test(c.type||c.primary_type||'');});
+    var nonlands=eligible.filter(function(c){return !/Land/i.test(c.type||c.primary_type||'');});
+    lands.sort(function(a,b){return score(b,mode)-score(a,mode);});
+    nonlands.sort(function(a,b){return score(b,mode)-score(a,mode);});
+
+    var selLands=lands.slice(0,37);
+    var selNonlands=nonlands.slice(0,62);
+    // Fill missing lands with basics from commander color identity
+    var card=cmdCardsMap[cmdActive]||{};
+    var ci=(card.color_identity||[]);
+    var basicMap={W:'Plains',U:'Island',B:'Swamp',R:'Mountain',G:'Forest'};
+    var basics=ci.length?ci.map(function(c){return basicMap[c];}).filter(Boolean):['Wastes'];
+    while(selLands.length<37){selLands.push({name:basics[selLands.length%basics.length],_basic:true});}
+
+    var lines=['// Commander','1 '+name,''];
+    // Group non-lands by type
+    var groups={};
+    selNonlands.forEach(function(c){
+      var t=(c.type||c.primary_type||'Spell').split(' ')[0];
+      if(!groups[t])groups[t]=[];
+      groups[t].push(c);
+    });
+    Object.keys(groups).sort().forEach(function(t){
+      lines.push('// '+t+'s');
+      groups[t].forEach(function(c){lines.push('1 '+(c.name||c.label));});
+      lines.push('');
+    });
+    lines.push('// Terres');
+    selLands.forEach(function(c){lines.push('1 '+(c.name||c.label));});
+    return lines.join('\n');
+  }
+
+  var labels={syn:'Synergie max',pop:'Popularité',bud:'Budget ('+['$','$$','$$$'][['low','mid','high'].indexOf(cmdDeckBudget)]+')'};
+  cmdDeckList=[
+    {label:name+' — '+labels.syn, text:buildVariant('syn')},
+    {label:name+' — '+labels.pop, text:buildVariant('pop')},
+    {label:name+' — '+labels.bud, text:buildVariant('bud')}
+  ];
+  cmdDeckIdx=0;
+  showCmdDeck(0);
+}
+
+function showCmdDeck(i){
+  if(!cmdDeckList.length)return;
+  cmdDeckIdx=i;
+  var d=cmdDeckList[i];
+  document.getElementById('cmddecknav').style.display='block';
+  document.getElementById('cmddecklabel').textContent=(i+1)+' / '+cmdDeckList.length+' — '+d.label;
+  document.getElementById('cmddecktext').value=d.text;
+}
+function prevCmdDeck(){if(cmdDeckList.length)showCmdDeck((cmdDeckIdx-1+cmdDeckList.length)%cmdDeckList.length);}
+function nextCmdDeck(){if(cmdDeckList.length)showCmdDeck((cmdDeckIdx+1)%cmdDeckList.length);}
+
+function importCmdDeck(){
+  if(!cmdDeckList.length)return;
+  var d=cmdDeckList[cmdDeckIdx];
+  goTab('deck');
+  setTimeout(function(){
+    document.getElementById('dnamein').value=d.label;
+    document.getElementById('ta-name').value=d.text;
+    switchVersion('name');
+    document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
+  },100);
+}
+
 function renderEDHRECDecks(data){
   var decks=[];
   try{
@@ -1523,6 +1661,12 @@ function renderEDHREC(data){
   }catch(e){
     try{cardlist=data.cardlist||[];}catch(e2){}
   }
+  // Store for deck generation
+  cmdEDHCardlist=cardlist;
+  cmdEDHCmdName=document.getElementById('cmdedhrectitle').textContent;
+  cmdDeckList=[];
+  document.getElementById('cmddecknav').style.display='none';
+  document.getElementById('cmddeckgen').style.display=cardlist.length?'block':'none';
 
   var info='';
   if(numDecks)info+='<div class="stat"><div class="sv">'+numDecks.toLocaleString()+'</div><div class="sl">Decks</div></div>';
