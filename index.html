@@ -222,6 +222,14 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .syn-neg{background:rgba(232,108,108,.15);color:var(--rd2);border:.5px solid rgba(232,108,108,.3)}
 .syn-neu{background:rgba(100,100,120,.1);color:var(--tx3);border:.5px solid var(--bd)}
 .edhrec-decks{font-size:.7rem;color:var(--tx3);min-width:60px;text-align:right}
+.edh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:.5rem}
+.edh-card{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.edh-card:hover{border-color:var(--ac);transform:translateY(-1px)}
+.edh-card.edh-sel{opacity:.45;border-color:var(--gr2)!important;transform:none!important}
+.edh-card img{width:100%;display:block}
+.edh-meta{padding:4px 5px 5px;font-size:.62rem;line-height:1.35}
+.edh-meta .edh-nm{font-weight:600;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.edh-meta .edh-tp{color:var(--tx3)}
 .collhdr{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
 .collrow{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:default}
 .collrow:hover{background:var(--s3)}
@@ -388,47 +396,67 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     </div>
 
     <div class="card" id="cmdedrec-data">
-      <div id="cmdedhrec-info" style="margin-bottom:.75rem"></div>
-      <div class="lbl" style="margin-bottom:4px">Cartes recommandées</div>
-      <div id="cmdedhrec-cards" style="margin-bottom:.5rem"></div>
-      <div id="cmddeckslbl" class="lbl" style="margin-bottom:4px;display:none">Decks populaires</div>
-      <div id="cmdedhrec-decks"></div>
+      <div id="cmdedhrec-info" style="margin-bottom:.5rem"></div>
+      <!-- Filtres -->
+      <div id="edh-filters" style="display:none;margin-bottom:.75rem">
+        <input type="text" id="edh-srch" placeholder="Rechercher une carte..." oninput="renderEDHCards()" style="margin-bottom:6px">
+        <div style="margin-bottom:5px">
+          <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:3px">TYPE</div>
+          <div style="display:flex;gap:3px;flex-wrap:wrap">
+            <button class="dm" onclick="toggleEDHFilter('type','Creature',this)">Créature</button>
+            <button class="dm" onclick="toggleEDHFilter('type','Instant',this)">Éphémère</button>
+            <button class="dm" onclick="toggleEDHFilter('type','Sorcery',this)">Rituel</button>
+            <button class="dm" onclick="toggleEDHFilter('type','Enchantment',this)">Enchantement</button>
+            <button class="dm" onclick="toggleEDHFilter('type','Artifact',this)">Artefact</button>
+            <button class="dm" onclick="toggleEDHFilter('type','Land',this)">Terrain</button>
+            <button class="dm" onclick="toggleEDHFilter('type','Planeswalker',this)">Planeswalker</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:3px">RARETÉ</div>
+            <div style="display:flex;gap:3px">
+              <button class="dm" onclick="toggleEDHFilter('rarity','common',this)">C</button>
+              <button class="dm" onclick="toggleEDHFilter('rarity','uncommon',this)">U</button>
+              <button class="dm" onclick="toggleEDHFilter('rarity','rare',this)">R</button>
+              <button class="dm" onclick="toggleEDHFilter('rarity','mythic',this)">M</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:3px">CMC</div>
+            <div style="display:flex;gap:3px">
+              <button class="dm" onclick="toggleEDHFilter('cmc','01',this)">0-1</button>
+              <button class="dm" onclick="toggleEDHFilter('cmc','2',this)">2</button>
+              <button class="dm" onclick="toggleEDHFilter('cmc','3',this)">3</button>
+              <button class="dm" onclick="toggleEDHFilter('cmc','4',this)">4</button>
+              <button class="dm" onclick="toggleEDHFilter('cmc','5',this)">5+</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:3px">COULEUR</div>
+            <div style="display:flex;gap:3px">
+              <button class="dm" onclick="toggleEDHFilter('color','W',this)"><i class="ms ms-w ms-cost" style="font-size:.8rem"></i></button>
+              <button class="dm" onclick="toggleEDHFilter('color','U',this)"><i class="ms ms-u ms-cost" style="font-size:.8rem"></i></button>
+              <button class="dm" onclick="toggleEDHFilter('color','B',this)"><i class="ms ms-b ms-cost" style="font-size:.8rem"></i></button>
+              <button class="dm" onclick="toggleEDHFilter('color','R',this)"><i class="ms ms-r ms-cost" style="font-size:.8rem"></i></button>
+              <button class="dm" onclick="toggleEDHFilter('color','G',this)"><i class="ms ms-g ms-cost" style="font-size:.8rem"></i></button>
+              <button class="dm" onclick="toggleEDHFilter('color','C',this)"><i class="ms ms-c ms-cost" style="font-size:.8rem"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Grille de cartes -->
+      <div id="cmdedhrec-cards"></div>
     </div>
 
-    <!-- Générateur de deck -->
-    <div class="card" id="cmddeckgen" style="display:none">
-      <div class="lbl">Générer un deck suggéré</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-bottom:.75rem">
-        <div>
-          <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:4px">BRACKET</div>
-          <div style="display:flex;gap:4px" id="cmd-brackets">
-            <button class="dm" onclick="setCmdBracket(1,this)">1</button>
-            <button class="dm" onclick="setCmdBracket(2,this)">2</button>
-            <button class="dm active" onclick="setCmdBracket(3,this)">3</button>
-            <button class="dm" onclick="setCmdBracket(4,this)">4</button>
-            <button class="dm" onclick="setCmdBracket(5,this)">5</button>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:4px">BUDGET</div>
-          <div style="display:flex;gap:4px" id="cmd-budgets">
-            <button class="dm active" onclick="setCmdBudget('low',this)">$</button>
-            <button class="dm" onclick="setCmdBudget('mid',this)">$$</button>
-            <button class="dm" onclick="setCmdBudget('high',this)">$$$</button>
-          </div>
-        </div>
-        <button class="btn btnp" style="margin-top:18px" onclick="generateCmdDecks()">Régénérer</button>
+    <!-- Pré-liste -->
+    <div class="card" id="cmdprelist" style="display:none">
+      <div class="row" style="margin-bottom:.5rem">
+        <div class="lbl" style="margin-bottom:0">Pré-liste — <span id="prelist-count">0</span> cartes</div>
+        <button class="btn btnsm btnrd" onclick="clearPrelist()">Vider</button>
+        <button class="btn btnsm btnp" onclick="importPrelist()">📋 Importer dans Deck</button>
       </div>
-      <!-- Navigation deck -->
-      <div id="cmddecknav" style="display:none">
-        <div class="row" style="margin-bottom:8px">
-          <button class="btn btnsm" onclick="prevCmdDeck()">← Précédent</button>
-          <span id="cmddecklabel" style="font-size:.82rem;color:var(--tx2);flex:1;text-align:center"></span>
-          <button class="btn btnsm" onclick="nextCmdDeck()">Suivant →</button>
-        </div>
-        <textarea id="cmddecktext" style="width:100%;min-height:240px;padding:10px 12px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-family:monospace;font-size:.78rem;line-height:1.6;outline:none;resize:vertical" readonly></textarea>
-        <button class="btn btnp" style="margin-top:8px;width:100%" onclick="importCmdDeck()">📋 Importer dans Deck Manager</button>
-      </div>
+      <div id="prelist-items"></div>
     </div>
   </div>
 </div>
@@ -1361,7 +1389,7 @@ function dlTxt(content,filename){
 // ===== COMMANDANTS =====
 var cmdFmt='commander', cmdColors=new Set(), cmdActive=null, cmdRarity='';
 var cmdCardsMap={}, cmdEDHCardlist=[], cmdEDHCmdName='';
-var cmdDeckList=[], cmdDeckIdx=0, cmdDeckBracket=3, cmdDeckBudget='low';
+var cmdPreList=[], edhFilter={type:'',rarity:'',cmc:'',color:''}, cmdScryfallCache={};
 var CMD_FORMATS_WITH_CMDR=['commander','paupercommander','oathbreaker'];
 
 function setCmdFmt(fmt,btn){
@@ -1481,8 +1509,9 @@ function selectCmd(name,slug){
   document.getElementById('cmdedhrec-link').href=edhSite+slug;
   document.getElementById('cmdedhrec-info').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Chargement EDHREC...</div>';
   document.getElementById('cmdedhrec-cards').innerHTML='';
-  var _dd=document.getElementById('cmdedhrec-decks');if(_dd)_dd.innerHTML='';
-  var _dl=document.getElementById('cmddeckslbl');if(_dl)_dl.style.display='none';
+  document.getElementById('edh-filters').style.display='none';
+  document.getElementById('cmdedhrec-cards').innerHTML='';
+  document.getElementById('cmdprelist').style.display='none';
 
   // Afficher la carte Scryfall
   var card=cmdCardsMap[slug];
@@ -1531,134 +1560,130 @@ function selectCmd(name,slug){
     .catch(function(){});
 }
 
-function setCmdBracket(n,btn){
-  cmdDeckBracket=n;
-  document.querySelectorAll('#cmd-brackets .dm').forEach(function(b){b.classList.remove('active');});
-  btn.classList.add('active');
-}
-function setCmdBudget(b,btn){
-  cmdDeckBudget=b;
-  document.querySelectorAll('#cmd-budgets .dm').forEach(function(b2){b2.classList.remove('active');});
-  btn.classList.add('active');
-}
-
-// Bracket price caps ($ per card max)
-var BRACKET_PRICE={1:0.5, 2:1, 3:3, 4:10, 5:999};
-var BUDGET_MULT={low:1, mid:3, high:999};
-
-function generateCmdDecks(){
-  if(!cmdEDHCardlist.length){
-    alert('Sélectionnez d\'abord un commandant pour charger les recommandations EDHREC.');
-    return;
+// ===== EDHREC PRE-LIST =====
+function toggleEDHFilter(field,val,btn){
+  if(edhFilter[field]===val){edhFilter[field]='';btn.classList.remove('active');}
+  else{
+    btn.parentElement.querySelectorAll('.dm').forEach(function(b){b.classList.remove('active');});
+    edhFilter[field]=val;btn.classList.add('active');
   }
-  var maxPrice=BRACKET_PRICE[cmdDeckBracket]*(BUDGET_MULT[cmdDeckBudget]||1);
-  var name=cmdEDHCmdName;
-
-  function score(c,mode){
-    var syn=parseFloat(c.synergy||c.synergy_score)||0;
-    var inc=c.num_decks&&c.potential_decks?(c.num_decks/c.potential_decks):(parseFloat(c.inclusion_rate)||0);
-    var pr=parseFloat(c.price||c.prices&&(c.prices.tcgplayer||c.prices.usd))||0;
-    if(mode==='syn') return syn*2+inc;
-    if(mode==='pop') return inc*2+syn;
-    if(mode==='bud') return (pr<maxPrice?1:0)*(syn+inc);
-    return syn+inc;
-  }
-
-  function buildVariant(mode){
-    var eligible=cmdEDHCardlist.filter(function(c){
-      if(mode==='bud'){var pr=parseFloat(c.price)||0;return pr<=maxPrice||pr===0;}
-      return true;
-    });
-    function ctype(c){return c.type||c.type_line||c.primary_type||c.cardType||'';}
-    function cname(c){return c.name||c.label||c.card_name||'';}
-    var lands=eligible.filter(function(c){return /land/i.test(ctype(c));});
-    var nonlands=eligible.filter(function(c){return !/land/i.test(ctype(c));});
-    lands.sort(function(a,b){return score(b,mode)-score(a,mode);});
-    nonlands.sort(function(a,b){return score(b,mode)-score(a,mode);});
-
-    var selLands=lands.slice(0,37);
-    var selNonlands=nonlands.slice(0,62);
-    // Fill missing lands with basics from commander color identity
-    var card=cmdCardsMap[cmdActive]||{};
-    var ci=(card.color_identity||[]);
-    var basicMap={W:'Plains',U:'Island',B:'Swamp',R:'Mountain',G:'Forest'};
-    var basics=ci.length?ci.map(function(c){return basicMap[c];}).filter(Boolean):['Wastes'];
-    while(selLands.length<37){selLands.push({name:basics[selLands.length%basics.length],_basic:true});}
-
-    var lines=['// Commander','1 '+name,''];
-    // Group non-lands by type
-    var groups={};
-    selNonlands.forEach(function(c){
-      var t=(ctype(c)||'Spell').split(' — ')[0].split(' ').pop()||'Spell';
-      if(!groups[t])groups[t]=[];
-      groups[t].push(c);
-    });
-    Object.keys(groups).sort().forEach(function(t){
-      lines.push('// '+t+'s');
-      groups[t].forEach(function(c){lines.push('1 '+cname(c));});
-      lines.push('');
-    });
-    lines.push('// Terres');
-    selLands.forEach(function(c){lines.push('1 '+cname(c));});
-    return lines.join('\n');
-  }
-
-  var labels={syn:'Synergie max',pop:'Popularité',bud:'Budget ('+['$','$$','$$$'][['low','mid','high'].indexOf(cmdDeckBudget)]+')'};
-  cmdDeckList=[
-    {label:name+' — '+labels.syn, text:buildVariant('syn')},
-    {label:name+' — '+labels.pop, text:buildVariant('pop')},
-    {label:name+' — '+labels.bud, text:buildVariant('bud')}
-  ];
-  cmdDeckIdx=0;
-  showCmdDeck(0);
+  renderEDHCards();
 }
-
-function showCmdDeck(i){
-  if(!cmdDeckList.length)return;
-  cmdDeckIdx=i;
-  var d=cmdDeckList[i];
-  document.getElementById('cmddecknav').style.display='block';
-  document.getElementById('cmddecklabel').textContent=(i+1)+' / '+cmdDeckList.length+' — '+d.label;
-  document.getElementById('cmddecktext').value=d.text;
+function edhCardType(c){return c.type||c.type_line||c.primary_type||'';}
+function edhCardName(c){return c.name||c.label||'';}
+function renderEDHCards(){
+  var srch=(document.getElementById('edh-srch')?document.getElementById('edh-srch').value:'').toLowerCase().trim();
+  var inPre={};cmdPreList.forEach(function(n){inPre[n.toLowerCase()]=true;});
+  var filtered=cmdEDHCardlist.filter(function(c){
+    var nm=edhCardName(c).toLowerCase();
+    if(srch&&nm.indexOf(srch)<0)return false;
+    var type=edhCardType(c);
+    if(edhFilter.type&&type.toLowerCase().indexOf(edhFilter.type.toLowerCase())<0)return false;
+    var sc=cmdScryfallCache[nm];
+    if(edhFilter.rarity&&(!sc||sc.rarity!==edhFilter.rarity))return false;
+    if(edhFilter.color){
+      var colors=(sc&&sc.colors)||c.colors||c.color_identity||[];
+      var hasColor=edhFilter.color==='C'?(colors.length===0):colors.indexOf(edhFilter.color)>=0;
+      if(!hasColor)return false;
+    }
+    if(edhFilter.cmc&&sc){
+      var cmc=sc.cmc||0;
+      if(edhFilter.cmc==='01'&&cmc>1)return false;
+      if(edhFilter.cmc==='2'&&cmc!==2)return false;
+      if(edhFilter.cmc==='3'&&cmc!==3)return false;
+      if(edhFilter.cmc==='4'&&cmc!==4)return false;
+      if(edhFilter.cmc==='5'&&cmc<5)return false;
+    }
+    return true;
+  });
+  var rarColor={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
+  var html='<div class="edh-grid">'+filtered.map(function(c){
+    var nm=edhCardName(c);var nl=nm.toLowerCase();
+    var sc=cmdScryfallCache[nl];
+    var img=sc?(sc.image_uris?sc.image_uris.normal:(sc.card_faces&&sc.card_faces[0]&&sc.card_faces[0].image_uris?sc.card_faces[0].image_uris.normal:null)):null;
+    var syn=parseFloat(c.synergy)||0;
+    var synStr=(syn>0?'+':'')+Math.round(syn*100)+'%';
+    var synCls=syn>0.05?'syn-pos':syn<-0.05?'syn-neg':'syn-neu';
+    var sel=inPre[nl];
+    var type=edhCardType(c).split(' — ')[0];
+    var rar=sc?sc.rarity:'';
+    var cmc=sc?(sc.cmc!=null?sc.cmc:''):'';
+    return '<div class="edh-card'+(sel?' edh-sel':'')+'" onclick="togglePrelist(\''+nm.replace(/'/g,"&#39;")+'\')" title="'+(sel?'Retirer de la pré-liste':'Ajouter à la pré-liste')+'">'
+      +(img?'<img src="'+img+'" alt="'+esc(nm)+'" loading="lazy">'
+           :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(nm)+'</div>')
+      +'<div class="edh-meta">'
+      +'<div class="edh-nm">'+esc(nm)+'</div>'
+      +'<div class="edh-tp">'+esc(type)+(cmc!==''?' · '+cmc:'')+(rar?' · <span style="color:'+rarColor[rar]+'">'+rar.charAt(0).toUpperCase()+'</span>':'')+'</div>'
+      +'<span class="edhrec-syn '+synCls+'">'+synStr+'</span>'
+      +(sel?'<span style="color:var(--gr2);font-size:.65rem;margin-left:4px">✓</span>':'')
+      +'</div>'
+      +'</div>';
+  }).join('')+'</div>';
+  if(!filtered.length)html='<div style="text-align:center;color:var(--tx3);font-style:italic;padding:1rem">Aucune carte</div>';
+  document.getElementById('cmdedhrec-cards').innerHTML=html;
 }
-function prevCmdDeck(){if(cmdDeckList.length)showCmdDeck((cmdDeckIdx-1+cmdDeckList.length)%cmdDeckList.length);}
-function nextCmdDeck(){if(cmdDeckList.length)showCmdDeck((cmdDeckIdx+1)%cmdDeckList.length);}
-
-function importCmdDeck(){
-  if(!cmdDeckList.length)return;
-  var d=cmdDeckList[cmdDeckIdx];
+function togglePrelist(nm){
+  var nl=nm.toLowerCase();
+  var idx=cmdPreList.indexOf(nm);
+  if(idx<0){
+    // Trouver le nom exact dans le cardlist (casse correcte)
+    var found=null;
+    cmdEDHCardlist.forEach(function(c){if(edhCardName(c).toLowerCase()===nl)found=edhCardName(c);});
+    if(found)cmdPreList.push(found);
+  } else {
+    cmdPreList.splice(idx,1);
+  }
+  renderEDHCards();renderPrelist();
+}
+function renderPrelist(){
+  var el=document.getElementById('cmdprelist');if(!el)return;
+  el.style.display=cmdPreList.length?'block':'none';
+  document.getElementById('prelist-count').textContent=cmdPreList.length;
+  document.getElementById('prelist-items').innerHTML=cmdPreList.map(function(nm){
+    return '<div class="edhrec-row"><div class="edhrec-n">'+esc(nm)+'</div>'
+      +'<button onclick="togglePrelist(\''+nm.replace(/'/g,"&#39;")+'\')" style="background:none;border:none;color:var(--rd2);cursor:pointer;font-size:14px;padding:0 4px;line-height:1">✕</button></div>';
+  }).join('');
+}
+function clearPrelist(){cmdPreList=[];renderEDHCards();renderPrelist();}
+function importPrelist(){
+  if(!cmdPreList.length)return;
+  var lines=['// Commander','1 '+cmdEDHCmdName,''];
+  var groups={};
+  cmdPreList.forEach(function(nm){
+    var c=null;cmdEDHCardlist.forEach(function(x){if(edhCardName(x).toLowerCase()===nm.toLowerCase())c=x;});
+    var t=c?edhCardType(c).split(' — ')[0].split(' ').pop()||'Spell':'Spell';
+    if(!groups[t])groups[t]=[];groups[t].push(nm);
+  });
+  Object.keys(groups).sort().forEach(function(t){
+    lines.push('// '+t+'s');
+    groups[t].forEach(function(nm){lines.push('1 '+nm);});
+    lines.push('');
+  });
   goTab('deck');
   setTimeout(function(){
-    document.getElementById('dnamein').value=d.label;
-    document.getElementById('ta-name').value=d.text;
-    switchVersion('name');
+    document.getElementById('dnamein').value=cmdEDHCmdName+' — personnalisé';
+    document.getElementById('ta-name').value=lines.join('\n');
     document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
   },100);
 }
-
-function renderEDHRECDecks(data){
-  var decks=[];
-  try{
-    // Structure possible : {deck_keys:[...], decks:{key:{name,wins,losses,winrate,...}}}
-    var keys=data.deck_keys||Object.keys(data.decks||{});
-    keys.slice(0,10).forEach(function(k){
-      var d=(data.decks||{})[k]||{};
-      if(d.name||d.title)decks.push(d);
-    });
-  }catch(e){}
-  // Autre structure possible : tableau direct
-  if(!decks.length&&Array.isArray(data))decks=data.slice(0,10);
-
-  if(!decks.length)return;
-  document.getElementById('cmddeckslbl').style.display='block';
-  document.getElementById('cmdedhrec-decks').innerHTML=decks.map(function(d){
-    var wr=d.winrate!=null?Math.round(d.winrate*100)+'%':d.wins!=null&&d.losses!=null?Math.round(d.wins/(d.wins+d.losses)*100)+'%':'—';
-    var link=d.url||d.urlhash?('https://www.moxfield.com/decks/'+(d.urlhash||d.url)):'#';
-    return '<div class="edhrec-row">'+
-      '<div class="edhrec-n"><a href="'+link+'" target="_blank" style="color:var(--ac2);text-decoration:none">'+esc(d.name||d.title||'Deck')+'</a></div>'+
-      (wr!=='—'?'<span class="edhrec-syn syn-pos">'+wr+' victoires</span>':'')+
-    '</div>';
-  }).join('');
+function fetchEDHScryfall(){
+  var todo=[];var seen={};
+  cmdEDHCardlist.forEach(function(c){var nm=edhCardName(c);var nl=nm.toLowerCase();if(nm&&!seen[nl]&&!cmdScryfallCache[nl]){seen[nl]=true;todo.push(nm);}});
+  if(!todo.length){renderEDHCards();return;}
+  var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
+  var done=0;
+  batches.forEach(function(batch){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        cmdScryfallCache[card.name.toLowerCase()]=card;
+        cmdScryfallCache[stripDFC(card.name).toLowerCase()]=card;
+      });
+      if(++done===batches.length)renderEDHCards();
+    }).catch(function(){if(++done===batches.length)renderEDHCards();});
+  });
 }
 
 function edhFindCardlist(data){
@@ -1683,38 +1708,27 @@ function edhFindCardlist(data){
 function renderEDHREC(data){
   var cardlist=edhFindCardlist(data);
   var numDecks=0;
-  try{
-    numDecks=(data.container&&data.container.json_dict&&data.container.json_dict.num_decks)||data.num_decks||0;
-  }catch(e){}
-  console.log('EDHREC cardlist length:',cardlist.length, cardlist[0]||'(empty)');
-  // Store for deck generation
+  try{numDecks=(data.container&&data.container.json_dict&&data.container.json_dict.num_decks)||data.num_decks||0;}catch(e){}
+  console.log('EDHREC cardlist:',cardlist.length, cardlist[0]||'(empty)');
   cmdEDHCardlist=cardlist;
   cmdEDHCmdName=document.getElementById('cmdedhrectitle').textContent;
-  cmdDeckList=[];
-  document.getElementById('cmddecknav').style.display='none';
-  document.getElementById('cmddeckgen').style.display=cardlist.length?'block':'none';
+  // Réinitialiser pré-liste et filtres pour ce nouveau commandant
+  cmdPreList=[];edhFilter={type:'',rarity:'',cmc:'',color:''};
+  document.querySelectorAll('#edh-filters .dm').forEach(function(b){b.classList.remove('active');});
+  renderPrelist();
 
   var info='';
-  if(numDecks)info+='<div class="stat"><div class="sv">'+numDecks.toLocaleString()+'</div><div class="sl">Decks</div></div>';
-  document.getElementById('cmdedhrec-info').innerHTML=info?'<div class="g3" style="margin-bottom:.5rem">'+info+'</div>':'';
+  if(numDecks)info='<div class="g3" style="margin-bottom:.5rem"><div class="stat"><div class="sv">'+numDecks.toLocaleString()+'</div><div class="sl">Decks EDHREC</div></div></div>';
+  document.getElementById('cmdedhrec-info').innerHTML=info;
 
   if(!cardlist.length){
-    document.getElementById('cmdedhrec-cards').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Aucune donnée disponible</div>';
+    document.getElementById('edh-filters').style.display='none';
+    document.getElementById('cmdedhrec-cards').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Aucune donnée EDHREC disponible</div>';
     return;
   }
-  document.getElementById('cmdedhrec-cards').innerHTML=cardlist.slice(0,40).map(function(c){
-    var syn=parseFloat(c.synergy)||0;
-    var synStr=(syn>0?'+':'')+Math.round(syn*100)+'%';
-    var synCls=syn>0.05?'syn-pos':syn<-0.05?'syn-neg':'syn-neu';
-    var decks=c.num_decks?c.num_decks.toLocaleString()+' decks':'';
-    return '<div class="edhrec-row">'+
-      '<div class="edhrec-n">'+esc(c.name||c.label||'')+'</div>'+
-      '<span class="edhrec-syn '+synCls+'">'+synStr+'</span>'+
-      '<div class="edhrec-decks">'+decks+'</div>'+
-    '</div>';
-  }).join('');
-  // Auto-generate deck with default settings (bracket 3, budget $)
-  generateCmdDecks();
+  document.getElementById('edh-filters').style.display='block';
+  renderEDHCards();
+  fetchEDHScryfall();
 }
 
 // ===== COLLECTION =====
