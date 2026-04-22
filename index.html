@@ -549,13 +549,26 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     <div class="card">
       <div class="row" style="margin-bottom:.5rem">
         <div class="lbl" style="margin-bottom:0" id="dreslbl">Analyse</div>
-        <button class="btn btnsm btnp" id="btnborrow" onclick="exportBorrow()" style="display:none">🤝 À emprunter</button>
-        <button class="btn btnsm" id="btncmd" onclick="exportCmd()" style="display:none">🛒 À commander</button>
+        <button class="btn btnsm btnp" id="btnachat" onclick="toggleAchatPanel()" style="display:none">🛒 Liste d'achat</button>
       </div>
       <div class="dmode" style="margin-bottom:.75rem">
         <span style="font-size:10px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.05em">Version :</span>
         <button class="dm" id="dmr-name" onclick="switchVersionResult('name')">📋 Par nom</button>
         <button class="dm" id="dmr-full" onclick="switchVersionResult('full')">📋 Par extension</button>
+      </div>
+      <!-- Panneau liste d'achat -->
+      <div id="achat-panel" style="display:none;background:var(--s3);border-radius:8px;padding:10px 14px;margin-bottom:8px;border:.5px solid var(--bd2)">
+        <div style="font-size:.8rem;font-weight:600;margin-bottom:8px;color:var(--tx2)">Options de la liste d'achat</div>
+        <div style="margin-bottom:8px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;margin-bottom:4px">
+            <input type="radio" name="achat-mode" value="borrow" id="achat-borrow" checked onchange="renderAchatOptions()"> Emprunter à des amis pour compléter
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer">
+            <input type="radio" name="achat-mode" value="buy" id="achat-buy" onchange="renderAchatOptions()"> Acheter sans emprunter (même si un ami l'a)
+          </label>
+        </div>
+        <div id="achat-friends" style="margin-bottom:8px;padding-left:12px"></div>
+        <button class="btn btnp btnsm" onclick="generateAchat()">Générer la liste</button>
       </div>
       <div class="smb" id="smb"></div>
       <div class="g4" id="dstats" style="margin-bottom:10px"></div>
@@ -665,7 +678,7 @@ function normalizeRow(r,fmt){
   var finF={A:'finish',B:'Finish',C:'Foil'};
   var prF={A:'price',B:'Price (EUR)',C:'Purchase Price'};
   return {
-    name:r[nF[fmt]]||'',set:r[sF[fmt]]||'',num:r[nrF[fmt]]||'',
+    name:((r[nF[fmt]]||'').split(' // ')[0]).trim(),set:r[sF[fmt]]||'',num:r[nrF[fmt]]||'',
     qty:parseInt(r[qF[fmt]])||1,lang:r[lgF[fmt]]||'',
     cond:r[condF[fmt]]||'',finish:r[finF[fmt]]||'',price:parseFloat(r[prF[fmt]])||0
   };
@@ -1163,7 +1176,7 @@ function parseList(raw){
     line=line.trim();if(!line)return;
     if(line.startsWith('//')||line.startsWith('##')){var s=line.replace(/^\/\/|^##/,'').trim();if(s)sec=s;return;}
     var m=line.match(/^(\d+)[xX]?\s+(.+?)(?:\s+\(([^)]+)\))?(?:\s+#(\S+))?(?:\s+\*[^*]+\*)?$/);
-    if(m){var qty=parseInt(m[1]),name=m[2].trim(),setc=(m[3]||'').toLowerCase().trim(),num=(m[4]||'').trim();
+    if(m){var qty=parseInt(m[1]),name=m[2].split(' // ')[0].trim(),setc=(m[3]||'').toLowerCase().trim(),num=(m[4]||'').trim();
       if(qty>0&&name)cards.push({qty:qty,name:name,nl:name.toLowerCase(),setc:setc,num:num,sec:sec});}
   });return cards;
 }
@@ -1230,8 +1243,9 @@ function analyzeDeck(){
     }).join('');
   }else{ph.style.display='none';}
   var hasMiss=missing.length>0||partial.length>0;
-  document.getElementById('btnborrow').style.display=hasP&&hasMiss?'inline-block':'none';
-  document.getElementById('btncmd').style.display=hasMiss?'inline-block':'none';
+  document.getElementById('btnachat').style.display=hasMiss?'inline-block':'none';
+  document.getElementById('achat-panel').style.display='none';
+  renderAchatOptions();
   dFMode='all';
   document.querySelectorAll('.fc').forEach(function(el){el.classList.remove('active');});
   var first=document.querySelector('.fc');if(first)first.classList.add('active');
@@ -1248,9 +1262,26 @@ function dFlt(f,btn){
   if(btn)btn.classList.add('active');
   renderDeck();
 }
+function getDeckUsage(profIdx){
+  // Retourne Map<key_name, qty> des cartes engagées dans les decks sauvegardés de ce profil (hors deck actif)
+  var usage=new Map();
+  Object.keys(decks).forEach(function(id){
+    if(id===actDeck)return; // exclure le deck en cours d'analyse
+    var dk=decks[id];
+    if(dk.owner!==profIdx)return;
+    var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+    var cards=parseList(raw||'');
+    cards.forEach(function(c){
+      var k=c.nl; // toujours par nom pour l'usage
+      usage.set(k,(usage.get(k)||0)+c.qty);
+    });
+  });
+  return usage;
+}
 function renderDeck(){
   var pms=[0,1,2].map(function(i){return getPMap(i);});
   var srch=(document.getElementById('fsrch')?document.getElementById('fsrch').value:'').toLowerCase();
+  var usages=[0,1,2].map(function(i){return getDeckUsage(i);});
   function mx(c){return Math.max.apply(null,pms.map(function(m){return m.get(getKey(c,dCmpMode))||0;}));}
   var filtered=dCards.filter(function(c){
     if(srch&&c.nl.indexOf(srch)<0)return false;
@@ -1275,9 +1306,14 @@ function renderDeck(){
       var rc='drow'+(x===0?' rno':x<card.qty?' rpa':' rok');
       var pc=qs.map(function(q,i){
         if(pms[i].size===0)return '<div class="pc pem">—</div>';
-        if(q>=card.qty)return '<div class="pc pok">✓ '+q+'</div>';
-        if(q>0)return '<div class="pc ppa">◑ '+q+'</div>';
-        return '<div class="pc pno">✗</div>';
+        var inDeck=usages[i].get(card.nl)||0;
+        var free=Math.max(0,q-inDeck);
+        var tip=inDeck>0?' title="'+inDeck+' dans un autre deck"':'';
+        if(q===0)return '<div class="pc pno">✗</div>';
+        if(free>=card.qty)return '<div class="pc pok"'+tip+'>✓ '+q+'</div>';
+        if(inDeck>0&&free<card.qty)return '<div class="pc" style="color:var(--am)"'+tip+'>⚑ '+q+'</div>';
+        if(q>=card.qty)return '<div class="pc pok"'+tip+'>✓ '+q+'</div>';
+        return '<div class="pc ppa">◑ '+q+'</div>';
       }).join('');
       var tip=' onmouseenter="showTip(\''+card.name.replace(/'/g,"&#39;")+'\',event)" onmouseleave="hideTip()"';
       html+='<div class="'+rc+'"'+tip+'><div class="dq">'+card.qty+'</div><div class="dname" title="'+esc(card.name)+'">'+esc(card.name)+'</div>'+pc+'</div>';
@@ -1286,72 +1322,62 @@ function renderDeck(){
   if(!html)html='<div style="text-align:center;color:var(--tx3);padding:1.5rem;font-style:italic">Aucune carte</div>';
   document.getElementById('dlist').innerHTML=html;
 }
-function exportBorrow(){
+function toggleAchatPanel(){
+  var p=document.getElementById('achat-panel');
+  p.style.display=p.style.display==='none'?'block':'none';
+}
+function renderAchatOptions(){
+  var mode=document.querySelector('input[name="achat-mode"]:checked');
+  var isBorrow=mode&&mode.value==='borrow';
+  var div=document.getElementById('achat-friends');
+  if(!isBorrow){div.innerHTML='';return;}
+  var friends=[];[0,1,2].forEach(function(i){if(i!==dOwner)friends.push(i);});
+  div.innerHTML='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:4px">Emprunter à :</div>'+
+    friends.map(function(i){
+      return '<label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;margin-bottom:2px">'+
+        '<input type="checkbox" class="achat-friend" value="'+i+'" checked> '+PN[i]+'</label>';
+    }).join('');
+}
+function generateAchat(){
   var pms=[0,1,2].map(function(i){return getPMap(i);});
   var dn=document.getElementById('dnamein').value.trim()||'Deck';
-  var owner=dOwner;
-  var ownerPm=pms[owner];
-  // Amis = profils non-propriétaires dans l'ordre
-  var friends=[];[0,1,2].forEach(function(i){if(i!==owner)friends.push(i);});
-  var lines=['Liste à emprunter — '+dn,'Générée le '+new Date().toLocaleDateString('fr-FR'),
-    'Propriétaire du deck : '+PN[owner],''];
-  var hasAny=false;
+  var mode=document.querySelector('input[name="achat-mode"]:checked');
+  var isBorrow=mode&&mode.value==='borrow';
+  var ownerPm=pms[dOwner];
+  var lines=['Liste d\'achat — '+dn,'Générée le '+new Date().toLocaleDateString('fr-FR'),'Propriétaire : '+PN[dOwner],''];
+
   // Calculer ce qui manque au propriétaire
-  var remaining={}; // nom => quantité encore manquante
+  var remaining={};
   dCards.forEach(function(c){
     var k=getKey(c,dCmpMode);
     var ownerHas=ownerPm.get(k)||0;
     var need=Math.max(0,c.qty-ownerHas);
     if(need>0)remaining[k]={name:c.name,need:need};
   });
-  if(Object.keys(remaining).length===0){
-    alert(PN[owner]+' possède déjà toutes les cartes du deck !');return;
-  }
-  // Pour chaque ami dans l'ordre : lui emprunter ce qu'il peut fournir
-  friends.forEach(function(fi){
-    var pm=pms[fi];
-    if(pm.size===0)return;
-    var help=[];
-    Object.keys(remaining).forEach(function(k){
-      var r=remaining[k];
-      var friendHas=pm.get(k)||0;
-      var give=Math.min(friendHas,r.need);
-      if(give>0){
-        help.push(give+'x '+r.name);
-        r.need-=give;
-        if(r.need<=0)delete remaining[k];
-      }
+  if(Object.keys(remaining).length===0){alert(PN[dOwner]+' possède déjà toutes les cartes !');return;}
+
+  if(isBorrow){
+    // Récupérer les amis cochés
+    var checked=Array.from(document.querySelectorAll('.achat-friend:checked')).map(function(el){return parseInt(el.value);});
+    checked.forEach(function(fi){
+      var pm=pms[fi];if(pm.size===0)return;
+      var help=[];
+      Object.keys(remaining).forEach(function(k){
+        var r=remaining[k];
+        var give=Math.min(pm.get(k)||0,r.need);
+        if(give>0){help.push('  '+give+'x '+r.name);r.need-=give;if(r.need<=0)delete remaining[k];}
+      });
+      if(help.length){lines.push('=== Emprunter à '+PN[fi]+' ===');lines=lines.concat(help);lines.push('');}
     });
-    if(help.length){
-      hasAny=true;
-      lines.push('=== Emprunter à '+PN[fi]+' ('+help.length+' cartes) ===');
-      help.forEach(function(h){lines.push('  '+h);});
-      lines.push('');
-    }
-  });
-  // Ce qui reste = à commander
+  }
+
   var toCmd=Object.values(remaining);
   if(toCmd.length){
-    lines.push('=== À commander ('+toCmd.length+' cartes introuvables) ===');
+    lines.push('=== À acheter ('+toCmd.length+' cartes) ===');
     toCmd.forEach(function(r){lines.push('  '+r.need+'x '+r.name);});
     lines.push('');
   }
-  if(!hasAny&&!toCmd.length){alert('Tous les amis ont collection vide.');return;}
-  dlTxt(lines.join('\n'),'emprunter_'+dn.replace(/\s+/g,'_')+'.txt');
-}
-function exportCmd(){
-  var pms=[0,1,2].map(function(i){return getPMap(i);});
-  var dn=document.getElementById('dnamein').value.trim()||'Deck';
-  var toCmd=[];
-  dCards.forEach(function(c){
-    var k=getKey(c,dCmpMode);
-    var owned=Math.max.apply(null,pms.map(function(m){return m.get(k)||0;}));
-    var need=c.qty-owned;
-    if(need>0)toCmd.push(need+'x '+c.name+(owned>0?' ('+owned+' déjà possédée'+(owned>1?'s':'')+')'  :''));
-  });
-  if(!toCmd.length){alert('Toutes les cartes sont disponibles !');return;}
-  var lines=['Liste à commander — '+dn,'Générée le '+new Date().toLocaleDateString('fr-FR'),toCmd.length+' cartes — '+toCmd.length+' entrées',''].concat(toCmd);
-  dlTxt(lines.join('\n'),'commander_'+dn.replace(/\s+/g,'_')+'.txt');
+  dlTxt(lines.join('\n'),'achat_'+dn.replace(/\s+/g,'_')+'.txt');
 }
 function dlTxt(content,filename){
   var blob=new Blob([content],{type:'text/plain;charset=utf-8'});
