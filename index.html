@@ -1511,10 +1511,17 @@ function selectCmd(name,slug){
 
   // Données EDHREC (cartes recommandées)
   fetch('/api/edhrec?path='+encodeURIComponent(edhPath+slug+'.json'))
-    .then(function(r){return r.json();})
-    .then(function(d){renderEDHREC(d);})
-    .catch(function(){
-      document.getElementById('cmdedhrec-info').innerHTML='<div style="color:var(--rd2);font-size:.85rem">⚠ Données EDHREC indisponibles</div>';
+    .then(function(r){
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return r.json();
+    })
+    .then(function(d){
+      console.log('EDHREC raw keys:',Object.keys(d||{}));
+      renderEDHREC(d);
+    })
+    .catch(function(e){
+      console.error('EDHREC fetch error:',e);
+      document.getElementById('cmdedhrec-info').innerHTML='<div style="color:var(--rd2);font-size:.85rem">⚠ EDHREC indisponible ('+esc(String(e.message||e))+')</div>';
     });
 
   // Decks populaires
@@ -1548,9 +1555,9 @@ function generateCmdDecks(){
   var name=cmdEDHCmdName;
 
   function score(c,mode){
-    var syn=parseFloat(c.synergy)||0;
-    var inc=c.num_decks&&c.potential_decks?(c.num_decks/c.potential_decks):0;
-    var pr=parseFloat(c.price)||0;
+    var syn=parseFloat(c.synergy||c.synergy_score)||0;
+    var inc=c.num_decks&&c.potential_decks?(c.num_decks/c.potential_decks):(parseFloat(c.inclusion_rate)||0);
+    var pr=parseFloat(c.price||c.prices&&(c.prices.tcgplayer||c.prices.usd))||0;
     if(mode==='syn') return syn*2+inc;
     if(mode==='pop') return inc*2+syn;
     if(mode==='bud') return (pr<maxPrice?1:0)*(syn+inc);
@@ -1562,8 +1569,10 @@ function generateCmdDecks(){
       if(mode==='bud'){var pr=parseFloat(c.price)||0;return pr<=maxPrice||pr===0;}
       return true;
     });
-    var lands=eligible.filter(function(c){return /Land/i.test(c.type||c.primary_type||'');});
-    var nonlands=eligible.filter(function(c){return !/Land/i.test(c.type||c.primary_type||'');});
+    function ctype(c){return c.type||c.type_line||c.primary_type||c.cardType||'';}
+    function cname(c){return c.name||c.label||c.card_name||'';}
+    var lands=eligible.filter(function(c){return /land/i.test(ctype(c));});
+    var nonlands=eligible.filter(function(c){return !/land/i.test(ctype(c));});
     lands.sort(function(a,b){return score(b,mode)-score(a,mode);});
     nonlands.sort(function(a,b){return score(b,mode)-score(a,mode);});
 
@@ -1580,17 +1589,17 @@ function generateCmdDecks(){
     // Group non-lands by type
     var groups={};
     selNonlands.forEach(function(c){
-      var t=(c.type||c.primary_type||'Spell').split(' ')[0];
+      var t=(ctype(c)||'Spell').split(' — ')[0].split(' ').pop()||'Spell';
       if(!groups[t])groups[t]=[];
       groups[t].push(c);
     });
     Object.keys(groups).sort().forEach(function(t){
       lines.push('// '+t+'s');
-      groups[t].forEach(function(c){lines.push('1 '+(c.name||c.label));});
+      groups[t].forEach(function(c){lines.push('1 '+cname(c));});
       lines.push('');
     });
     lines.push('// Terres');
-    selLands.forEach(function(c){lines.push('1 '+(c.name||c.label));});
+    selLands.forEach(function(c){lines.push('1 '+cname(c));});
     return lines.join('\n');
   }
 
@@ -1652,16 +1661,32 @@ function renderEDHRECDecks(data){
   }).join('');
 }
 
+function edhFindCardlist(data){
+  if(!data)return [];
+  // Chemin standard
+  if(data.container&&data.container.json_dict){
+    var jd=data.container.json_dict;
+    var cl=jd.cardlist||jd.cards||jd.card_list||[];
+    if(cl.length)return cl;
+  }
+  // Racine directe
+  if(Array.isArray(data.cardlist)&&data.cardlist.length)return data.cardlist;
+  if(Array.isArray(data.cards)&&data.cards.length)return data.cards;
+  if(Array.isArray(data))return data;
+  // Chercher n'importe quel tableau d'objets avec un champ name
+  var found=[];
+  Object.keys(data).forEach(function(k){
+    if(!found.length&&Array.isArray(data[k])&&data[k].length&&data[k][0]&&(data[k][0].name||data[k][0].label))found=data[k];
+  });
+  return found;
+}
 function renderEDHREC(data){
-  var cardlist=[];
+  var cardlist=edhFindCardlist(data);
   var numDecks=0;
   try{
-    var jd=data.container.json_dict;
-    cardlist=jd.cardlist||[];
-    numDecks=jd.num_decks||0;
-  }catch(e){
-    try{cardlist=data.cardlist||[];}catch(e2){}
-  }
+    numDecks=(data.container&&data.container.json_dict&&data.container.json_dict.num_decks)||data.num_decks||0;
+  }catch(e){}
+  console.log('EDHREC cardlist length:',cardlist.length, cardlist[0]||'(empty)');
   // Store for deck generation
   cmdEDHCardlist=cardlist;
   cmdEDHCmdName=document.getElementById('cmdedhrectitle').textContent;
