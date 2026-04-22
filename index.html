@@ -224,8 +224,10 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .edhrec-decks{font-size:.7rem;color:var(--tx3);min-width:60px;text-align:right}
 .edh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:.5rem}
 .edh-card{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent}
-.edh-card:hover{border-color:var(--ac);transform:translateY(-1px)}
+.edh-card:hover{border-color:var(--ac);transform:translateY(-2px)}
 .edh-card.edh-sel{opacity:.45;border-color:var(--gr2)!important;transform:none!important}
+#edh-zoom{position:fixed;z-index:9999;pointer-events:none;display:none;width:260px;border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.8);transition:opacity .1s}
+#edh-zoom img{width:100%;border-radius:14px;display:block}
 .edh-card img{width:100%;display:block}
 .edh-meta{padding:4px 5px 5px;font-size:.62rem;line-height:1.35}
 .edh-meta .edh-nm{font-weight:600;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2201,7 +2203,8 @@ function renderEDHCards(){
     var type=edhCardType(c).split(' — ')[0];
     var rar=sc?sc.rarity:'';
     var cmc=sc?(sc.cmc!=null?sc.cmc:''):'';
-    return '<div class="edh-card'+(sel?' edh-sel':'')+'" onclick="togglePrelist(\''+nm.replace(/'/g,"&#39;")+'\')" title="'+(sel?'Retirer de la pré-liste':'Ajouter à la pré-liste')+'">'
+    var zAttr=img?' data-zoom="'+img.replace(/"/g,'&quot;')+'" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()"':'';
+    return '<div class="edh-card'+(sel?' edh-sel':'')+'"'+zAttr+' onclick="togglePrelist(\''+nm.replace(/'/g,"&#39;")+'\')" title="'+(sel?'Retirer de la pré-liste':'Ajouter à la pré-liste')+'">'
       +(img?'<img src="'+img+'" alt="'+esc(nm)+'" loading="lazy">'
            :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(nm)+'</div>')
       +'<div class="edh-meta">'
@@ -2279,6 +2282,22 @@ function fetchEDHScryfall(){
   });
 }
 
+function edhZoomIn(el,evt){
+  var src=el.getAttribute('data-zoom');if(!src)return;
+  var z=document.getElementById('edh-zoom');if(!z)return;
+  z.querySelector('img').src=src;
+  z.style.display='block';
+  edhZoomPos(evt);
+}
+function edhZoomOut(){var z=document.getElementById('edh-zoom');if(z)z.style.display='none';}
+function edhZoomPos(evt){
+  var z=document.getElementById('edh-zoom');if(!z||z.style.display==='none')return;
+  var x=evt.clientX+20,y=evt.clientY-130;
+  if(x+264>window.innerWidth-8)x=evt.clientX-280;
+  if(y<8)y=8;
+  if(y+380>window.innerHeight-8)y=window.innerHeight-388;
+  z.style.left=x+'px';z.style.top=y+'px';
+}
 function edhFindCardlist(data){
   if(!data)return [];
   if(data._merged)return data._merged;
@@ -2439,5 +2458,6 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 </script>
+<div id="edh-zoom"><img src="" alt=""></div>
 </body>
 </html>
