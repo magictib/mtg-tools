@@ -535,6 +535,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div class="row" style="margin-bottom:.5rem">
         <div class="lbl" style="margin-bottom:0" id="dreslbl">Analyse</div>
         <button class="btn btnsm btnp" id="btnachat" onclick="toggleAchatPanel()" style="display:none">🛒 Liste d'achat</button>
+        <button class="btn btnsm" id="dbtn-view" onclick="toggleDView()">🖼 Images</button>
       </div>
       <!-- Panneau liste d'achat -->
       <div id="achat-panel" style="display:none;background:var(--s3);border-radius:8px;padding:10px 14px;margin-bottom:8px;border:.5px solid var(--bd2)">
@@ -562,7 +563,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
         <button class="fc" onclick="dFlt('cmd',this)">🛒 Commander</button>
         <input class="fsrch" id="fsrch" type="text" placeholder="Rechercher..." oninput="renderDeck()">
       </div>
-      <div class="dhdr"><div>Qté</div><div>Carte</div><div style="text-align:center">Thibaud</div><div style="text-align:center">Gérémy</div><div style="text-align:center">Antoine</div></div>
+      <div class="dhdr" id="dlisthdr"><div>Qté</div><div>Carte</div><div style="text-align:center">Thibaud</div><div style="text-align:center">Gérémy</div><div style="text-align:center">Antoine</div></div>
       <div id="dlist"></div>
     </div>
   </div>
@@ -639,6 +640,7 @@ var FC={A:'sA',B:'sB',C:'sC'};
 var FB={A:'ba',B:'bb',C:'bc'};
 var PN=['Thibaud','Gérémy','Antoine'];
 
+function stripDFC(name){return (name||'').replace(/\s*\/{1,2}\s*.+$/,'').trim();}
 // ===== STATE =====
 var srcF='A', dstF='C';
 var csvRows=[], outRows=[], prevSnap=new Map();
@@ -658,7 +660,7 @@ function normalizeRow(r,fmt){
   var finF={A:'finish',B:'Finish',C:'Foil'};
   var prF={A:'price',B:'Price (EUR)',C:'Purchase Price'};
   return {
-    name:((r[nF[fmt]]||'').split(' // ')[0]).trim(),set:r[sF[fmt]]||'',num:r[nrF[fmt]]||'',
+    name:stripDFC(r[nF[fmt]]||''),set:r[sF[fmt]]||'',num:r[nrF[fmt]]||'',
     qty:parseInt(r[qF[fmt]])||1,lang:r[lgF[fmt]]||'',
     cond:r[condF[fmt]]||'',finish:r[finF[fmt]]||'',price:parseFloat(r[prF[fmt]])||0
   };
@@ -1041,7 +1043,8 @@ function setOwner(i){
   });
 }
 function newDeck(){
-  actDeck=null;dCards=[];
+  actDeck=null;dCards=[];dImgCache={};dViewMode='list';
+  var btn=document.getElementById('dbtn-view');if(btn)btn.textContent='🖼 Images';
   document.getElementById('dnamein').value='';
   document.getElementById('ta-name').value='';
   document.getElementById('dcnt').textContent='';
@@ -1104,7 +1107,7 @@ function parseList(raw){
     line=line.trim();if(!line)return;
     if(line.startsWith('//')||line.startsWith('##')){var s=line.replace(/^\/\/|^##/,'').trim();if(s)sec=s;return;}
     var m=line.match(/^(\d+)[xX]?\s+(.+?)(?:\s+\(([^)]+)\))?(?:\s+#(\S+)|\s+(\d+))?(?:\s+\*[^*]+\*)?$/);
-    if(m){var qty=parseInt(m[1]),name=m[2].split(' // ')[0].trim(),setc=(m[3]||'').toLowerCase().trim(),num=(m[4]||m[5]||'').trim();
+    if(m){var qty=parseInt(m[1]),name=stripDFC(m[2]),setc=(m[3]||'').toLowerCase().trim(),num=(m[4]||m[5]||'').trim();
       if(qty>0&&name)cards.push({qty:qty,name:name,nl:name.toLowerCase(),setc:setc,num:num,sec:sec});}
   });return cards;
 }
@@ -1115,11 +1118,11 @@ function getPMap(i){
   var m=new Map();
   if(typeof p[0]==='string'){
     // Ancien format : tableau de clés
-    p.forEach(function(k){var key=getProfKey(k).split(' // ')[0].trim();m.set(key,(m.get(key)||0)+1);});
+    p.forEach(function(k){var key=stripDFC(getProfKey(k));m.set(key.toLowerCase(),(m.get(key.toLowerCase())||0)+1);});
   }else{
     // Nouveau format : objets normalisés
     p.forEach(function(c){
-      var n=c.name.split(' // ')[0].trim().toLowerCase();
+      var n=stripDFC(c.name).toLowerCase();
       var rawKey=n+'||'+c.set.toLowerCase().trim()+'||'+c.num.toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
       var key=getProfKey(rawKey);
       m.set(key,(m.get(key)||0)+(c.qty||1));
@@ -1180,6 +1183,35 @@ function dFlt(f,btn){
   if(btn)btn.classList.add('active');
   renderDeck();
 }
+var dViewMode='list', dImgCache={};
+function toggleDView(){
+  dViewMode=dViewMode==='list'?'image':'list';
+  document.getElementById('dbtn-view').textContent=dViewMode==='list'?'🖼 Images':'≡ Liste';
+  document.getElementById('dlisthdr').style.display=dViewMode==='list'?'':'none';
+  if(dViewMode==='image')fetchDeckImages();
+  else renderDeck();
+}
+function fetchDeckImages(){
+  var names=[];
+  dCards.forEach(function(c){if(!dImgCache[c.nl])names.push({nl:c.nl,name:c.name});});
+  var unique={};names.forEach(function(x){unique[x.nl]=x.name;});
+  var todo=Object.keys(unique).map(function(k){return {nl:k,name:unique[k]};});
+  if(!todo.length){renderDeck();return;}
+  var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
+  var done=0;
+  batches.forEach(function(batch){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        var img=card.image_uris?card.image_uris.normal:(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris?card.card_faces[0].image_uris.normal:null);
+        if(img)dImgCache[stripDFC(card.name).toLowerCase()]=img;
+      });
+      if(++done===batches.length)renderDeck();
+    }).catch(function(){if(++done===batches.length)renderDeck();});
+  });
+}
 function getDeckUsage(profIdx){
   // Retourne Map<key_name, qty> des cartes engagées dans les decks sauvegardés de ce profil (hors deck actif)
   var usage=new Map();
@@ -1214,30 +1246,52 @@ function renderDeck(){
   var secs=[];
   filtered.forEach(function(c){if(secs.indexOf(c.sec)<0)secs.push(c.sec);});
   var html='';
-  secs.forEach(function(sec){
-    var sc=filtered.filter(function(c){return c.sec===sec;});if(!sc.length)return;
-    html+='<div class="dsec">'+esc(sec)+' <span style="color:var(--tx3);font-size:9px">('+sc.length+')</span></div>';
-    sc.forEach(function(card){
-      var k=getKey(card);
-      var qs=pms.map(function(m){return m.get(k)||0;});
-      var x=Math.max.apply(null,qs);
-      var rc='drow'+(x===0?' rno':x<card.qty?' rpa':' rok');
-      var pc=qs.map(function(q,i){
-        if(pms[i].size===0)return '<div class="pc pem">—</div>';
-        var inDeck=usages[i].get(card.nl)||0;
-        var free=Math.max(0,q-inDeck);
-        var flag=inDeck>0?' <span style="color:var(--am)" title="'+inDeck+' dans un autre deck">('+inDeck+' ⚑)</span>':'';
-        if(q===0)return '<div class="pc pno">✗</div>';
-        if(free>=card.qty)return '<div class="pc pok">✓ '+q+flag+'</div>';
-        if(free>0)return '<div class="pc ppa">◑ '+q+flag+'</div>';
-        if(inDeck>0)return '<div class="pc pno">✗ '+q+flag+'</div>';
-        return '<div class="pc ppa">◑ '+q+'</div>';
-      }).join('');
-      var tip=' onmouseenter="showTip(\''+card.name.replace(/'/g,"&#39;")+'\',event)" onmouseleave="hideTip()"';
-      html+='<div class="'+rc+'"'+tip+'><div class="dq">'+card.qty+'</div><div class="dname" title="'+esc(card.name)+'">'+esc(card.name)+'</div>'+pc+'</div>';
+  if(dViewMode==='image'){
+    // Mode grille d'images
+    secs.forEach(function(sec){
+      var sc=filtered.filter(function(c){return c.sec===sec;});if(!sc.length)return;
+      html+='<div class="dsec">'+esc(sec)+' <span style="color:var(--tx3);font-size:9px">('+sc.length+')</span></div>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+      sc.forEach(function(card){
+        var k=getKey(card);
+        var x=Math.max.apply(null,pms.map(function(m){return m.get(k)||0;}));
+        var bc=x===0?'var(--rd2)':x<card.qty?'var(--am)':'var(--gr2)';
+        var img=dImgCache[card.nl];
+        html+='<div style="width:80px;text-align:center">'
+          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" style="width:80px;border-radius:5px;border:2px solid '+bc+';display:block">'
+               :'<div style="width:80px;height:112px;background:var(--s3);border-radius:5px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.6rem;color:var(--tx3);padding:2px;text-align:center">'+esc(card.name)+'</div>')
+          +'<div style="font-size:.62rem;color:var(--tx2);margin-top:2px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
+          +'</div>';
+      });
+      html+='</div>';
     });
-  });
+  } else {
+    // Mode liste
+    secs.forEach(function(sec){
+      var sc=filtered.filter(function(c){return c.sec===sec;});if(!sc.length)return;
+      html+='<div class="dsec">'+esc(sec)+' <span style="color:var(--tx3);font-size:9px">('+sc.length+')</span></div>';
+      sc.forEach(function(card){
+        var k=getKey(card);
+        var qs=pms.map(function(m){return m.get(k)||0;});
+        var x=Math.max.apply(null,qs);
+        var rc='drow'+(x===0?' rno':x<card.qty?' rpa':' rok');
+        var pc=qs.map(function(q,i){
+          if(pms[i].size===0)return '<div class="pc pem">—</div>';
+          var inDeck=usages[i].get(card.nl)||0;
+          var free=Math.max(0,q-inDeck);
+          var flag=inDeck>0?' <span style="color:var(--am)" title="'+inDeck+' dans un autre deck">('+inDeck+' ⚑)</span>':'';
+          if(q===0)return '<div class="pc pno">✗</div>';
+          if(free>=card.qty)return '<div class="pc pok">✓ '+q+flag+'</div>';
+          if(free>0)return '<div class="pc ppa">◑ '+q+flag+'</div>';
+          if(inDeck>0)return '<div class="pc pno">✗ '+q+flag+'</div>';
+          return '<div class="pc ppa">◑ '+q+'</div>';
+        }).join('');
+        html+='<div class="'+rc+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+'</div>'+pc+'</div>';
+      });
+    });
+  }
   if(!html)html='<div style="text-align:center;color:var(--tx3);padding:1.5rem;font-style:italic">Aucune carte</div>';
+  document.getElementById('dlisthdr').style.display=dViewMode==='list'?'':'none';
   document.getElementById('dlist').innerHTML=html;
 }
 function toggleAchatPanel(){
