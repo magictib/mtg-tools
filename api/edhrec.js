@@ -13,11 +13,7 @@ module.exports = async function handler(req, res) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://edhrec.com/',
-        'Origin': 'https://edhrec.com',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-site'
+        'Referer': 'https://edhrec.com/'
       }
     });
     if (!r.ok) return res.status(r.status).json({ error: 'EDHREC ' + r.status });

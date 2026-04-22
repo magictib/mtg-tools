@@ -2110,27 +2110,47 @@ function selectCmd(name,slug){
 
   panel.scrollIntoView({behavior:'smooth'});
 
-  // Un seul fetch : la page principale contient toutes les catégories dans cardlists[]
+  // Fetch EDHREC page principale, fallback Scryfall si 0 cartes
   fetch('/api/edhrec?path='+encodeURIComponent(edhPath+slug+'.json'))
     .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
     .then(function(d){
       var jd=d.container&&d.container.json_dict||{};
       var numDecks=jd.num_decks||d.num_decks||0;
+      // Debug structure
       console.log('EDHREC jd keys:',Object.keys(jd).join(', '));
       Object.keys(jd).forEach(function(k){
         var v=jd[k];
-        if(Array.isArray(v))console.log('  [array] '+k+' length='+v.length+(v[0]?(' first keys: '+Object.keys(v[0]).join(',')):''));
-        else if(v&&typeof v==='object')console.log('  [obj]   '+k+' keys: '+Object.keys(v).join(','));
-        else console.log('  [val]   '+k+'='+v);
+        if(Array.isArray(v))console.log('  [array]',k,'len='+v.length,(v[0]&&typeof v[0]==='object'?'firstKeys:'+Object.keys(v[0]).join(','):''));
+        else if(v&&typeof v==='object')console.log('  [obj]  ',k,'keys:'+Object.keys(v).join(','));
+        else console.log('  [val]  ',k+'='+v);
       });
       var cards=edhFindCardlist(d);
-      console.log('EDHREC total cards found:',cards.length);
-      renderEDHREC({_merged:cards,_numDecks:numDecks});
+      console.log('EDHREC cards found:',cards.length);
+      if(cards.length>=5){
+        renderEDHREC({_merged:cards,_numDecks:numDecks});
+      } else {
+        edhFallbackScryfall(slug,numDecks);
+      }
     })
     .catch(function(e){
-      console.warn('EDHREC main page:',e);
-      renderEDHREC({_merged:[],_numDecks:0});
+      console.warn('EDHREC failed:',e,'; fallback Scryfall');
+      edhFallbackScryfall(slug,0);
     });
+}
+
+function edhFallbackScryfall(slug,numDecks){
+  var card=cmdCardsMap[slug];
+  var ci=card&&card.color_identity&&card.color_identity.length?card.color_identity.join('').toLowerCase():'c';
+  var q='legal:commander ci<='+ci+' -type:basic';
+  document.getElementById('cmdedhrec-info').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem">EDHREC indisponible — cartes populaires (Scryfall)</div>';
+  fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&order=edhrec&unique=cards&page=1')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var raw=d.data||[];
+      var cards=raw.map(function(c){return {name:c.name,type:c.type_line||'',cmc:c.cmc,colors:c.colors||[],rarity:c.rarity,num_decks:c.edhrec_rank||0,synergy:0};});
+      renderEDHREC({_merged:cards,_numDecks:numDecks});
+    })
+    .catch(function(){renderEDHREC({_merged:[],_numDecks:numDecks});});
 }
 
 // ===== EDHREC PRE-LIST =====
