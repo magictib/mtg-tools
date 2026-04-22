@@ -1326,17 +1326,21 @@ function fetchDeckImages(){
   });
 }
 function getDeckUsage(profIdx){
-  // Retourne Map<key_name, qty> des cartes engagées dans les decks sauvegardés de ce profil (hors deck actif)
+  // Retourne Map<key_name, {qty, decks:[deckName]}> des cartes dans d'autres decks du profil
   var usage=new Map();
   Object.keys(decks).forEach(function(id){
-    if(id===actDeck)return; // exclure le deck en cours d'analyse
+    if(id===actDeck)return;
     var dk=decks[id];
     if(dk.owner!==profIdx)return;
     var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
     var cards=parseList(raw||'');
+    var dname=dk.name||'Deck sans nom';
     cards.forEach(function(c){
-      var k=c.nl; // toujours par nom pour l'usage
-      usage.set(k,(usage.get(k)||0)+c.qty);
+      var k=c.nl;
+      var prev=usage.get(k)||{qty:0,decks:[]};
+      prev.qty+=c.qty;
+      if(prev.decks.indexOf(dname)<0)prev.decks.push(dname);
+      usage.set(k,prev);
     });
   });
   return usage;
@@ -1390,9 +1394,11 @@ function renderDeck(){
         var rc='drow'+(x===0?' rno':x<card.qty?' rpa':' rok');
         var pc=qs.map(function(q,i){
           if(pms[i].size===0)return '<div class="pc pem">—</div>';
-          var inDeck=usages[i].get(card.nl)||0;
+          var uentry=usages[i].get(card.nl)||{qty:0,decks:[]};
+          var inDeck=uentry.qty;
           var free=Math.max(0,q-inDeck);
-          var flag=inDeck>0?' <span style="color:var(--am)" title="'+inDeck+' dans un autre deck">('+inDeck+' ⚑)</span>':'';
+          var tip=inDeck>0?'Dans : '+uentry.decks.join(', '):'';
+          var flag=inDeck>0?' <span style="color:var(--am);cursor:help" title="'+esc(tip)+'">('+inDeck+' ⚑)</span>':'';
           if(q===0)return '<div class="pc pno">✗</div>';
           if(free>=card.qty)return '<div class="pc pok">✓ '+q+flag+'</div>';
           if(free>0)return '<div class="pc ppa">◑ '+q+flag+'</div>';
