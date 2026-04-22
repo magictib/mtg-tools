@@ -2080,10 +2080,7 @@ function selectCmd(name,slug){
   panel.style.display='block';
   document.getElementById('cmdedhrectitle').textContent=name;
   document.getElementById('cmdedhrec-link').href=edhSite+slug;
-  // Fetch EDHREC categories (déclaré ici pour éviter le hoisting bug)
-  var categories=['creatures','instants','sorceries','enchantments','artifacts','lands','planeswalkers','manaartifacts','tokens','utility-lands'];
-
-  document.getElementById('cmdedhrec-info').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Chargement EDHREC (0 / '+(1+categories.length)+')...</div>';
+  document.getElementById('cmdedhrec-info').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Chargement EDHREC...</div>';
   document.getElementById('edh-filters').style.display='none';
   document.getElementById('cmdedhrec-cards').innerHTML='';
   document.getElementById('cmdprelist').style.display='none';
@@ -2113,48 +2110,25 @@ function selectCmd(name,slug){
 
   panel.scrollIntoView({behavior:'smooth'});
 
-  // Fetch EDHREC : page principale + toutes les sous-catégories en parallèle
-  var allCards={};   // name.lower -> card object (dédoublonnage)
-  var mainNumDecks=0;
-  var total=1+categories.length, done=0;
-
-  function onAllDone(){
-    ++done;
-    var infoEl=document.getElementById('cmdedhrec-info');
-    if(done<total){
-      if(infoEl)infoEl.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Chargement EDHREC ('+done+' / '+total+')...</div>';
-      return;
-    }
-    var merged=Object.values(allCards);
-    renderEDHREC({_merged:merged,_numDecks:mainNumDecks});
-  }
-
-  // Page principale (pour num_decks et éventuel cardlist)
+  // Un seul fetch : la page principale contient toutes les catégories dans cardlists[]
   fetch('/api/edhrec?path='+encodeURIComponent(edhPath+slug+'.json'))
     .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
     .then(function(d){
-      mainNumDecks=(d.container&&d.container.json_dict&&d.container.json_dict.num_decks)||d.num_decks||0;
-      edhFindCardlist(d).forEach(function(c){var n=(c.name||c.label||'').toLowerCase();if(n)allCards[n]=c;});
-      onAllDone();
+      var jd=d.container&&d.container.json_dict||{};
+      var numDecks=jd.num_decks||d.num_decks||0;
+      if(Array.isArray(jd.cardlists)){
+        console.log('EDHREC cardlists:',jd.cardlists.map(function(s){return (s.tag||s.header||'?')+'('+(s.cardlist?s.cardlist.length:0)+')';}).join(', '));
+      } else {
+        console.log('EDHREC main keys:',Object.keys(jd).join(','));
+      }
+      var cards=edhFindCardlist(d);
+      console.log('EDHREC total cards:',cards.length);
+      renderEDHREC({_merged:cards,_numDecks:numDecks});
     })
     .catch(function(e){
       console.warn('EDHREC main page:',e);
-      onAllDone();
+      renderEDHREC({_merged:[],_numDecks:0});
     });
-
-  // Sous-pages par catégorie
-  categories.forEach(function(cat){
-    fetch('/api/edhrec?path='+encodeURIComponent(edhPath+slug+'/'+cat+'.json'))
-      .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
-      .then(function(d){
-        var cards=edhFindCardlist(d);
-        console.log('EDHREC cat',cat,': found',cards.length,'cards. Keys top:',Object.keys(d).join(','));
-        if(d.container&&d.container.json_dict)console.log('  jd keys:',Object.keys(d.container.json_dict).join(','));
-        cards.forEach(function(c){var n=(c.name||c.label||'').toLowerCase();if(n)allCards[n]=c;});
-        onAllDone();
-      })
-      .catch(function(e){console.warn('EDHREC cat',cat,e);onAllDone();});
-  });
 }
 
 // ===== EDHREC PRE-LIST =====
@@ -2287,36 +2261,35 @@ function edhFindCardlist(data){
   if(!data)return [];
   if(data._merged)return data._merged;
   function isCards(a){return Array.isArray(a)&&a.length>0&&a[0]&&(a[0].name||a[0].label||a[0].sanitized);}
+  var seen={};
+  function dedup(arr){
+    var out=[];
+    arr.forEach(function(c){var n=(c.name||c.label||'').toLowerCase();if(n&&!seen[n]){seen[n]=true;out.push(c);}});
+    return out;
+  }
   if(data.container&&data.container.json_dict){
     var jd=data.container.json_dict;
+    // Page principale EDHREC : cardlists = tableau de sections [{tag, cardlist:[...]}, ...]
+    if(Array.isArray(jd.cardlists)&&jd.cardlists.length){
+      var all=[];
+      jd.cardlists.forEach(function(sec){
+        if(isCards(sec.cardlist))all=all.concat(sec.cardlist);
+        else if(isCards(sec.cards))all=all.concat(sec.cards);
+      });
+      if(all.length)return dedup(all);
+    }
     // Sous-pages EDHREC : cardview.cardlist
     if(jd.cardview&&isCards(jd.cardview.cardlist))return jd.cardview.cardlist;
     if(jd.cardview&&isCards(jd.cardview.cards))return jd.cardview.cards;
-    // Page principale : cardlist direct
+    // Fallback : cardlist direct (top picks)
     if(isCards(jd.cardlist))return jd.cardlist;
     if(isCards(jd.cards))return jd.cards;
     if(isCards(jd.card_list))return jd.card_list;
-    // Recherche dans tous les objets imbriqués (1 niveau)
-    var found=[];
-    Object.keys(jd).forEach(function(k){
-      if(found.length)return;
-      if(isCards(jd[k])){found=jd[k];return;}
-      if(jd[k]&&typeof jd[k]==='object'&&!Array.isArray(jd[k])){
-        Object.keys(jd[k]).forEach(function(k2){
-          if(!found.length&&isCards(jd[k][k2]))found=jd[k][k2];
-        });
-      }
-    });
-    if(found.length)return found;
   }
   if(isCards(data.cardlist))return data.cardlist;
   if(isCards(data.cards))return data.cards;
   if(Array.isArray(data)&&data.length&&(data[0].name||data[0].label))return data;
-  var found2=[];
-  Object.keys(data).forEach(function(k){
-    if(!found2.length&&isCards(data[k]))found2=data[k];
-  });
-  return found2;
+  return [];
 }
 function renderEDHREC(data){
   var cardlist=edhFindCardlist(data);
