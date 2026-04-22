@@ -234,6 +234,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .gplayers.p2{grid-template-columns:1fr 1fr}
 .gplayers.p3{grid-template-columns:1fr 1fr 1fr}
 .gplayers.p4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.gplayers.pcol{grid-template-columns:1fr;max-width:400px;margin:0 auto}
+.gplayers.pcol .gplife{font-size:4rem}
+.gplayers.pcol .gpbtn button{width:52px;height:52px;font-size:1.6rem}
 .gpc{position:relative;border-radius:14px;border:4px solid var(--bd);background:var(--s2);overflow:hidden;transition:opacity .2s}
 .gpc-bg{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.2;pointer-events:none}
 .gpc-inner{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 10px 10px;width:100%;box-sizing:border-box}
@@ -724,13 +727,15 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 
   <!-- Compteur de vie actif -->
   <div id="game-active" style="display:none">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+      <button class="btn btnsm" onclick="toggleCmdDmg()">⚔ Cdr dmg</button>
+      <button class="btn btnsm" id="layout-btn" onclick="toggleGameLayout()">☰ Colonne</button>
+      <button class="btn btnsm btnrd" onclick="endGame(null)" style="margin-left:auto">🏁 Fin</button>
+      <button class="btn btnsm" onclick="cancelGame()" style="border-color:var(--tx3);color:var(--tx3)">✕ Annuler</button>
+    </div>
     <div id="game-players-grid"></div>
-    <div class="card" style="margin-top:8px">
-      <div class="row">
-        <button class="btn btnsm" onclick="toggleCmdDmg()">⚔ Dégâts commandant</button>
-        <button class="btn btnsm btnrd" onclick="endGame(null)">Abandon / Fin</button>
-      </div>
-      <div id="cmd-dmg-section" style="display:none;margin-top:10px"></div>
+    <div class="card" style="margin-top:8px;display:none" id="cmd-dmg-card">
+      <div id="cmd-dmg-section"></div>
     </div>
   </div>
 
@@ -1549,6 +1554,7 @@ function dlTxt(content,filename){
 var games=[], activeGame=null, gameFmt='commander', gameStartLife=40;
 var playerBgImages={};
 var setupColors=[[],[],[],[]];
+var gameLayout='grid';
 
 var GCTR_PRESETS=[
   {id:'energy',icon:'⚡',label:'Énergie'},
@@ -1575,6 +1581,26 @@ function loadGames(){
 }
 function saveGames(){try{localStorage.setItem('mtg_games',JSON.stringify(games));}catch(e){}}
 function savePlayerBgs(){try{localStorage.setItem('mtg_player_bgs',JSON.stringify(playerBgImages));}catch(e){}}
+
+function resetSetupColors(){
+  setupColors=[[],[],[],[]];
+  document.querySelectorAll('.gcolor-btn').forEach(function(b){b.classList.remove('on');});
+}
+function cancelGame(){
+  if(!confirm('Annuler la partie ? Aucun résultat ne sera enregistré.'))return;
+  activeGame=null;gameLayout='grid';
+  document.getElementById('game-active').style.display='none';
+  document.getElementById('game-setup').style.display='block';
+  var cdcard=document.getElementById('cmd-dmg-card');
+  if(cdcard)cdcard.style.display='none';
+  resetSetupColors();
+}
+function toggleGameLayout(){
+  gameLayout=gameLayout==='grid'?'col':'grid';
+  var btn=document.getElementById('layout-btn');
+  if(btn)btn.textContent=gameLayout==='col'?'▦ Grille':'☰ Colonne';
+  renderGameCounters();
+}
 
 function setGameFmt(fmt,life,btn){
   gameFmt=fmt;gameStartLife=life;
@@ -1664,7 +1690,7 @@ function startGame(){
 function renderGameCounters(){
   if(!activeGame)return;
   var ps=activeGame.players;
-  var gridCls=['','p2','p3','p4'][Math.min(ps.length,4)]||'p4';
+  var gridCls=gameLayout==='col'?'pcol':(['','p2','p3','p4'][Math.min(ps.length,4)]||'p4');
   var aliveCount=ps.filter(function(p){return!p.dead;}).length;
   var html=ps.map(function(p,i){
     var cs=getColorStyle(p.colors);
@@ -1778,7 +1804,8 @@ function killPlayer(idx){
 function toggleCmdDmg(){
   if(!activeGame)return;
   activeGame.cmdDmgVisible=!activeGame.cmdDmgVisible;
-  document.getElementById('cmd-dmg-section').style.display=activeGame.cmdDmgVisible?'block':'none';
+  var card=document.getElementById('cmd-dmg-card');
+  if(card)card.style.display=activeGame.cmdDmgVisible?'block':'none';
   renderCmdDmg();
 }
 function renderCmdDmg(){
@@ -1824,9 +1851,12 @@ function endGame(winnerIdx){
     duration:Math.round((Date.now()-activeGame.startedAt)/60000)
   };
   games.unshift(record);saveGames();
-  activeGame=null;
+  activeGame=null;gameLayout='grid';
   document.getElementById('game-active').style.display='none';
   document.getElementById('game-setup').style.display='block';
+  var cdcard=document.getElementById('cmd-dmg-card');
+  if(cdcard)cdcard.style.display='none';
+  resetSetupColors();
   renderGameStats();renderGameHistory();
 }
 
