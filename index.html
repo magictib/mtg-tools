@@ -2147,10 +2147,13 @@ function selectCmd(name,slug){
     fetch('/api/edhrec?path='+encodeURIComponent(edhPath+slug+'/'+cat+'.json'))
       .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
       .then(function(d){
-        edhFindCardlist(d).forEach(function(c){var n=(c.name||c.label||'').toLowerCase();if(n)allCards[n]=c;});
+        var cards=edhFindCardlist(d);
+        console.log('EDHREC cat',cat,': found',cards.length,'cards. Keys top:',Object.keys(d).join(','));
+        if(d.container&&d.container.json_dict)console.log('  jd keys:',Object.keys(d.container.json_dict).join(','));
+        cards.forEach(function(c){var n=(c.name||c.label||'').toLowerCase();if(n)allCards[n]=c;});
         onAllDone();
       })
-      .catch(function(){onAllDone();});
+      .catch(function(e){console.warn('EDHREC cat',cat,e);onAllDone();});
   });
 }
 
@@ -2282,20 +2285,38 @@ function fetchEDHScryfall(){
 
 function edhFindCardlist(data){
   if(!data)return [];
-  if(data._merged)return data._merged; // format fusionné interne
+  if(data._merged)return data._merged;
+  function isCards(a){return Array.isArray(a)&&a.length>0&&a[0]&&(a[0].name||a[0].label||a[0].sanitized);}
   if(data.container&&data.container.json_dict){
     var jd=data.container.json_dict;
-    var cl=jd.cardlist||jd.cards||jd.card_list||[];
-    if(cl.length)return cl;
+    // Sous-pages EDHREC : cardview.cardlist
+    if(jd.cardview&&isCards(jd.cardview.cardlist))return jd.cardview.cardlist;
+    if(jd.cardview&&isCards(jd.cardview.cards))return jd.cardview.cards;
+    // Page principale : cardlist direct
+    if(isCards(jd.cardlist))return jd.cardlist;
+    if(isCards(jd.cards))return jd.cards;
+    if(isCards(jd.card_list))return jd.card_list;
+    // Recherche dans tous les objets imbriqués (1 niveau)
+    var found=[];
+    Object.keys(jd).forEach(function(k){
+      if(found.length)return;
+      if(isCards(jd[k])){found=jd[k];return;}
+      if(jd[k]&&typeof jd[k]==='object'&&!Array.isArray(jd[k])){
+        Object.keys(jd[k]).forEach(function(k2){
+          if(!found.length&&isCards(jd[k][k2]))found=jd[k][k2];
+        });
+      }
+    });
+    if(found.length)return found;
   }
-  if(Array.isArray(data.cardlist)&&data.cardlist.length)return data.cardlist;
-  if(Array.isArray(data.cards)&&data.cards.length)return data.cards;
-  if(Array.isArray(data))return data;
-  var found=[];
+  if(isCards(data.cardlist))return data.cardlist;
+  if(isCards(data.cards))return data.cards;
+  if(Array.isArray(data)&&data.length&&(data[0].name||data[0].label))return data;
+  var found2=[];
   Object.keys(data).forEach(function(k){
-    if(!found.length&&Array.isArray(data[k])&&data[k].length&&data[k][0]&&(data[k][0].name||data[k][0].label))found=data[k];
+    if(!found2.length&&isCards(data[k]))found2=data[k];
   });
-  return found;
+  return found2;
 }
 function renderEDHREC(data){
   var cardlist=edhFindCardlist(data);
