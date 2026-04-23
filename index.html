@@ -2419,7 +2419,7 @@ function renderColl(){
   var filtered=cards.filter(function(c){
     if(srch&&c.name.toLowerCase().indexOf(srch)<0)return false;
     if(collFiltSet&&c.set!==collFiltSet)return false;
-    var cached=collCache[c.name];
+    var cached=collCache[c.name.toLowerCase()];
     if(collFiltRar&&cached&&cached.rarity!==collFiltRar)return false;
     if(collFiltColors.size>0){
       if(!cached)return true;
@@ -2467,7 +2467,7 @@ function toggleCollColor(c,btn){
 }
 function enrichCollCache(){
   var cards=getProfCards(collP);
-  var unique=[...new Set(cards.map(function(c){return c.name;}).filter(function(n){return n&&!collCache[n];}))];
+  var unique=[...new Set(cards.map(function(c){return c.name;}).filter(function(n){return n&&!collCache[n.toLowerCase()];}))];
   if(!unique.length)return;
   for(var i=0;i<unique.length;i+=75){
     (function(batch){
@@ -2475,7 +2475,7 @@ function enrichCollCache(){
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
       }).then(function(r){return r.json();}).then(function(data){
-        (data.data||[]).forEach(function(c){collCache[c.name]={colors:c.colors||[],rarity:c.rarity||''};});
+        (data.data||[]).forEach(function(c){var dat={colors:c.colors||[],rarity:c.rarity||''};collCache[c.name.toLowerCase()]=dat;collCache[stripDFC(c.name).toLowerCase()]=dat;});
         renderColl();
       }).catch(function(){});
     })(unique.slice(i,i+75));
