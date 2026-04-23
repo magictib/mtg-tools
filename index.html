@@ -511,6 +511,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       </div>
       <!-- Grille de cartes -->
       <div id="cmdedhrec-cards"></div>
+      <button id="edh-morebtn" class="btn btnsm" style="width:100%;margin-top:8px;display:none" onclick="edhLoadMore()">Charger plus</button>
     </div>
 
     <!-- Pré-liste -->
@@ -709,6 +710,25 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <button class="dm" onclick="bldSetRarity('uncommon',this)">Peu commune</button>
       <button class="dm" onclick="bldSetRarity('rare',this)">Rare</button>
       <button class="dm" onclick="bldSetRarity('mythic',this)">Mythique</button>
+    </div>
+    <div style="margin-top:5px">
+      <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:3px">MOTS-CLÉS</div>
+      <div style="display:flex;gap:3px;flex-wrap:wrap" id="bld-kw-btns">
+        <button class="dm" onclick="bldToggleKeyword('flying',this)">Vol</button>
+        <button class="dm" onclick="bldToggleKeyword('lifelink',this)">Lien de vie</button>
+        <button class="dm" onclick="bldToggleKeyword('trample',this)">Piétinement</button>
+        <button class="dm" onclick="bldToggleKeyword('vigilance',this)">Vigilance</button>
+        <button class="dm" onclick="bldToggleKeyword('haste',this)">Célérité</button>
+        <button class="dm" onclick="bldToggleKeyword('double strike',this)">Double frappe</button>
+        <button class="dm" onclick="bldToggleKeyword('deathtouch',this)">Contact mortel</button>
+        <button class="dm" onclick="bldToggleKeyword('indestructible',this)">Indestructible</button>
+        <button class="dm" onclick="bldToggleKeyword('menace',this)">Menace</button>
+        <button class="dm" onclick="bldToggleKeyword('reach',this)">Atteinte</button>
+        <button class="dm" onclick="bldToggleKeyword('hexproof',this)">Hexaproofé</button>
+        <button class="dm" onclick="bldToggleKeyword('flash',this)">Éclaire</button>
+        <button class="dm" onclick="bldToggleKeyword('first strike',this)">Initiative</button>
+        <button class="dm" onclick="bldToggleKeyword('ward',this)">Garde</button>
+      </div>
     </div>
   </div>
   <div class="card" id="bld-rescard" style="display:none">
@@ -2058,6 +2078,7 @@ function clearGames(){
 var cmdFmt='commander', cmdColors=new Set(), cmdActive=null, cmdRarity='';
 var cmdCardsMap={}, cmdEDHCardlist=[], cmdEDHCmdName='';
 var cmdPreList=[], edhFilter={type:'',rarity:'',cmc:'',color:''}, cmdScryfallCache={};
+var edhNextPage=null;
 var CMD_FORMATS_WITH_CMDR=['commander','paupercommander','oathbreaker'];
 
 function setCmdFmt(fmt,btn){
@@ -2179,6 +2200,8 @@ function selectCmd(name,slug){
   document.getElementById('edh-filters').style.display='none';
   document.getElementById('cmdedhrec-cards').innerHTML='';
   document.getElementById('cmdprelist').style.display='none';
+  edhNextPage=null;
+  var mb=document.getElementById('edh-morebtn');if(mb)mb.style.display='none';
 
   // Afficher la carte Scryfall
   var card=cmdCardsMap[slug];
@@ -2241,6 +2264,7 @@ function edhFallbackScryfall(slug,numDecks){
   fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&order=edhrec&unique=cards&page=1')
     .then(function(r){return r.json();})
     .then(function(d){
+      edhNextPage=d.has_more?d.next_page:null;
       var raw=d.data||[];
       var cards=raw.map(function(c){return {name:c.name,type:c.type_line||'',cmc:c.cmc,colors:c.colors||[],rarity:c.rarity,num_decks:c.edhrec_rank||0,synergy:0};});
       renderEDHREC({_merged:cards,_numDecks:numDecks});
@@ -2310,6 +2334,23 @@ function renderEDHCards(){
   }).join('')+'</div>';
   if(!filtered.length)html='<div style="text-align:center;color:var(--tx3);font-style:italic;padding:1rem">Aucune carte</div>';
   document.getElementById('cmdedhrec-cards').innerHTML=html;
+  var mb=document.getElementById('edh-morebtn');if(mb)mb.style.display=edhNextPage?'block':'none';
+}
+function edhLoadMore(){
+  if(!edhNextPage)return;
+  var url=edhNextPage;edhNextPage=null;
+  var mb=document.getElementById('edh-morebtn');if(mb)mb.style.display='none';
+  fetch(url)
+    .then(function(r){return r.json();})
+    .then(function(d){
+      edhNextPage=d.has_more?d.next_page:null;
+      var raw=d.data||[];
+      var newCards=raw.map(function(c){return {name:c.name,type:c.type_line||'',cmc:c.cmc,colors:c.colors||[],rarity:c.rarity,num_decks:c.edhrec_rank||0,synergy:0};});
+      cmdEDHCardlist=cmdEDHCardlist.concat(newCards);
+      fetchEDHScryfall();
+      renderEDHCards();
+    })
+    .catch(function(){});
 }
 function togglePrelist(nm){
   var nl=nm.toLowerCase();
@@ -2498,7 +2539,7 @@ function renderColl(){
     if(srch&&c.name.toLowerCase().indexOf(srch)<0)return false;
     if(collFiltSet&&c.set!==collFiltSet)return false;
     var cached=collCache[c.name.toLowerCase()];
-    if(collFiltRar&&(!cached||cached.rarity!==collFiltRar))return false;
+    if(collFiltRar&&cached&&cached.rarity!==collFiltRar)return false;
     if(collFiltColors.size>0){
       if(!cached)return true;
       var cols=cached.colors;
@@ -2552,11 +2593,13 @@ function setCollRarity(r,btn){
   collFiltRar=r;
   document.querySelectorAll('#coll-rar-btns .dm').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
+  enrichCollCache();
   renderColl();
 }
 function toggleCollColor(c,btn){
   if(collFiltColors.has(c))collFiltColors.delete(c);else collFiltColors.add(c);
   btn.classList.toggle('active');
+  enrichCollCache();
   renderColl();
 }
 function enrichCollCache(){
@@ -2624,10 +2667,14 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 // ===== BUILDER =====
-var bldMain=[],bldSide=[],bldSrchColors=new Set(),bldSrchRarity='',bldNextPage=null,bldData={};
+var bldMain=[],bldSide=[],bldSrchColors=new Set(),bldSrchRarity='',bldSrchKeywords=new Set(),bldNextPage=null,bldData={};
 
 function bldToggleColor(c,btn){
   if(bldSrchColors.has(c))bldSrchColors.delete(c);else bldSrchColors.add(c);
+  btn.classList.toggle('active');
+}
+function bldToggleKeyword(k,btn){
+  if(bldSrchKeywords.has(k))bldSrchKeywords.delete(k);else bldSrchKeywords.add(k);
   btn.classList.toggle('active');
 }
 function bldSetRarity(r,btn){
@@ -2641,6 +2688,7 @@ function bldBuildQ(){
   if(s)parts.push(s);
   bldSrchColors.forEach(function(c){parts.push(c==='C'?'c=C':'c:'+c);});
   if(bldSrchRarity)parts.push('r:'+bldSrchRarity);
+  bldSrchKeywords.forEach(function(k){parts.push('keyword:"'+k+'"');});
   var cmc=(document.getElementById('bld-cmc')||{value:''}).value.trim();
   if(cmc!=='')parts.push('cmc='+cmc);
   return parts.join(' ');
