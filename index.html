@@ -296,6 +296,23 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .collrow{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:pointer}
 .colldetail{padding:10px 12px;background:var(--s1);border-radius:8px;margin:-1px 0 5px;border:.5px solid var(--bd2);border-top:none}
 .collrow:hover{background:var(--s3)}
+/* Badges prêts/commandes */
+.badge-loan{display:inline-block;background:var(--am);color:#1a1400;font-size:.62rem;font-weight:700;border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle;cursor:default}
+.badge-pend{display:inline-block;background:var(--ac);color:#fff;font-size:.62rem;font-weight:700;border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle;cursor:default}
+.cname-loan{color:var(--am) !important}.cname-recv{color:var(--gr2) !important}
+/* Deck — cartes commandées */
+.rpend .dname{color:var(--am);font-style:italic}.rpend .dq{color:var(--am)}
+/* Onglet Échanges */
+.trade-row{background:var(--s2);border:.5px solid var(--bd);border-radius:7px;padding:10px 12px;margin-bottom:8px}
+.trade-pnd{border-left:3px solid var(--am)}.trade-ok{border-left:3px solid var(--gr)}.trade-no{border-left:3px solid var(--rd)}
+.trade-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.tc-tag{background:var(--s3);border:.5px solid var(--bd2);border-radius:4px;padding:1px 6px;font-size:.72rem;display:inline-flex;align-items:center;gap:3px}
+.prof-sel{padding:3px 9px;border-radius:4px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);font-size:.78rem;cursor:pointer;transition:.1s}
+.prof-sel.active{background:var(--ac);border-color:var(--ac);color:#fff}
+.det-action{border-top:.5px solid var(--bd2);margin-top:8px;padding-top:8px}
+.det-action-row{display:flex;gap:5px;align-items:center;margin-bottom:5px;flex-wrap:wrap}
+.det-action-row input{width:42px;font-size:.72rem;padding:2px 4px;background:var(--s3);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)}
+.det-action-row select{font-size:.72rem;padding:2px 4px;background:var(--s3);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)}
 .cname{color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cset{color:var(--tx2);font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cqty{font-family:'Cinzel',serif;font-size:11px;font-weight:600;color:var(--gold2);text-align:center}
@@ -332,6 +349,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   <button class="tab-btn" id="tb-deck" onclick="goTab('deck')">♥ Deck</button>
   <button class="tab-btn" id="tb-build" onclick="goTab('build')">🃏 Créer</button>
   <button class="tab-btn" id="tb-game" onclick="goTab('game');initSetupDecks()">🎲 Parties</button>
+  <button class="tab-btn" id="tb-trade" onclick="goTab('trade');renderTradePage()">⇋ Échanges</button>
 </div>
 
 <!-- CONVERTISSEUR -->
@@ -877,6 +895,77 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   </div>
 
 </div>
+
+<!-- ÉCHANGES / PRÊTS / COMMANDES -->
+<div class="page" id="pg-trade">
+  <div class="card" id="pend-sect" style="display:none">
+    <div class="lbl">⏳ Commandes en attente</div>
+    <div id="pend-list"></div>
+  </div>
+  <div class="card" id="loan-sect" style="display:none">
+    <div class="lbl">🔄 Prêts actifs</div>
+    <div id="loan-list"></div>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:.8rem">
+      <div class="lbl" style="margin-bottom:0">⇋ Propositions</div>
+      <button class="btn btnsm" onclick="toggleNewTrade()">+ Nouveau</button>
+    </div>
+    <div id="new-trade-form" style="display:none;background:var(--s1);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="margin-bottom:8px">
+        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:4px">De</div>
+        <div style="display:flex;gap:5px" id="ntf-from-btns">
+          <button class="prof-sel active" onclick="ntfSetFrom(0,this)">Thibaud</button>
+          <button class="prof-sel" onclick="ntfSetFrom(1,this)">Gérémy</button>
+          <button class="prof-sel" onclick="ntfSetFrom(2,this)">Antoine</button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:4px">À</div>
+        <div style="display:flex;gap:5px" id="ntf-to-btns">
+          <button class="prof-sel" onclick="ntfSetTo(0,this)">Thibaud</button>
+          <button class="prof-sel active" onclick="ntfSetTo(1,this)">Gérémy</button>
+          <button class="prof-sel" onclick="ntfSetTo(2,this)">Antoine</button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:4px">Type</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap" id="ntf-type-btns">
+          <button class="prof-sel active" onclick="ntfSetType('exchange',this)">⇋ Échange</button>
+          <button class="prof-sel" onclick="ntfSetType('loan',this)">🔄 Prêt</button>
+          <button class="prof-sel" onclick="ntfSetType('gift',this)">🎁 Don</button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Cartes proposées par <span id="ntf-from-lbl">Thibaud</span></div>
+        <div style="display:flex;gap:4px;margin-bottom:4px">
+          <input type="text" id="ntf-oin" placeholder="Nom carte..." style="flex:1">
+          <input type="number" id="ntf-oqty" value="1" min="1" style="width:48px">
+          <button class="btn btnsm" onclick="ntfAdd('o')">+</button>
+        </div>
+        <div id="ntf-olist" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+      </div>
+      <div id="ntf-rsect" style="margin-bottom:8px">
+        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Cartes demandées à <span id="ntf-to-lbl">Gérémy</span></div>
+        <div style="display:flex;gap:4px;margin-bottom:4px">
+          <input type="text" id="ntf-rin" placeholder="Nom carte..." style="flex:1">
+          <input type="number" id="ntf-rqty" value="1" min="1" style="width:48px">
+          <button class="btn btnsm" onclick="ntfAdd('r')">+</button>
+        </div>
+        <div id="ntf-rlist" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+      </div>
+      <div style="margin-bottom:8px">
+        <input type="text" id="ntf-note" placeholder="Note (optionnel)" style="width:100%;font-size:.82rem">
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn" onclick="ntfSubmit()">Proposer</button>
+        <button class="btn btnsm btnrd" onclick="toggleNewTrade()">Annuler</button>
+      </div>
+    </div>
+    <div id="trades-list"></div>
+  </div>
+</div>
+
 <div id="ctip"><img id="ctipimg" src="" alt=""></div>
 
 <script>
@@ -960,6 +1049,9 @@ var collP=0;
 var collFiltSet='', collFiltRar='', collFiltColors=new Set();
 var collCache={};
 var collSort={field:'name',dir:1};
+var pending=[], loans=[], trades=[];
+var ntfFrom=0, ntfTo=1, ntfType='exchange', ntfOffered=[], ntfRequested=[];
+var currentDetailName='';
 
 function normalizeRow(r,fmt){
   var nF={A:'name',B:'Card Name',C:'Name'};
@@ -1323,6 +1415,27 @@ function saveDecks(){
   Object.keys(decks).forEach(function(id){batch.set(ref.doc(id),decks[id]);});
   batch.commit().catch(function(e){console.warn('Firestore saveDecks',e);});
 }
+// ===== PENDING / LOANS / TRADES — PERSISTANCE =====
+function loadPending(){try{var s=localStorage.getItem('mtg_pending');if(s)pending=JSON.parse(s);}catch(e){pending=[];}}
+function savePending(){try{localStorage.setItem('mtg_pending',JSON.stringify(pending));}catch(e){}}
+function loadLoans(){try{var s=localStorage.getItem('mtg_loans');if(s)loans=JSON.parse(s);}catch(e){loans=[];}}
+function saveLoans(){try{localStorage.setItem('mtg_loans',JSON.stringify(loans));}catch(e){}}
+function loadTrades(){try{var s=localStorage.getItem('mtg_trades');if(s)trades=JSON.parse(s);}catch(e){trades=[];}}
+function saveTrades(){try{localStorage.setItem('mtg_trades',JSON.stringify(trades));}catch(e){}}
+function addCardToProf(pi,card){
+  var cards=Array.isArray(profs[pi])?profs[pi]:[];
+  var ex=cards.find(function(c){return c.name.toLowerCase()===card.name.toLowerCase();});
+  if(ex){ex.qty+=card.qty;}else{cards.push(card);}
+  profs[pi]=cards;
+}
+function removeCardFromProf(pi,name,qty){
+  var cards=Array.isArray(profs[pi])?profs[pi]:[];
+  var i=cards.findIndex(function(c){return c.name.toLowerCase()===name.toLowerCase();});
+  if(i<0)return;
+  cards[i].qty-=qty;
+  if(cards[i].qty<=0)cards.splice(i,1);
+  profs[pi]=cards;
+}
 function renderDBar(){
   var bar=document.getElementById('dprofs');
   var ids=Object.keys(decks);
@@ -1607,7 +1720,10 @@ function renderDeck(){
           if(inDeck>0)return '<div class="pc pno">✗ '+q+flag+'</div>';
           return '<div class="pc ppa">◑ '+q+'</div>';
         }).join('');
-        html+='<div class="'+rc+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+'</div>'+pc+'</div>';
+        var pendQD=pending.filter(function(p){return p.name.toLowerCase()===card.nl;}).reduce(function(s,p){return s+p.qty;},0);
+        var loanQD=loans.filter(function(l){return l.name.toLowerCase()===card.nl;}).reduce(function(s,l){return s+l.qty;},0);
+        var dkBdg=(pendQD?'<span class="badge-pend" title="'+pendQD+'× commandée(s), non reçue(s)">⏳'+pendQD+'</span>':'')+(loanQD?'<span class="badge-loan" title="'+loanQD+'× en prêt actif">🔄'+loanQD+'</span>':'');
+        html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+dkBdg+'</div>'+pc+'</div>';
       });
     });
   }
@@ -2579,9 +2695,13 @@ function renderColl(){
   document.getElementById('colllist').innerHTML=filtered.map(function(c){
     var foilStr=fNF(c.finish)==='foil'?'✦':'';
     var priceStr=c.price>0?c.price.toFixed(2)+'€':'—';
-    var nm=c.name.replace(/'/g,"&#39;");
-    return '<div class="collrow" onclick="toggleCollDetail(this,\''+nm+'\')" onmouseenter="showTip(\''+nm+'\',event)" onmouseleave="hideTip()">'+
-      '<div class="cname" title="'+esc(c.name)+'">'+esc(c.name)+'</div>'+
+    var nm=esc(c.name);
+    var lOut=loans.filter(function(l){return l.from===collP&&l.name.toLowerCase()===c.name.toLowerCase();}).reduce(function(s,l){return s+l.qty;},0);
+    var pQty=pending.filter(function(p){return p.prof===collP&&p.name.toLowerCase()===c.name.toLowerCase();}).reduce(function(s,p){return s+p.qty;},0);
+    var rowBdg=(lOut?'<span class="badge-loan" title="'+lOut+'× prêtée(s)">⟳'+lOut+'</span>':'')+(pQty?'<span class="badge-pend" title="'+pQty+'× commandée(s)">⏳'+pQty+'</span>':'');
+    var nClass='cname'+(lOut?' cname-loan':'');
+    return '<div class="collrow" data-nm="'+nm+'" onclick="toggleCollDetail(this,this.dataset.nm)" onmouseenter="showTip(this.dataset.nm,event)" onmouseleave="hideTip()">'+
+      '<div class="'+nClass+'" title="'+esc(c.name)+'">'+esc(c.name)+rowBdg+'</div>'+
       '<div class="cset">'+esc(c.set)+'</div>'+
       '<div class="cqty">'+c.qty+'</div>'+
       '<div class="ccond">'+esc(c.cond)+'</div>'+
@@ -2589,6 +2709,18 @@ function renderColl(){
       '<div class="cprice">'+priceStr+'</div>'+
     '</div>';
   }).join('');
+  // Section cartes empruntées (prêts reçus)
+  var borrowed=loans.filter(function(l){return l.to===collP;});
+  if(borrowed.length){
+    var bh='<div style="margin-top:8px;padding-top:8px;border-top:.5px solid var(--bd)"><div style="font-size:.72rem;color:var(--gr2);margin-bottom:5px">🔄 Cartes empruntées</div>';
+    borrowed.forEach(function(l){
+      bh+='<div class="collrow" style="background:rgba(76,175,128,.06);cursor:default" title="Emprunté à '+esc(PN[l.from])+'">'+
+        '<div class="cname cname-recv">'+esc(l.name)+' <span class="badge-loan" style="background:var(--gr2);color:#0a1a10">prêt de '+esc(PN[l.from])+'</span></div>'+
+        '<div class="cset">—</div><div class="cqty">'+l.qty+'</div><div class="ccond">—</div><div class="cfoil"></div><div class="cprice">—</div></div>';
+    });
+    bh+='</div>';
+    document.getElementById('colllist').innerHTML+=bh;
+  }
 }
 
 function setCollRarity(r,btn){
@@ -2624,6 +2756,7 @@ function enrichCollCache(){
 // ===== COLLECTION DETAIL =====
 function toggleCollDetail(el,name){
   hideTip();
+  currentDetailName=name;
   var existing=document.getElementById('colldetail');
   if(existing){var wasName=existing.getAttribute('data-name');existing.remove();if(wasName===name)return;}
   var det=document.createElement('div');
@@ -2636,8 +2769,8 @@ function toggleCollDetail(el,name){
     .then(function(card){
       var d=document.getElementById('colldetail');if(!d||d.getAttribute('data-name')!==name)return;
       var img='';
-      if(card.image_uris)img=card.image_uris.normal;
-      else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)img=card.card_faces[0].image_uris.normal;
+      if(card.image_uris)img=card.image_uris.normal||card.image_uris.large||card.image_uris.png||'';
+      else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)img=card.card_faces[0].image_uris.normal||card.card_faces[0].image_uris.large||'';
       var oracle='';
       if(card.card_faces&&!card.image_uris)oracle=card.card_faces.map(function(f){
         return '<div style="margin-bottom:4px"><span style="font-weight:600;color:var(--tx)">'+esc(f.name||'')+'</span><br>'+esc(f.oracle_text||'').replace(/\n/g,'<br>')+'</div>';
@@ -2648,14 +2781,23 @@ function toggleCollDetail(el,name){
         .filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
       var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[card.rarity]||'';
       var pt=card.power!=null?card.power+'/'+card.toughness+'  ':card.loyalty?'Loyauté '+card.loyalty+'  ':'';
+      var loanOpts=[0,1,2].filter(function(i){return i!==collP;}).map(function(i){return '<option value="'+i+'">'+esc(PN[i])+'</option>';}).join('');
       d.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start">'
         +(img?'<img src="'+img+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
         +'<div style="flex:1;min-width:0">'
         +'<div style="font-family:\'Cinzel\',serif;font-size:.82rem;color:var(--gold2);margin-bottom:2px">'+esc(card.name)+'</div>'
         +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(card.type_line||'')+(rar?' · '+rar:'')+(pt?' · '+pt:'')+'</div>'
         +(oracle?'<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:6px">'+oracle+'</div>':'')
-        +(prices?'<div style="font-size:.7rem">'+prices+'</div>':'')
-        +'</div></div>';
+        +(prices?'<div style="font-size:.7rem;margin-bottom:6px">'+prices+'</div>':'')
+        +'</div></div>'
+        +'<div class="det-action">'
+        +'<div style="font-size:.7rem;color:var(--tx2);font-weight:600;margin-bottom:6px">Actions</div>'
+        +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">⏳ Commander</span>'
+        +'<input type="number" id="det-pend-qty" value="1" min="1"><button class="btn btnsm" onclick="openDetailPend()" style="font-size:.7rem;padding:2px 8px">+</button></div>'
+        +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">🔄 Prêter à</span>'
+        +'<select id="det-loan-to">'+loanOpts+'</select>'
+        +'<input type="number" id="det-loan-qty" value="1" min="1"><button class="btn btnsm" onclick="openDetailLoan()" style="font-size:.7rem;padding:2px 8px">→</button></div>'
+        +'</div>';
     })
     .catch(function(){var d=document.getElementById('colldetail');if(d)d.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem">Données indisponibles</div>';});
 }
@@ -2692,6 +2834,182 @@ document.addEventListener('mousemove',function(e){posTip(e);});
 // ===== UTILS =====
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
+// ===== PENDING / LOANS / TRADES — LOGIQUE =====
+function receivePending(id){
+  var idx=pending.findIndex(function(p){return p.id===id;});if(idx<0)return;
+  var p=pending[idx];
+  addCardToProf(p.prof,{name:p.name,set:p.set||'',num:p.num||'',qty:p.qty,cond:p.cond||'NM',finish:p.finish||'nonfoil',price:p.price||0});
+  saveProfs();pending.splice(idx,1);savePending();renderTradePage();renderColl();
+}
+function cancelPending(id){
+  pending=pending.filter(function(p){return p.id!==id;});savePending();renderTradePage();
+}
+function returnLoan(id){
+  loans=loans.filter(function(l){return l.id!==id;});saveLoans();renderColl();renderTradePage();
+}
+function addTrade(fr,to,type,offered,requested,note){
+  trades.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),from:fr,to:to,type:type,offered:offered,requested:requested,note:note,status:'pending',createdAt:Date.now()});
+  saveTrades();renderTradePage();
+}
+function executeTrade(tr){
+  if(tr.type==='exchange'||tr.type==='gift'){
+    (tr.offered||[]).forEach(function(c){removeCardFromProf(tr.from,c.name,c.qty);addCardToProf(tr.to,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});});
+    if(tr.type==='exchange')(tr.requested||[]).forEach(function(c){removeCardFromProf(tr.to,c.name,c.qty);addCardToProf(tr.from,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});});
+    saveProfs();
+  }else if(tr.type==='loan'){
+    (tr.offered||[]).forEach(function(c){loans.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:c.name,set:'',num:'',qty:c.qty,from:tr.from,to:tr.to,loanedAt:Date.now()});});
+    saveLoans();
+  }
+}
+function acceptTrade(id){
+  var tr=trades.find(function(t){return t.id===id;});if(!tr||tr.status!=='pending')return;
+  executeTrade(tr);tr.status='accepted';tr.updatedAt=Date.now();saveTrades();renderTradePage();renderColl();
+}
+function declineTrade(id){
+  var tr=trades.find(function(t){return t.id===id;});if(!tr||tr.status!=='pending')return;
+  tr.status='declined';tr.updatedAt=Date.now();saveTrades();renderTradePage();
+}
+function deleteTrade(id){
+  trades=trades.filter(function(t){return t.id!==id;});saveTrades();renderTradePage();
+}
+function openDetailPend(){
+  if(!currentDetailName)return;
+  var qty=parseInt((document.getElementById('det-pend-qty')||{value:'1'}).value)||1;
+  pending.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:currentDetailName,set:'',num:'',qty:qty,cond:'NM',finish:'nonfoil',price:0,prof:collP,orderedAt:Date.now()});
+  savePending();renderTradePage();
+  var d=document.getElementById('colldetail');if(d)d.remove();
+  goTab('trade');
+}
+function openDetailLoan(){
+  if(!currentDetailName)return;
+  var toSel=document.getElementById('det-loan-to');if(!toSel)return;
+  var toP=parseInt(toSel.value);if(isNaN(toP))return;
+  var qty=parseInt((document.getElementById('det-loan-qty')||{value:'1'}).value)||1;
+  loans.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:currentDetailName,set:'',num:'',qty:qty,from:collP,to:toP,loanedAt:Date.now()});
+  saveLoans();renderColl();renderTradePage();
+  var d=document.getElementById('colldetail');if(d)d.remove();
+  goTab('trade');
+}
+function renderTradePage(){
+  var psect=document.getElementById('pend-sect');
+  if(psect){
+    psect.style.display=pending.length?'block':'none';
+    if(pending.length){
+      var ph='';
+      pending.forEach(function(p){
+        var dt=new Date(p.orderedAt).toLocaleDateString('fr-FR');
+        ph+='<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:.5px solid var(--bd)">'+
+          '<div style="flex:1"><span style="font-size:.82rem">'+esc(p.name)+'</span>'+
+          (p.set?' <span style="font-size:.7rem;color:var(--tx3)">'+esc(p.set.toUpperCase())+'</span>':'')+
+          ' <span style="font-size:.72rem;color:var(--ac)">pour '+esc(PN[p.prof])+'</span></div>'+
+          '<span style="font-size:.72rem;color:var(--tx3)">×'+p.qty+'</span>'+
+          '<span style="font-size:.68rem;color:var(--tx3)">'+dt+'</span>'+
+          '<button class="btn btnsm" onclick="receivePending(\''+p.id+'\')" style="font-size:.7rem;padding:2px 7px">✓ Reçu</button>'+
+          '<button class="btn btnsm btnrd" onclick="cancelPending(\''+p.id+'\')" style="font-size:.7rem;padding:2px 5px">✗</button>'+
+        '</div>';
+      });
+      document.getElementById('pend-list').innerHTML=ph;
+    }
+  }
+  var lsect=document.getElementById('loan-sect');
+  if(lsect){
+    lsect.style.display=loans.length?'block':'none';
+    if(loans.length){
+      var lh='';
+      loans.forEach(function(l){
+        var dt=new Date(l.loanedAt).toLocaleDateString('fr-FR');
+        lh+='<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:.5px solid var(--bd)">'+
+          '<div style="flex:1"><span style="font-size:.82rem">'+esc(l.name)+'</span>'+
+          ' <span style="font-size:.72rem;color:var(--am)">'+esc(PN[l.from])+' → '+esc(PN[l.to])+'</span></div>'+
+          '<span style="font-size:.72rem;color:var(--tx3)">×'+l.qty+'</span>'+
+          '<span style="font-size:.68rem;color:var(--tx3)">'+dt+'</span>'+
+          '<button class="btn btnsm" onclick="returnLoan(\''+l.id+'\')" style="font-size:.7rem;padding:2px 7px">↩ Retour</button>'+
+        '</div>';
+      });
+      document.getElementById('loan-list').innerHTML=lh;
+    }
+  }
+  var tl=document.getElementById('trades-list');if(!tl)return;
+  if(!trades.length){tl.innerHTML='<div style="color:var(--tx3);font-size:.82rem;font-style:italic;text-align:center;padding:1.2rem">Aucune proposition</div>';return;}
+  var th='';
+  trades.forEach(function(tr){
+    var cls='trade-row '+(tr.status==='pending'?'trade-pnd':tr.status==='accepted'?'trade-ok':'trade-no');
+    var typeLbl={exchange:'⇋ Échange',loan:'🔄 Prêt',gift:'🎁 Don'}[tr.type]||tr.type;
+    var stLbl={pending:'En attente',accepted:'Accepté',declined:'Refusé'}[tr.status]||'';
+    var stCol=tr.status==='pending'?'var(--am)':tr.status==='accepted'?'var(--gr2)':'var(--rd2)';
+    var dt=new Date(tr.createdAt).toLocaleDateString('fr-FR');
+    th+='<div class="'+cls+'"><div class="trade-hdr">'+
+      '<div><span style="font-weight:600;color:var(--gold2);font-size:.82rem">'+typeLbl+'</span> '+
+      '<span style="font-size:.72rem;color:var(--tx3)">'+esc(PN[tr.from])+' → '+esc(PN[tr.to])+'</span></div>'+
+      '<span style="font-size:.72rem;color:'+stCol+'">'+stLbl+'</span></div>';
+    if((tr.offered||[]).length){
+      th+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:2px">'+esc(PN[tr.from])+' donne :</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px">';
+      (tr.offered||[]).forEach(function(c){th+='<span class="tc-tag">'+c.qty+'× '+esc(c.name)+'</span>';});
+      th+='</div>';
+    }
+    if((tr.requested||[]).length&&tr.type==='exchange'){
+      th+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:2px">'+esc(PN[tr.to])+' donne :</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px">';
+      (tr.requested||[]).forEach(function(c){th+='<span class="tc-tag">'+c.qty+'× '+esc(c.name)+'</span>';});
+      th+='</div>';
+    }
+    if(tr.note)th+='<div style="font-size:.72rem;color:var(--tx3);font-style:italic;margin-bottom:3px">"'+esc(tr.note)+'"</div>';
+    th+='<div style="font-size:.68rem;color:var(--tx3);margin-top:2px">'+dt+'</div>';
+    if(tr.status==='pending'){
+      th+='<div style="display:flex;gap:6px;margin-top:8px">'+
+        '<button class="btn btnsm" onclick="acceptTrade(\''+tr.id+'\')">✓ Accepter</button>'+
+        '<button class="btn btnsm btnrd" onclick="declineTrade(\''+tr.id+'\')">✗ Refuser</button></div>';
+    }else{
+      th+='<button class="btn btnsm" onclick="deleteTrade(\''+tr.id+'\')" style="margin-top:6px;font-size:.7rem;padding:2px 7px">Supprimer</button>';
+    }
+    th+='</div>';
+  });
+  tl.innerHTML=th;
+}
+function toggleNewTrade(){
+  var f=document.getElementById('new-trade-form');if(f)f.style.display=f.style.display==='none'?'block':'none';
+}
+function ntfSetFrom(i,btn){
+  ntfFrom=i;document.querySelectorAll('#ntf-from-btns .prof-sel').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');
+  var el=document.getElementById('ntf-from-lbl');if(el)el.textContent=PN[i];
+}
+function ntfSetTo(i,btn){
+  ntfTo=i;document.querySelectorAll('#ntf-to-btns .prof-sel').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');
+  var el=document.getElementById('ntf-to-lbl');if(el)el.textContent=PN[i];
+}
+function ntfSetType(t,btn){
+  ntfType=t;document.querySelectorAll('#ntf-type-btns .prof-sel').forEach(function(b){b.classList.remove('active');});btn.classList.add('active');
+  var rs=document.getElementById('ntf-rsect');if(rs)rs.style.display=(t==='exchange')?'block':'none';
+}
+function ntfAdd(side){
+  var nm=(document.getElementById(side==='o'?'ntf-oin':'ntf-rin')||{}).value.trim();if(!nm)return;
+  var qty=parseInt((document.getElementById(side==='o'?'ntf-oqty':'ntf-rqty')||{value:'1'}).value)||1;
+  (side==='o'?ntfOffered:ntfRequested).push({name:nm,qty:qty});
+  var inp=document.getElementById(side==='o'?'ntf-oin':'ntf-rin');if(inp)inp.value='';
+  ntfRenderPicks();
+}
+function ntfRemove(side,idx){(side==='o'?ntfOffered:ntfRequested).splice(idx,1);ntfRenderPicks();}
+function ntfRenderPicks(){
+  ['o','r'].forEach(function(s){
+    var arr=s==='o'?ntfOffered:ntfRequested;
+    var el=document.getElementById('ntf-'+s+'list');if(!el)return;
+    el.innerHTML=arr.map(function(c,i){
+      return '<span class="tc-tag">'+c.qty+'× '+esc(c.name)+
+        '<button onclick="ntfRemove(\''+s+'\','+i+')" style="background:none;border:none;color:var(--rd2);cursor:pointer;padding:0 0 0 3px;font-size:.9rem;line-height:1">×</button></span>';
+    }).join('');
+  });
+}
+function ntfSubmit(){
+  if(ntfFrom===ntfTo){alert('Les profils doivent être différents');return;}
+  if(!ntfOffered.length){alert('Ajoutez au moins une carte proposée');return;}
+  if(ntfType==='exchange'&&!ntfRequested.length){alert('Ajoutez les cartes demandées pour l\'échange');return;}
+  addTrade(ntfFrom,ntfTo,ntfType,[].concat(ntfOffered),[].concat(ntfRequested),(document.getElementById('ntf-note')||{}).value||'');
+  ntfOffered=[];ntfRequested=[];ntfRenderPicks();
+  var n=document.getElementById('ntf-note');if(n)n.value='';
+  toggleNewTrade();
+}
+
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',function(){
   document.addEventListener('click',function(e){if(!e.target.closest('.sw'))closeSug();});
@@ -2703,6 +3021,9 @@ document.addEventListener('DOMContentLoaded',function(){
   loadProfs();
   loadDecks();
   loadGames();
+  loadPending();
+  loadLoans();
+  loadTrades();
   updConv();
   scState('empty');
 });
