@@ -195,6 +195,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .dsec{font-family:'Cinzel',serif;font-size:10px;color:var(--tx3);letter-spacing:.07em;padding:8px 3px 3px;text-transform:uppercase}
 #ctip{position:fixed;z-index:9999;pointer-events:none;display:none;filter:drop-shadow(0 8px 24px rgba(0,0,0,.8))}
 #ctip img{width:200px;border-radius:10px;display:block}
+.bld-row{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;cursor:pointer;transition:background .1s}
+.bld-row:hover{background:var(--s3)}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:var(--s1)}
 ::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
@@ -325,6 +327,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   <button class="tab-btn" id="tb-coll" onclick="goTab('coll')">◈ Collection</button>
   <button class="tab-btn" id="tb-cmd" onclick="goTab('cmd')">⚔ Commandants</button>
   <button class="tab-btn" id="tb-deck" onclick="goTab('deck')">♥ Deck</button>
+  <button class="tab-btn" id="tb-build" onclick="goTab('build')">🃏 Créer</button>
   <button class="tab-btn" id="tb-game" onclick="goTab('game');initSetupDecks()">🎲 Parties</button>
 </div>
 
@@ -513,7 +516,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div class="row" style="margin-bottom:.5rem">
         <div class="lbl" style="margin-bottom:0">Pré-liste — <span id="prelist-count">0</span> cartes</div>
         <button class="btn btnsm btnrd" onclick="clearPrelist()">Vider</button>
-        <button class="btn btnsm btnp" onclick="importPrelist()">📋 Importer dans Deck</button>
+        <button class="btn btnsm btnp" onclick="importPrelistToBld()">🃏 Créer un deck</button>
       </div>
       <div id="prelist-items"></div>
     </div>
@@ -674,6 +677,64 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   </div>
 </div>
 </div>
+<!-- BUILDER -->
+<div class="page" id="pg-build">
+  <div class="card">
+    <div class="lbl">Recherche de cartes</div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="bld-q" placeholder="Nom, mot-clé, texte oracle..." style="flex:1" onkeydown="if(event.key==='Enter')bldSearch()">
+      <button class="btn btnp btnsm" onclick="bldSearch()">Chercher</button>
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;align-items:center">
+      <button class="colorbtn cW" id="bs-W" onclick="bldToggleColor('W',this)" title="Blanc"><i class="ms ms-w ms-cost ms-shadow"></i></button>
+      <button class="colorbtn cU" id="bs-U" onclick="bldToggleColor('U',this)" title="Bleu"><i class="ms ms-u ms-cost ms-shadow"></i></button>
+      <button class="colorbtn cB" id="bs-B" onclick="bldToggleColor('B',this)" title="Noir"><i class="ms ms-b ms-cost ms-shadow"></i></button>
+      <button class="colorbtn cR" id="bs-R" onclick="bldToggleColor('R',this)" title="Rouge"><i class="ms ms-r ms-cost ms-shadow"></i></button>
+      <button class="colorbtn cG" id="bs-G" onclick="bldToggleColor('G',this)" title="Vert"><i class="ms ms-g ms-cost ms-shadow"></i></button>
+      <button class="colorbtn cC" id="bs-C" onclick="bldToggleColor('C',this)" title="Incolore"><i class="ms ms-c ms-cost ms-shadow"></i></button>
+      <span style="flex:1"></span>
+      <span style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.06em">CMC</span>
+      <input type="number" id="bld-cmc" min="0" max="20" placeholder="—" style="width:52px;padding:5px 7px;font-size:.82rem">
+    </div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap" id="bld-rar-btns">
+      <button class="dm active" onclick="bldSetRarity('',this)">Toutes</button>
+      <button class="dm" onclick="bldSetRarity('common',this)">Commune</button>
+      <button class="dm" onclick="bldSetRarity('uncommon',this)">Peu commune</button>
+      <button class="dm" onclick="bldSetRarity('rare',this)">Rare</button>
+      <button class="dm" onclick="bldSetRarity('mythic',this)">Mythique</button>
+    </div>
+  </div>
+  <div class="card" id="bld-rescard" style="display:none">
+    <div class="row" style="margin-bottom:6px">
+      <div class="lbl" style="margin-bottom:0" id="bld-reslbl">Résultats</div>
+    </div>
+    <div class="edh-grid" id="bld-resgrid"></div>
+    <button class="btn btnsm" id="bld-morebtn" style="width:100%;margin-top:8px;display:none" onclick="bldLoadMore()">Charger plus</button>
+  </div>
+  <div class="card" id="bld-deckcard" style="display:none">
+    <div class="row" style="margin-bottom:.5rem">
+      <div class="lbl" style="margin-bottom:0">Deck principal — <span id="bld-main-n">0</span> cartes</div>
+      <span style="font-size:.72rem;color:var(--tx3);font-style:italic;margin-left:auto">clic = retirer</span>
+    </div>
+    <div id="bld-mainlist" style="margin-bottom:1rem"></div>
+    <div class="row" style="margin-bottom:.5rem">
+      <div class="lbl" style="margin-bottom:0;color:var(--am)">À voir — <span id="bld-side-n">0</span> cartes</div>
+      <span style="font-size:.72rem;color:var(--tx3);font-style:italic;margin-left:auto">clic = mettre dans le deck</span>
+    </div>
+    <div id="bld-sidelist"></div>
+  </div>
+  <div class="card" id="bld-statscard" style="display:none">
+    <div class="lbl">Statistiques</div>
+    <div class="g4" id="bld-cntrs" style="margin-bottom:10px"></div>
+    <div class="lbl" style="margin-bottom:4px">Types</div>
+    <div id="bld-types" style="margin-bottom:10px"></div>
+    <div class="lbl" style="margin-bottom:4px">Couleurs</div>
+    <div id="bld-colorbar" style="margin-bottom:10px"></div>
+    <div class="lbl" style="margin-bottom:4px">Courbe de mana</div>
+    <div id="bld-curve"></div>
+  </div>
+</div>
+
 <!-- PARTIES -->
 <div class="page" id="pg-game">
 
@@ -2528,6 +2589,201 @@ document.addEventListener('DOMContentLoaded',function(){
   updConv();
   scState('empty');
 });
+
+// ===== BUILDER =====
+var bldMain=[],bldSide=[],bldSrchColors=new Set(),bldSrchRarity='',bldNextPage=null,bldData={};
+
+function bldToggleColor(c,btn){
+  if(bldSrchColors.has(c))bldSrchColors.delete(c);else bldSrchColors.add(c);
+  btn.classList.toggle('active');
+}
+function bldSetRarity(r,btn){
+  bldSrchRarity=r;
+  document.querySelectorAll('#bld-rar-btns .dm').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+}
+function bldBuildQ(){
+  var parts=[];
+  var s=(document.getElementById('bld-q')||{value:''}).value.trim();
+  if(s)parts.push(s);
+  bldSrchColors.forEach(function(c){parts.push(c==='C'?'c=C':'c:'+c);});
+  if(bldSrchRarity)parts.push('r:'+bldSrchRarity);
+  var cmc=(document.getElementById('bld-cmc')||{value:''}).value.trim();
+  if(cmc!=='')parts.push('cmc='+cmc);
+  return parts.join(' ');
+}
+function bldSearch(){
+  var q=bldBuildQ();if(!q)return;
+  bldNextPage=null;
+  var grid=document.getElementById('bld-resgrid');
+  grid.innerHTML='<div style="text-align:center;color:var(--tx2);padding:1rem;font-style:italic">Chargement...</div>';
+  document.getElementById('bld-rescard').style.display='block';
+  document.getElementById('bld-morebtn').style.display='none';
+  fetch('https://api.scryfall.com/cards/search?order=name&q='+encodeURIComponent(q))
+    .then(function(r){return r.json();})
+    .then(function(d){bldRenderRes(d,false);})
+    .catch(function(){grid.innerHTML='<div style="text-align:center;color:var(--rd2);padding:1rem">Aucun résultat</div>';});
+}
+function bldLoadMore(){
+  if(!bldNextPage)return;
+  fetch(bldNextPage).then(function(r){return r.json();}).then(function(d){bldRenderRes(d,true);}).catch(function(){});
+}
+function bldCardObj(c){
+  var img=c.image_uris?c.image_uris.normal:(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris?c.card_faces[0].image_uris.normal:'');
+  return {name:stripDFC(c.name),qty:1,cmc:c.cmc||0,colors:c.colors||[],type:(c.type_line||'').split(' — ')[0],rarity:c.rarity||'',img:img};
+}
+function bldRenderRes(data,append){
+  var grid=document.getElementById('bld-resgrid');
+  var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
+  if(!data.data||!data.data.length){
+    if(!append)grid.innerHTML='<div style="text-align:center;color:var(--tx3);padding:1rem;font-style:italic">Aucun résultat</div>';
+    document.getElementById('bld-morebtn').style.display='none';return;
+  }
+  bldNextPage=data.has_more?data.next_page:null;
+  var html=data.data.map(function(c){
+    var d=bldCardObj(c);
+    bldData[d.name.toLowerCase()]=d;
+    var nm=d.name.replace(/'/g,"&#39;");
+    var zm=d.img?' data-zoom="'+d.img.replace(/"/g,'&quot;')+'" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()"':'';
+    return '<div class="edh-card"'+zm+'>'
+      +(d.img?'<img src="'+d.img+'" alt="'+esc(d.name)+'" loading="lazy">'
+             :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(d.name)+'</div>')
+      +'<div class="edh-meta"><div class="edh-nm">'+esc(d.name)+'</div>'
+      +'<div class="edh-tp" style="color:'+(rc[d.rarity]||'var(--tx3)')+'">'+esc(d.type)+(d.cmc!=null?' · '+d.cmc:'')+'</div>'
+      +'<div style="display:flex;gap:3px;margin-top:3px">'
+      +'<button onclick="bldAdd(\''+nm+'\',\'main\')" style="flex:1;background:rgba(124,106,247,.2);border:.5px solid var(--ac);border-radius:4px;color:var(--ac2);font-size:.65rem;cursor:pointer;padding:2px 0">+ Deck</button>'
+      +'<button onclick="bldAdd(\''+nm+'\',\'side\')" style="flex:1;background:rgba(232,168,76,.1);border:.5px solid rgba(232,168,76,.4);border-radius:4px;color:var(--am);font-size:.65rem;cursor:pointer;padding:2px 0">+ Voir</button>'
+      +'</div></div></div>';
+  }).join('');
+  if(append)grid.innerHTML+=html;else grid.innerHTML=html;
+  document.getElementById('bld-reslbl').textContent='Résultats'+(data.total_cards?' ('+data.total_cards+')':'');
+  document.getElementById('bld-morebtn').style.display=bldNextPage?'block':'none';
+  document.getElementById('bld-rescard').style.display='block';
+}
+function bldFindIn(arr,name){var nl=name.toLowerCase();for(var i=0;i<arr.length;i++)if(arr[i].name.toLowerCase()===nl)return i;return -1;}
+function bldAdd(name,dest){
+  var d=bldData[name.toLowerCase()];if(!d)return;
+  var arr=dest==='main'?bldMain:bldSide;
+  var idx=bldFindIn(arr,name);
+  if(idx>=0)arr[idx].qty++;else arr.push(Object.assign({},d,{qty:1}));
+  renderBldDecks();if(dest==='main')renderBldStats();
+}
+function bldRemMain(name){
+  var idx=bldFindIn(bldMain,name);if(idx<0)return;
+  if(bldMain[idx].qty>1)bldMain[idx].qty--;else bldMain.splice(idx,1);
+  renderBldDecks();renderBldStats();
+}
+function bldRemSide(name){
+  var idx=bldFindIn(bldSide,name);if(idx<0)return;
+  bldSide.splice(idx,1);renderBldDecks();
+}
+function bldSideToMain(name){
+  var idx=bldFindIn(bldSide,name);if(idx<0)return;
+  var d=bldSide.splice(idx,1)[0];
+  var mi=bldFindIn(bldMain,name);
+  if(mi>=0)bldMain[mi].qty+=d.qty;else bldMain.push(d);
+  renderBldDecks();renderBldStats();
+}
+function renderBldDecks(){
+  var total=bldMain.reduce(function(s,c){return s+c.qty;},0);
+  document.getElementById('bld-main-n').textContent=total;
+  document.getElementById('bld-side-n').textContent=bldSide.reduce(function(s,c){return s+c.qty;},0);
+  document.getElementById('bld-deckcard').style.display=(bldMain.length||bldSide.length)?'block':'none';
+  var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
+  function row(c,isMain){
+    var nm=c.name.replace(/'/g,"&#39;");
+    return '<div class="bld-row" onclick="'+(isMain?'bldRemMain':'bldSideToMain')+'(\''+nm+'\')">'
+      +'<span style="font-family:\'Cinzel\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+c.qty+'</span>'
+      +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx)">'+esc(c.name)+'</span>'
+      +(c.rarity?'<span style="font-size:.65rem;padding:1px 5px;border-radius:999px;background:rgba(100,100,120,.1);color:'+(rc[c.rarity]||'var(--tx3)')+';border:.5px solid var(--bd);font-family:\'Cinzel\',serif">'+({common:'C',uncommon:'U',rare:'R',mythic:'M'}[c.rarity]||'?')+'</span>':'')
+      +(c.cmc!=null?'<span style="font-size:.68rem;color:var(--tx3);min-width:14px;text-align:right">'+c.cmc+'</span>':'')
+      +'<span onclick="event.stopPropagation();'+(isMain?'bldRemMain':'bldRemSide')+'(\''+nm+'\')" style="font-size:.7rem;color:var(--rd2);cursor:pointer;padding:0 4px;line-height:1;opacity:.7">✕</span>'
+      +'</div>';
+  }
+  document.getElementById('bld-mainlist').innerHTML=bldMain.map(function(c){return row(c,true);}).join('');
+  document.getElementById('bld-sidelist').innerHTML=bldSide.map(function(c){return row(c,false);}).join('');
+}
+function renderBldStats(){
+  var sc=document.getElementById('bld-statscard');
+  if(!bldMain.length){sc.style.display='none';return;}
+  sc.style.display='block';
+  var total=bldMain.reduce(function(s,c){return s+c.qty;},0);
+  var types={Creature:0,Instant:0,Sorcery:0,Enchantment:0,Artifact:0,Land:0,Planeswalker:0,Other:0};
+  var typeLabels={Creature:'Créature',Instant:'Éphémère',Sorcery:'Rituel',Enchantment:'Enchantement',Artifact:'Artefact',Land:'Terrain',Planeswalker:'Planeswalker',Other:'Autre'};
+  var typeColors={Creature:'var(--ac)',Instant:'var(--gr)',Sorcery:'var(--rd2)',Enchantment:'var(--am)',Artifact:'var(--tx2)',Land:'var(--gold)',Planeswalker:'#a992ff',Other:'var(--tx3)'};
+  var colorCounts={W:0,U:0,B:0,R:0,G:0,C:0};
+  var colorHex={W:'#f0ebe0',U:'#3a7bd5',B:'#9b7fd4',R:'#e74c3c',G:'#27ae60',C:'#bdc3c7'};
+  var colorName={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',C:'Incolore'};
+  var curve=[0,0,0,0,0,0,0];var nonLand=0;
+  bldMain.forEach(function(c){
+    var t=c.type||'';var q=c.qty;
+    if(t.indexOf('Creature')>=0)types.Creature+=q;
+    else if(t.indexOf('Instant')>=0)types.Instant+=q;
+    else if(t.indexOf('Sorcery')>=0)types.Sorcery+=q;
+    else if(t.indexOf('Enchantment')>=0)types.Enchantment+=q;
+    else if(t.indexOf('Artifact')>=0)types.Artifact+=q;
+    else if(t.indexOf('Land')>=0)types.Land+=q;
+    else if(t.indexOf('Planeswalker')>=0)types.Planeswalker+=q;
+    else types.Other+=q;
+    if(!c.colors||!c.colors.length)colorCounts.C+=q;
+    else c.colors.forEach(function(col){if(colorCounts[col]!==undefined)colorCounts[col]+=q;});
+    if(t.indexOf('Land')<0){nonLand+=q;curve[Math.min(Math.round(c.cmc||0),6)]+=q;}
+  });
+  document.getElementById('bld-cntrs').innerHTML=
+    '<div class="stat"><div class="sv">'+total+'</div><div class="sl">Cartes</div></div>'+
+    '<div class="stat"><div class="sv">'+types.Creature+'</div><div class="sl">Créatures</div></div>'+
+    '<div class="stat"><div class="sv">'+types.Land+'</div><div class="sl">Terrains</div></div>'+
+    '<div class="stat"><div class="sv">'+nonLand+'</div><div class="sl">Non-terrains</div></div>';
+  var typeMax=Math.max.apply(null,Object.values(types))||1;
+  document.getElementById('bld-types').innerHTML=Object.keys(types).filter(function(k){return types[k]>0;}).map(function(k){
+    var pct=Math.round(types[k]/typeMax*100);
+    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">'
+      +'<div style="font-size:.75rem;color:var(--tx2);width:90px;flex-shrink:0">'+typeLabels[k]+'</div>'
+      +'<div style="flex:1;background:var(--s3);border-radius:3px;height:8px;overflow:hidden"><div style="width:'+pct+'%;background:'+typeColors[k]+';height:100%;border-radius:3px"></div></div>'
+      +'<div style="font-size:.7rem;color:var(--tx3);min-width:22px;text-align:right">'+types[k]+'</div>'
+      +'</div>';
+  }).join('');
+  var totalColor=Object.values(colorCounts).reduce(function(s,v){return s+v;},0);
+  if(totalColor>0){
+    var barParts='';['W','U','B','R','G','C'].forEach(function(c){if(colorCounts[c]>0)barParts+='<div style="flex:'+colorCounts[c]+';background:'+colorHex[c]+'" title="'+colorName[c]+': '+colorCounts[c]+'"></div>';});
+    var legend='';['W','U','B','R','G','C'].forEach(function(c){if(colorCounts[c]>0)legend+='<span style="font-size:.7rem;color:var(--tx3)"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+colorHex[c]+';margin-right:3px;vertical-align:middle"></span>'+colorName[c]+' '+colorCounts[c]+'</span> ';});
+    document.getElementById('bld-colorbar').innerHTML='<div style="display:flex;border-radius:4px;overflow:hidden;height:14px;margin-bottom:5px">'+barParts+'</div><div style="display:flex;gap:8px;flex-wrap:wrap">'+legend+'</div>';
+  }else document.getElementById('bld-colorbar').innerHTML='';
+  var curveMax=Math.max.apply(null,curve)||1;
+  var curveHtml='<div style="display:flex;gap:3px;align-items:flex-end;height:64px;padding:0 2px">';
+  curve.forEach(function(v){
+    var h=Math.round(v/curveMax*100);
+    curveHtml+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">'
+      +(v>0?'<div style="font-size:.58rem;color:var(--tx3);margin-bottom:1px">'+v+'</div>':'')
+      +'<div style="width:100%;background:var(--ac);border-radius:2px 2px 0 0;height:'+(v>0?Math.max(h,4):0)+'%"></div>'
+      +'</div>';
+  });
+  curveHtml+='</div><div style="display:flex;gap:3px;margin-top:2px">';
+  ['0','1','2','3','4','5','6+'].forEach(function(l){curveHtml+='<div style="flex:1;text-align:center;font-size:.6rem;color:var(--tx3)">'+l+'</div>';});
+  curveHtml+='</div>';
+  document.getElementById('bld-curve').innerHTML=curveHtml;
+}
+function importPrelistToBld(){
+  if(!cmdPreList.length)return;
+  bldSide=[];renderBldDecks();
+  goTab('build');
+  var names=[...cmdPreList];
+  for(var i=0;i<names.length;i+=75){
+    (function(batch){
+      fetch('https://api.scryfall.com/cards/collection',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
+      }).then(function(r){return r.json();}).then(function(data){
+        (data.data||[]).forEach(function(c){
+          var d=bldCardObj(c);
+          bldData[d.name.toLowerCase()]=d;
+          if(bldFindIn(bldSide,d.name)<0)bldSide.push(d);
+        });
+        renderBldDecks();
+      }).catch(function(){});
+    })(names.slice(i,i+75));
+  }
+}
 
 </script>
 <div id="edh-zoom"><img src="" alt=""></div>
