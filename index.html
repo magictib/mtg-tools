@@ -530,6 +530,24 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div class="pb" id="cpb2" onclick="setCollProf(2)"><div class="pdot"></div><div class="pname">Antoine</div><div class="pinfo" id="cpi2">Vide</div></div>
     </div>
     <input type="text" id="collsrch" placeholder="Rechercher une carte..." oninput="renderColl()" style="margin-top:6px">
+    <div id="coll-filters" style="margin-top:8px;display:none">
+      <select id="coll-set" onchange="collFiltSet=this.value;renderColl()" style="margin-bottom:6px"></select>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="coll-rar-btns">
+        <button class="dm active" onclick="setCollRarity('',this)">Toutes</button>
+        <button class="dm" onclick="setCollRarity('common',this)">Commune</button>
+        <button class="dm" onclick="setCollRarity('uncommon',this)">Peu commune</button>
+        <button class="dm" onclick="setCollRarity('rare',this)">Rare</button>
+        <button class="dm" onclick="setCollRarity('mythic',this)">Mythique</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="colorbtn cW" id="cf-W" onclick="toggleCollColor('W',this)" title="Blanc"><i class="ms ms-w ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
+        <button class="colorbtn cU" id="cf-U" onclick="toggleCollColor('U',this)" title="Bleu"><i class="ms ms-u ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
+        <button class="colorbtn cB" id="cf-B" onclick="toggleCollColor('B',this)" title="Noir"><i class="ms ms-b ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
+        <button class="colorbtn cR" id="cf-R" onclick="toggleCollColor('R',this)" title="Rouge"><i class="ms ms-r ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
+        <button class="colorbtn cG" id="cf-G" onclick="toggleCollColor('G',this)" title="Vert"><i class="ms ms-g ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
+        <button class="colorbtn cC" id="cf-C" onclick="toggleCollColor('C',this)" title="Incolore"><i class="ms ms-c ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
+      </div>
+    </div>
   </div>
   <div class="card" id="collcard" style="display:none">
     <div class="g3" id="collstats" style="margin-bottom:10px"></div>
@@ -850,6 +868,8 @@ var scAllP=[], scFlips=[], scFlipN=0, scSugTO=null;
 var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0;
 var dbarOpen=[true,true,true];
 var collP=0;
+var collFiltSet='', collFiltRar='', collFiltColors=new Set();
+var collCache={};
 
 function normalizeRow(r,fmt){
   var nF={A:'name',B:'Card Name',C:'Name'};
@@ -2361,11 +2381,15 @@ function renderEDHREC(data){
 // ===== COLLECTION =====
 function setCollProf(i){
   collP=i;
+  collFiltSet=''; collFiltRar=''; collFiltColors=new Set();
+  document.querySelectorAll('#coll-rar-btns .dm').forEach(function(b,idx){b.classList.toggle('active',idx===0);});
+  ['W','U','B','R','G','C'].forEach(function(c){var b=document.getElementById('cf-'+c);if(b)b.classList.remove('active');});
   [0,1,2].forEach(function(j){
     var b=document.getElementById('cpb'+j);
     if(j===i)b.classList.add('active');else b.classList.remove('active');
   });
   renderColl();
+  enrichCollCache();
 }
 function renderColl(){
   // Update all profile info badges
@@ -2383,9 +2407,29 @@ function renderColl(){
   var srch=(document.getElementById('collsrch')?document.getElementById('collsrch').value:'').toLowerCase().trim();
   var card=document.getElementById('collcard');
   var empty=document.getElementById('collempty');
-  if(!cards.length){if(card)card.style.display='none';if(empty)empty.style.display='block';return;}
-  if(card)card.style.display='block';if(empty)empty.style.display='none';
-  var filtered=srch?cards.filter(function(c){return c.name.toLowerCase().indexOf(srch)>=0;}):cards;
+  var filtDiv=document.getElementById('coll-filters');
+  if(!cards.length){if(card)card.style.display='none';if(empty)empty.style.display='block';if(filtDiv)filtDiv.style.display='none';return;}
+  if(card)card.style.display='block';if(empty)empty.style.display='none';if(filtDiv)filtDiv.style.display='block';
+  var setEl=document.getElementById('coll-set');
+  if(setEl){
+    var sets=[...new Set(cards.map(function(c){return c.set;}).filter(Boolean))].sort();
+    setEl.innerHTML='<option value="">Toutes les extensions</option>'+sets.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>';}).join('');
+    setEl.value=collFiltSet;
+  }
+  var filtered=cards.filter(function(c){
+    if(srch&&c.name.toLowerCase().indexOf(srch)<0)return false;
+    if(collFiltSet&&c.set!==collFiltSet)return false;
+    var cached=collCache[c.name];
+    if(collFiltRar&&(!cached||cached.rarity!==collFiltRar))return false;
+    if(collFiltColors.size>0){
+      if(!cached)return true;
+      var cols=cached.colors;
+      var ok=false;
+      collFiltColors.forEach(function(fc){if(fc==='C'?cols.length===0:cols.indexOf(fc)>=0)ok=true;});
+      if(!ok)return false;
+    }
+    return true;
+  });
   var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var val=cards.reduce(function(s,c){return s+(c.qty||1)*(c.price||0);},0);
   document.getElementById('collstats').innerHTML=
@@ -2408,6 +2452,34 @@ function renderColl(){
       '<div class="cprice">'+priceStr+'</div>'+
     '</div>';
   }).join('');
+}
+
+function setCollRarity(r,btn){
+  collFiltRar=r;
+  document.querySelectorAll('#coll-rar-btns .dm').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  renderColl();
+}
+function toggleCollColor(c,btn){
+  if(collFiltColors.has(c))collFiltColors.delete(c);else collFiltColors.add(c);
+  btn.classList.toggle('active');
+  renderColl();
+}
+function enrichCollCache(){
+  var cards=getProfCards(collP);
+  var unique=[...new Set(cards.map(function(c){return c.name;}).filter(function(n){return n&&!collCache[n];}))];
+  if(!unique.length)return;
+  for(var i=0;i<unique.length;i+=75){
+    (function(batch){
+      fetch('https://api.scryfall.com/cards/collection',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
+      }).then(function(r){return r.json();}).then(function(data){
+        (data.data||[]).forEach(function(c){collCache[c.name]={colors:c.colors||[],rarity:c.rarity||''};});
+        renderColl();
+      }).catch(function(){});
+    })(unique.slice(i,i+75));
+  }
 }
 
 // ===== TOOLTIP =====
