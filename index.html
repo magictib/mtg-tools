@@ -293,7 +293,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .collhdr{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
 .collhdr>div{cursor:pointer;user-select:none;transition:color .1s}
 .collhdr>div:hover{color:var(--tx)}
-.collrow{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:default}
+.collrow{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:pointer}
+.colldetail{padding:10px 12px;background:var(--s1);border-radius:8px;margin:-1px 0 5px;border:.5px solid var(--bd2);border-top:none}
 .collrow:hover{background:var(--s3)}
 .cname{color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cset{color:var(--tx2);font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2578,7 +2579,8 @@ function renderColl(){
   document.getElementById('colllist').innerHTML=filtered.map(function(c){
     var foilStr=fNF(c.finish)==='foil'?'✦':'';
     var priceStr=c.price>0?c.price.toFixed(2)+'€':'—';
-    return '<div class="collrow" onmouseenter="showTip(\''+c.name.replace(/'/g,"&#39;")+'\',event)" onmouseleave="hideTip()">'+
+    var nm=c.name.replace(/'/g,"&#39;");
+    return '<div class="collrow" onclick="toggleCollDetail(this,\''+nm+'\')" onmouseenter="showTip(\''+nm+'\',event)" onmouseleave="hideTip()">'+
       '<div class="cname" title="'+esc(c.name)+'">'+esc(c.name)+'</div>'+
       '<div class="cset">'+esc(c.set)+'</div>'+
       '<div class="cqty">'+c.qty+'</div>'+
@@ -2617,6 +2619,45 @@ function enrichCollCache(){
       }).catch(function(){});
     })(unique.slice(i,i+75));
   }
+}
+
+// ===== COLLECTION DETAIL =====
+function toggleCollDetail(el,name){
+  hideTip();
+  var existing=document.getElementById('colldetail');
+  if(existing){var wasName=existing.getAttribute('data-name');existing.remove();if(wasName===name)return;}
+  var det=document.createElement('div');
+  det.id='colldetail';det.className='colldetail';
+  det.setAttribute('data-name',name);
+  det.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;text-align:center">Chargement…</div>';
+  el.insertAdjacentElement('afterend',det);
+  fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name))
+    .then(function(r){return r.json();})
+    .then(function(card){
+      var d=document.getElementById('colldetail');if(!d||d.getAttribute('data-name')!==name)return;
+      var img='';
+      if(card.image_uris)img=card.image_uris.normal;
+      else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)img=card.card_faces[0].image_uris.normal;
+      var oracle='';
+      if(card.card_faces&&!card.image_uris)oracle=card.card_faces.map(function(f){
+        return '<div style="margin-bottom:4px"><span style="font-weight:600;color:var(--tx)">'+esc(f.name||'')+'</span><br>'+esc(f.oracle_text||'').replace(/\n/g,'<br>')+'</div>';
+      }).join('<div style="border-top:.5px solid var(--bd);margin:5px 0"></div>');
+      else oracle=esc(card.oracle_text||'').replace(/\n/g,'<br>');
+      var p=card.prices||{};
+      var prices=[{l:'USD',v:p.usd,s:'$'},{l:'EUR',v:p.eur,s:'€'},{l:'Foil USD',v:p.usd_foil,s:'$'},{l:'Foil EUR',v:p.eur_foil,s:'€'}]
+        .filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
+      var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[card.rarity]||'';
+      var pt=card.power!=null?card.power+'/'+card.toughness+'  ':card.loyalty?'Loyauté '+card.loyalty+'  ':'';
+      d.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start">'
+        +(img?'<img src="'+img+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-family:\'Cinzel\',serif;font-size:.82rem;color:var(--gold2);margin-bottom:2px">'+esc(card.name)+'</div>'
+        +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(card.type_line||'')+(rar?' · '+rar:'')+(pt?' · '+pt:'')+'</div>'
+        +(oracle?'<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:6px">'+oracle+'</div>':'')
+        +(prices?'<div style="font-size:.7rem">'+prices+'</div>':'')
+        +'</div></div>';
+    })
+    .catch(function(){var d=document.getElementById('colldetail');if(d)d.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem">Données indisponibles</div>';});
 }
 
 // ===== TOOLTIP =====
@@ -2676,6 +2717,7 @@ function bldToggleColor(c,btn){
 function bldToggleKeyword(k,btn){
   if(bldSrchKeywords.has(k))bldSrchKeywords.delete(k);else bldSrchKeywords.add(k);
   btn.classList.toggle('active');
+  bldSearch();
 }
 function bldSetRarity(r,btn){
   bldSrchRarity=r;
@@ -2688,7 +2730,7 @@ function bldBuildQ(){
   if(s)parts.push(s);
   bldSrchColors.forEach(function(c){parts.push(c==='C'?'c=C':'c:'+c);});
   if(bldSrchRarity)parts.push('r:'+bldSrchRarity);
-  bldSrchKeywords.forEach(function(k){parts.push('keyword:"'+k+'"');});
+  bldSrchKeywords.forEach(function(k){parts.push('keyword:'+(k.indexOf(' ')>=0?'"'+k+'"':k));});
   var cmc=(document.getElementById('bld-cmc')||{value:''}).value.trim();
   if(cmc!=='')parts.push('cmc='+cmc);
   return parts.join(' ');
