@@ -291,6 +291,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .gcolor-btn.on{opacity:1;border-color:#fff;transform:scale(1.18)}
 .gimg-btn{background:none;border:.5px solid var(--bd2);border-radius:6px;padding:2px 6px;font-size:.72rem;color:var(--tx3);cursor:pointer;white-space:nowrap;flex-shrink:0}
 .collhdr{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
+.collhdr>div{cursor:pointer;user-select:none;transition:color .1s}
+.collhdr>div:hover{color:var(--tx)}
 .collrow{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:default}
 .collrow:hover{background:var(--s3)}
 .cname{color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -555,7 +557,12 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   <div class="card" id="collcard" style="display:none">
     <div class="g3" id="collstats" style="margin-bottom:10px"></div>
     <div class="collhdr">
-      <div>Carte</div><div>Extension</div><div style="text-align:center">Qté</div><div style="text-align:center">Cond</div><div style="text-align:center">Foil</div><div style="text-align:right">Prix</div>
+      <div onclick="sortColl('name')">Carte <span id="csort-name">▲</span></div>
+      <div onclick="sortColl('set')">Extension <span id="csort-set"></span></div>
+      <div onclick="sortColl('qty')" style="text-align:center">Qté <span id="csort-qty"></span></div>
+      <div onclick="sortColl('cond')" style="text-align:center">Cond <span id="csort-cond"></span></div>
+      <div onclick="sortColl('foil')" style="text-align:center">Foil <span id="csort-foil"></span></div>
+      <div onclick="sortColl('price')" style="text-align:right">Prix <span id="csort-price"></span></div>
     </div>
     <div id="colllist"></div>
   </div>
@@ -931,6 +938,7 @@ var dbarOpen=[true,true,true];
 var collP=0;
 var collFiltSet='', collFiltRar='', collFiltColors=new Set();
 var collCache={};
+var collSort={field:'name',dir:1};
 
 function normalizeRow(r,fmt){
   var nF={A:'name',B:'Card Name',C:'Name'};
@@ -2452,6 +2460,11 @@ function setCollProf(i){
   renderColl();
   enrichCollCache();
 }
+function sortColl(field){
+  if(collSort.field===field)collSort.dir*=-1;
+  else{collSort.field=field;collSort.dir=1;}
+  renderColl();
+}
 function renderColl(){
   // Update all profile info badges
   [0,1,2].forEach(function(i){
@@ -2490,6 +2503,23 @@ function renderColl(){
       if(!ok)return false;
     }
     return true;
+  });
+  // Tri
+  filtered=filtered.slice().sort(function(a,b){
+    var d=collSort.dir,f=collSort.field,va,vb;
+    if(f==='name'){return (a.name||'').localeCompare(b.name||'')*d;}
+    if(f==='set'){return (a.set||'').localeCompare(b.set||'')*d;}
+    if(f==='qty'){return ((a.qty||1)-(b.qty||1))*d;}
+    if(f==='cond'){return (a.cond||'').localeCompare(b.cond||'')*d;}
+    if(f==='foil'){va=fNF(a.finish)==='foil'?1:0;vb=fNF(b.finish)==='foil'?1:0;return (va-vb)*d;}
+    if(f==='price'){return ((a.price||0)-(b.price||0))*d;}
+    return 0;
+  });
+  // Indicateurs de tri
+  ['name','set','qty','cond','foil','price'].forEach(function(f){
+    var el=document.getElementById('csort-'+f);
+    if(el)el.textContent=collSort.field===f?(collSort.dir===1?'▲':'▼'):'';
+  });
   });
   var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var val=cards.reduce(function(s,c){return s+(c.qty||1)*(c.price||0);},0);
