@@ -1131,7 +1131,7 @@ function loadProfs(){
   var ref=db.collection('users').doc(userId).collection('profs');
   Promise.all([0,1,2].map(function(i){
     return ref.doc(String(i)).get().then(function(doc){
-      if(doc.exists)profs[i]=doc.data().cards||null;
+      if(doc.exists&&doc.data().cards&&doc.data().cards.length)profs[i]=doc.data().cards;
     });
   })).then(function(){
     try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
@@ -1284,11 +1284,15 @@ function loadDecks(){
   renderDBar();
   db.collection('users').doc(userId).collection('decks').get()
     .then(function(snapshot){
-      var d={};
-      snapshot.forEach(function(doc){d[doc.id]=doc.data();});
-      decks=d;
-      try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
-      renderDBar();
+      if(!snapshot.empty){
+        var d={};
+        snapshot.forEach(function(doc){d[doc.id]=doc.data();});
+        decks=d;
+        try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
+        renderDBar();
+      } else if(Object.keys(decks).length){
+        saveDecks(); // synchro locale → Firebase
+      }
     }).catch(function(){});
 }
 function saveDecks(){
