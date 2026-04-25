@@ -1915,12 +1915,25 @@ function analyzeDeck(){
       if(key&&c.price&&!allPriceMap[key])allPriceMap[key]=parseFloat(c.price)||0;
     });
   });
+  renderPriceEstimate();
+  fetchMissingPrices();
+  // --- Fin estimatif ---
+  var hasMiss=missing.length>0||partial.length>0;
+  document.getElementById('btnachat').style.display=hasMiss?'inline-block':'none';
+  document.getElementById('achat-panel').style.display='none';
+  renderAchatOptions();
+  dFMode='all';
+  document.querySelectorAll('.fc').forEach(function(el){el.classList.remove('active');});
+  var first=document.querySelector('.fc');if(first)first.classList.add('active');
+  renderDeck();
+}
+function renderPriceEstimate(){
+  var pms=[0,1,2].map(function(i){return getPMap(i);});
   var priceUsages=[0,1,2].map(function(i){return getDeckUsage(i);});
   var priceTotalAll=0,priceMissingOwner=0,priceMissingNoBorrow=0;
   dCards.forEach(function(c){
     var p=allPriceMap[c.nl]||0;
     priceTotalAll+=c.qty*p;
-    // Propriétaire : cartes libres = possède - déjà dans un autre deck
     var ownerHas=pms[dOwner].get(getKey(c))||0;
     var ownerInDeck=(priceUsages[dOwner].get(c.nl)||{qty:0}).qty;
     var ownerFree=Math.max(0,ownerHas-ownerInDeck);
@@ -1935,14 +1948,13 @@ function analyzeDeck(){
           friendFree+=Math.max(0,fHas-fInDeck);
         }
       });
-      var stillNeed=Math.max(0,need-friendFree);
-      priceMissingNoBorrow+=stillNeed*p;
+      priceMissingNoBorrow+=Math.max(0,need-friendFree)*p;
     }
   });
   var dp=document.getElementById('dprice');
   if(priceTotalAll>0){
     dp.innerHTML='<div style="background:var(--s3);border-radius:8px;padding:8px 12px;border:.5px solid var(--bd2)">'
-      +'<div style="font-size:9px;color:var(--tx3);font-family:\'Cinzel\',serif;letter-spacing:.08em;margin-bottom:6px">ESTIMATIF PRIX (source : collections)</div>'
+      +'<div style="font-size:9px;color:var(--tx3);font-family:\'Cinzel\',serif;letter-spacing:.08em;margin-bottom:6px">ESTIMATIF PRIX (collections + Scryfall)</div>'
       +'<div style="display:flex;gap:16px;flex-wrap:wrap">'
       +'<div><div style="font-size:.78rem;color:var(--tx2)">Prix total deck</div><div style="font-weight:700;color:var(--gold2)">'+priceTotalAll.toFixed(2)+'€</div></div>'
       +'<div><div style="font-size:.78rem;color:var(--tx2)">Restant à acheter</div><div style="font-weight:700;color:var(--rd2)">'+priceMissingOwner.toFixed(2)+'€</div></div>'
@@ -1951,15 +1963,26 @@ function analyzeDeck(){
   } else {
     dp.innerHTML='';
   }
-  // --- Fin estimatif ---
-  var hasMiss=missing.length>0||partial.length>0;
-  document.getElementById('btnachat').style.display=hasMiss?'inline-block':'none';
-  document.getElementById('achat-panel').style.display='none';
-  renderAchatOptions();
-  dFMode='all';
-  document.querySelectorAll('.fc').forEach(function(el){el.classList.remove('active');});
-  var first=document.querySelector('.fc');if(first)first.classList.add('active');
-  renderDeck();
+}
+function fetchMissingPrices(){
+  var todo=[];
+  var seen={};
+  dCards.forEach(function(c){if(!allPriceMap[c.nl]&&!seen[c.nl]){seen[c.nl]=1;todo.push({nl:c.nl,name:c.name});}});
+  if(!todo.length)return;
+  var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
+  var done=0;
+  batches.forEach(function(batch){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        var nl=stripDFC(card.name).toLowerCase();
+        if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
+      });
+      if(++done===batches.length){renderPriceEstimate();renderDeck();}
+    }).catch(function(){++done;});
+  });
 }
 function dFlt(f,btn){
   dFMode=f;
@@ -1989,10 +2012,12 @@ function fetchDeckImages(){
       body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
     }).then(function(r){return r.json();}).then(function(data){
       (data.data||[]).forEach(function(card){
+        var nl=stripDFC(card.name).toLowerCase();
         var img=card.image_uris?card.image_uris.normal:(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris?card.card_faces[0].image_uris.normal:null);
-        if(img)dImgCache[stripDFC(card.name).toLowerCase()]=img;
+        if(img)dImgCache[nl]=img;
+        if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
       });
-      if(++done===batches.length)renderDeck();
+      if(++done===batches.length){renderPriceEstimate();renderDeck();}
     }).catch(function(){if(++done===batches.length)renderDeck();});
   });
 }
