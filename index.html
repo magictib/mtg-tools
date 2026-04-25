@@ -385,20 +385,6 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 <!-- CONVERTISSEUR -->
 <div class="page active" id="pg-conv">
   <div class="card">
-    <div class="lbl">Profils de collection</div>
-    <div class="pg">
-      <div class="pb" id="pb0" onclick="selProf(0)"><div class="pdot"></div><div class="pname">Thibaud</div><div class="pinfo" id="pi0">Vide</div></div>
-      <div class="pb" id="pb1" onclick="selProf(1)"><div class="pdot"></div><div class="pname">Gérémy</div><div class="pinfo" id="pi1">Vide</div></div>
-      <div class="pb" id="pb2" onclick="selProf(2)"><div class="pdot"></div><div class="pname">Antoine</div><div class="pinfo" id="pi2">Vide</div></div>
-    </div>
-    <div class="emg">
-      <button class="emb mn" id="emb-new" onclick="setEMode('new')">✚ Nouvelles cartes</button>
-      <button class="emb" id="emb-all" onclick="setEMode('all')">◦ Export total</button>
-    </div>
-    <div class="pst" id="pst">Aucun profil sélectionné — export total</div>
-  </div>
-
-  <div class="card">
     <div class="lbl">Format source</div>
     <div class="fg" id="sfg">
       <div class="fb sA" onclick="setSrc('A')"><span class="badge ba">CardNexus</span><div class="fsub">inventory_*.csv</div></div>
@@ -590,10 +576,13 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div class="pb" id="cpb1" onclick="setCollProf(1)"><div class="pdot"></div><div class="pname">Gérémy</div><div class="pinfo" id="cpi1">Vide</div></div>
       <div class="pb" id="cpb2" onclick="setCollProf(2)"><div class="pdot"></div><div class="pname">Antoine</div><div class="pinfo" id="cpi2">Vide</div></div>
     </div>
-    <div class="row" style="margin-top:10px;margin-bottom:2px">
-      <button class="btn btnsm btnp" onclick="toggleCollAddForm()">➕ Ajouter une carte</button>
-      <button class="btn btnsm" onclick="document.getElementById('coll-import-fin').click()">⬆ Importer CSV</button>
+    <div class="row" style="margin-top:10px;margin-bottom:2px;flex-wrap:wrap">
+      <button class="btn btnsm btnp" onclick="toggleCollAddForm()">➕ Ajouter</button>
+      <button class="btn btnsm" onclick="document.getElementById('coll-import-fin').click()" title="Remplace toute la collection par ce fichier CSV">⬆ Import complet</button>
+      <button class="btn btnsm" onclick="document.getElementById('coll-update-fin').click()" title="Ajoute uniquement les cartes absentes de la collection actuelle">⬆ Màj CSV</button>
+      <button class="btn btnsm" onclick="exportCollCSV()">⬇ Exporter</button>
       <input type="file" id="coll-import-fin" accept=".csv" style="display:none" onchange="importCollCSV(this)">
+      <input type="file" id="coll-update-fin" accept=".csv" style="display:none" onchange="importCollUpdate(this)">
     </div>
     <div id="coll-add-form" style="display:none;background:var(--s3);border-radius:8px;padding:10px;margin:8px 0;border:.5px solid var(--bd2)">
       <div class="g2" style="margin-bottom:6px">
@@ -3255,22 +3244,90 @@ function addCollCard(){
   msg.textContent='✓ "'+name+'" ajouté à '+PN[collP];msg.style.display='block';
   setTimeout(function(){msg.style.display='none';},2500);
 }
+function _detectFmt(hdrs){
+  if(hdrs.some(function(h){return h==='name';}))return 'A';
+  if(hdrs.some(function(h){return h==='Card Name';}))return 'B';
+  return 'C';
+}
 function importCollCSV(input){
   var file=input.files[0];if(!file)return;
   var reader=new FileReader();
   reader.onload=function(e){
     var res=parseCSV(e.target.result);
     if(!res.data.length){alert('Fichier vide ou format non reconnu.');return;}
-    var hdrs=res.hdrs;
-    var fmt='C';
-    if(hdrs.some(function(h){return h==='name';}))fmt='A';
-    else if(hdrs.some(function(h){return h==='Card Name';}))fmt='B';
+    var fmt=_detectFmt(res.hdrs);
     profs[collP]=res.data.map(function(r){return normalizeRow(r,fmt);});
     saveProfs();renderColl();renderProfs();
     alert('✓ '+res.data.length+' cartes importées dans la collection de '+PN[collP]+'.');
   };
   reader.readAsText(file,'UTF-8');
   input.value='';
+}
+function importCollUpdate(input){
+  var file=input.files[0];if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var res=parseCSV(e.target.result);
+    if(!res.data.length){alert('Fichier vide ou format non reconnu.');return;}
+    var fmt=_detectFmt(res.hdrs);
+    // Build lookup of existing cards by key (name+set+num+finish)
+    var old=Array.isArray(profs[collP])?profs[collP].slice():[];
+    var existMap={};
+    old.forEach(function(c){
+      var k=(c.name||'').toLowerCase().trim()+'||'+(c.set||'').toLowerCase().trim()+'||'+(c.num||'').toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
+      existMap[k]=(existMap[k]||0)+(c.qty||1);
+    });
+    var added=0,updated=0;
+    res.data.forEach(function(r){
+      var card=normalizeRow(r,fmt);
+      var k=(card.name||'').toLowerCase().trim()+'||'+(card.set||'').toLowerCase().trim()+'||'+(card.num||'').toLowerCase().trim()+'||'+(card.finish||'').toLowerCase().trim();
+      var oldQty=existMap[k]||0;
+      var newQty=card.qty||1;
+      if(oldQty===0){old.push(card);added++;existMap[k]=newQty;}
+      else if(newQty>oldQty){
+        // Add the difference
+        var diff=newQty-oldQty;
+        var found=false;
+        for(var i=0;i<old.length;i++){
+          var ck=(old[i].name||'').toLowerCase().trim()+'||'+(old[i].set||'').toLowerCase().trim()+'||'+(old[i].num||'').toLowerCase().trim()+'||'+(old[i].finish||'').toLowerCase().trim();
+          if(ck===k){old[i].qty=(old[i].qty||1)+diff;found=true;break;}
+        }
+        if(!found){var nc=JSON.parse(JSON.stringify(card));nc.qty=diff;old.push(nc);}
+        existMap[k]=newQty;updated++;
+      }
+    });
+    profs[collP]=old;
+    saveProfs();renderColl();renderProfs();
+    alert('✓ '+added+' carte(s) ajoutée(s), '+updated+' quantité(s) mise(s) à jour dans '+PN[collP]+'.');
+  };
+  reader.readAsText(file,'UTF-8');
+  input.value='';
+}
+function exportCollCSV(){
+  var cards=getProfCards(collP);
+  if(!cards.length){alert('Collection vide — rien à exporter.');return;}
+  var hdrs=['Name','Edition','Condition','Foil','Count','Purchase Price','Collector Number','Language'];
+  var lines=[hdrs.join(',')];
+  cards.forEach(function(c){
+    var vals=[
+      '"'+(c.name||'').replace(/"/g,'""')+'"',
+      '"'+(c.set||'').replace(/"/g,'""')+'"',
+      '"'+(c.cond||'').replace(/"/g,'""')+'"',
+      '"'+(c.finish||'').replace(/"/g,'""')+'"',
+      c.qty||1,
+      c.price||0,
+      '"'+(c.num||'').replace(/"/g,'""')+'"',
+      '"'+(c.lang||'').replace(/"/g,'""')+'"'
+    ];
+    lines.push(vals.join(','));
+  });
+  var csv=lines.join('\n');
+  var blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='collection_'+PN[collP]+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 function setCollProf(i){
   collP=i;
