@@ -179,8 +179,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .fc:hover{border-color:var(--bd2)}
 .fc.active{background:rgba(124,106,247,.15);border-color:var(--ac);color:var(--ac2)}
 .fsrch{flex:1;min-width:100px;padding:5px 11px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-family:'Crimson Pro',serif;font-size:.8rem;outline:none}
-.dhdr{display:grid;grid-template-columns:26px 1fr 68px 68px 68px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
-.drow{display:grid;grid-template-columns:26px 1fr 68px 68px 68px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:default}
+.dhdr{display:grid;grid-template-columns:26px 1fr 68px 68px 68px 56px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
+.drow{display:grid;grid-template-columns:26px 1fr 68px 68px 68px 56px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:default}
 .drow:hover{background:var(--s3)}
 .drow.rok{border-color:rgba(76,175,128,.2)}
 .drow.rpa{border-color:rgba(232,168,76,.2)}
@@ -356,7 +356,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   .scimgw{width:100%;max-width:220px;margin:0 auto}
   .prig{grid-template-columns:1fr 1fr}
   .tab-btn{font-size:8px;padding:7px 2px}
-  .dhdr,.drow{grid-template-columns:22px 1fr 58px 58px 58px;font-size:.72rem}
+  .dhdr,.drow{grid-template-columns:22px 1fr 58px 58px 58px 46px;font-size:.72rem}
   .collhdr,.collrow{grid-template-columns:1fr 40px 64px}
   .collhdr>div:nth-child(2),.collrow>div:nth-child(2),
   .collhdr>div:nth-child(4),.collrow>div:nth-child(4),
@@ -825,7 +825,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
         <button class="fc" onclick="dFlt('cmd',this)">🛒 Commander</button>
         <input class="fsrch" id="fsrch" type="text" placeholder="Rechercher..." oninput="renderDeck()">
       </div>
-      <div class="dhdr" id="dlisthdr"><div>Qté</div><div>Carte</div><div style="text-align:center">Thibaud</div><div style="text-align:center">Gérémy</div><div style="text-align:center">Antoine</div></div>
+      <div class="dhdr" id="dlisthdr"><div>Qté</div><div>Carte</div><div style="text-align:center">Thibaud</div><div style="text-align:center">Gérémy</div><div style="text-align:center">Antoine</div><div style="text-align:right">Prix</div></div>
       <div id="dlist"></div>
     </div>
   </div>
@@ -1253,7 +1253,7 @@ var srcF='A', dstF='C';
 var csvRows=[], outRows=[], prevSnap=new Map();
 var profs=[null,null,null], actP=-1, eMode='new';
 var scAllP=[], scFlips=[], scFlipN=0, scSugTO=null;
-var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0;
+var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0, allPriceMap={};
 var dFormat='', dCommander=null, dColors=[];
 var COMMANDER_FMTS=['commander','paupercmd','brawl','oathbreaker'];
 var dbarOpen=[false,false,false];
@@ -1907,7 +1907,7 @@ function analyzeDeck(){
     }).join('');
   }else{ph.style.display='none';}
   // --- Estimatif de prix ---
-  var allPriceMap={};
+  allPriceMap={};
   [0,1,2].forEach(function(pi){
     var prof=Array.isArray(profs[pi])?profs[pi]:[];
     prof.forEach(function(c){
@@ -1915,17 +1915,27 @@ function analyzeDeck(){
       if(key&&c.price&&!allPriceMap[key])allPriceMap[key]=parseFloat(c.price)||0;
     });
   });
+  var priceUsages=[0,1,2].map(function(i){return getDeckUsage(i);});
   var priceTotalAll=0,priceMissingOwner=0,priceMissingNoBorrow=0;
   dCards.forEach(function(c){
     var p=allPriceMap[c.nl]||0;
-    var ownerHas=pms[dOwner].get(getKey(c))||0;
     priceTotalAll+=c.qty*p;
-    var need=Math.max(0,c.qty-ownerHas);
+    // Propriétaire : cartes libres = possède - déjà dans un autre deck
+    var ownerHas=pms[dOwner].get(getKey(c))||0;
+    var ownerInDeck=(priceUsages[dOwner].get(c.nl)||{qty:0}).qty;
+    var ownerFree=Math.max(0,ownerHas-ownerInDeck);
+    var need=Math.max(0,c.qty-ownerFree);
     if(need>0){
       priceMissingOwner+=need*p;
-      var friendTotal=0;
-      pms.forEach(function(pm,i){if(i!==dOwner)friendTotal+=pm.get(getKey(c))||0;});
-      var stillNeed=Math.max(0,need-friendTotal);
+      var friendFree=0;
+      pms.forEach(function(pm,i){
+        if(i!==dOwner){
+          var fHas=pm.get(getKey(c))||0;
+          var fInDeck=(priceUsages[i].get(c.nl)||{qty:0}).qty;
+          friendFree+=Math.max(0,fHas-fInDeck);
+        }
+      });
+      var stillNeed=Math.max(0,need-friendFree);
       priceMissingNoBorrow+=stillNeed*p;
     }
   });
@@ -2035,10 +2045,10 @@ function renderDeck(){
         var x=Math.max.apply(null,pms.map(function(m){return m.get(k)||0;}));
         var bc=x===0?'var(--rd2)':x<card.qty?'var(--am)':'var(--gr2)';
         var img=dImgCache[card.nl];
-        html+='<div style="width:80px;text-align:center">'
-          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" style="width:80px;border-radius:5px;border:2px solid '+bc+';display:block">'
-               :'<div style="width:80px;height:112px;background:var(--s3);border-radius:5px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.6rem;color:var(--tx3);padding:2px;text-align:center">'+esc(card.name)+'</div>')
-          +'<div style="font-size:.62rem;color:var(--tx2);margin-top:2px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
+        html+='<div style="width:160px;text-align:center">'
+          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" style="width:160px;border-radius:7px;border:2px solid '+bc+';display:block">'
+               :'<div style="width:160px;height:224px;background:var(--s3);border-radius:7px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.7rem;color:var(--tx3);padding:4px;text-align:center">'+esc(card.name)+'</div>')
+          +'<div style="font-size:.68rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
           +'</div>';
       });
       html+='</div>';
@@ -2069,7 +2079,9 @@ function renderDeck(){
         var pendQD=pending.filter(function(p){return p.name.toLowerCase()===card.nl;}).reduce(function(s,p){return s+p.qty;},0);
         var loanQD=loans.filter(function(l){return l.name.toLowerCase()===card.nl;}).reduce(function(s,l){return s+l.qty;},0);
         var dkBdg=(pendQD?'<span class="badge-pend" title="'+pendQD+'× commandée(s), non reçue(s)">⏳'+pendQD+'</span>':'')+(loanQD?'<span class="badge-loan" title="'+loanQD+'× en prêt actif">🔄'+loanQD+'</span>':'');
-        html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+dkBdg+'</div>'+pc+'</div>';
+        var cardPrice=allPriceMap[card.nl]||0;
+        var priceCell=cardPrice>0?'<div style="text-align:right;color:var(--gold2);font-size:.72rem">'+cardPrice.toFixed(2)+'€</div>':'<div style="text-align:right;color:var(--tx3);font-size:.72rem">—</div>';
+        html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+dkBdg+'</div>'+pc+priceCell+'</div>';
       });
     });
   }
