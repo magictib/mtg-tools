@@ -332,11 +332,12 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   #scry-cols{display:grid;grid-template-columns:320px 1fr;gap:8px;align-items:start}
   #scry-cols>.card{margin-bottom:0}
 }
-#cmd-cols{display:flex;gap:10px;align-items:start}
+.wrap.wrap-fullwidth{max-width:none}
+#cmd-cols{display:flex;gap:12px;align-items:start}
 #cmd-left{flex:1 1 0;min-width:0}
-#cmd-right{flex:0 0 300px;min-width:0;position:sticky;top:16px;max-height:calc(100vh - 48px);overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
+#cmd-right{flex:0 0 340px;min-width:0;position:sticky;top:16px;max-height:calc(100vh - 48px);overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
 #cmd-left>.card,#cmd-right>.card{margin-bottom:8px}
-@media(max-width:560px){
+@media(max-width:700px){
   #cmd-cols{flex-direction:column}
   #cmd-right{position:static;flex:1 1 auto;max-height:none;overflow-y:visible}
 }
@@ -1271,6 +1272,8 @@ function goTab(id) {
   document.querySelectorAll('.tab-btn').forEach(function(el){el.classList.remove('active');});
   document.getElementById('pg-'+id).classList.add('active');
   document.getElementById('tb-'+id).classList.add('active');
+  document.querySelector('.wrap').classList.toggle('wrap-fullwidth', id==='cmd');
+  if(id==='cmd'&&!_cmdSearched){_cmdSearched=true;searchCmd();}
 }
 
 // ===== CONVERTER =====
@@ -1868,38 +1871,36 @@ function analyzeDeck(){
     }).join('');
   }else{ph.style.display='none';}
   // --- Estimatif de prix ---
-  var ownerProf=Array.isArray(profs[dOwner])?profs[dOwner]:[];
-  var priceMap={};
-  ownerProf.forEach(function(c){if(c.name&&c.price)priceMap[stripDFC(c.name).toLowerCase()]=parseFloat(c.price)||0;});
-  var priceOwned=0,priceMiss=0,priceBorrow=0;
+  var allPriceMap={};
+  [0,1,2].forEach(function(pi){
+    var prof=Array.isArray(profs[pi])?profs[pi]:[];
+    prof.forEach(function(c){
+      var key=stripDFC(c.name||'').toLowerCase();
+      if(key&&c.price&&!allPriceMap[key])allPriceMap[key]=parseFloat(c.price)||0;
+    });
+  });
+  var priceTotalAll=0,priceMissingOwner=0,priceMissingNoBorrow=0;
   dCards.forEach(function(c){
-    var p=priceMap[c.nl]||0;
+    var p=allPriceMap[c.nl]||0;
     var ownerHas=pms[dOwner].get(getKey(c))||0;
+    priceTotalAll+=c.qty*p;
     var need=Math.max(0,c.qty-ownerHas);
-    priceOwned+=Math.min(ownerHas,c.qty)*p;
     if(need>0){
-      // check if friends can cover
-      var friendCover=0;
-      pms.forEach(function(pm,i){if(i===dOwner)return;friendCover+=pm.get(getKey(c))||0;});
-      var borrowable=Math.min(need,friendCover);
-      var mustBuy=need-borrowable;
-      priceBorrow+=borrowable*p;
-      priceMiss+=mustBuy*p;
+      priceMissingOwner+=need*p;
+      var friendTotal=0;
+      pms.forEach(function(pm,i){if(i!==dOwner)friendTotal+=pm.get(getKey(c))||0;});
+      var stillNeed=Math.max(0,need-friendTotal);
+      priceMissingNoBorrow+=stillNeed*p;
     }
   });
-  var totalOwned=priceOwned;
-  var totalBorrow=priceOwned+priceBorrow;
-  var totalBuy=priceOwned+priceBorrow+priceMiss;
-  var hasAnyPrice=priceOwned>0||priceMiss>0||priceBorrow>0;
   var dp=document.getElementById('dprice');
-  if(hasAnyPrice){
+  if(priceTotalAll>0){
     dp.innerHTML='<div style="background:var(--s3);border-radius:8px;padding:8px 12px;border:.5px solid var(--bd2)">'
-      +'<div style="font-size:9px;color:var(--tx3);font-family:\'Cinzel\',serif;letter-spacing:.08em;margin-bottom:6px">ESTIMATIF PRIX (source : collection)</div>'
-      +'<div style="display:flex;gap:12px;flex-wrap:wrap">'
-      +'<div><div style="font-size:.78rem;color:var(--tx2)">Possédé</div><div style="font-weight:700;color:var(--gr2)">'+totalOwned.toFixed(2)+'€</div></div>'
-      +(priceBorrow>0?'<div><div style="font-size:.78rem;color:var(--tx2)">+ si emprunt</div><div style="font-weight:700;color:var(--am)">+'+priceBorrow.toFixed(2)+'€</div></div>':'')
-      +(priceMiss>0?'<div><div style="font-size:.78rem;color:var(--tx2)">+ si achat</div><div style="font-weight:700;color:var(--rd2)">+'+priceMiss.toFixed(2)+'€</div></div>':'')
-      +'<div><div style="font-size:.78rem;color:var(--tx2)">Total deck</div><div style="font-weight:700;color:var(--gold2)">'+totalBuy.toFixed(2)+'€</div></div>'
+      +'<div style="font-size:9px;color:var(--tx3);font-family:\'Cinzel\',serif;letter-spacing:.08em;margin-bottom:6px">ESTIMATIF PRIX (source : collections)</div>'
+      +'<div style="display:flex;gap:16px;flex-wrap:wrap">'
+      +'<div><div style="font-size:.78rem;color:var(--tx2)">Prix total deck</div><div style="font-weight:700;color:var(--gold2)">'+priceTotalAll.toFixed(2)+'€</div></div>'
+      +'<div><div style="font-size:.78rem;color:var(--tx2)">Restant à acheter</div><div style="font-weight:700;color:var(--rd2)">'+priceMissingOwner.toFixed(2)+'€</div></div>'
+      +'<div><div style="font-size:.78rem;color:var(--tx2)">Restant (après emprunt)</div><div style="font-weight:700;color:var(--am)">'+priceMissingNoBorrow.toFixed(2)+'€</div></div>'
       +'</div></div>';
   } else {
     dp.innerHTML='';
@@ -2815,6 +2816,7 @@ var cmdCardsMap={}, cmdEDHCardlist=[], cmdEDHCmdName='';
 var cmdPreList=[], edhFilter={type:'',rarity:'',cmc:'',color:''}, cmdScryfallCache={};
 var edhNextPage=null;
 var CMD_FORMATS_WITH_CMDR=['commander','paupercommander','oathbreaker'];
+var _cmdSearched=false;
 
 function setCmdFmt(fmt,btn){
   cmdFmt=fmt;
@@ -2859,8 +2861,8 @@ function searchCmd(){
   q+='legal:'+cmdFmt+' ';
   if(cmdRarity) q+='rarity:'+cmdRarity+' ';
   if(cmdColors.size>0){
-    if(cmdColors.has('C')){q+='color=C ';}
-    else{q+='color>='+Array.from(cmdColors).join('')+' ';}
+    if(cmdColors.has('C')){q+='id=C ';}
+    else{q+='id>='+Array.from(cmdColors).join('')+' ';}
   }
   if(name) q+=name+' ';
   q=q.trim();if(!q)return;
