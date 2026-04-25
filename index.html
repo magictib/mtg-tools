@@ -319,6 +319,10 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ccond{text-align:center;font-size:.7rem;color:var(--tx3)}
 .cfoil{text-align:center;font-size:.7rem;color:var(--ac2)}
 .cprice{text-align:right;font-size:.75rem;color:var(--gr2)}
+@media(min-width:560px){
+  #coll-cols{display:grid;grid-template-columns:210px 1fr;gap:8px;align-items:start}
+  #coll-cols>.card{margin-bottom:0}
+}
 @media(max-width:480px){
   .g4{grid-template-columns:1fr 1fr}
   .sccard.active{flex-direction:column}
@@ -547,6 +551,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 
 <!-- COLLECTION -->
 <div class="page" id="pg-coll">
+  <div id="coll-cols">
   <div class="card">
     <div class="lbl">Profil</div>
     <div class="pg">
@@ -586,6 +591,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     </div>
     <div id="colllist"></div>
   </div>
+  </div><!-- /coll-cols -->
   <div id="collempty" style="text-align:center;color:var(--tx3);font-style:italic;padding:2rem 1rem;font-size:.9rem">Importez un fichier CSV dans le Convertisseur pour alimenter la collection.</div>
 </div>
 
@@ -788,9 +794,16 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div id="bld-kw-tags" style="display:flex;flex-wrap:wrap;gap:4px"></div>
     </div>
     <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em">RANG EDHREC MAX</span>
-      <input type="number" id="bld-edh-rank" min="1" placeholder="—" style="width:76px;padding:4px 8px;font-size:.82rem;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none" title="Filtre par rang EDHREC — plus petit = plus populaire">
-      <span style="font-size:.72rem;color:var(--tx3);font-style:italic">plus petit = plus populaire</span>
+      <span style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em">TRIER PAR</span>
+      <select id="bld-sort" onchange="if(document.getElementById('bld-q').value.trim()||bldSrchKeywords.size)bldSearch()" style="font-size:.8rem;padding:4px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+        <option value="name">Nom</option>
+        <option value="edhrec">Rang EDH</option>
+        <option value="cmc">Coût de mana</option>
+        <option value="color">Couleur</option>
+        <option value="released">Date de sortie</option>
+        <option value="eur">Prix €</option>
+        <option value="usd">Prix $</option>
+      </select>
     </div>
   </div>
   <div class="card" id="bld-rescard" style="display:none">
@@ -3399,8 +3412,6 @@ function bldBuildQ(){
   bldSrchKeywords.forEach(function(k){parts.push('keyword:'+(k.indexOf(' ')>=0?'"'+k+'"':k));});
   var cmc=(document.getElementById('bld-cmc')||{value:''}).value.trim();
   if(cmc!=='')parts.push('cmc='+cmc);
-  var edhRank=(document.getElementById('bld-edh-rank')||{value:''}).value.trim();
-  if(edhRank!=='')parts.push('edhrec_rank<='+edhRank);
   return parts.join(' ');
 }
 function bldSearch(){
@@ -3410,7 +3421,8 @@ function bldSearch(){
   grid.innerHTML='<div style="text-align:center;color:var(--tx2);padding:1rem;font-style:italic">Chargement...</div>';
   document.getElementById('bld-rescard').style.display='block';
   document.getElementById('bld-morebtn').style.display='none';
-  fetch('https://api.scryfall.com/cards/search?order=name&q='+encodeURIComponent(q))
+  var sort=(document.getElementById('bld-sort')||{value:'name'}).value||'name';
+  fetch('https://api.scryfall.com/cards/search?order='+encodeURIComponent(sort)+'&q='+encodeURIComponent(q))
     .then(function(r){return r.json();})
     .then(function(d){bldRenderRes(d,false);})
     .catch(function(){grid.innerHTML='<div style="text-align:center;color:var(--rd2);padding:1rem">Aucun résultat</div>';});
