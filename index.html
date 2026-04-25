@@ -343,7 +343,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 
 <div class="tabs">
   <button class="tab-btn active" id="tb-conv" onclick="goTab('conv')">⇄ Conv.</button>
-  <button class="tab-btn" id="tb-scry" onclick="goTab('scry')">✦ Biblio</button>
+  <button class="tab-btn" id="tb-scry" onclick="goTab('scry');loadScryfallSets()">✦ Biblio</button>
   <button class="tab-btn" id="tb-coll" onclick="goTab('coll')">◈ Collection</button>
   <button class="tab-btn" id="tb-cmd" onclick="goTab('cmd')">⚔ Commandants</button>
   <button class="tab-btn" id="tb-deck" onclick="goTab('deck')">♥ Deck</button>
@@ -628,8 +628,11 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   </div>
   <div class="card">
     <div class="lbl">Cartes dans une extension</div>
+    <select id="set-sel" style="width:100%;margin-bottom:8px;font-size:.85rem;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none" onchange="setSelPick(this.value)">
+      <option value="">— Choisir une extension... —</option>
+    </select>
     <div class="row" style="margin-bottom:8px">
-      <input type="text" id="set-in" placeholder="Code ou nom de l'extension (ex: mh3, blb, Commander Masters)..." style="flex:1" onkeydown="if(event.key==='Enter')setSearch()">
+      <input type="text" id="set-in" placeholder="Ou tapez un code / nom (mh3, blb, Commander Masters)..." style="flex:1" onkeydown="if(event.key==='Enter')setSearch()">
       <button class="btn btnp btnsm" onclick="setSearch()">Chercher</button>
     </div>
     <div id="set-load" style="display:none;text-align:center;color:var(--tx2);font-style:italic;padding:1rem;font-size:.9rem">Chargement...</div>
@@ -1912,6 +1915,56 @@ function dlTxt(content,filename){
 
 // ===== BIBLIOTHÈQUE — RECHERCHE PAR EXTENSION =====
 var setNextPage=null;
+var _setsLoaded=false;
+var SET_TYPE_LABELS={
+  expansion:'Extensions',core:'Sets de base',masters:'Masters',commander:'Commander',
+  draft_innovation:'Innovation Draft',starter:'Sets d\'initiation',box:'Box Sets',
+  planechase:'Planechase',archenemy:'Archenemy',duel_deck:'Decks duel',
+  from_the_vault:'From the Vault',premium_deck:'Decks premium',masterpiece:'Masterpiece',
+  alchemy:'Alchemy',funny:'Un-sets'
+};
+var SET_TYPE_ORDER=['expansion','core','masters','commander','draft_innovation','starter','box','planechase','archenemy','duel_deck','from_the_vault','premium_deck','masterpiece','alchemy','funny'];
+var SET_SKIP=['token','memorabilia','vanguard','minigame','treasure_chest','promo'];
+function loadScryfallSets(){
+  if(_setsLoaded)return;
+  var sel=document.getElementById('set-sel');if(!sel)return;
+  sel.innerHTML='<option value="">— Chargement des extensions... —</option>';
+  fetch('https://api.scryfall.com/sets').then(function(r){return r.json();}).then(function(data){
+    var sets=(data.data||[]).filter(function(s){return SET_SKIP.indexOf(s.set_type)<0&&s.card_count>0;});
+    var byType={};
+    sets.forEach(function(s){
+      var t=s.set_type;
+      if(!byType[t])byType[t]=[];
+      byType[t].push(s);
+    });
+    var html='<option value="">— Choisir une extension... —</option>';
+    SET_TYPE_ORDER.forEach(function(t){
+      var list=byType[t];if(!list||!list.length)return;
+      list.sort(function(a,b){return (b.released_at||'').localeCompare(a.released_at||'');});
+      html+='<optgroup label="'+esc(SET_TYPE_LABELS[t]||t)+'">';
+      list.forEach(function(s){
+        var yr=s.released_at?s.released_at.slice(0,4):'';
+        html+='<option value="'+esc(s.code)+'">'+esc(s.name)+(yr?' ('+yr+')':'')+'</option>';
+      });
+      html+='</optgroup>';
+    });
+    // Remaining types not in order
+    Object.keys(byType).forEach(function(t){
+      if(SET_TYPE_ORDER.indexOf(t)>=0||SET_SKIP.indexOf(t)>=0)return;
+      var list=byType[t];list.sort(function(a,b){return (b.released_at||'').localeCompare(a.released_at||'');});
+      html+='<optgroup label="'+esc(t)+'">';
+      list.forEach(function(s){html+='<option value="'+esc(s.code)+'">'+esc(s.name)+'</option>';});
+      html+='</optgroup>';
+    });
+    sel.innerHTML=html;
+    _setsLoaded=true;
+  }).catch(function(){sel.innerHTML='<option value="">— Erreur de chargement —</option>';});
+}
+function setSelPick(code){
+  if(!code)return;
+  var inp=document.getElementById('set-in');if(inp)inp.value=code;
+  setSearch();
+}
 function setSearch(){
   var q=(document.getElementById('set-in')||{value:''}).value.trim();if(!q)return;
   setNextPage=null;
