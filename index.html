@@ -1973,20 +1973,28 @@ function setSearch(){
   document.getElementById('set-grid').innerHTML='';
   document.getElementById('set-info').innerHTML='';
   document.getElementById('set-morebtn').style.display='none';
-  // Try set code first, then set name search
-  var setCode=q.replace(/\s+/g,'').toLowerCase();
-  var url='https://api.scryfall.com/cards/search?order=set&q=e%3A'+encodeURIComponent(setCode)+'&unique=prints';
-  fetch(url).then(function(r){return r.json();}).then(function(d){
-    if(d.object==='error'||!d.data||!d.data.length){
-      // Fallback: search by set name
-      var url2='https://api.scryfall.com/cards/search?order=set&q='+encodeURIComponent('s:"'+q+'"')+'&unique=prints';
-      return fetch(url2).then(function(r2){return r2.json();}).then(function(d2){setRenderRes(d2,false,q);});
-    }
-    setRenderRes(d,false,q);
-  }).catch(function(){
-    document.getElementById('set-load').style.display='none';
-    var e=document.getElementById('set-err');e.textContent='Aucun résultat pour cette extension.';e.style.display='block';
-  });
+  var code=q.replace(/\s+/g,'').toLowerCase();
+  // Step 1: get set metadata (and search_uri) from /sets/{code}
+  fetch('https://api.scryfall.com/sets/'+encodeURIComponent(code))
+    .then(function(r){return r.json();})
+    .then(function(s){
+      if(s.object==='error')throw new Error('not found');
+      document.getElementById('set-info').innerHTML=
+        '<div style="font-size:.82rem;color:var(--tx2);margin-bottom:4px">'
+        +'<span style="font-family:\'Cinzel\',serif;color:var(--gold2)">'+esc(s.name)+'</span>'
+        +' <span style="color:var(--tx3)">('+esc((s.code||'').toUpperCase())+')</span>'
+        +' · '+s.card_count+' cartes</div>';
+      // Step 2: use Scryfall's own search_uri for the set cards
+      return fetch(s.search_uri);
+    })
+    .then(function(r){return r.json();})
+    .then(function(d){setRenderRes(d,false,'');})
+    .catch(function(){
+      document.getElementById('set-load').style.display='none';
+      var e=document.getElementById('set-err');
+      e.textContent='Extension non trouvée : "'+q+'". Utilisez le code Scryfall (ex: mh3, blb, otj).';
+      e.style.display='block';
+    });
 }
 function setLoadMore(){
   if(!setNextPage)return;
@@ -2000,9 +2008,9 @@ function setRenderRes(data,append,query){
     return;
   }
   setNextPage=data.has_more?data.next_page:null;
-  if(!append&&data.data.length){
-    var first=data.data[0];var setNm=first.set_name||'';var setCode=(first.set||'').toUpperCase();
-    document.getElementById('set-info').innerHTML='<div style="font-size:.82rem;color:var(--tx2);margin-bottom:4px"><span style="font-family:\'Cinzel\',serif;color:var(--gold2)">'+esc(setNm)+'</span> <span style="color:var(--tx3)">('+esc(setCode)+')</span> · '+data.total_cards+' cartes</div>';
+  if(!append&&!document.getElementById('set-info').textContent){
+    var first=data.data[0];var setNm=first.set_name||'';var setCodeU=(first.set||'').toUpperCase();
+    document.getElementById('set-info').innerHTML='<div style="font-size:.82rem;color:var(--tx2);margin-bottom:4px"><span style="font-family:\'Cinzel\',serif;color:var(--gold2)">'+esc(setNm)+'</span> <span style="color:var(--tx3)">('+esc(setCodeU)+')</span> · '+data.total_cards+' cartes</div>';
   }
   var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
   var html=data.data.map(function(c){
