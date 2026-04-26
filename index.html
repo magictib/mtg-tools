@@ -12,6 +12,7 @@
 <link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet">
 <!-- Firebase compat (expose firebase.* global) -->
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -35,6 +36,17 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 .ml-logo{position:relative;width:92px;height:92px;margin:0 auto 2px;display:flex;align-items:center;justify-content:center}
 .ml-pent-sym{position:absolute;font-size:1.05rem;filter:drop-shadow(0 0 4px rgba(0,0,0,.5))}
 .ml-flask{position:relative;z-index:1;filter:drop-shadow(0 0 8px rgba(201,168,76,.45))}
+/* Auth */
+#auth-overlay{position:fixed;inset:0;z-index:5000;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:1.5rem;overflow-y:auto}
+.auth-card{background:var(--s2);border:.5px solid var(--bd2);border-radius:16px;padding:1.5rem 1.25rem;width:100%;max-width:360px}
+.auth-tabs{display:flex;gap:4px;margin-bottom:1rem}
+.auth-tab{flex:1;padding:7px 4px;border-radius:8px;border:.5px solid var(--bd2);background:transparent;color:var(--tx2);font-family:'Cinzel',serif;font-size:.76rem;cursor:pointer;transition:.15s}
+.auth-tab.on{background:var(--s3);color:var(--gold2);border-color:var(--gold2)}
+.auth-msg{font-size:.78rem;text-align:center;margin-top:8px;min-height:1.1rem}
+.auth-msg.ok{color:var(--gr2)}.auth-msg.err{color:var(--rd2)}
+#auth-user-bar{display:none;align-items:center;justify-content:center;gap:8px;padding:4px 0 2px;font-size:.75rem;color:var(--tx3)}
+#admin-overlay{position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.88);display:flex;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto}
+.admin-card{background:var(--s1);border:.5px solid var(--bd2);border-radius:16px;padding:1.25rem;width:100%;max-width:480px;margin-top:1.5rem}
 /* Scanner */
 .scan-modal{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.97);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:1rem;gap:10px;overflow-y:auto}
 .scan-guide{position:absolute;border:2.5px solid #c9a84c;border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.52);pointer-events:none;z-index:1}
@@ -386,7 +398,80 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 </style>
 </head>
 <body>
-<div class="wrap wrap-fullwidth">
+
+<!-- Auth overlay (visible until logged in + approved) -->
+<div id="auth-overlay">
+  <div style="width:100%;max-width:360px">
+    <!-- Logo -->
+    <div style="text-align:center;margin-bottom:1.5rem">
+      <div class="ml-logo" style="margin:0 auto 8px">
+        <i class="ms ms-w ms-cost ml-pent-sym" style="top:0;left:50%;transform:translateX(-50%)"></i>
+        <i class="ms ms-u ms-cost ml-pent-sym" style="top:18%;right:0"></i>
+        <i class="ms ms-b ms-cost ml-pent-sym" style="bottom:2px;right:11%"></i>
+        <i class="ms ms-r ms-cost ml-pent-sym" style="bottom:2px;left:11%"></i>
+        <i class="ms ms-g ms-cost ml-pent-sym" style="top:18%;left:0"></i>
+        <svg class="ml-flask" viewBox="0 0 40 50" width="30" height="38">
+          <rect x="14" y="1" width="12" height="15" rx="2" fill="none" stroke="#c9a84c" stroke-width="2.2"/>
+          <path d="M14,16 L2,46 H38 L26,16 Z" fill="rgba(80,160,255,0.13)" stroke="#c9a84c" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M6,37 L34,37 L38,46 H2 Z" fill="rgba(80,160,255,0.38)"/>
+          <circle cx="12" cy="40" r="1.6" fill="rgba(255,255,255,0.5)"/>
+          <circle cx="22" cy="42" r="1" fill="rgba(255,255,255,0.4)"/>
+        </svg>
+      </div>
+      <div style="font-family:'Cinzel',serif;font-size:1.5rem;color:var(--gold2);letter-spacing:.12em">Mana<span style="font-weight:300;color:var(--tx2)">LAB</span></div>
+    </div>
+    <!-- Login/Register card -->
+    <div class="auth-card" id="auth-form-card">
+      <div class="auth-tabs">
+        <button class="auth-tab on" id="auth-tab-login" onclick="authShowTab('login')">Connexion</button>
+        <button class="auth-tab" id="auth-tab-register" onclick="authShowTab('register')">Inscription</button>
+      </div>
+      <div id="auth-login-panel">
+        <input type="email" id="auth-email" placeholder="Email" style="width:100%;margin-bottom:8px">
+        <input type="password" id="auth-pw" placeholder="Mot de passe" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')authLogin()">
+        <button class="btn btnp" style="width:100%" onclick="authLogin()">Se connecter</button>
+        <div style="text-align:center;margin-top:8px">
+          <button style="background:none;border:none;color:var(--tx3);font-size:.75rem;cursor:pointer" onclick="authResetPw()">Mot de passe oublié ?</button>
+        </div>
+      </div>
+      <div id="auth-register-panel" style="display:none">
+        <input type="text" id="auth-displayname" placeholder="Votre prénom ou pseudo" style="width:100%;margin-bottom:8px">
+        <input type="email" id="auth-reg-email" placeholder="Email" style="width:100%;margin-bottom:8px">
+        <input type="password" id="auth-reg-pw" placeholder="Mot de passe (6 car. min.)" style="width:100%;margin-bottom:8px">
+        <input type="password" id="auth-reg-pw2" placeholder="Confirmer le mot de passe" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')authRegister()">
+        <button class="btn btnp" style="width:100%" onclick="authRegister()">Créer un compte</button>
+      </div>
+      <div id="auth-msg" class="auth-msg"></div>
+    </div>
+    <!-- Pending -->
+    <div class="auth-card" id="auth-pending-card" style="display:none;text-align:center">
+      <div style="font-size:2.5rem;margin-bottom:.75rem">⏳</div>
+      <div style="font-family:'Cinzel',serif;color:var(--gold2);font-size:.95rem;margin-bottom:.5rem">En attente de validation</div>
+      <div style="color:var(--tx3);font-size:.82rem;line-height:1.6">Compte créé avec succès.<br>L'administrateur doit valider votre accès.</div>
+      <button class="btn btnsm" onclick="authSignOut()" style="margin-top:1.25rem">Se déconnecter</button>
+    </div>
+    <!-- Banned -->
+    <div class="auth-card" id="auth-banned-card" style="display:none;text-align:center">
+      <div style="font-size:2.5rem;margin-bottom:.75rem">🚫</div>
+      <div style="font-family:'Cinzel',serif;color:var(--rd2);font-size:.95rem;margin-bottom:.5rem">Accès refusé</div>
+      <div style="color:var(--tx3);font-size:.82rem">Contactez thibaud.combes31@gmail.com.</div>
+      <button class="btn btnsm" onclick="authSignOut()" style="margin-top:1.25rem">Se déconnecter</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin panel overlay -->
+<div id="admin-overlay" style="display:none">
+  <div class="admin-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <span style="font-family:'Cinzel',serif;color:var(--gold2);font-size:.9rem;letter-spacing:.08em">⚙ GESTION UTILISATEURS</span>
+      <button class="btn btnsm" onclick="closeAdminPanel()">✕</button>
+    </div>
+    <div id="admin-user-list"><div style="color:var(--tx3);font-size:.82rem">Chargement…</div></div>
+  </div>
+</div>
+
+<div class="wrap wrap-fullwidth" id="wrap-main" style="display:none">
 <header>
   <div class="ml-logo">
     <i class="ms ms-w ms-cost ml-pent-sym" style="top:0;left:50%;transform:translateX(-50%)"></i>
@@ -404,6 +489,11 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     </svg>
   </div>
   <h1>Mana<span>LAB</span></h1>
+  <div id="auth-user-bar">
+    <span id="auth-username-lbl" style="color:var(--tx2)"></span>
+    <button class="btn btnsm" id="auth-admin-btn" onclick="openAdminPanel()" style="display:none;padding:2px 8px;font-size:.72rem">⚙ Admin</button>
+    <button class="btn btnsm" onclick="authSignOut()" style="padding:2px 8px;font-size:.72rem;border-color:var(--tx3);color:var(--tx3)">Déco.</button>
+  </div>
 </header>
 
 <div class="tabs">
@@ -1349,6 +1439,169 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 var userId = 'default_user';
+
+// ===== AUTH =====
+var _ADMIN_EMAIL='thibaud.combes31@gmail.com';
+var _currentUser=null;
+var _userRole=null;
+
+firebase.auth().onAuthStateChanged(function(user){
+  if(!user){
+    _currentUser=null;_userRole=null;
+    _showAuthScreen('form');return;
+  }
+  _currentUser=user;
+  db.collection('users').doc(user.uid).get().then(function(doc){
+    var role;
+    if(!doc.exists){
+      role=user.email===_ADMIN_EMAIL?'admin':'pending';
+      return db.collection('users').doc(user.uid).set({
+        email:user.email,
+        name:user.displayName||user.email.split('@')[0],
+        role:role,
+        createdAt:firebase.firestore.FieldValue.serverTimestamp()
+      }).then(function(){_onUserRole(user,role);});
+    }
+    role=doc.data().role;
+    _onUserRole(user,role);
+  }).catch(function(){
+    // Firestore unavailable — allow admin by email, else block
+    _onUserRole(user,user.email===_ADMIN_EMAIL?'admin':'pending');
+  });
+});
+
+function _onUserRole(user,role){
+  _userRole=role;
+  if(role==='admin'||role==='approved'){
+    document.getElementById('auth-overlay').style.display='none';
+    document.getElementById('wrap-main').style.display='';
+    var bar=document.getElementById('auth-user-bar');
+    bar.style.display='flex';
+    document.getElementById('auth-username-lbl').textContent=user.displayName||user.email;
+    document.getElementById('auth-admin-btn').style.display=role==='admin'?'inline-block':'none';
+    userId=user.uid;
+    loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
+  } else if(role==='pending'){
+    _showAuthScreen('pending');
+  } else {
+    _showAuthScreen('banned');
+  }
+}
+
+function _showAuthScreen(mode){
+  document.getElementById('auth-overlay').style.display='flex';
+  document.getElementById('wrap-main').style.display='none';
+  document.getElementById('auth-form-card').style.display='none';
+  document.getElementById('auth-pending-card').style.display='none';
+  document.getElementById('auth-banned-card').style.display='none';
+  if(mode==='form')document.getElementById('auth-form-card').style.display='block';
+  else if(mode==='pending')document.getElementById('auth-pending-card').style.display='block';
+  else document.getElementById('auth-banned-card').style.display='block';
+}
+
+function authShowTab(tab){
+  document.getElementById('auth-login-panel').style.display=tab==='login'?'block':'none';
+  document.getElementById('auth-register-panel').style.display=tab==='register'?'block':'none';
+  document.getElementById('auth-tab-login').className='auth-tab'+(tab==='login'?' on':'');
+  document.getElementById('auth-tab-register').className='auth-tab'+(tab==='register'?' on':'');
+  document.getElementById('auth-msg').textContent='';
+}
+
+function _authMsg(msg,isErr){
+  var el=document.getElementById('auth-msg');
+  el.textContent=msg;el.className='auth-msg '+(isErr?'err':'ok');
+}
+
+function authLogin(){
+  var email=(document.getElementById('auth-email').value||'').trim();
+  var pw=document.getElementById('auth-pw').value;
+  if(!email||!pw){_authMsg('Email et mot de passe requis',true);return;}
+  _authMsg('Connexion…',false);
+  firebase.auth().signInWithEmailAndPassword(email,pw).catch(function(e){
+    var msgs={'auth/user-not-found':'Aucun compte avec cet email','auth/wrong-password':'Mot de passe incorrect',
+      'auth/invalid-credential':'Email ou mot de passe incorrect','auth/invalid-email':'Email invalide',
+      'auth/too-many-requests':'Trop de tentatives, réessayez plus tard'};
+    _authMsg(msgs[e.code]||e.message,true);
+  });
+}
+
+function authRegister(){
+  var name=(document.getElementById('auth-displayname').value||'').trim();
+  var email=(document.getElementById('auth-reg-email').value||'').trim();
+  var pw=document.getElementById('auth-reg-pw').value;
+  var pw2=document.getElementById('auth-reg-pw2').value;
+  if(!name){_authMsg('Entrez un prénom ou pseudo',true);return;}
+  if(!email){_authMsg('Email requis',true);return;}
+  if(pw.length<6){_authMsg('Mot de passe : 6 caractères minimum',true);return;}
+  if(pw!==pw2){_authMsg('Les mots de passe ne correspondent pas',true);return;}
+  _authMsg('Création du compte…',false);
+  firebase.auth().createUserWithEmailAndPassword(email,pw).then(function(cred){
+    return cred.user.updateProfile({displayName:name});
+  }).catch(function(e){
+    var msgs={'auth/email-already-in-use':'Un compte existe déjà avec cet email',
+      'auth/invalid-email':'Email invalide','auth/weak-password':'Mot de passe trop faible'};
+    _authMsg(msgs[e.code]||e.message,true);
+  });
+}
+
+function authResetPw(){
+  var email=(document.getElementById('auth-email').value||'').trim();
+  if(!email){_authMsg('Entrez votre email d\'abord',true);return;}
+  firebase.auth().sendPasswordResetEmail(email)
+    .then(function(){_authMsg('Email envoyé — vérifiez votre boîte',false);})
+    .catch(function(e){_authMsg(e.message,true);});
+}
+
+function authSignOut(){firebase.auth().signOut();}
+
+// ===== ADMIN PANEL =====
+function openAdminPanel(){
+  if(_userRole!=='admin')return;
+  document.getElementById('admin-overlay').style.display='flex';
+  _loadAdminUsers();
+}
+function closeAdminPanel(){document.getElementById('admin-overlay').style.display='none';}
+
+function _loadAdminUsers(){
+  var list=document.getElementById('admin-user-list');
+  list.innerHTML='<div style="color:var(--tx3);font-size:.82rem">Chargement…</div>';
+  db.collection('users').get().then(function(snap){
+    if(snap.empty){list.innerHTML='<div style="color:var(--tx3)">Aucun utilisateur</div>';return;}
+    var roleLabel={admin:'⭐ Admin',approved:'✓ Approuvé',pending:'⏳ En attente',banned:'🚫 Banni'};
+    var roleColor={admin:'var(--gold2)',approved:'var(--gr2)',pending:'var(--am)',banned:'var(--rd2)'};
+    var docs=snap.docs.slice().sort(function(a,b){
+      var ord={admin:0,approved:1,pending:2,banned:3};
+      return (ord[a.data().role]||9)-(ord[b.data().role]||9);
+    });
+    list.innerHTML=docs.map(function(doc){
+      var u=doc.data();var uid=doc.id;
+      var isMe=_currentUser&&uid===_currentUser.uid;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:.5px solid var(--bd)">'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:.85rem;color:var(--tx)">'+esc(u.name||'')+(isMe?' <span style="color:var(--tx3);font-size:.7rem">(vous)</span>':'')+'</div>'
+        +'<div style="font-size:.72rem;color:var(--tx3)">'+esc(u.email||'')+'</div>'
+        +'</div>'
+        +'<span style="font-size:.75rem;font-weight:600;color:'+(roleColor[u.role]||'var(--tx3)')+'">'+( roleLabel[u.role]||u.role)+'</span>'
+        +(!isMe&&u.role!=='admin'
+          ?'<div style="display:flex;gap:4px">'
+            +(u.role!=='approved'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--gr2);border-color:var(--gr2)" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">✓ Valider</button>':'')
+            +(u.role!=='banned'?'<button class="btn btnsm btnrd" style="font-size:.7rem;padding:2px 8px" onclick="adminSetRole(\''+uid+'\',\'banned\',this)">✕ Bannir</button>':'')
+            +(u.role==='banned'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">↩ Restaurer</button>':'')
+            +'</div>'
+          :'')
+        +'</div>';
+    }).join('');
+  }).catch(function(e){
+    list.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Erreur Firestore: '+e.message+'</div>';
+  });
+}
+
+function adminSetRole(uid,role,btn){
+  btn.disabled=true;
+  db.collection('users').doc(uid).update({role:role}).then(function(){
+    _loadAdminUsers();
+  }).catch(function(e){btn.disabled=false;alert('Erreur: '+e.message);});
+}
 
 // ===== MAPPINGS =====
 var L2L={fr:'French',en:'English',de:'German',es:'Spanish',it:'Italian',pt:'Portuguese',ja:'Japanese',ko:'Korean',ru:'Russian'};
@@ -4763,12 +5016,7 @@ document.addEventListener('DOMContentLoaded',function(){
   dz.addEventListener('dragleave',function(){dz.classList.remove('ov');});
   dz.addEventListener('drop',function(e){e.preventDefault();dz.classList.remove('ov');loadFile(e.dataTransfer.files[0]);});
   document.getElementById('fin').addEventListener('change',function(e){loadFile(e.target.files[0]);});
-  loadProfs();
-  loadDecks();
-  loadGames();
-  loadPending();
-  loadLoans();
-  loadTrades();
+  // Data loading deferred to auth callback (_onUserRole)
   updConv();
   scState('empty');
 });
