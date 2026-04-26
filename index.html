@@ -1127,15 +1127,18 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
         <div style="display:flex;flex-direction:column;gap:5px" id="mg-players">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="0"> Thibaud</label>
-            <select id="mg-deck0" class="gsetup-deck" style="flex:1;max-width:none"><option value="">— Aucun deck —</option></select>
+            <select id="mg-deck0" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(0,this.value)"><option value="">— Aucun deck —</option></select>
+            <div id="mg-colors0" style="display:flex;gap:2px;flex-shrink:0"></div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="1"> Gérémy</label>
-            <select id="mg-deck1" class="gsetup-deck" style="flex:1;max-width:none"><option value="">— Aucun deck —</option></select>
+            <select id="mg-deck1" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(1,this.value)"><option value="">— Aucun deck —</option></select>
+            <div id="mg-colors1" style="display:flex;gap:2px;flex-shrink:0"></div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="2"> Antoine</label>
-            <select id="mg-deck2" class="gsetup-deck" style="flex:1;max-width:none"><option value="">— Aucun deck —</option></select>
+            <select id="mg-deck2" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(2,this.value)"><option value="">— Aucun deck —</option></select>
+            <div id="mg-colors2" style="display:flex;gap:2px;flex-shrink:0"></div>
           </div>
           <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="3"> <input type="text" id="mg-extra-name" placeholder="Autre joueur..." style="width:100px;font-size:.78rem;padding:2px 5px;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)"></label>
         </div>
@@ -2956,8 +2959,8 @@ function endGame(winnerIdx){
   if(winnerIdx===null&&!confirm('Terminer la partie sans vainqueur ?'))return;
   var record={id:Date.now(),date:new Date().toLocaleDateString('fr-FR'),fmt:activeGame.fmt,
     startLife:activeGame.startLife,
-    players:activeGame.players.map(function(p){return{name:p.name,profIdx:p.profIdx,deckId:p.deckId||'',deckName:p.deckName||'',finalLife:p.life,poison:p.poison};}),
-    winner:winner?{name:winner.name,profIdx:winner.profIdx,deckId:winner.deckId||'',deckName:winner.deckName||''}:null,
+    players:activeGame.players.map(function(p){return{name:p.name,profIdx:p.profIdx,deckId:p.deckId||'',deckName:p.deckName||'',colors:(p.colors||[]).slice(),finalLife:p.life,poison:p.poison};}),
+    winner:winner?{name:winner.name,profIdx:winner.profIdx,deckId:winner.deckId||'',deckName:winner.deckName||'',colors:(winner.colors||[]).slice()}:null,
     duration:Math.round((Date.now()-activeGame.startedAt)/60000)
   };
   games.unshift(record);saveGames();
@@ -2969,6 +2972,10 @@ function endGame(winnerIdx){
   resetSetupColors();
   renderGameStats();renderGameHistory();
 }
+
+var _MTG_COLORS=['W','U','B','R','G'];
+var _MTG_COLOR_CSS={W:'#f5f0c0',U:'#5a9de0',B:'#777',R:'#d44',G:'#4a9a4a'};
+var _MTG_COLOR_NAME={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
 
 function renderGameStats(){
   var profSt={};
@@ -3008,6 +3015,50 @@ function renderGameStats(){
         +'<div style="font-size:.8rem;color:var(--gr2);min-width:48px;text-align:right">'+s.won+' vic.</div>'
         +'<div style="font-size:.8rem;font-weight:700;min-width:38px;text-align:right;color:'+(wr>=50?'var(--gr2)':wr>=30?'var(--am)':'var(--tx3)')+'">'+wr+'%</div></div>';
     }).join('');
+  }
+  // Victoires par couleur (fromage)
+  var colorSt={};
+  _MTG_COLORS.forEach(function(c){colorSt[c]={played:0,won:0};});
+  games.forEach(function(g){
+    g.players.forEach(function(p){
+      var cols=p.colors||(p.deckId&&decks[p.deckId]?(decks[p.deckId].colors||(decks[p.deckId].commander?decks[p.deckId].commander.colors:[])):[])||[];
+      cols.forEach(function(c){if(colorSt[c])colorSt[c].played++;});
+    });
+    if(g.winner){
+      var wcols=g.winner.colors||(g.winner.deckId&&decks[g.winner.deckId]?(decks[g.winner.deckId].colors||(decks[g.winner.deckId].commander?decks[g.winner.deckId].commander.colors:[])):[])||[];
+      wcols.forEach(function(c){if(colorSt[c])colorSt[c].won++;});
+    }
+  });
+  var totalWins=_MTG_COLORS.reduce(function(s,c){return s+colorSt[c].won;},0);
+  var anyColor=_MTG_COLORS.some(function(c){return colorSt[c].played>0;});
+  if(anyColor){
+    html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Cinzel\',serif;letter-spacing:.08em;margin:8px 0 4px">PAR COULEUR</div>';
+    // pie chart (conic-gradient) based on wins
+    var gradParts=[];var acc=0;
+    _MTG_COLORS.forEach(function(c){
+      if(!colorSt[c].won)return;
+      var pct=totalWins>0?colorSt[c].won/totalWins*100:0;
+      gradParts.push(_MTG_COLOR_CSS[c]+' '+acc.toFixed(1)+'% '+(acc+pct).toFixed(1)+'%');
+      acc+=pct;
+    });
+    var pieStyle='width:72px;height:72px;border-radius:50%;flex-shrink:0;border:2px solid var(--bd2)';
+    if(gradParts.length)pieStyle+=';background:conic-gradient('+gradParts.join(',')+')';
+    else pieStyle+=';background:var(--s3)';
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+    html+='<div style="'+pieStyle+'"></div>';
+    html+='<div style="flex:1">';
+    _MTG_COLORS.forEach(function(c){
+      var s=colorSt[c];if(!s.played)return;
+      var wr=Math.round(s.won/s.played*100);
+      html+='<div style="display:flex;align-items:center;gap:4px;font-size:.74rem;margin-bottom:2px">';
+      html+='<div style="width:9px;height:9px;border-radius:50%;background:'+_MTG_COLOR_CSS[c]+';flex-shrink:0;border:.5px solid var(--bd2)"></div>';
+      html+='<span style="color:var(--tx2);flex:1">'+_MTG_COLOR_NAME[c]+'</span>';
+      html+='<span style="color:var(--tx3);margin-right:3px">'+s.played+'p</span>';
+      html+='<span style="color:var(--gr2);min-width:22px;text-align:right">'+s.won+'V</span>';
+      html+='<span style="font-weight:700;min-width:30px;text-align:right;color:'+(wr>=50?'var(--gr2)':wr>=30?'var(--am)':'var(--tx3)')+'">'+wr+'%</span>';
+      html+='</div>';
+    });
+    html+='</div></div>';
   }
   // Matchups deck vs deck
   var matchups={};
@@ -3111,12 +3162,32 @@ function clearGames(){
   games=[];saveGames();renderGameStats();renderGameHistory();
 }
 
+function mgColorBtns(pi,activeColors){
+  activeColors=activeColors||[];
+  return _MTG_COLORS.map(function(c){
+    var on=activeColors.indexOf(c)>=0?' on':'';
+    return '<button class="gcolor-btn'+on+'" data-color="'+c+'" onclick="mgToggleColor('+pi+',\''+c+'\',this)" title="'+_MTG_COLOR_NAME[c]+'"><i class="ms ms-'+c.toLowerCase()+' ms-cost"></i></button>';
+  }).join('');
+}
+function mgApplyDeckColors(pi,deckId){
+  var container=document.getElementById('mg-colors'+pi);if(!container)return;
+  var colors=(deckId&&decks[deckId]&&(decks[deckId].colors||(decks[deckId].commander?decks[deckId].commander.colors:[])))||[];
+  container.innerHTML=mgColorBtns(pi,colors);
+}
+function mgToggleColor(pi,color,btn){btn.classList.toggle('on');}
+function mgGetColors(pi){
+  var container=document.getElementById('mg-colors'+pi);if(!container)return[];
+  return Array.from(container.querySelectorAll('.gcolor-btn.on')).map(function(b){return b.dataset.color;});
+}
+
 function _fillMgDecks(){
   [0,1,2].forEach(function(pi){
     var sel=document.getElementById('mg-deck'+pi);if(!sel)return;
     var myDecks=Object.keys(decks).filter(function(id){return decks[id].owner===pi;});
     sel.innerHTML='<option value="">— Aucun deck —</option>'
       +myDecks.map(function(id){return '<option value="'+id+'">'+esc(decks[id].name)+'</option>';}).join('');
+    var container=document.getElementById('mg-colors'+pi);
+    if(container)container.innerHTML=mgColorBtns(pi,[]);
   });
 }
 
@@ -3162,6 +3233,10 @@ function openEditGame(id){
       if(chk)chk.checked=true;
       var sel=document.getElementById('mg-deck'+p.profIdx);
       if(sel&&p.deckId)sel.value=p.deckId;
+      // restore colors (saved or fallback from deck)
+      var savedColors=p.colors||(p.deckId&&decks[p.deckId]?(decks[p.deckId].colors||(decks[p.deckId].commander?decks[p.deckId].commander.colors:[])):[])||[];
+      var container=document.getElementById('mg-colors'+p.profIdx);
+      if(container)container.innerHTML=mgColorBtns(p.profIdx,savedColors);
     }else{
       var chkX=document.querySelector('.mg-pchk[value="3"]');
       if(chkX)chkX.checked=true;
@@ -3183,29 +3258,36 @@ function saveManualGame(){
   if(!checkedPIs.length){alert('Sélectionne au moins un joueur.');return;}
   var extraName=(document.getElementById('mg-extra-name').value||'').trim();
   var players=checkedPIs.map(function(pi){
-    if(pi===3)return{name:extraName||'Joueur +',profIdx:-1,deckId:'',deckName:'',finalLife:0,poison:0};
+    if(pi===3)return{name:extraName||'Joueur +',profIdx:-1,deckId:'',deckName:'',colors:[],finalLife:0,poison:0};
     var sel=document.getElementById('mg-deck'+pi);
     var deckId=sel?sel.value:'';
     var deckName=deckId&&decks[deckId]?decks[deckId].name:'';
-    return{name:PN[pi],profIdx:pi,deckId:deckId,deckName:deckName,finalLife:0,poison:0};
+    var colors=mgGetColors(pi);
+    return{name:PN[pi],profIdx:pi,deckId:deckId,deckName:deckName,colors:colors,finalLife:0,poison:0};
   });
   if(players.length<2){alert('Il faut au moins 2 joueurs.');return;}
   var winVal=document.getElementById('mg-winner').value;
   var winner=null;
   if(winVal!==''){
     var wi=parseInt(winVal);
-    if(winVal==='x'){winner={name:extraName||'Joueur +',profIdx:-1,deckId:'',deckName:''};}
+    if(winVal==='x'){winner={name:extraName||'Joueur +',profIdx:-1,deckId:'',deckName:'',colors:[]};}
     else if(!isNaN(wi)){
       var wSel=document.getElementById('mg-deck'+wi);
       var wDeckId=wSel?wSel.value:'';
       var wDeckName=wDeckId&&decks[wDeckId]?decks[wDeckId].name:'';
-      winner={name:PN[wi],profIdx:wi,deckId:wDeckId,deckName:wDeckName};
+      winner={name:PN[wi],profIdx:wi,deckId:wDeckId,deckName:wDeckName,colors:mgGetColors(wi)};
     }
   }
   var dateStr=document.getElementById('mg-date').value;
   var dateLabel=dateStr?new Date(dateStr+'T12:00:00').toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
-  var record={id:Date.now(),date:dateLabel,fmt:fmt,startLife:40,players:players,winner:winner,duration:null,manual:true};
-  games.unshift(record);saveGames();
+  if(_editGameId!=null){
+    var idx=games.findIndex(function(x){return x.id===_editGameId;});
+    if(idx>=0){games[idx]=Object.assign({},games[idx],{date:dateLabel,fmt:fmt,players:players,winner:winner});}
+    _editGameId=null;
+  }else{
+    games.unshift({id:Date.now(),date:dateLabel,fmt:fmt,startLife:40,players:players,winner:winner,duration:null,manual:true});
+  }
+  saveGames();
   toggleManualGame();
   renderGameStats();renderGameHistory();
 }
