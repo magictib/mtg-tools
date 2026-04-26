@@ -438,8 +438,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <button class="um-btn" id="um-admin-btn" onclick="openAdminPanel();toggleUserMenu()" style="display:none">⚙ Panneau admin</button>
       <button class="um-btn" onclick="umShowRename()">✎ Modifier le nom</button>
       <div class="um-rename-wrap" id="um-rename-wrap">
-        <input type="text" id="um-rename-input" placeholder="Nouveau prénom / pseudo">
-        <button class="btn btnp btnsm" style="width:100%" onclick="authRenameUser()">Valider</button>
+        <input type="text" id="um-rename-input" placeholder="Nouveau prénom / pseudo" onkeydown="if(event.key==='Enter')authRenameUser()">
+        <button class="btn btnp btnsm" style="width:100%;margin-bottom:4px" onclick="authRenameUser()">Valider</button>
+        <div id="um-rename-msg" style="font-size:.75rem;min-height:1rem;text-align:center"></div>
       </div>
       <button class="um-btn danger" onclick="authSignOut();toggleUserMenu()">⏻ Déconnexion</button>
     </div>
@@ -1597,17 +1598,37 @@ function umShowRename(){
   if(w.style.display==='block')document.getElementById('um-rename-input').focus();
 }
 
+function _umRenameMsg(msg,isErr){
+  var el=document.getElementById('um-rename-msg');
+  el.textContent=msg;
+  el.style.color=isErr?'var(--rd2)':'var(--gr2)';
+}
+
 function authRenameUser(){
   var name=(document.getElementById('um-rename-input').value||'').trim();
-  if(!name)return;
+  if(!name){_umRenameMsg('Entrez un pseudo',true);return;}
   var user=firebase.auth().currentUser;
   if(!user)return;
-  user.updateProfile({displayName:name}).then(function(){
-    document.getElementById('um-display-name').textContent=name;
-    document.getElementById('um-rename-wrap').style.display='none';
-    document.getElementById('um-rename-input').value='';
-    return db.collection('users').doc(user.uid).update({name:name});
-  }).catch(function(e){alert('Erreur : '+e.message);});
+  _umRenameMsg('Vérification…',false);
+  // Vérifie qu'aucun autre compte n'utilise déjà ce pseudo (insensible à la casse)
+  db.collection('users').where('name','==',name).get().then(function(snap){
+    var takenByOther=snap.docs.some(function(d){return d.id!==user.uid;});
+    if(takenByOther){
+      _umRenameMsg('Ce pseudo est déjà utilisé, choisis-en un autre.',true);
+      return;
+    }
+    return user.updateProfile({displayName:name}).then(function(){
+      return db.collection('users').doc(user.uid).update({name:name});
+    }).then(function(){
+      document.getElementById('um-display-name').textContent=name;
+      document.getElementById('um-rename-input').value='';
+      _umRenameMsg('Pseudo mis à jour !',false);
+      setTimeout(function(){
+        document.getElementById('um-rename-wrap').style.display='none';
+        _umRenameMsg('',false);
+      },1500);
+    });
+  }).catch(function(e){_umRenameMsg('Erreur : '+e.message,true);});
 }
 
 function _showAuthScreen(mode){
