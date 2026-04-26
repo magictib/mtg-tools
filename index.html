@@ -112,14 +112,26 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .cn{color:var(--tx3);font-style:italic;font-size:.7rem}
 .dirrow{display:flex;align-items:center;gap:8px;justify-content:center;font-size:.82rem;color:var(--tx2);margin-top:6px;font-style:italic}
 .arr{font-size:18px;color:var(--tx3)}
-.pg{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
-.pb{padding:10px 6px;border-radius:8px;border:.5px solid var(--bd);background:var(--s2);cursor:pointer;text-align:center;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.pg{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:flex-start}
+.pb{padding:10px 6px;border-radius:8px;border:.5px solid var(--bd);background:var(--s2);cursor:pointer;text-align:center;transition:all .15s;-webkit-tap-highlight-color:transparent;min-width:80px;flex:0 0 auto;position:relative}
 .pb:hover{border-color:var(--bd2)}
 .pb.active{border:1.5px solid var(--ac);background:rgba(124,106,247,.12)}
 .pb.hasdata .pdot{display:block}
 .pdot{display:none;width:6px;height:6px;border-radius:50%;background:var(--gr);margin:0 auto 4px}
 .pname{font-family:'Cinzel',serif;font-size:11px;color:var(--gold2);letter-spacing:.04em}
 .pinfo{font-size:10px;color:var(--tx3);margin-top:3px;font-style:italic}
+.pb-rm{position:absolute;top:-5px;right:-5px;width:15px;height:15px;border-radius:50%;background:var(--rd);border:none;color:#fff;font-size:8px;cursor:pointer;line-height:15px;text-align:center;display:none;padding:0;z-index:1}
+.pb:not(.pb-self) .pb-rm{display:block}
+.pb-plus{padding:10px 12px;border-radius:8px;border:.5px dashed var(--bd2);background:transparent;cursor:pointer;text-align:center;transition:all .15s;color:var(--tx3);font-size:1.3rem;line-height:1;flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:42px;min-height:52px}
+.pb-plus:hover{border-color:var(--ac2);color:var(--ac2)}
+/* Profile picker modal */
+#prof-picker{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.82);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto}
+#prof-picker.open{display:flex}
+.pp-card{background:var(--s1);border:.5px solid var(--bd2);border-radius:16px;padding:1.25rem;width:100%;max-width:360px;margin-top:1.5rem}
+.pp-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:.5px solid var(--bd);background:var(--s2);cursor:pointer;transition:all .15s;margin-bottom:6px}
+.pp-item:hover{border-color:var(--ac);background:rgba(124,106,247,.08)}
+.pp-item.pp-already{opacity:.45;cursor:not-allowed;pointer-events:none}
+.pp-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--ac),var(--gold));display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:.85rem;color:#fff;flex-shrink:0}
 .emg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 .emb{padding:7px 10px;border-radius:8px;border:.5px solid var(--bd);background:transparent;cursor:pointer;font-size:.8rem;color:var(--tx2);text-align:center;font-family:'Crimson Pro',serif;transition:all .15s;-webkit-tap-highlight-color:transparent}
 .emb:hover{background:var(--s2)}
@@ -447,6 +459,17 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   </div>
 </div>
 
+<!-- Profile picker modal -->
+<div id="prof-picker">
+  <div class="pp-card">
+    <div class="row" style="margin-bottom:.75rem">
+      <div class="lbl" style="margin-bottom:0">Ajouter un profil</div>
+      <button class="btn btnsm btnrd" style="margin-left:auto;padding:3px 10px" onclick="document.getElementById('prof-picker').classList.remove('open')">✕</button>
+    </div>
+    <div id="prof-picker-list"></div>
+  </div>
+</div>
+
 <!-- Auth overlay (visible until logged in + approved) -->
 <div id="auth-overlay">
   <div style="width:100%;max-width:360px">
@@ -740,11 +763,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   <div id="coll-cols">
   <div class="card">
     <div class="lbl">Profil</div>
-    <div class="pg">
-      <div class="pb active" id="cpb0" onclick="setCollProf(0)"><div class="pdot"></div><div class="pname">Thibaud</div><div class="pinfo" id="cpi0">Vide</div></div>
-      <div class="pb" id="cpb1" onclick="setCollProf(1)"><div class="pdot"></div><div class="pname">Gérémy</div><div class="pinfo" id="cpi1">Vide</div></div>
-      <div class="pb" id="cpb2" onclick="setCollProf(2)"><div class="pdot"></div><div class="pname">Antoine</div><div class="pinfo" id="cpi2">Vide</div></div>
-    </div>
+    <div class="pg" id="prof-grid-coll"></div>
     <div class="row" style="margin-top:10px;margin-bottom:2px;flex-wrap:wrap">
       <button class="btn btnsm btnp" onclick="toggleCollAddForm()">➕ Ajouter</button>
       <button class="btn btnsm" onclick="openScan()">📷 Scanner</button>
@@ -909,11 +928,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <button class="btn btnsm btnrd" id="delbtn" onclick="deleteDeck()" style="display:none">✕ Supprimer</button>
     </div>
     <div class="lbl" style="margin-bottom:4px">Profil propriétaire</div>
-    <div class="posel">
-      <button class="po a" id="po0" onclick="setOwner(0)">Thibaud</button>
-      <button class="po" id="po1" onclick="setOwner(1)">Gérémy</button>
-      <button class="po" id="po2" onclick="setOwner(2)">Antoine</button>
-    </div>
+    <div class="posel" id="prof-grid-deck"></div>
     <div class="lbl" style="margin-bottom:4px;margin-top:6px">Format</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px" id="dfmt-btns">
       <button class="dm" onclick="setDeckFmt('commander',this)">Commander</button>
@@ -1004,7 +1019,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
         <button class="fc" onclick="dFlt('cmd',this)">🛒 Commander</button>
         <input class="fsrch" id="fsrch" type="text" placeholder="Rechercher..." oninput="renderDeck()">
       </div>
-      <div class="dhdr" id="dlisthdr"><div>Qté</div><div>Carte</div><div style="text-align:center">Thibaud</div><div style="text-align:center">Gérémy</div><div style="text-align:center">Antoine</div><div style="text-align:right">Prix</div><div></div></div>
+      <div class="dhdr" id="dlisthdr"><div>Qté</div><div>Carte</div><div style="text-align:center">—</div><div style="text-align:right">Prix</div><div></div></div>
       <div id="dlist"></div>
     </div>
   </div>
@@ -1041,10 +1056,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     <div class="lbl">Recherche de cartes</div>
     <div style="margin-bottom:8px">
       <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.06em;margin-bottom:4px">RESTREINDRE AUX COLLECTIONS</div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap">
-        <button class="dm" id="bld-coll0" onclick="bldToggleColl(0,this)">Thibaud</button>
-        <button class="dm" id="bld-coll1" onclick="bldToggleColl(1,this)">Gérémy</button>
-        <button class="dm" id="bld-coll2" onclick="bldToggleColl(2,this)">Antoine</button>
+      <div style="display:flex;gap:5px;flex-wrap:wrap" id="prof-grid-build">
         <span id="bld-coll-cnt" style="font-size:.72rem;color:var(--tx3);align-self:center;margin-left:4px"></span>
       </div>
     </div>
@@ -1179,9 +1191,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     </div>
     <div style="margin-bottom:10px">
       <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:4px">JOUEURS — Deck · Couleurs · Image de fond</div>
-      <!-- Profil 0 : Thibaud -->
+      <!-- Profil 0 : vous -->
       <div class="gsetup-prow" id="gsetup-row0">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="0"> Thibaud</label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="0"> <span class="gp-name">—</span></label>
         <select class="gsetup-deck" id="gsetup-deck0" onchange="applyDeckColors(0,this.value)"><option value="">— Aucun deck —</option></select>
         <div style="display:flex;gap:3px" id="gsetup-colors0">
           <button class="gcolor-btn" onclick="toggleSetupColor(0,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
@@ -1197,9 +1209,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div id="gsetup-cmd-row0" style="display:none;padding:0 0 6px 82px">
         <input type="text" id="gsetup-cmd0" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
       </div>
-      <!-- Profil 1 : Gérémy -->
-      <div class="gsetup-prow" id="gsetup-row1">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="1"> Gérémy</label>
+      <!-- Profil 1 : extra -->
+      <div class="gsetup-prow" id="gsetup-row1" style="display:none">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="1"> <span class="gp-name">—</span></label>
         <select class="gsetup-deck" id="gsetup-deck1" onchange="applyDeckColors(1,this.value)"><option value="">— Aucun deck —</option></select>
         <div style="display:flex;gap:3px" id="gsetup-colors1">
           <button class="gcolor-btn" onclick="toggleSetupColor(1,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
@@ -1215,9 +1227,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div id="gsetup-cmd-row1" style="display:none;padding:0 0 6px 82px">
         <input type="text" id="gsetup-cmd1" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
       </div>
-      <!-- Profil 2 : Antoine -->
-      <div class="gsetup-prow" id="gsetup-row2">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="2"> Antoine</label>
+      <!-- Profil 2 : extra -->
+      <div class="gsetup-prow" id="gsetup-row2" style="display:none">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="2"> <span class="gp-name">—</span></label>
         <select class="gsetup-deck" id="gsetup-deck2" onchange="applyDeckColors(2,this.value)"><option value="">— Aucun deck —</option></select>
         <div style="display:flex;gap:3px" id="gsetup-colors2">
           <button class="gcolor-btn" onclick="toggleSetupColor(2,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
@@ -1369,7 +1381,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
         <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Vainqueur</div>
         <select id="mg-winner" style="font-size:.82rem;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
           <option value="">— Pas de vainqueur —</option>
-          <option value="0">Thibaud</option><option value="1">Gérémy</option><option value="2">Antoine</option><option value="x">Autre joueur (ci-dessus)</option>
+          <option value="x">Autre joueur (ci-dessus)</option>
         </select>
       </div>
       <div style="margin-bottom:8px">
@@ -1444,19 +1456,11 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     <div id="new-trade-form" style="display:none;background:var(--s1);border-radius:8px;padding:12px;margin-bottom:12px">
       <div style="margin-bottom:8px">
         <div style="font-size:.75rem;color:var(--tx2);margin-bottom:4px">De</div>
-        <div style="display:flex;gap:5px" id="ntf-from-btns">
-          <button class="prof-sel active" onclick="ntfSetFrom(0,this)">Thibaud</button>
-          <button class="prof-sel" onclick="ntfSetFrom(1,this)">Gérémy</button>
-          <button class="prof-sel" onclick="ntfSetFrom(2,this)">Antoine</button>
-        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap" id="ntf-from-btns"></div>
       </div>
       <div style="margin-bottom:8px">
         <div style="font-size:.75rem;color:var(--tx2);margin-bottom:4px">À</div>
-        <div style="display:flex;gap:5px" id="ntf-to-btns">
-          <button class="prof-sel" onclick="ntfSetTo(0,this)">Thibaud</button>
-          <button class="prof-sel active" onclick="ntfSetTo(1,this)">Gérémy</button>
-          <button class="prof-sel" onclick="ntfSetTo(2,this)">Antoine</button>
-        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap" id="ntf-to-btns"></div>
       </div>
       <div style="margin-bottom:8px">
         <div style="font-size:.75rem;color:var(--tx2);margin-bottom:4px">Type</div>
@@ -1565,6 +1569,7 @@ function _onUserRole(user,role){
     document.getElementById('um-display-name').textContent=user.displayName||user.email;
     document.getElementById('um-admin-btn').style.display=role==='admin'?'block':'none';
     userId=user.uid;
+    PN[0]=user.displayName||user.email;
     loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
     fetchRules();
   } else if(role==='pending'){
@@ -1801,25 +1806,31 @@ var MAPS={
 var FN={A:'CardNexus',B:'Mythic Tools',C:'Moxfield'};
 var FC={A:'sA',B:'sB',C:'sC'};
 var FB={A:'ba',B:'bb',C:'bc'};
-var PN=['Thibaud','Gérémy','Antoine'];
+var PN=[]; // dynamic: PN[0]=current user, PN[1..n]=extra profiles
+var _epSlots={coll:[],deck:[],build:[],game:[],trade:[]}; // extra profile UIDs per context
+var _epCards={}; // uid → cards[]
+var _pickerCtx=null;
+var _allUsers=null; // cache [{uid,name}]
+// Legacy alias (will be replaced in each function)
+
 
 function stripDFC(name){return (name||'').replace(/\s*\/{1,2}\s*.+$/,'').trim();}
 // ===== STATE =====
 var srcF='A', dstF='C';
 var csvRows=[], outRows=[], prevSnap=new Map();
-var profs=[null,null,null], actP=-1, eMode='new';
+var profs=[null], actP=0, eMode='new'; // slot 0 = current user only
 var scAllP=[], scFlips=[], scFlipN=0, scSugTO=null;
 var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0, allPriceMap={};
 var dFormat='', dCommander=null, dColors=[];
 var dCardMeta={}, dSortMode='sec';
 var COMMANDER_FMTS=['commander','paupercmd','brawl','oathbreaker'];
-var dbarOpen=[false,false,false];
+var dbarOpen=[false]; // dynamic length
 var collP=0;
 var collFiltSet='', collFiltRar='', collFiltColors=new Set();
 var collCache={};
 var collSort={field:'name',dir:1};
 var pending=[], loans=[], trades=[];
-var ntfFrom=0, ntfTo=1, ntfType='exchange', ntfOffered=[], ntfRequested=[];
+var ntfFrom=0, ntfTo=0, ntfType='exchange', ntfOffered=[], ntfRequested=[];
 var ntfPrices={};
 var currentDetailName='';
 
@@ -1853,6 +1864,12 @@ function goTab(id) {
   document.getElementById('pg-'+id).classList.add('active');
   document.getElementById('tb-'+id).classList.add('active');
   if(id==='cmd'&&!_cmdSearched){_cmdSearched=true;searchCmd();}
+  // Sync profiles for the new context
+  var ctxMap={coll:'coll',deck:'deck',build:'build',game:'game',trade:'trade'};
+  var ctx=ctxMap[id];
+  if(ctx){_syncProfsForCtx(ctx);_refreshTradeAndGame();}
+  if(id==='deck'){renderProfSlots('deck','prof-grid-deck');_renderDeckListHeader();}
+  if(id==='build'){_renderBuildCollBtns();}
 }
 
 // ===== CONVERTER =====
@@ -2009,28 +2026,235 @@ function doExport() {
 }
 
 // ===== PROFILS =====
-function loadProfs(){
-  try{var s=localStorage.getItem('mtg_profs');if(s)profs=JSON.parse(s);}catch(e){profs=[null,null,null];}
-  renderProfs();
-  var ref=db.collection('users').doc(userId).collection('profs');
-  Promise.all([0,1,2].map(function(i){
-    return ref.doc(String(i)).get().then(function(doc){
-      if(doc.exists&&doc.data().cards&&doc.data().cards.length)profs[i]=doc.data().cards;
-    });
-  })).then(function(){
-    try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
-    renderProfs();updPStat();renderColl();enrichCollCache();
-  }).catch(function(){});
-}
-function saveProfs(){
-  try{localStorage.setItem('mtg_profs',JSON.stringify(profs));}catch(e){}
-  var ref=db.collection('users').doc(userId).collection('profs');
-  [0,1,2].forEach(function(i){
-    ref.doc(String(i)).set({cards:profs[i]||null})
-      .catch(function(e){console.warn('Firestore saveProfs '+i,e);});
+function _syncProfsForCtx(ctx){
+  var extras=_epSlots[ctx]||[];
+  // Truncate to just slot 0, then rebuild extras
+  PN.splice(1);profs.splice(1);
+  extras.forEach(function(ep){
+    PN.push(ep.name);
+    profs.push(_epCards[ep.uid]||null);
   });
 }
-function selProf(i){actP=(actP===i)?-1:i;renderProfs();updPStat();}
+
+function renderProfSlots(ctx,containerId){
+  _syncProfsForCtx(ctx);
+  var container=document.getElementById(containerId);if(!container)return;
+  var extras=_epSlots[ctx]||[];
+  var html='';
+  // Slot 0 = vous (always, can't remove)
+  var cards0=getProfCards(0);
+  var tot0=cards0.reduce(function(s,c){return s+(c.qty||1);},0);
+  var info0=tot0>0?tot0+' cartes':(profs[0]&&profs[0].length?profs[0].length+' entrées':'Vide');
+  var active0=(ctx==='coll'?collP===0:ctx==='deck'?dOwner===0:actP===0);
+  html+='<div class="pb pb-self'+(active0?' active':'')+(tot0>0?' hasdata':'')+'" onclick="_onProfClick(\''+ctx+'\',0)">'
+    +'<div class="pdot"></div>'
+    +'<div class="pname">'+esc(PN[0]||'Moi')+'</div>'
+    +'<div class="pinfo">'+info0+'</div>'
+    +'</div>';
+  // Extra slots
+  extras.forEach(function(ep,idx){
+    var i=idx+1;
+    var cards=getProfCards(i);
+    var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+    var info=_epCards[ep.uid]===undefined?'Chargement…':(tot>0?tot+' cartes':(_epCards[ep.uid]&&_epCards[ep.uid].length?_epCards[ep.uid].length+' entrées':'Vide'));
+    var active=(ctx==='coll'?collP===i:ctx==='deck'?dOwner===i:actP===i);
+    html+='<div class="pb'+(active?' active':'')+(tot>0?' hasdata':'')+'" onclick="_onProfClick(\''+ctx+'\','+i+')">'
+      +'<div class="pdot"></div>'
+      +'<div class="pname">'+esc(ep.name)+'</div>'
+      +'<div class="pinfo">'+info+'</div>'
+      +'<button class="pb-rm" onclick="event.stopPropagation();removeExtraProf(\''+ctx+'\',\''+ep.uid+'\')" title="Retirer">✕</button>'
+      +'</div>';
+  });
+  // + button
+  html+='<div class="pb-plus" onclick="openProfilePicker(\''+ctx+'\')">＋</div>';
+  container.innerHTML=html;
+}
+
+function _onProfClick(ctx,i){
+  if(ctx==='coll')setCollProf(i);
+  else if(ctx==='deck')setOwner(i);
+  else{actP=(actP===i?-1:i);updPStat();}
+}
+
+function openProfilePicker(ctx){
+  _pickerCtx=ctx;
+  document.getElementById('prof-picker').classList.add('open');
+  var list=document.getElementById('prof-picker-list');
+  list.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Chargement…</div>';
+  if(_allUsers){_renderPickerList();return;}
+  db.collection('users').where('role','in',['approved','admin']).get().then(function(snap){
+    _allUsers=[];
+    snap.forEach(function(doc){
+      if(doc.id!==userId)_allUsers.push({uid:doc.id,name:doc.data().name||doc.data().email||doc.id});
+    });
+    _renderPickerList();
+  }).catch(function(){list.innerHTML='<div style="color:var(--rd2)">Erreur de chargement des utilisateurs</div>';});
+}
+
+function _renderPickerList(){
+  var list=document.getElementById('prof-picker-list');
+  var existing=(_epSlots[_pickerCtx]||[]).map(function(ep){return ep.uid;});
+  if(!_allUsers.length){list.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Aucun autre utilisateur</div>';return;}
+  list.innerHTML=_allUsers.map(function(u){
+    var already=existing.indexOf(u.uid)>=0;
+    var init=(u.name||'?').charAt(0).toUpperCase();
+    return '<div class="pp-item'+(already?' pp-already':'')+'" onclick="pickProfile(\''+u.uid+'\',\''+u.name.replace(/\\/g,'\\\\').replace(/'/g,'&#39;')+'\')">'
+      +'<div class="pp-avatar">'+esc(init)+'</div>'
+      +'<div><div style="font-size:.88rem;color:var(--tx)">'+esc(u.name)+'</div>'
+      +(already?'<div style="font-size:.72rem;color:var(--tx3)">Déjà ajouté</div>':'')+'</div></div>';
+  }).join('');
+}
+
+function pickProfile(uid,name){
+  var ctx=_pickerCtx;if(!ctx)return;
+  if(!_epSlots[ctx])_epSlots[ctx]=[];
+  // Avoid duplicates
+  if(_epSlots[ctx].some(function(ep){return ep.uid===uid;}))return;
+  _epSlots[ctx].push({uid:uid,name:name});
+  _saveEpSlots();
+  document.getElementById('prof-picker').classList.remove('open');
+  // Load their cards if not cached
+  _loadEpCards(uid,function(){_refreshCtxRender(ctx);});
+  _syncProfsForCtx(ctx);
+  _refreshCtxRender(ctx);
+}
+
+function removeExtraProf(ctx,uid){
+  if(!_epSlots[ctx])return;
+  _epSlots[ctx]=_epSlots[ctx].filter(function(ep){return ep.uid!==uid;});
+  _saveEpSlots();
+  if(ctx==='coll'&&collP>=profs.length)collP=0;
+  if(ctx==='deck'&&dOwner>=profs.length)dOwner=0;
+  _syncProfsForCtx(ctx);
+  _refreshCtxRender(ctx);
+}
+
+function _loadEpCards(uid,cb){
+  if(_epCards[uid]!==undefined){if(cb)cb();return;}
+  _epCards[uid]=null; // mark as loading
+  db.collection('users').doc(uid).collection('profs').doc('0').get().then(function(doc){
+    _epCards[uid]=(doc.exists&&doc.data().cards)?doc.data().cards:[];
+    if(cb)cb();
+  }).catch(function(){_epCards[uid]=[];if(cb)cb();});
+}
+
+function _saveEpSlots(){
+  try{localStorage.setItem('mtg_ep_slots',JSON.stringify(_epSlots));}catch(e){}
+}
+
+function _refreshCtxRender(ctx){
+  if(ctx==='coll'){
+    renderProfSlots('coll','prof-grid-coll');
+    renderColl();enrichCollCache();
+  } else if(ctx==='deck'){
+    renderProfSlots('deck','prof-grid-deck');
+    _renderDeckListHeader();
+    renderDBar();renderDeck();
+  } else if(ctx==='build'){
+    _renderBuildCollBtns();
+  }
+  _refreshTradeAndGame();
+}
+
+function _renderDeckListHeader(){
+  var hdr=document.getElementById('dlisthdr');if(!hdr)return;
+  var profCols=PN.map(function(n){return '<div style="text-align:center">'+esc(n)+'</div>';}).join('');
+  hdr.innerHTML='<div>Qté</div><div>Carte</div>'+profCols+'<div style="text-align:right">Prix</div><div></div>';
+}
+
+function _renderBuildCollBtns(){
+  var container=document.getElementById('prof-grid-build');if(!container)return;
+  var cnt=container.querySelector('#bld-coll-cnt');
+  var cntHtml=cnt?cnt.outerHTML:'<span id="bld-coll-cnt" style="font-size:.72rem;color:var(--tx3);align-self:center;margin-left:4px"></span>';
+  var btns=profs.map(function(_,i){
+    var id='bld-coll'+i;
+    var btn=container.querySelector('#'+id);
+    var on=btn&&btn.classList.contains('active');
+    return '<button class="dm'+(on?' active':'')+'" id="'+id+'" onclick="bldToggleColl('+i+',this)">'+esc(PN[i]||'Profil '+i)+'</button>';
+  }).join('');
+  container.innerHTML=btns+cntHtml;
+}
+
+function _refreshTradeAndGame(){
+  _renderNtfBtns();
+  _renderGamePlayerRows();
+}
+
+function _renderNtfBtns(){
+  var fb=document.getElementById('ntf-from-btns');
+  var tb=document.getElementById('ntf-to-btns');
+  if(!fb||!tb)return;
+  var btns=PN.map(function(n,i){
+    return '<button class="prof-sel'+(ntfFrom===i?' active':'')+'" onclick="ntfSetFrom('+i+',this)">'+esc(n)+'</button>';
+  }).join('');
+  fb.innerHTML=btns;
+  var tbtns=PN.map(function(n,i){
+    return '<button class="prof-sel'+(ntfTo===i?' active':'')+'" onclick="ntfSetTo('+i+',this)">'+esc(n)+'</button>';
+  }).join('');
+  tb.innerHTML=tbtns;
+}
+
+function _renderGamePlayerRows(){
+  // Update names in game setup rows
+  PN.forEach(function(name,i){
+    var row=document.getElementById('gsetup-row'+i);
+    var span=row&&row.querySelector('.gp-name');
+    if(span)span.textContent=name;
+    if(row)row.style.display='';
+  });
+  // Update mg-winner select
+  var sel=document.getElementById('mg-winner');
+  if(!sel)return;
+  // Remove old profile options
+  while(sel.options.length>1)sel.remove(1);
+  PN.forEach(function(name,i){
+    var opt=document.createElement('option');opt.value=i;opt.textContent=name;sel.appendChild(opt);
+  });
+  var aut=document.createElement('option');aut.value='x';aut.textContent='Autre joueur (ci-dessus)';sel.appendChild(aut);
+}
+
+function loadProfs(){
+  // Compat: load old mtg_profs array, keep only slot 0
+  try{var s=localStorage.getItem('mtg_profs');if(s){var arr=JSON.parse(s);profs[0]=arr[0]||null;}}catch(e){}
+  // Load extra profile slots
+  try{var eps=localStorage.getItem('mtg_ep_slots');if(eps)_epSlots=JSON.parse(eps);}catch(e){}
+  // Initial render
+  renderProfSlots('coll','prof-grid-coll');
+  renderProfSlots('deck','prof-grid-deck');
+  _renderBuildCollBtns();
+  _refreshTradeAndGame();
+  updPStat();
+  // Load slot 0 from Firestore
+  db.collection('users').doc(userId).collection('profs').doc('0').get().then(function(doc){
+    if(doc.exists&&doc.data().cards&&doc.data().cards.length){
+      profs[0]=doc.data().cards;
+      try{localStorage.setItem('mtg_profs',JSON.stringify([profs[0]]));}catch(e){}
+    }
+    renderProfSlots('coll','prof-grid-coll');
+    renderProfSlots('deck','prof-grid-deck');
+    _renderBuildCollBtns();
+    updPStat();renderColl();enrichCollCache();
+    _renderDeckListHeader();
+  }).catch(function(){});
+  // Load extra profile cards for all contexts
+  var uidsLoaded={};
+  Object.keys(_epSlots).forEach(function(ctx){
+    (_epSlots[ctx]||[]).forEach(function(ep){
+      if(!uidsLoaded[ep.uid]){
+        uidsLoaded[ep.uid]=true;
+        _loadEpCards(ep.uid,function(){_refreshCtxRender(ctx);});
+      }
+    });
+  });
+}
+
+function saveProfs(){
+  try{localStorage.setItem('mtg_profs',JSON.stringify([profs[0]]));}catch(e){}
+  db.collection('users').doc(userId).collection('profs').doc('0').set({cards:profs[0]||null})
+    .catch(function(e){console.warn('Firestore saveProfs',e);});
+}
+
+function selProf(i){actP=(actP===i)?-1:i;updPStat();}
 function setEMode(m){
   eMode=m;
   var en=document.getElementById('emb-new');var ea=document.getElementById('emb-all');
@@ -2039,25 +2263,20 @@ function setEMode(m){
   updPStat();
 }
 function renderProfs(){
-  for(var i=0;i<3;i++){
-    var btn=document.getElementById('pb'+i);
-    var inf=document.getElementById('pi'+i);
-    var cards=getProfCards(i);
-    var has=cards.length>0||(profs[i]&&profs[i].length>0);
-    if(btn){if(actP===i)btn.classList.add('active');else btn.classList.remove('active');if(has)btn.classList.add('hasdata');else btn.classList.remove('hasdata');}
-    if(inf){if(cards.length>0){var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);inf.textContent=tot+' cartes';}else if(profs[i]&&profs[i].length>0){inf.textContent=profs[i].length+' entrées';}else{inf.textContent='Vide';}}
-  }
+  renderProfSlots('coll','prof-grid-coll');
+  renderProfSlots('deck','prof-grid-deck');
+  _renderBuildCollBtns();
+  _refreshTradeAndGame();
 }
 function updPStat(){
   var el=document.getElementById('pst');if(!el)return;
-  if(actP===-1){el.textContent='Aucun profil sélectionné — export total';return;}
-  var cards=getProfCards(actP);
-  var has=cards.length>0||(profs[actP]&&profs[actP].length>0);
-  var n=PN[actP];
-  var tot=cards.length>0?cards.reduce(function(s,c){return s+(c.qty||1);},0):(profs[actP]?profs[actP].length:0);
-  if(eMode==='all')el.innerHTML=n+' actif — <strong style="color:var(--gold2)">Export total</strong>';
-  else if(!has)el.innerHTML=n+' vide — premier import sera la référence';
-  else el.innerHTML=n+' actif — <strong style="color:var(--gr2)">Nouvelles cartes</strong> vs '+tot+' connues';
+  var cards=getProfCards(0);
+  var has=cards.length>0||(profs[0]&&profs[0].length>0);
+  var n=PN[0]||'Vous';
+  var tot=cards.length>0?cards.reduce(function(s,c){return s+(c.qty||1);},0):(profs[0]?profs[0].length:0);
+  if(eMode==='all')el.innerHTML=n+' — <strong style="color:var(--gold2)">Export total</strong>';
+  else if(!has)el.innerHTML=n+' — vide, premier import sera la référence';
+  else el.innerHTML=n+' — <strong style="color:var(--gr2)">Nouvelles cartes</strong> vs '+tot+' connues';
 }
 
 // ===== SCRYFALL =====
@@ -2132,17 +2351,17 @@ function showCard(card){
   // Availability in profiles
   var nameLow=card.name.toLowerCase();
   var hasAny=false;
-  var profHtml=[0,1,2].map(function(i){
+  var profHtml=profs.map(function(_,i){
     var cards=getProfCards(i);
     var qty=0;
     cards.forEach(function(c){if(c.name.toLowerCase()===nameLow)qty+=(c.qty||1);});
     if(qty>0)hasAny=true;
     return '<div class="stat"><div class="sv" style="color:'+(qty>0?'var(--gr2)':'var(--tx3)')+'">'+
-      (qty>0?qty:'—')+'</div><div class="sl">'+PN[i]+'</div></div>';
+      (qty>0?qty:'—')+'</div><div class="sl">'+esc(PN[i]||'Profil '+i)+'</div></div>';
   }).join('');
   var lbl=document.getElementById('scprofslbl');
   var cont=document.getElementById('scprofs');
-  lbl.style.display=hasAny||[0,1,2].some(function(i){return getProfCards(i).length>0;})?'block':'none';
+  lbl.style.display=hasAny||profs.some(function(_,i){return getProfCards(i).length>0;})?'block':'none';
   cont.innerHTML=profHtml;
 }
 function flipCard(){scFlipN=(scFlipN+1)%scFlips.length;document.getElementById('scimg').src=scFlips[scFlipN];}
@@ -2201,23 +2420,25 @@ function removeCardFromProf(pi,name,qty){
   profs[pi]=cards;
 }
 function renderDBar(){
+  _syncProfsForCtx('deck');
   var bar=document.getElementById('dprofs');
   var ids=Object.keys(decks);
   if(!ids.length){bar.innerHTML='<div style="color:var(--tx3);font-size:.82rem;font-style:italic">Aucun deck sauvegardé</div>';return;}
   var html='';
-  [0,1,2].forEach(function(pi){
-    var pids=ids.filter(function(id){return decks[id].owner===pi||(decks[id].owner===undefined&&pi===0);});
-    var open=dbarOpen[pi];
+  profs.forEach(function(_,pi){
+    var pids=ids.filter(function(id){return (decks[id].owner||0)===pi;});
+    if(pi>0&&!pids.length)return; // hide empty extra prof sections
+    var open=dbarOpen[pi]||false;
+    var fmtLabel={commander:'Commander',paupercmd:'Pauper Cdr',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',pauper:'Pauper',vintage:'Vintage'};
     html+='<div class="dpsec">';
     html+='<div class="dphdr" onclick="toggleDSec('+pi+')">';
-    html+='<span class="dpn">'+PN[pi]+'</span><span class="dpc">('+pids.length+')</span>';
+    html+='<span class="dpn">'+esc(PN[pi]||'Profil '+pi)+'</span><span class="dpc">('+pids.length+')</span>';
     html+='<span class="dparr'+(open?' op':'')+'">&#x25B6;</span></div>';
     html+='<div class="dpdecks'+(open?' op':'')+'">';
     if(!pids.length)html+='<div style="color:var(--tx3);font-size:.78rem;font-style:italic;padding:4px">Aucun deck</div>';
     pids.forEach(function(id){
       var d=decks[id];
       var n=d.cards?d.cards.reduce(function(s,c){return s+c.qty;},0):0;
-      var fmtLabel={commander:'Commander',paupercmd:'Pauper Cdr',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',pauper:'Pauper',vintage:'Vintage'};
       var fmtBadge=d.format?'<span style="font-size:.62rem;background:var(--s3);border:.5px solid var(--bd2);border-radius:3px;padding:0 4px;color:var(--tx3);margin-left:4px">'+esc(fmtLabel[d.format]||d.format)+'</span>':'';
       var cmdBadge=d.commander?'<span title="'+esc(d.commander.name)+'" style="font-size:.62rem;color:var(--gold2);margin-left:3px">★</span>':'';
       html+='<div class="ditem'+(id===actDeck?' active':'')+'" onclick="loadDeck(\''+id+'\')">'+
@@ -2312,11 +2533,7 @@ function deckCmdClear(){
 
 function setOwner(i){
   dOwner=i;
-  var cls=['a','b','c'];
-  [0,1,2].forEach(function(j){
-    var btn=document.getElementById('po'+j);
-    btn.className='po'+(j===i?' '+cls[j]:'');
-  });
+  renderProfSlots('deck','prof-grid-deck');
 }
 function newDeck(){
   actDeck=null;dCards=[];dImgCache={};dViewMode='list';dFormat='';dCommander=null;dColors=[];_customAchat=[];dSortMode='sec';renderCustomPanel();
@@ -2429,7 +2646,8 @@ function getPMap(i){
   return m;
 }
 function analyzeDeck(){
-  var pms=[0,1,2].map(function(i){return getPMap(i);});
+  _syncProfsForCtx('deck');
+  var pms=profs.map(function(_,i){return getPMap(i);});
   var hasP=pms.some(function(m){return m.size>0;});
   function mx(c){return Math.max.apply(null,pms.map(function(m){return m.get(getKey(c))||0;}));}
   var owned=dCards.filter(function(c){return mx(c)>=c.qty;});
@@ -2468,9 +2686,9 @@ function analyzeDeck(){
   }else{ph.style.display='none';}
   // --- Estimatif de prix ---
   allPriceMap={};
-  [0,1,2].forEach(function(pi){
-    var prof=Array.isArray(profs[pi])?profs[pi]:[];
-    prof.forEach(function(c){
+  profs.forEach(function(prof,pi){
+    var p=Array.isArray(prof)?prof:[];
+    p.forEach(function(c){
       var key=stripDFC(c.name||'').toLowerCase();
       if(key&&c.price&&!allPriceMap[key])allPriceMap[key]=parseFloat(c.price)||0;
     });
@@ -2488,8 +2706,8 @@ function analyzeDeck(){
   renderDeck();
 }
 function renderPriceEstimate(){
-  var pms=[0,1,2].map(function(i){return getPMap(i);});
-  var priceUsages=[0,1,2].map(function(i){return getDeckUsage(i);});
+  var pms=profs.map(function(_,i){return getPMap(i);});
+  var priceUsages=profs.map(function(_,i){return getDeckUsage(i);});
   var priceTotalAll=0,priceMissingOwner=0,priceMissingNoBorrow=0;
   dCards.forEach(function(c){
     var p=allPriceMap[c.nl]||0;
@@ -2685,9 +2903,10 @@ function getDeckUsage(profIdx){
   return usage;
 }
 function renderDeck(){
-  var pms=[0,1,2].map(function(i){return getPMap(i);});
+  _syncProfsForCtx('deck');
+  var pms=profs.map(function(_,i){return getPMap(i);});
   var srch=(document.getElementById('fsrch')?document.getElementById('fsrch').value:'').toLowerCase();
-  var usages=[0,1,2].map(function(i){return getDeckUsage(i);});
+  var usages=profs.map(function(_,i){return getDeckUsage(i);});
   function mx(c){return Math.max.apply(null,pms.map(function(m){return m.get(getKey(c))||0;}));}
   var filtered=dCards.filter(function(c){
     if(srch&&c.nl.indexOf(srch)<0)return false;
@@ -2782,7 +3001,7 @@ function renderAchatOptions(){
   var isBorrow=mode&&mode.value==='borrow';
   var div=document.getElementById('achat-friends');
   if(!isBorrow){div.innerHTML='';return;}
-  var friends=[];[0,1,2].forEach(function(i){if(i!==dOwner)friends.push(i);});
+  var friends=[];profs.forEach(function(_,i){if(i!==dOwner)friends.push(i);});
   div.innerHTML='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:4px">Emprunter à :</div>'+
     friends.map(function(i){
       return '<label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;margin-bottom:2px">'+
@@ -2801,7 +3020,7 @@ function getDeckUsageForFriend(fi){
 }
 var _achatRecap=null, _customAchat=[];
 function generateAchat(){
-  var pms=[0,1,2].map(function(i){return getPMap(i);});
+  var pms=profs.map(function(_,i){return getPMap(i);});
   var dn=document.getElementById('dnamein').value.trim()||'Deck';
   var mode=document.querySelector('input[name="achat-mode"]:checked');
   var isBorrow=mode&&mode.value==='borrow';
@@ -3217,11 +3436,11 @@ function _buildDeckSelect(sel, ownerPi){
     sel.appendChild(g);
   }
   // Decks des autres profils
-  [0,1,2].forEach(function(opi){
+  profs.forEach(function(_,opi){
     if(opi===ownerPi)return;
     var their=Object.keys(decks).filter(function(id){return decks[id].owner===opi;});
     if(!their.length)return;
-    var g2=document.createElement('optgroup');g2.label=PN[opi];
+    var g2=document.createElement('optgroup');g2.label=PN[opi]||'Profil '+opi;
     their.forEach(function(id){var o=document.createElement('option');o.value=id;o.textContent=decks[id].name||'Sans nom';g2.appendChild(o);});
     sel.appendChild(g2);
   });
@@ -3232,7 +3451,7 @@ function _buildDeckSelect(sel, ownerPi){
 }
 
 function initSetupDecks(){
-  [0,1,2].forEach(function(pi){
+  profs.forEach(function(_,pi){
     var sel=document.getElementById('gsetup-deck'+pi);if(!sel)return;
     _buildDeckSelect(sel,pi);
   });
@@ -3278,7 +3497,7 @@ function removePlayerBg(profIdx){
   savePlayerBgs();updateBgButtons();
 }
 function updateBgButtons(){
-  [0,1,2].forEach(function(pi){
+  [0,1,2,3].forEach(function(pi){
     var btn=document.getElementById('gimg-btn'+pi);
     var rm=document.getElementById('gimg-rm'+pi);
     if(btn)btn.textContent=playerBgImages[pi]?'🖼 ✓':'🖼';
@@ -3515,7 +3734,7 @@ function _returnToSetup(){
   document.getElementById('game-setup').style.display='block';
   var cdcard=document.getElementById('cmd-dmg-card');if(cdcard)cdcard.style.display='none';
   var boBar=document.getElementById('bo-info-bar');if(boBar)boBar.style.display='none';
-  [0,1,2].forEach(function(pi){
+  [0,1,2,3].forEach(function(pi){
     var cr=document.getElementById('gsetup-cmd-row'+pi);if(cr)cr.style.display='none';
     var ci=document.getElementById('gsetup-cmd'+pi);if(ci)ci.value='';
     var sel=document.getElementById('gsetup-deck'+pi);if(sel)sel.value='';
@@ -3901,7 +4120,7 @@ function mgGetColors(pi){
 }
 
 function _fillMgDecks(){
-  [0,1,2].forEach(function(pi){
+  profs.forEach(function(_,pi){
     var sel=document.getElementById('mg-deck'+pi);if(!sel)return;
     _buildDeckSelect(sel,pi);
     var container=document.getElementById('mg-colors'+pi);
@@ -3922,7 +4141,7 @@ function toggleManualGame(){
   document.getElementById('mg-fmt').value='commander';
   document.querySelectorAll('#mg-bo-btns .dm').forEach(function(b,i){b.classList.toggle('active',i===0);});
   document.querySelectorAll('.mg-boscore-in').forEach(function(el){el.style.display='none';el.value='0';});
-  [0,1,2].forEach(function(pi){var cr=document.getElementById('mg-cmd-row'+pi);if(cr)cr.style.display='none';var ci=document.getElementById('mg-cmd'+pi);if(ci)ci.value='';});
+  [0,1,2,3].forEach(function(pi){var cr=document.getElementById('mg-cmd-row'+pi);if(cr)cr.style.display='none';var ci=document.getElementById('mg-cmd'+pi);if(ci)ci.value='';});
   var f=document.getElementById('manual-game-form');
   var show=f.style.display==='none';
   f.style.display=show?'block':'none';
@@ -4997,10 +5216,7 @@ function setCollProf(i){
   collFiltSet=''; collFiltRar=''; collFiltColors=new Set();
   document.querySelectorAll('#coll-rar-btns .dm').forEach(function(b,idx){b.classList.toggle('active',idx===0);});
   ['W','U','B','R','G','C'].forEach(function(c){var b=document.getElementById('cf-'+c);if(b)b.classList.remove('active');});
-  [0,1,2].forEach(function(j){
-    var b=document.getElementById('cpb'+j);
-    if(j===i)b.classList.add('active');else b.classList.remove('active');
-  });
+  renderProfSlots('coll','prof-grid-coll');
   renderColl();
   enrichCollCache();
 }
@@ -5010,17 +5226,9 @@ function sortColl(field){
   renderColl();
 }
 function renderColl(){
-  // Update all profile info badges
-  [0,1,2].forEach(function(i){
-    var cards=getProfCards(i);
-    var b=document.getElementById('cpb'+i);
-    var inf=document.getElementById('cpi'+i);
-    if(!b||!inf)return;
-    var has=cards.length>0;
-    if(has)b.classList.add('hasdata');else b.classList.remove('hasdata');
-    if(has){var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);inf.textContent=tot+' cartes';}
-    else inf.textContent='Vide';
-  });
+  // Re-render profile slots to update info badges
+  _syncProfsForCtx('coll');
+  renderProfSlots('coll','prof-grid-coll');
   var cards=getProfCards(collP);
   var srch=(document.getElementById('collsrch')?document.getElementById('collsrch').value:'').toLowerCase().trim();
   var card=document.getElementById('collcard');
@@ -5163,7 +5371,7 @@ function toggleCollDetail(el,name){
         .filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
       var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[card.rarity]||'';
       var pt=card.power!=null?card.power+'/'+card.toughness+'  ':card.loyalty?'Loyauté '+card.loyalty+'  ':'';
-      var loanOpts=[0,1,2].filter(function(i){return i!==collP;}).map(function(i){return '<option value="'+i+'">'+esc(PN[i])+'</option>';}).join('');
+      var loanOpts=profs.filter(function(_,i){return i!==collP;}).map(function(_,i){var realIdx=i>=collP?i+1:i;return '<option value="'+realIdx+'">'+esc(PN[realIdx]||'Profil '+realIdx)+'</option>';}).join('');
       d.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start">'
         +(img?'<img src="'+img+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
         +'<div style="flex:1;min-width:0">'
