@@ -806,7 +806,17 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       </div>
       <!-- Panneau liste d'achat -->
       <div id="achat-panel" style="display:none;background:var(--s3);border-radius:8px;padding:10px 14px;margin-bottom:8px;border:.5px solid var(--bd2)">
-        <div style="font-size:.8rem;font-weight:600;margin-bottom:8px;color:var(--tx2)">Options de la liste d'achat</div>
+        <!-- Sélection manuelle -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+          <div style="font-size:.8rem;font-weight:600;color:var(--tx2)">Sélection manuelle <span id="achat-custom-cnt" style="font-size:.72rem;color:var(--tx3);font-weight:400"></span></div>
+          <button class="btn btnsm btnp" id="achat-export-btn" onclick="exportCustomAchat()" style="display:none">⬇ Exporter (1×/carte)</button>
+        </div>
+        <div id="achat-custom-list" style="margin-bottom:8px">
+          <div style="font-style:italic;color:var(--tx3);font-size:.76rem">Cliquez + sur les cartes du deck pour les sélectionner</div>
+        </div>
+        <div style="border-top:.5px solid var(--bd);margin-bottom:8px"></div>
+        <!-- Auto -->
+        <div style="font-size:.8rem;font-weight:600;margin-bottom:8px;color:var(--tx2)">Liste automatique</div>
         <div style="margin-bottom:8px">
           <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;margin-bottom:4px">
             <input type="radio" name="achat-mode" value="borrow" id="achat-borrow" checked onchange="renderAchatOptions()"> Emprunter à des amis pour compléter
@@ -819,16 +829,6 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
         <button class="btn btnp btnsm" onclick="generateAchat()">Générer la liste</button>
       </div>
       <div id="achat-recap" style="display:none;background:var(--s1);border-radius:8px;padding:10px 14px;margin-bottom:8px;border:.5px solid var(--bd2)"></div>
-      <div id="custom-panel" style="display:none;background:var(--s3);border-radius:8px;padding:10px 14px;margin-bottom:8px;border:.5px solid var(--bd2)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:.8rem;font-weight:600;color:var(--tx2)">Panier personnalisé</div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btnsm btnp" onclick="exportCustomAchat()">⬇ Exporter</button>
-            <button class="btn btnsm btnrd" onclick="clearCustomAchat()">✕ Vider</button>
-          </div>
-        </div>
-        <div id="custom-list"></div>
-      </div>
       <div class="smb" id="smb"></div>
       <div class="g4" id="dstats" style="margin-bottom:10px"></div>
       <div id="dprice" style="margin-bottom:10px"></div>
@@ -1972,8 +1972,7 @@ function analyzeDeck(){
   renderDeckStats();
   fetchMissingPrices();
   // --- Fin estimatif ---
-  var hasMiss=missing.length>0||partial.length>0;
-  document.getElementById('btnachat').style.display=hasMiss?'inline-block':'none';
+  document.getElementById('btnachat').style.display='inline-block';
   document.getElementById('achat-panel').style.display='none';
   renderAchatOptions();
   dFMode='all';
@@ -2392,11 +2391,11 @@ function exportAchat(){
   }
   dlTxt(lines.join('\n'),'achat_'+d.dn.replace(/\s+/g,'_')+'.txt');
 }
-function addToCustomByIdx(i){var c=dCards[i];if(!c)return;addToCustomAchat(c.name,c.nl);}
-function addToCustomAchat(name,nl){
-  var idx=_customAchat.findIndex(function(x){return x.nl===nl;});
-  if(idx>=0){_customAchat[idx].qty+=1;}
-  else{_customAchat.push({name:name,nl:nl,qty:1});}
+function addToCustomByIdx(i){
+  var c=dCards[i];if(!c)return;
+  var idx=_customAchat.findIndex(function(x){return x.nl===c.nl;});
+  if(idx>=0)_customAchat.splice(idx,1);
+  else _customAchat.push({name:c.name,nl:c.nl});
   renderCustomPanel();
   renderDeck();
 }
@@ -2405,37 +2404,40 @@ function removeCustomItem(i){
   renderCustomPanel();
   renderDeck();
 }
-function clearCustomAchat(){
-  _customAchat=[];
-  renderCustomPanel();
-  renderDeck();
-}
 function renderCustomPanel(){
-  var panel=document.getElementById('custom-panel');
-  var list=document.getElementById('custom-list');
-  if(!panel||!list)return;
-  if(!_customAchat.length){panel.style.display='none';return;}
-  panel.style.display='block';
-  var total=_customAchat.reduce(function(s,x){return s+(allPriceMap[x.nl]||0)*x.qty;},0);
+  var list=document.getElementById('achat-custom-list');
+  var cnt=document.getElementById('achat-custom-cnt');
+  var expBtn=document.getElementById('achat-export-btn');
+  var btn=document.getElementById('btnachat');
+  if(btn)btn.style.display='inline-block';
+  if(!list)return;
+  if(!_customAchat.length){
+    list.innerHTML='<div style="font-style:italic;color:var(--tx3);font-size:.76rem">Cliquez + sur les cartes du deck pour les sélectionner</div>';
+    if(cnt)cnt.textContent='';
+    if(expBtn)expBtn.style.display='none';
+    return;
+  }
+  if(cnt)cnt.textContent='('+_customAchat.length+' carte'+(  _customAchat.length>1?'s':'')+')';
+  if(expBtn)expBtn.style.display='inline-block';
+  var total=_customAchat.reduce(function(s,x){return s+(allPriceMap[x.nl]||0);},0);
   list.innerHTML=_customAchat.map(function(x,i){
     var p=allPriceMap[x.nl]||0;
-    var pStr=p>0?'<span style="color:var(--gold2);font-size:.7rem;margin-left:6px">'+(x.qty*p).toFixed(2)+'€</span>':'';
+    var pStr=p>0?'<span style="color:var(--gold2);font-size:.7rem;margin-left:6px">'+p.toFixed(2)+'€</span>':'';
     return '<div class="bld-row">'
-      +'<span style="font-family:\'Cinzel\',serif;font-size:10px;color:var(--gold2);min-width:20px">'+x.qty+'×</span>'
       +'<span style="flex:1">'+esc(x.name)+pStr+'</span>'
       +'<button style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.8rem;padding:0 2px" onclick="removeCustomItem('+i+')" title="Retirer">✕</button>'
       +'</div>';
   }).join('')
-  +(total>0?'<div style="text-align:right;font-size:.78rem;color:var(--gold2);margin-top:6px;font-weight:600">Total : '+total.toFixed(2)+'€</div>':'');
+  +(total>0?'<div style="text-align:right;font-size:.78rem;color:var(--gold2);margin-top:6px;font-weight:600">Total estimé : '+total.toFixed(2)+'€</div>':'');
 }
 function exportCustomAchat(){
   if(!_customAchat.length)return;
   var dn=document.getElementById('dnamein').value.trim()||'Deck';
-  var lines=['Panier personnalisé — '+dn,'Généré le '+new Date().toLocaleDateString('fr-FR'),''];
-  _customAchat.forEach(function(x){lines.push(x.qty+'x '+x.name);});
-  var total=_customAchat.reduce(function(s,x){return s+(allPriceMap[x.nl]||0)*x.qty;},0);
+  var lines=['Sélection manuelle — '+dn,'Généré le '+new Date().toLocaleDateString('fr-FR'),''];
+  _customAchat.forEach(function(x){lines.push('1x '+x.name);});
+  var total=_customAchat.reduce(function(s,x){return s+(allPriceMap[x.nl]||0);},0);
   if(total>0){lines.push('');lines.push('Total estimé : '+total.toFixed(2)+'€');}
-  dlTxt(lines.join('\n'),'panier_'+dn.replace(/\s+/g,'_')+'.txt');
+  dlTxt(lines.join('\n'),'selection_'+dn.replace(/\s+/g,'_')+'.txt');
 }
 function dlTxt(content,filename){
   var blob=new Blob([content],{type:'text/plain;charset=utf-8'});
