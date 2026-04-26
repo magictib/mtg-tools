@@ -353,6 +353,10 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   #bld-cols{flex-direction:column}
   #bld-right{position:static;flex:1 1 auto;max-height:none;overflow-y:visible}
 }
+@media(max-width:700px){
+  #deck-res-cols{flex-direction:column}
+  #deck-stats-panel{width:auto!important;position:static!important}
+}
 @media(max-width:480px){
   .g4{grid-template-columns:1fr 1fr}
   .sccard.active{flex-direction:column}
@@ -794,6 +798,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   </div>
 
   <div id="deckres" style="display:none">
+  <div id="deck-res-cols" style="display:flex;gap:12px;align-items:start">
+  <div style="flex:1;min-width:0">
     <div class="card">
       <div class="row" style="margin-bottom:.5rem">
         <div class="lbl" style="margin-bottom:0" id="dreslbl">Analyse</div>
@@ -841,6 +847,25 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
       <div class="dhdr" id="dlisthdr"><div>Qté</div><div>Carte</div><div style="text-align:center">Thibaud</div><div style="text-align:center">Gérémy</div><div style="text-align:center">Antoine</div><div style="text-align:right">Prix</div><div></div></div>
       <div id="dlist"></div>
     </div>
+  </div>
+  <!-- Panneau stats deck -->
+  <div id="deck-stats-panel" style="width:220px;flex-shrink:0;position:sticky;top:60px;display:none">
+    <div class="card" style="padding:12px">
+      <div class="lbl" style="margin-bottom:8px">Statistiques</div>
+      <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.06em;margin-bottom:4px">TRIER PAR</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="dm active" id="dsort-sec" onclick="setDSort('sec',this)">Section</button>
+        <button class="dm" id="dsort-type" onclick="setDSort('type',this)">Type</button>
+        <button class="dm" id="dsort-cmc" onclick="setDSort('cmc',this)">CMC</button>
+        <button class="dm" id="dsort-name" onclick="setDSort('name',this)">Nom</button>
+      </div>
+      <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.06em;margin-bottom:6px">COURBE DE MANA</div>
+      <div id="dcurve" style="margin-bottom:12px"></div>
+      <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.06em;margin-bottom:6px">RÉPARTITION</div>
+      <div id="dtypes"></div>
+    </div>
+  </div>
+  </div>
   </div>
 </div>
 </div>
@@ -1268,6 +1293,7 @@ var profs=[null,null,null], actP=-1, eMode='new';
 var scAllP=[], scFlips=[], scFlipN=0, scSugTO=null;
 var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0, allPriceMap={};
 var dFormat='', dCommander=null, dColors=[];
+var dCardMeta={}, dSortMode='sec';
 var COMMANDER_FMTS=['commander','paupercmd','brawl','oathbreaker'];
 var dbarOpen=[false,false,false];
 var collP=0;
@@ -1775,7 +1801,10 @@ function setOwner(i){
   });
 }
 function newDeck(){
-  actDeck=null;dCards=[];dImgCache={};dViewMode='list';dFormat='';dCommander=null;dColors=[];_customAchat=[];renderCustomPanel();
+  actDeck=null;dCards=[];dImgCache={};dViewMode='list';dFormat='';dCommander=null;dColors=[];_customAchat=[];dSortMode='sec';renderCustomPanel();
+  var sp=document.getElementById('deck-stats-panel');if(sp)sp.style.display='none';
+  document.querySelectorAll('#deck-stats-panel .dm').forEach(function(b){b.classList.remove('active');});
+  var sb=document.getElementById('dsort-sec');if(sb)sb.classList.add('active');
   var btn=document.getElementById('dbtn-view');if(btn)btn.textContent='🖼 Images';
   document.getElementById('dnamein').value='';
   document.getElementById('ta-name').value='';
@@ -1929,6 +1958,7 @@ function analyzeDeck(){
     });
   });
   renderPriceEstimate();
+  renderDeckStats();
   fetchMissingPrices();
   // --- Fin estimatif ---
   var hasMiss=missing.length>0||partial.length>0;
@@ -1980,8 +2010,10 @@ function renderPriceEstimate(){
 function fetchMissingPrices(){
   var todo=[];
   var seen={};
-  dCards.forEach(function(c){if(!allPriceMap[c.nl]&&!seen[c.nl]){seen[c.nl]=1;todo.push({nl:c.nl,name:c.name});}});
-  if(!todo.length)return;
+  dCards.forEach(function(c){
+    if((!allPriceMap[c.nl]||!dCardMeta[c.nl])&&!seen[c.nl]){seen[c.nl]=1;todo.push({nl:c.nl,name:c.name});}
+  });
+  if(!todo.length){renderDeckStats();return;}
   var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
   var done=0;
   batches.forEach(function(batch){
@@ -1992,10 +2024,90 @@ function fetchMissingPrices(){
       (data.data||[]).forEach(function(card){
         var nl=stripDFC(card.name).toLowerCase();
         if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
+        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
       });
-      if(++done===batches.length){renderPriceEstimate();renderDeck();}
-    }).catch(function(){++done;});
+      if(++done===batches.length){renderPriceEstimate();renderDeckStats();renderDeck();}
+    }).catch(function(){if(++done===batches.length)renderDeckStats();});
   });
+}
+function setDSort(mode,btn){
+  dSortMode=mode;
+  document.querySelectorAll('#deck-stats-panel .dm').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  renderDeck();
+}
+function getVSec(c){
+  if(dSortMode==='sec')return c.sec;
+  if(dSortMode==='name')return 'Cartes';
+  var meta=dCardMeta[c.nl]||{};
+  var tl=(meta.typeLine||'').toLowerCase();
+  if(dSortMode==='cmc'){var cmc=Math.floor(meta.cmc||0);return 'CMC '+(cmc>=7?'7+':cmc);}
+  if(tl.indexOf('creature')>=0)return 'Créatures';
+  if(tl.indexOf('instant')>=0)return 'Éphémères';
+  if(tl.indexOf('sorcery')>=0)return 'Rituels';
+  if(tl.indexOf('enchantment')>=0)return 'Enchantements';
+  if(tl.indexOf('artifact')>=0)return 'Artefacts';
+  if(tl.indexOf('planeswalker')>=0)return 'Planeswalkers';
+  if(tl.indexOf('land')>=0)return 'Terrains';
+  return c.sec;
+}
+var TYPE_ORDER=['Créatures','Éphémères','Rituels','Enchantements','Artefacts','Planeswalkers','Terrains'];
+function renderDeckStats(){
+  var el=document.getElementById('deck-stats-panel');if(!el)return;
+  if(!dCards.length){el.style.display='none';return;}
+  el.style.display='block';
+  var cmcBuckets=[0,0,0,0,0,0,0,0];
+  var tCnt={creature:0,instant:0,sorcery:0,land:0,enchantment:0,artifact:0,planeswalker:0,other:0};
+  dCards.forEach(function(c){
+    var meta=dCardMeta[c.nl]||{};
+    var tl=(meta.typeLine||'').toLowerCase();
+    var cmc=Math.floor(meta.cmc||0);
+    if(tl.indexOf('land')<0)cmcBuckets[Math.min(cmc,7)]+=c.qty;
+    if(tl.indexOf('land')>=0)tCnt.land+=c.qty;
+    else if(tl.indexOf('creature')>=0)tCnt.creature+=c.qty;
+    else if(tl.indexOf('instant')>=0)tCnt.instant+=c.qty;
+    else if(tl.indexOf('sorcery')>=0)tCnt.sorcery+=c.qty;
+    else if(tl.indexOf('enchantment')>=0)tCnt.enchantment+=c.qty;
+    else if(tl.indexOf('artifact')>=0)tCnt.artifact+=c.qty;
+    else if(tl.indexOf('planeswalker')>=0)tCnt.planeswalker+=c.qty;
+    else tCnt.other+=c.qty;
+  });
+  var maxB=Math.max.apply(null,cmcBuckets.concat([1]));
+  var curveHtml='<div style="display:flex;gap:3px;align-items:flex-end;height:64px">';
+  cmcBuckets.forEach(function(cnt,i){
+    var barH=cnt>0?Math.max(Math.round(cnt/maxB*50),3):0;
+    curveHtml+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">'
+      +'<div style="font-size:7px;color:var(--tx3);line-height:1;margin-bottom:1px">'+(cnt||'')+'</div>'
+      +'<div style="width:100%;background:var(--gold2);border-radius:2px 2px 0 0;height:'+barH+'px;opacity:.8;min-height:'+(cnt>0?'3px':'0')+'"></div>'
+      +'<div style="font-size:8px;color:var(--tx3);margin-top:2px">'+(i<7?i:'7+')+'</div>'
+      +'</div>';
+  });
+  curveHtml+='</div>';
+  document.getElementById('dcurve').innerHTML=curveHtml;
+  var typeRows=[
+    {k:'creature',l:'Créatures',c:'var(--gr2)'},
+    {k:'instant',l:'Éphémères',c:'#5ba3dc'},
+    {k:'sorcery',l:'Rituels',c:'var(--rd2)'},
+    {k:'enchantment',l:'Enchant.',c:'var(--am)'},
+    {k:'artifact',l:'Artefacts',c:'var(--tx2)'},
+    {k:'planeswalker',l:'Planesw.',c:'var(--gold2)'},
+    {k:'land',l:'Terrains',c:'var(--tx3)'},
+    {k:'other',l:'Autres',c:'var(--tx3)'}
+  ];
+  var total=dCards.reduce(function(s,c){return s+c.qty;},0);
+  var typesHtml='';
+  typeRows.forEach(function(t){
+    var cnt=tCnt[t.k];if(!cnt)return;
+    var pct=total>0?Math.round(cnt/total*100):0;
+    typesHtml+='<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px">'
+      +'<div style="font-size:.68rem;color:var(--tx2);width:68px;flex-shrink:0">'+t.l+'</div>'
+      +'<div style="flex:1;background:var(--s1);border-radius:2px;height:5px;overflow:hidden">'
+      +(pct?'<div style="width:'+pct+'%;height:100%;background:'+t.c+';border-radius:2px"></div>':'')
+      +'</div>'
+      +'<div style="font-size:.68rem;color:'+t.c+';min-width:24px;text-align:right;font-weight:600">'+cnt+'</div>'
+      +'</div>';
+  });
+  document.getElementById('dtypes').innerHTML=typesHtml;
 }
 function dFlt(f,btn){
   dFMode=f;
@@ -2029,8 +2141,9 @@ function fetchDeckImages(){
         var img=card.image_uris?card.image_uris.normal:(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris?card.card_faces[0].image_uris.normal:null);
         if(img)dImgCache[nl]=img;
         if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
+        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
       });
-      if(++done===batches.length){renderPriceEstimate();renderDeck();}
+      if(++done===batches.length){renderPriceEstimate();renderDeckStats();renderDeck();}
     }).catch(function(){if(++done===batches.length)renderDeck();});
   });
 }
@@ -2069,24 +2182,38 @@ function renderDeck(){
     if(dFMode==='cmd'){var still=c.qty-x;return still>0&&!pms.some(function(m){return (m.get(getKey(c))||0)>=c.qty;});}
     return true;
   });
+  // Tri et sections virtuelles
+  var sorted=filtered.slice();
+  if(dSortMode==='name')sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
+  else if(dSortMode==='cmc')sorted.sort(function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);});
   var secs=[];
-  filtered.forEach(function(c){if(secs.indexOf(c.sec)<0)secs.push(c.sec);});
+  sorted.forEach(function(c){var s=getVSec(c);if(secs.indexOf(s)<0)secs.push(s);});
+  if(dSortMode==='type'){secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
+  else if(dSortMode==='cmc'){secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});}
   var html='';
   if(dViewMode==='image'){
     // Mode grille d'images
     secs.forEach(function(sec){
-      var sc=filtered.filter(function(c){return c.sec===sec;});if(!sc.length)return;
+      var sc=sorted.filter(function(c){return getVSec(c)===sec;});if(!sc.length)return;
       html+='<div class="dsec">'+esc(sec)+' <span style="color:var(--tx3);font-size:9px">('+sc.length+')</span></div>';
-      html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
       sc.forEach(function(card){
         var k=getKey(card);
         var x=Math.max.apply(null,pms.map(function(m){return m.get(k)||0;}));
         var bc=x===0?'var(--rd2)':x<card.qty?'var(--am)':'var(--gr2)';
+        var statusTxt=x===0?'<span style="color:var(--rd2)">✗ Manquante</span>':x<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
         var img=dImgCache[card.nl];
-        html+='<div style="width:160px;text-align:center">'
-          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" style="width:160px;border-radius:7px;border:2px solid '+bc+';display:block">'
-               :'<div style="width:160px;height:224px;background:var(--s3);border-radius:7px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.7rem;color:var(--tx3);padding:4px;text-align:center">'+esc(card.name)+'</div>')
-          +'<div style="font-size:.68rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
+        var cardPrice=allPriceMap[card.nl]||0;
+        var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
+        html+='<div style="width:180px;text-align:center">'
+          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" style="width:180px;border-radius:8px;border:2px solid '+bc+';display:block">'
+               :'<div style="width:180px;height:252px;background:var(--s3);border-radius:8px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.72rem;color:var(--tx3);padding:4px;text-align:center">'+esc(card.name)+'</div>')
+          +'<div style="font-size:.65rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
+          +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;font-size:.62rem;padding:0 2px">'
+          +statusTxt
+          +(cardPrice>0?'<span style="color:var(--gold2)">'+cardPrice.toFixed(2)+'€</span>':'<span style="color:var(--tx3)">—</span>')
+          +'<button class="dadd-btn'+(inCustom?' in':'')+'" style="width:18px;height:18px;font-size:11px" onclick="addToCustomAchat(\''+esc(card.name).replace(/'/g,"\\'")+'\',' +'\''+card.nl+'\');renderDeck()" title="Ajouter au panier">+</button>'
+          +'</div>'
           +'</div>';
       });
       html+='</div>';
@@ -2094,7 +2221,7 @@ function renderDeck(){
   } else {
     // Mode liste
     secs.forEach(function(sec){
-      var sc=filtered.filter(function(c){return c.sec===sec;});if(!sc.length)return;
+      var sc=sorted.filter(function(c){return getVSec(c)===sec;});if(!sc.length)return;
       html+='<div class="dsec">'+esc(sec)+' <span style="color:var(--tx3);font-size:9px">('+sc.length+')</span></div>';
       sc.forEach(function(card){
         var k=getKey(card);
@@ -2119,7 +2246,7 @@ function renderDeck(){
         var dkBdg=(pendQD?'<span class="badge-pend" title="'+pendQD+'× commandée(s), non reçue(s)">⏳'+pendQD+'</span>':'')+(loanQD?'<span class="badge-loan" title="'+loanQD+'× en prêt actif">🔄'+loanQD+'</span>':'');
         var cardPrice=allPriceMap[card.nl]||0;
         var priceCell=cardPrice>0?'<div style="text-align:right;color:var(--gold2);font-size:.72rem">'+cardPrice.toFixed(2)+'€</div>':'<div style="text-align:right;color:var(--tx3);font-size:.72rem">—</div>';
-        var inCustom=_customAchat.some(function(x){return x.nl===card.nl;});
+        var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
         var addBtn='<button class="dadd-btn'+(inCustom?' in':'')+'" onclick="addToCustomAchat(\''+esc(card.name).replace(/'/g,"\\'")+'\',' +'\''+card.nl+'\');event.stopPropagation()" title="Ajouter au panier personnalisé">+</button>';
         html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+dkBdg+'</div>'+pc+priceCell+addBtn+'</div>';
       });
