@@ -803,8 +803,6 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     <div class="card">
       <div class="row" style="margin-bottom:.5rem">
         <div class="lbl" style="margin-bottom:0" id="dreslbl">Analyse</div>
-        <button class="btn btnsm btnp" id="btnachat" onclick="toggleAchatPanel()" style="display:none">🛒 Liste d'achat</button>
-        <button class="btn btnsm" id="dbtn-view" onclick="toggleDView()">🖼 Images</button>
       </div>
       <!-- Panneau liste d'achat -->
       <div id="achat-panel" style="display:none;background:var(--s3);border-radius:8px;padding:10px 14px;margin-bottom:8px;border:.5px solid var(--bd2)">
@@ -852,6 +850,10 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   <div id="deck-stats-panel" style="width:220px;flex-shrink:0;position:sticky;top:60px;display:none">
     <div class="card" style="padding:12px">
       <div class="lbl" style="margin-bottom:8px">Statistiques</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btnsm btnp" id="btnachat" onclick="toggleAchatPanel()" style="display:none;flex:1">🛒 Achat</button>
+        <button class="btn btnsm" id="dbtn-view" onclick="toggleDView()" style="flex:1">🖼 Images</button>
+      </div>
       <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.06em;margin-bottom:4px">TRIER PAR</div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
         <button class="dm active" id="dsort-sec" onclick="setDSort('sec',this)">Section</button>
@@ -875,6 +877,15 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 <div id="bld-left">
   <div class="card">
     <div class="lbl">Recherche de cartes</div>
+    <div style="margin-bottom:8px">
+      <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.06em;margin-bottom:4px">RESTREINDRE AUX COLLECTIONS</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <button class="dm" id="bld-coll0" onclick="bldToggleColl(0,this)">Thibaud</button>
+        <button class="dm" id="bld-coll1" onclick="bldToggleColl(1,this)">Gérémy</button>
+        <button class="dm" id="bld-coll2" onclick="bldToggleColl(2,this)">Antoine</button>
+        <span id="bld-coll-cnt" style="font-size:.72rem;color:var(--tx3);align-self:center;margin-left:4px"></span>
+      </div>
+    </div>
     <div class="row" style="margin-bottom:8px">
       <input type="text" id="bld-q" placeholder="Nom, mot-clé, texte oracle..." style="flex:1" onkeydown="if(event.key==='Enter')bldSearch()">
       <button class="btn btnp btnsm" onclick="bldSearch()">Chercher</button>
@@ -1997,7 +2008,7 @@ function renderPriceEstimate(){
   var dp=document.getElementById('dprice');
   if(priceTotalAll>0){
     dp.innerHTML='<div style="background:var(--s3);border-radius:8px;padding:8px 12px;border:.5px solid var(--bd2)">'
-      +'<div style="font-size:9px;color:var(--tx3);font-family:\'Cinzel\',serif;letter-spacing:.08em;margin-bottom:6px">ESTIMATIF PRIX (collections + Scryfall)</div>'
+      +'<div style="font-size:9px;color:var(--tx3);font-family:\'Cinzel\',serif;letter-spacing:.08em;margin-bottom:6px">ESTIMATIF PRIX — Cardmarket (via Scryfall)</div>'
       +'<div style="display:flex;gap:16px;flex-wrap:wrap">'
       +'<div><div style="font-size:.78rem;color:var(--tx2)">Prix total deck</div><div style="font-weight:700;color:var(--gold2)">'+priceTotalAll.toFixed(2)+'€</div></div>'
       +'<div><div style="font-size:.78rem;color:var(--tx2)">Restant à acheter</div><div style="font-weight:700;color:var(--rd2)">'+priceMissingOwner.toFixed(2)+'€</div></div>'
@@ -2212,7 +2223,7 @@ function renderDeck(){
           +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;font-size:.62rem;padding:0 2px">'
           +statusTxt
           +(cardPrice>0?'<span style="color:var(--gold2)">'+cardPrice.toFixed(2)+'€</span>':'<span style="color:var(--tx3)">—</span>')
-          +'<button class="dadd-btn'+(inCustom?' in':'')+'" style="width:18px;height:18px;font-size:11px" onclick="addToCustomAchat(\''+esc(card.name).replace(/'/g,"\\'")+'\',' +'\''+card.nl+'\');renderDeck()" title="Ajouter au panier">+</button>'
+          +'<button class="dadd-btn'+(inCustom?' in':'')+'" style="width:18px;height:18px;font-size:11px" onclick="addToCustomByIdx('+dCards.indexOf(card)+');renderDeck()" title="Ajouter au panier">+</button>'
           +'</div>'
           +'</div>';
       });
@@ -2247,7 +2258,7 @@ function renderDeck(){
         var cardPrice=allPriceMap[card.nl]||0;
         var priceCell=cardPrice>0?'<div style="text-align:right;color:var(--gold2);font-size:.72rem">'+cardPrice.toFixed(2)+'€</div>':'<div style="text-align:right;color:var(--tx3);font-size:.72rem">—</div>';
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
-        var addBtn='<button class="dadd-btn'+(inCustom?' in':'')+'" onclick="addToCustomAchat(\''+esc(card.name).replace(/'/g,"\\'")+'\',' +'\''+card.nl+'\');event.stopPropagation()" title="Ajouter au panier personnalisé">+</button>';
+        var addBtn='<button class="dadd-btn'+(inCustom?' in':'')+'" onclick="addToCustomByIdx('+dCards.indexOf(card)+');event.stopPropagation()" title="Ajouter au panier personnalisé">+</button>';
         html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+dkBdg+'</div>'+pc+priceCell+addBtn+'</div>';
       });
     });
@@ -2381,6 +2392,7 @@ function exportAchat(){
   }
   dlTxt(lines.join('\n'),'achat_'+d.dn.replace(/\s+/g,'_')+'.txt');
 }
+function addToCustomByIdx(i){var c=dCards[i];if(!c)return;addToCustomAchat(c.name,c.nl);}
 function addToCustomAchat(name,nl){
   var idx=_customAchat.findIndex(function(x){return x.nl===nl;});
   if(idx>=0){_customAchat[idx].qty+=1;}
@@ -4050,6 +4062,22 @@ document.addEventListener('DOMContentLoaded',function(){
 
 // ===== BUILDER =====
 var bldMain=[],bldSide=[],bldSrchColors=new Set(),bldSrchRarity='',bldSrchKeywords=new Set(),bldNextPage=null,bldData={};
+var bldCollFilter=new Set();
+function bldToggleColl(pi,btn){
+  if(bldCollFilter.has(pi))bldCollFilter.delete(pi);else bldCollFilter.add(pi);
+  btn.classList.toggle('active',bldCollFilter.has(pi));
+  var cnt=0;bldCollFilter.forEach(function(i){cnt+=(Array.isArray(profs[i])?profs[i].length:0);});
+  var lbl=document.getElementById('bld-coll-cnt');
+  if(lbl)lbl.textContent=bldCollFilter.size>0?cnt+' cartes filtrables':'';
+}
+function bldGetCollNames(){
+  var names=new Set();
+  bldCollFilter.forEach(function(pi){
+    var prof=Array.isArray(profs[pi])?profs[pi]:[];
+    prof.forEach(function(c){names.add(stripDFC(c.name||'').toLowerCase());});
+  });
+  return names;
+}
 
 function bldToggleColor(c,btn){
   if(bldSrchColors.has(c))bldSrchColors.delete(c);else bldSrchColors.add(c);
@@ -4126,6 +4154,14 @@ function bldRenderRes(data,append){
     document.getElementById('bld-morebtn').style.display='none';return;
   }
   bldNextPage=data.has_more?data.next_page:null;
+  if(bldCollFilter.size>0){
+    var collNames=bldGetCollNames();
+    data.data=data.data.filter(function(c){return collNames.has(stripDFC(c.name||'').toLowerCase());});
+    if(!data.data.length){
+      if(!append)grid.innerHTML='<div style="text-align:center;color:var(--tx3);padding:1rem;font-style:italic">Aucune carte de ces collections</div>';
+      document.getElementById('bld-morebtn').style.display='none';return;
+    }
+  }
   var html=data.data.map(function(c){
     var d=bldCardObj(c);
     bldData[d.name.toLowerCase()]=d;
