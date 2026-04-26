@@ -262,7 +262,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .syn-neu{background:rgba(100,100,120,.1);color:var(--tx3);border:.5px solid var(--bd)}
 .edhrec-decks{font-size:.7rem;color:var(--tx3);min-width:60px;text-align:right}
 .edh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:.5rem}
-.edh-card{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color .15s;-webkit-tap-highlight-color:transparent}
+.edh-card{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color .15s;-webkit-tap-highlight-color:transparent;contain:content}
 .edh-card:hover{border-color:var(--ac)}
 .edh-card.edh-sel{opacity:.45;border-color:var(--gr2)!important;transform:none!important}
 #edh-zoom{position:fixed;z-index:9999;pointer-events:none;display:none;width:260px;border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.8);transition:opacity .1s}
@@ -3216,9 +3216,21 @@ function applySetFilters(){
   });
   renderSetGrid(filtered);
 }
+var _setGridAll=[],_setGridOffset=0,SET_GRID_PAGE=60;
 function renderSetGrid(cards){
+  _setGridAll=cards;_setGridOffset=0;
+  var el=document.getElementById('set-grid');if(!el)return;
+  el.innerHTML='';
+  if(!cards.length){el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem;padding:.5rem">Aucune carte pour ces filtres.</div>';return;}
+  _appendSetGrid();
+}
+function _appendSetGrid(){
   var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
-  var html=cards.map(function(c){
+  var el=document.getElementById('set-grid');if(!el)return;
+  var btn=document.getElementById('set-grid-more');if(btn)btn.remove();
+  var batch=_setGridAll.slice(_setGridOffset,_setGridOffset+SET_GRID_PAGE);
+  _setGridOffset+=batch.length;
+  var html=batch.map(function(c){
     var img=c.image_uris?c.image_uris.normal:(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris?c.card_faces[0].image_uris.normal:'');
     var nm=c.name.replace(/'/g,"&#39;");
     var pr=c.prices&&c.prices.eur?'<span style="color:var(--gr2);font-size:.62rem">'+parseFloat(c.prices.eur).toFixed(2)+'€</span>':'';
@@ -3229,7 +3241,17 @@ function renderSetGrid(cards){
       +'<div class="edh-tp" style="color:'+(rc[c.rarity]||'var(--tx3)')+'">'+esc((c.type_line||'').split(' — ')[0])+'</div>'
       +pr+'</div></div>';
   }).join('');
-  document.getElementById('set-grid').innerHTML=html||'<div style="color:var(--tx3);font-style:italic;font-size:.85rem;padding:.5rem">Aucune carte pour ces filtres.</div>';
+  var frag=document.createElement('div');frag.innerHTML=html;
+  while(frag.firstChild)el.appendChild(frag.firstChild);
+  if(_setGridOffset<_setGridAll.length){
+    var rem=_setGridAll.length-_setGridOffset;
+    var more=document.createElement('button');
+    more.id='set-grid-more';more.className='btn';
+    more.style.cssText='display:block;margin:14px auto;font-size:.8rem;padding:6px 22px';
+    more.textContent='Voir plus ('+rem+' cartes restantes)';
+    more.onclick=_appendSetGrid;
+    el.appendChild(more);
+  }
 }
 var SET_TYPE_LABELS={
   expansion:'Extensions',core:'Sets de base',masters:'Masters',commander:'Commander',
@@ -5336,7 +5358,25 @@ function enrichCollCache(){
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
       }).then(function(r){return r.json();}).then(function(data){
-        (data.data||[]).forEach(function(c){var dat={colors:c.colors||[],rarity:c.rarity||''};collCache[c.name.toLowerCase()]=dat;collCache[stripDFC(c.name).toLowerCase()]=dat;});
+        (data.data||[]).forEach(function(c){
+          var img='';
+          if(c.image_uris)img=c.image_uris.normal||c.image_uris.large||'';
+          else if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)img=c.card_faces[0].image_uris.normal||c.card_faces[0].image_uris.large||'';
+          var oracle='';
+          if(c.card_faces&&!c.image_uris)oracle=c.card_faces.map(function(f){return (f.name?'<span style="font-weight:600;color:var(--tx)">'+esc(f.name)+'</span><br>':'')+(esc(f.oracle_text||'').replace(/\n/g,'<br>'));}).join('<div style="border-top:.5px solid var(--bd);margin:5px 0"></div>');
+          else oracle=esc(c.oracle_text||'').replace(/\n/g,'<br>');
+          var p=c.prices||{};
+          var prices=[{l:'USD',v:p.usd,s:'$'},{l:'EUR',v:p.eur,s:'€'},{l:'Foil USD',v:p.usd_foil,s:'$'},{l:'Foil EUR',v:p.eur_foil,s:'€'}].filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
+          var pt=c.power!=null?c.power+'/'+c.toughness+' ':c.loyalty?'Loyauté '+c.loyalty+' ':'';
+          var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
+          var dat={
+            colors:c.colors||[],rarity:c.rarity||'',img:img,
+            oracle:oracle,type:c.type_line||'',prices:prices,pt:pt,rar:rar,
+            scryfall_uri:c.scryfall_uri||''
+          };
+          collCache[c.name.toLowerCase()]=dat;
+          collCache[stripDFC(c.name).toLowerCase()]=dat;
+        });
         renderColl();
       }).catch(function(){});
     })(unique.slice(i,i+75));
@@ -5344,6 +5384,24 @@ function enrichCollCache(){
 }
 
 // ===== COLLECTION DETAIL =====
+function _buildDetailHTML(displayName,dat,loanOpts){
+  return '<div style="display:flex;gap:10px;align-items:flex-start">'
+    +(dat.img?'<img src="'+dat.img+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
+    +'<div style="flex:1;min-width:0">'
+    +'<div style="font-family:\'Cinzel\',serif;font-size:.82rem;color:var(--gold2);margin-bottom:2px">'+esc(displayName)+'</div>'
+    +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(dat.type||'')+(dat.rar?' · '+dat.rar:'')+(dat.pt?' · '+dat.pt:'')+'</div>'
+    +(dat.oracle?'<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:6px">'+dat.oracle+'</div>':'')
+    +(dat.prices?'<div style="font-size:.7rem;margin-bottom:6px">'+dat.prices+'</div>':'')
+    +'</div></div>'
+    +'<div class="det-action">'
+    +'<div style="font-size:.7rem;color:var(--tx2);font-weight:600;margin-bottom:6px">Actions</div>'
+    +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">⏳ Commander</span>'
+    +'<input type="number" id="det-pend-qty" value="1" min="1"><button class="btn btnsm" onclick="openDetailPend()" style="font-size:.7rem;padding:2px 8px">+</button></div>'
+    +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">🔄 Prêter à</span>'
+    +'<select id="det-loan-to">'+loanOpts+'</select>'
+    +'<input type="number" id="det-loan-qty" value="1" min="1"><button class="btn btnsm" onclick="openDetailLoan()" style="font-size:.7rem;padding:2px 8px">→</button></div>'
+    +'</div>';
+}
 function toggleCollDetail(el,name){
   hideTip();
   currentDetailName=name;
@@ -5352,8 +5410,11 @@ function toggleCollDetail(el,name){
   var det=document.createElement('div');
   det.id='colldetail';det.className='colldetail';
   det.setAttribute('data-name',name);
-  det.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;text-align:center">Chargement…</div>';
   el.insertAdjacentElement('afterend',det);
+  var loanOpts=profs.filter(function(_,i){return i!==collP;}).map(function(_,i){var realIdx=i>=collP?i+1:i;return '<option value="'+realIdx+'">'+esc(PN[realIdx]||'Profil '+realIdx)+'</option>';}).join('');
+  var cached=collCache[name.toLowerCase()];
+  if(cached){det.innerHTML=_buildDetailHTML(name,cached,loanOpts);return;}
+  det.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;text-align:center">Chargement…</div>';
   fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name))
     .then(function(r){return r.json();})
     .then(function(card){
@@ -5371,23 +5432,9 @@ function toggleCollDetail(el,name){
         .filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
       var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[card.rarity]||'';
       var pt=card.power!=null?card.power+'/'+card.toughness+'  ':card.loyalty?'Loyauté '+card.loyalty+'  ':'';
-      var loanOpts=profs.filter(function(_,i){return i!==collP;}).map(function(_,i){var realIdx=i>=collP?i+1:i;return '<option value="'+realIdx+'">'+esc(PN[realIdx]||'Profil '+realIdx)+'</option>';}).join('');
-      d.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start">'
-        +(img?'<img src="'+img+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
-        +'<div style="flex:1;min-width:0">'
-        +'<div style="font-family:\'Cinzel\',serif;font-size:.82rem;color:var(--gold2);margin-bottom:2px">'+esc(card.name)+'</div>'
-        +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(card.type_line||'')+(rar?' · '+rar:'')+(pt?' · '+pt:'')+'</div>'
-        +(oracle?'<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:6px">'+oracle+'</div>':'')
-        +(prices?'<div style="font-size:.7rem;margin-bottom:6px">'+prices+'</div>':'')
-        +'</div></div>'
-        +'<div class="det-action">'
-        +'<div style="font-size:.7rem;color:var(--tx2);font-weight:600;margin-bottom:6px">Actions</div>'
-        +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">⏳ Commander</span>'
-        +'<input type="number" id="det-pend-qty" value="1" min="1"><button class="btn btnsm" onclick="openDetailPend()" style="font-size:.7rem;padding:2px 8px">+</button></div>'
-        +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">🔄 Prêter à</span>'
-        +'<select id="det-loan-to">'+loanOpts+'</select>'
-        +'<input type="number" id="det-loan-qty" value="1" min="1"><button class="btn btnsm" onclick="openDetailLoan()" style="font-size:.7rem;padding:2px 8px">→</button></div>'
-        +'</div>';
+      var dat={img:img,oracle:oracle,type:card.type_line||'',prices:prices,rar:rar,pt:pt};
+      collCache[name.toLowerCase()]=Object.assign({colors:card.colors||[],rarity:card.rarity||'',scryfall_uri:card.scryfall_uri||''},dat);
+      d.innerHTML=_buildDetailHTML(card.name||name,dat,loanOpts);
     })
     .catch(function(){var d=document.getElementById('colldetail');if(d)d.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem">Données indisponibles</div>';});
 }
