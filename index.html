@@ -44,7 +44,6 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 .auth-tab.on{background:var(--s3);color:var(--gold2);border-color:var(--gold2)}
 .auth-msg{font-size:.78rem;text-align:center;margin-top:8px;min-height:1.1rem}
 .auth-msg.ok{color:var(--gr2)}.auth-msg.err{color:var(--rd2)}
-#auth-user-bar{display:none;align-items:center;justify-content:center;gap:8px;padding:4px 0 2px;font-size:.75rem;color:var(--tx3)}
 #admin-overlay{position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.88);display:flex;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto}
 .admin-card{background:var(--s1);border:.5px solid var(--bd2);border-radius:16px;padding:1.25rem;width:100%;max-width:480px;margin-top:1.5rem}
 /* Scanner */
@@ -395,9 +394,57 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   .collhdr>div:nth-child(4),.collrow>div:nth-child(4),
   .collhdr>div:nth-child(5),.collrow>div:nth-child(5){display:none}
 }
+
+/* ===== LOADING OVERLAY ===== */
+#loading-overlay{position:fixed;inset:0;z-index:9000;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;transition:opacity .5s ease}
+#loading-overlay.fade-out{opacity:0;pointer-events:none}
+.load-ring{width:52px;height:52px;position:relative}
+.load-ring::before{content:'';position:absolute;inset:0;border-radius:50%;border:2px solid rgba(201,168,76,.12);border-top-color:var(--gold2);animation:ld-spin .9s linear infinite}
+.load-ring::after{content:'';position:absolute;inset:8px;border-radius:50%;border:1.5px solid rgba(124,106,247,.1);border-bottom-color:var(--ac2);animation:ld-spin .6s linear infinite reverse}
+@keyframes ld-spin{to{transform:rotate(360deg)}}
+.load-lbl{font-family:'Cinzel',serif;font-size:.78rem;color:var(--tx3);letter-spacing:.15em;animation:ld-pulse 1.6s ease-in-out infinite}
+@keyframes ld-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+
+/* ===== USER MENU (top-right) ===== */
+#user-menu-wrap{position:fixed;top:10px;right:12px;z-index:300}
+#user-menu-btn{width:34px;height:34px;border-radius:50%;background:var(--s2);border:.5px solid var(--bd2);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:1rem;transition:all .15s;box-shadow:0 2px 12px rgba(0,0,0,.4);color:var(--tx2)}
+#user-menu-btn:hover{border-color:var(--gold2);color:var(--gold2)}
+#user-menu-panel{display:none;position:absolute;top:42px;right:0;background:var(--s2);border:.5px solid var(--bd2);border-radius:12px;padding:.85rem 1rem;min-width:210px;box-shadow:0 8px 32px rgba(0,0,0,.6)}
+#user-menu-panel.open{display:block}
+.um-name{font-family:'Cinzel',serif;font-size:.82rem;color:var(--gold2);margin-bottom:.6rem;padding-bottom:.5rem;border-bottom:.5px solid var(--bd);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.um-row{display:flex;flex-direction:column;gap:6px}
+.um-btn{padding:6px 10px;border-radius:7px;border:.5px solid var(--bd);background:transparent;color:var(--tx2);font-family:'Crimson Pro',serif;font-size:.85rem;cursor:pointer;text-align:left;transition:all .15s;width:100%}
+.um-btn:hover{background:var(--s3);color:var(--tx)}
+.um-btn.danger{color:var(--rd2);border-color:rgba(232,108,108,.25)}
+.um-btn.danger:hover{background:rgba(232,108,108,.08)}
+.um-rename-wrap{margin-top:6px;display:none}
+.um-rename-wrap input{width:100%;margin-bottom:6px;padding:5px 8px;font-size:.82rem}
 </style>
 </head>
 <body>
+
+<!-- Loading overlay -->
+<div id="loading-overlay">
+  <div class="load-ring"></div>
+  <div class="load-lbl">MANALAB</div>
+</div>
+
+<!-- User menu (top-right) -->
+<div id="user-menu-wrap">
+  <button id="user-menu-btn" onclick="toggleUserMenu()">&#9998;</button>
+  <div id="user-menu-panel">
+    <div class="um-name" id="um-display-name"></div>
+    <div class="um-row">
+      <button class="um-btn" id="um-admin-btn" onclick="openAdminPanel();toggleUserMenu()" style="display:none">⚙ Panneau admin</button>
+      <button class="um-btn" onclick="umShowRename()">✎ Modifier le nom</button>
+      <div class="um-rename-wrap" id="um-rename-wrap">
+        <input type="text" id="um-rename-input" placeholder="Nouveau prénom / pseudo">
+        <button class="btn btnp btnsm" style="width:100%" onclick="authRenameUser()">Valider</button>
+      </div>
+      <button class="um-btn danger" onclick="authSignOut();toggleUserMenu()">⏻ Déconnexion</button>
+    </div>
+  </div>
+</div>
 
 <!-- Auth overlay (visible until logged in + approved) -->
 <div id="auth-overlay">
@@ -489,11 +536,6 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
     </svg>
   </div>
   <h1>Mana<span>LAB</span></h1>
-  <div id="auth-user-bar">
-    <span id="auth-username-lbl" style="color:var(--tx2)"></span>
-    <button class="btn btnsm" id="auth-admin-btn" onclick="openAdminPanel()" style="display:none;padding:2px 8px;font-size:.72rem">⚙ Admin</button>
-    <button class="btn btnsm" onclick="authSignOut()" style="padding:2px 8px;font-size:.72rem;border-color:var(--tx3);color:var(--tx3)">Déco.</button>
-  </div>
 </header>
 
 <div class="tabs">
@@ -1513,13 +1555,14 @@ firebase.auth().onAuthStateChanged(function(user){
 
 function _onUserRole(user,role){
   _userRole=role;
+  _hideLoading();
   if(role==='admin'||role==='approved'){
     document.getElementById('auth-overlay').style.display='none';
     document.getElementById('wrap-main').style.display='';
-    var bar=document.getElementById('auth-user-bar');
-    bar.style.display='flex';
-    document.getElementById('auth-username-lbl').textContent=user.displayName||user.email;
-    document.getElementById('auth-admin-btn').style.display=role==='admin'?'inline-block':'none';
+    var btn=document.getElementById('user-menu-btn');
+    btn.style.display='flex';
+    document.getElementById('um-display-name').textContent=user.displayName||user.email;
+    document.getElementById('um-admin-btn').style.display=role==='admin'?'block':'none';
     userId=user.uid;
     loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
     fetchRules();
@@ -1530,7 +1573,46 @@ function _onUserRole(user,role){
   }
 }
 
+function _hideLoading(){
+  var ov=document.getElementById('loading-overlay');
+  if(!ov)return;
+  ov.classList.add('fade-out');
+  setTimeout(function(){ov.style.display='none';},520);
+}
+
+function toggleUserMenu(){
+  var panel=document.getElementById('user-menu-panel');
+  panel.classList.toggle('open');
+}
+document.addEventListener('click',function(e){
+  var wrap=document.getElementById('user-menu-wrap');
+  if(wrap&&!wrap.contains(e.target)){
+    document.getElementById('user-menu-panel').classList.remove('open');
+  }
+});
+
+function umShowRename(){
+  var w=document.getElementById('um-rename-wrap');
+  w.style.display=w.style.display==='block'?'none':'block';
+  if(w.style.display==='block')document.getElementById('um-rename-input').focus();
+}
+
+function authRenameUser(){
+  var name=(document.getElementById('um-rename-input').value||'').trim();
+  if(!name)return;
+  var user=firebase.auth().currentUser;
+  if(!user)return;
+  user.updateProfile({displayName:name}).then(function(){
+    document.getElementById('um-display-name').textContent=name;
+    document.getElementById('um-rename-wrap').style.display='none';
+    document.getElementById('um-rename-input').value='';
+    return db.collection('users').doc(user.uid).update({name:name});
+  }).catch(function(e){alert('Erreur : '+e.message);});
+}
+
 function _showAuthScreen(mode){
+  document.getElementById('user-menu-btn').style.display='none';
+  document.getElementById('user-menu-panel').classList.remove('open');
   document.getElementById('auth-overlay').style.display='flex';
   document.getElementById('wrap-main').style.display='none';
   document.getElementById('auth-form-card').style.display='none';
