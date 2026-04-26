@@ -1120,12 +1120,21 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
         </select>
       </div>
       <div style="margin-bottom:6px">
-        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Joueurs (cocher les participants)</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px" id="mg-players">
-          <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="0"> Thibaud</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="1"> Gérémy</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="2"> Antoine</label>
-          <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="3"> <input type="text" id="mg-extra-name" placeholder="Autre..." style="width:80px;font-size:.78rem;padding:2px 5px;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)"></label>
+        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Joueurs & decks joués</div>
+        <div style="display:flex;flex-direction:column;gap:5px" id="mg-players">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="0"> Thibaud</label>
+            <select id="mg-deck0" class="gsetup-deck" style="flex:1;max-width:none"><option value="">— Aucun deck —</option></select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="1"> Gérémy</label>
+            <select id="mg-deck1" class="gsetup-deck" style="flex:1;max-width:none"><option value="">— Aucun deck —</option></select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="2"> Antoine</label>
+            <select id="mg-deck2" class="gsetup-deck" style="flex:1;max-width:none"><option value="">— Aucun deck —</option></select>
+          </div>
+          <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="3"> <input type="text" id="mg-extra-name" placeholder="Autre joueur..." style="width:100px;font-size:.78rem;padding:2px 5px;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)"></label>
         </div>
       </div>
       <div style="margin-bottom:6px">
@@ -3067,6 +3076,12 @@ function toggleManualGame(){
     var today=new Date();
     var yyyy=today.getFullYear(),mm=String(today.getMonth()+1).padStart(2,'0'),dd=String(today.getDate()).padStart(2,'0');
     document.getElementById('mg-date').value=yyyy+'-'+mm+'-'+dd;
+    [0,1,2].forEach(function(pi){
+      var sel=document.getElementById('mg-deck'+pi);if(!sel)return;
+      var myDecks=Object.keys(decks).filter(function(id){return decks[id].owner===pi;});
+      sel.innerHTML='<option value="">— Aucun deck —</option>'
+        +myDecks.map(function(id){return '<option value="'+id+'">'+esc(decks[id].name)+'</option>';}).join('');
+    });
   }
 }
 
@@ -3077,7 +3092,10 @@ function saveManualGame(){
   var extraName=(document.getElementById('mg-extra-name').value||'').trim();
   var players=checkedPIs.map(function(pi){
     if(pi===3)return{name:extraName||'Joueur +',profIdx:-1,deckId:'',deckName:'',finalLife:0,poison:0};
-    return{name:PN[pi],profIdx:pi,deckId:'',deckName:'',finalLife:0,poison:0};
+    var sel=document.getElementById('mg-deck'+pi);
+    var deckId=sel?sel.value:'';
+    var deckName=deckId&&decks[deckId]?decks[deckId].name:'';
+    return{name:PN[pi],profIdx:pi,deckId:deckId,deckName:deckName,finalLife:0,poison:0};
   });
   if(players.length<2){alert('Il faut au moins 2 joueurs.');return;}
   var winVal=document.getElementById('mg-winner').value;
@@ -3085,7 +3103,12 @@ function saveManualGame(){
   if(winVal!==''){
     var wi=parseInt(winVal);
     if(winVal==='x'){winner={name:extraName||'Joueur +',profIdx:-1,deckId:'',deckName:''};}
-    else if(!isNaN(wi)){winner={name:PN[wi],profIdx:wi,deckId:'',deckName:''};}
+    else if(!isNaN(wi)){
+      var wSel=document.getElementById('mg-deck'+wi);
+      var wDeckId=wSel?wSel.value:'';
+      var wDeckName=wDeckId&&decks[wDeckId]?decks[wDeckId].name:'';
+      winner={name:PN[wi],profIdx:wi,deckId:wDeckId,deckName:wDeckName};
+    }
   }
   var dateStr=document.getElementById('mg-date').value;
   var dateLabel=dateStr?new Date(dateStr+'T12:00:00').toLocaleDateString('fr-FR'):new Date().toLocaleDateString('fr-FR');
