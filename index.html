@@ -4404,6 +4404,22 @@ function fetchRules(){
   var btn=document.getElementById('rules-load-btn');
   var status=document.getElementById('rules-load-status');
   if(btn)btn.disabled=true;
+  var wu=localStorage.getItem('ml_worker_url')||'';
+  if(wu&&wu.startsWith('http')){
+    if(status)status.textContent='Chargement via Worker…';
+    fetch(wu+'?rules=1')
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
+      .then(function(text){
+        if(!text||text.length<10000)throw new Error('Fichier invalide');
+        _parseRules(text);
+        _rulesLoaded=true;_rulesLoading=false;
+        document.getElementById('rules-load-section').style.display='none';
+        document.getElementById('rules-search-section').style.display='block';
+        if(status)status.textContent='';
+      })
+      .catch(function(){_tryFetchRules(0,btn,status);});
+    return;
+  }
   _tryFetchRules(0,btn,status);
 }
 
