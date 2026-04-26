@@ -1346,49 +1346,37 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 <!-- RÈGLES -->
 <div class="page" id="pg-rules">
   <div class="card" id="rules-main-card">
-    <!-- État chargement -->
-    <div id="rules-load-section">
-      <div style="text-align:center;padding:.5rem 0">
-        <div id="rules-load-status" style="color:var(--tx3);font-size:.82rem;margin-bottom:12px">Les règles officielles MTG seront chargées à la première utilisation.</div>
-        <button class="btn btnp" id="rules-load-btn" onclick="fetchRules()">⬇ Charger les règles officielles</button>
-      </div>
-    </div>
-    <!-- Barre de recherche (affichée après chargement) -->
+    <!-- Statut chargement -->
+    <div id="rules-load-status" style="display:none;text-align:center;color:var(--tx3);font-size:.82rem;padding:.5rem 0"></div>
+    <!-- Recherche (visible après chargement) -->
     <div id="rules-search-section" style="display:none">
       <div style="display:flex;gap:6px;margin-bottom:8px">
-        <input type="text" id="rules-query" placeholder="N° de règle (702.9) ou mot-clé (flying, stack…)" style="flex:1" onkeydown="if(event.key==='Enter')searchRules()">
+        <div style="flex:1;position:relative">
+          <input type="text" id="rules-query" placeholder="N° de règle (702.9) ou mot-clé…" style="width:100%" onkeydown="if(event.key==='Enter')searchRules()" oninput="rulesFilterSug(this.value)">
+          <div id="rules-sug" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--s3);border:.5px solid var(--bd2);border-radius:0 0 8px 8px;z-index:100;max-height:200px;overflow-y:auto"></div>
+        </div>
         <button class="btn btnsm btnp" onclick="searchRules()">Chercher</button>
-      </div>
-      <!-- Raccourcis fréquents -->
-      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="btn btnsm" onclick="rulesShortcut('flying')">Vol</button>
-        <button class="btn btnsm" onclick="rulesShortcut('trample')">Piétinement</button>
-        <button class="btn btnsm" onclick="rulesShortcut('deathtouch')">Contact mortel</button>
-        <button class="btn btnsm" onclick="rulesShortcut('lifelink')">Lien de vie</button>
-        <button class="btn btnsm" onclick="rulesShortcut('priority')">Priorité</button>
-        <button class="btn btnsm" onclick="rulesShortcut('stack')">Pile</button>
-        <button class="btn btnsm" onclick="rulesShortcut('commander')">Commandant</button>
-        <button class="btn btnsm" onclick="rulesShortcut('702')">702 (capacités)</button>
       </div>
       <div id="rules-result"></div>
     </div>
-    <!-- Séction IA (optionnelle — Cloudflare Worker) -->
-    <div style="margin-top:12px;padding-top:10px;border-top:.5px solid var(--bd)">
-      <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em;margin-bottom:6px">IA — EXPLICATION DE RÈGLE</div>
-      <div id="rules-ai-section">
-        <div id="rules-ai-config" style="font-size:.78rem;color:var(--tx3);margin-bottom:8px">
-          Entrez l'URL de votre Cloudflare Worker pour activer les réponses IA.
-          <a href="https://workers.cloudflare.com" target="_blank" style="color:var(--ac2)">Configurer →</a>
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:6px">
-          <input type="url" id="rules-worker-url" placeholder="https://mon-worker.xxx.workers.dev" style="flex:1;font-size:.78rem" oninput="saveWorkerUrl()">
-        </div>
-        <div id="rules-ai-chat-section" style="display:none">
-          <div id="rules-chat-history" style="max-height:260px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:8px"></div>
-          <div style="display:flex;gap:6px">
-            <input type="text" id="rules-ai-query" placeholder="Ex: Peut-on cibler une créature avec hexproof ?" style="flex:1;font-size:.82rem" onkeydown="if(event.key==='Enter')askRulesAI()">
-            <button class="btn btnsm btnp" onclick="askRulesAI()">Envoyer</button>
-          </div>
+    <!-- IA -->
+    <div id="rules-ai-wrap" style="margin-top:12px;padding-top:10px;border-top:.5px solid var(--bd)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:9px;color:var(--tx3);font-family:'Cinzel',serif;letter-spacing:.08em">IA — ARBITRE MTG</div>
+        <button class="btn btnsm" id="rules-reset-btn" onclick="resetRulesChat()" style="display:none;font-size:.7rem;padding:2px 8px">↺ Nouvelle question</button>
+      </div>
+      <!-- URL Worker — admin seulement -->
+      <div id="rules-worker-wrap" style="display:none;margin-bottom:6px">
+        <input type="url" id="rules-worker-url" placeholder="https://mon-worker.xxx.workers.dev" style="width:100%;font-size:.78rem" oninput="saveWorkerUrl()">
+      </div>
+      <div id="rules-ai-config" style="font-size:.78rem;color:var(--tx3);margin-bottom:8px;display:none">
+        Worker non configuré — contactez l'administrateur.
+      </div>
+      <div id="rules-ai-chat-section" style="display:none">
+        <div id="rules-chat-history" style="max-height:260px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:8px"></div>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="rules-ai-query" placeholder="Ex: Peut-on cibler une créature avec hexproof ?" style="flex:1;font-size:.82rem" onkeydown="if(event.key==='Enter')askRulesAI()">
+          <button class="btn btnsm btnp" onclick="askRulesAI()">Envoyer</button>
         </div>
       </div>
     </div>
@@ -1534,6 +1522,7 @@ function _onUserRole(user,role){
     document.getElementById('auth-admin-btn').style.display=role==='admin'?'inline-block':'none';
     userId=user.uid;
     loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
+    fetchRules();
   } else if(role==='pending'){
     _showAuthScreen('pending');
   } else {
@@ -4369,15 +4358,14 @@ var _CORS='https://api.allorigins.win/raw?url=';
 var _rulesChatHistory=[];
 
 function initRulesTab(){
-  // Restore worker URL
   var wu=localStorage.getItem('ml_worker_url')||'';
+  // URL Worker visible uniquement pour l'admin
+  var workerWrap=document.getElementById('rules-worker-wrap');
+  if(workerWrap)workerWrap.style.display=_userRole==='admin'?'block':'none';
   var inp=document.getElementById('rules-worker-url');
-  if(inp&&wu){inp.value=wu;_applyWorkerUrl(wu);}
-  // If already loaded, just show search
-  if(_rulesLoaded){
-    document.getElementById('rules-load-section').style.display='none';
-    document.getElementById('rules-search-section').style.display='block';
-  }
+  if(inp&&wu){inp.value=wu;}
+  _applyWorkerUrl(wu);
+  if(_rulesLoaded)_onRulesLoaded();
 }
 
 function saveWorkerUrl(){
@@ -4399,48 +4387,46 @@ function _applyWorkerUrl(wu){
 }
 
 function fetchRules(){
-  if(_rulesLoading)return;
+  if(_rulesLoading||_rulesLoaded)return;
   _rulesLoading=true;
-  var btn=document.getElementById('rules-load-btn');
   var status=document.getElementById('rules-load-status');
-  if(btn)btn.disabled=true;
+  if(status){status.style.display='block';status.textContent='Chargement des règles officielles…';}
   var wu=localStorage.getItem('ml_worker_url')||'';
   if(wu&&wu.startsWith('http')){
-    if(status)status.textContent='Chargement via Worker…';
     fetch(wu+'?rules=1')
       .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
       .then(function(text){
-        if(!text||text.length<10000)throw new Error('Fichier invalide');
-        _parseRules(text);
-        _rulesLoaded=true;_rulesLoading=false;
-        document.getElementById('rules-load-section').style.display='none';
-        document.getElementById('rules-search-section').style.display='block';
-        if(status)status.textContent='';
+        if(!text||text.length<10000)throw new Error('invalide');
+        _parseRules(text);_rulesLoaded=true;_rulesLoading=false;
+        _onRulesLoaded();
       })
-      .catch(function(){_tryFetchRules(0,btn,status);});
+      .catch(function(){_tryFetchRules(0,status);});
     return;
   }
-  _tryFetchRules(0,btn,status);
+  _tryFetchRules(0,status);
 }
 
-function _tryFetchRules(i,btn,status){
+function _tryFetchRules(i,status){
   if(i>=_RULES_URLS.length){
-    if(status)status.textContent='Impossible de télécharger les règles. Vérifiez votre connexion.';
-    if(btn){btn.disabled=false;btn.textContent='Réessayer';}
+    if(status){status.textContent='Impossible de charger les règles. Vérifiez votre connexion.';}
     _rulesLoading=false;return;
   }
-  if(status)status.textContent='Téléchargement… (source '+(i+1)+'/'+_RULES_URLS.length+')';
+  if(status)status.textContent='Chargement… (tentative '+(i+1)+')';
   fetch(_CORS+encodeURIComponent(_RULES_URLS[i]))
-    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
+    .then(function(r){if(!r.ok)throw new Error();return r.text();})
     .then(function(text){
-      if(!text||text.length<10000)throw new Error('Fichier invalide');
-      _parseRules(text);
-      _rulesLoaded=true;_rulesLoading=false;
-      document.getElementById('rules-load-section').style.display='none';
-      document.getElementById('rules-search-section').style.display='block';
-      if(status)status.textContent='';
+      if(!text||text.length<10000)throw new Error();
+      _parseRules(text);_rulesLoaded=true;_rulesLoading=false;
+      _onRulesLoaded();
     })
-    .catch(function(){_tryFetchRules(i+1,btn,status);});
+    .catch(function(){_tryFetchRules(i+1,status);});
+}
+
+function _onRulesLoaded(){
+  var status=document.getElementById('rules-load-status');
+  if(status)status.style.display='none';
+  var ss=document.getElementById('rules-search-section');
+  if(ss)ss.style.display='block';
 }
 
 function _parseRules(text){
@@ -4457,10 +4443,7 @@ function _parseRules(text){
     if(line==='Glossary'){inGlossary=true;return;}
     if(line==='Credits'){inCredits=true;inGlossary=false;return;}
     if(inCredits)return;
-    if(inGlossary){
-      if(!gTerm)gTerm=line;else gDef.push(line);
-      return;
-    }
+    if(inGlossary){if(!gTerm)gTerm=line;else gDef.push(line);return;}
     var rm=line.match(/^(\d+\.\d+[a-z]?\.?)\s+(.+)/);
     if(rm){rules[rm[1].replace(/\.$/,'')]=rm[2];return;}
     var sm=line.match(/^(\d{3,})\.\s+(.+)/);
@@ -4470,22 +4453,63 @@ function _parseRules(text){
   _rulesData={rules:rules,sections:sections,glossary:glossary};
 }
 
-function rulesShortcut(kw){
+// Suggestions dropdown
+var _RULES_SHORTCUTS=[
+  {label:'Vol',kw:'flying'},{label:'Piétinement',kw:'trample'},
+  {label:'Contact mortel',kw:'deathtouch'},{label:'Lien de vie',kw:'lifelink'},
+  {label:'Vigilance',kw:'vigilance'},{label:'Hâte',kw:'haste'},
+  {label:'Reach',kw:'reach'},{label:'Indestructible',kw:'indestructible'},
+  {label:'Hexproof',kw:'hexproof'},{label:'Shroud',kw:'shroud'},
+  {label:'Flash',kw:'flash'},{label:'Double frappe',kw:'double strike'},
+  {label:'Provocation',kw:'menace'},{label:'Protection',kw:'protection'},
+  {label:'Pile / Stack',kw:'stack'},{label:'Priorité',kw:'priority'},
+  {label:'Commandant',kw:'commander'},{label:'702 — Capacités',kw:'702'},
+  {label:'Règles d\'état',kw:'state-based'},{label:'Copier un sort',kw:'copy'}
+];
+
+function rulesFilterSug(val){
+  var sug=document.getElementById('rules-sug');
+  if(!sug)return;
+  val=(val||'').trim().toLowerCase();
+  var items=[];
+  if(!val){
+    items=_RULES_SHORTCUTS.slice(0,10);
+  } else {
+    // Shortcuts matching
+    var sc=_RULES_SHORTCUTS.filter(function(s){return s.label.toLowerCase().indexOf(val)>=0||s.kw.indexOf(val)>=0;});
+    // Glossary matching (if rules loaded)
+    var gl=_rulesData?Object.keys(_rulesData.glossary).filter(function(k){return k.toLowerCase().indexOf(val)>=0;}).slice(0,8).map(function(k){return{label:k,kw:k};})  :[];
+    items=sc.concat(gl).slice(0,12);
+  }
+  if(!items.length){sug.style.display='none';return;}
+  sug.innerHTML=items.map(function(it){
+    return '<div style="padding:7px 10px;cursor:pointer;font-size:.82rem;color:var(--tx2);border-bottom:.5px solid var(--bd)" '
+      +'onmousedown="event.preventDefault();rulesPickSug(\''+it.kw.replace(/'/g,"\\'")+'\')" '
+      +'onmouseover="this.style.background=\'var(--s3)\'" onmouseout="this.style.background=\'\'">'+esc(it.label)+'</div>';
+  }).join('');
+  sug.style.display='block';
+}
+
+function rulesPickSug(kw){
   var inp=document.getElementById('rules-query');
-  if(inp){inp.value=kw;searchRules();}
+  var sug=document.getElementById('rules-sug');
+  if(inp)inp.value=kw;
+  if(sug)sug.style.display='none';
+  searchRules();
 }
 
 function searchRules(){
+  var sug=document.getElementById('rules-sug');
+  if(sug)sug.style.display='none';
   if(!_rulesData){
-    document.getElementById('rules-result').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.83rem">Chargez les règles d\'abord.</div>';
+    var s=document.getElementById('rules-load-status');
+    if(s){s.style.display='block';s.textContent='Règles en cours de chargement…';}
     return;
   }
   var query=(document.getElementById('rules-query').value||'').trim();
   if(!query)return;
   var resultDiv=document.getElementById('rules-result');
   var html='';
-
-  // Numéro de règle ?
   if(/^\d/.test(query)){
     var prefix=query.replace(/\.$/,'');
     var byNum=Object.keys(_rulesData.rules).filter(function(k){
@@ -4502,8 +4526,6 @@ function searchRules(){
       resultDiv.innerHTML=html;return;
     }
   }
-
-  // Recherche glossaire
   var ql=query.toLowerCase();
   var safeRe=query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   var gMatches=Object.keys(_rulesData.glossary).filter(function(k){
@@ -4518,8 +4540,6 @@ function searchRules(){
         +'</div>';
     }).join('');
   }
-
-  // Recherche dans les règles
   var rMatches=Object.keys(_rulesData.rules).filter(function(k){
     return _rulesData.rules[k].toLowerCase().indexOf(ql)>=0;
   }).slice(0,25);
@@ -4534,28 +4554,37 @@ function searchRules(){
         +'</div>';
     }).join('');
   }
-
   if(!html)html='<div style="color:var(--tx3);font-style:italic;font-size:.83rem">Aucun résultat pour "'+esc(query)+'"</div>';
   resultDiv.innerHTML=html;
 }
 
 // ===== RÈGLES — CHAT IA =====
+function resetRulesChat(){
+  _rulesChatHistory=[];
+  var chatDiv=document.getElementById('rules-chat-history');
+  if(chatDiv)chatDiv.innerHTML='';
+  var inp=document.getElementById('rules-ai-query');
+  if(inp)inp.value='';
+  var btn=document.getElementById('rules-reset-btn');
+  if(btn)btn.style.display='none';
+}
+
 function askRulesAI(){
-  var wu=(document.getElementById('rules-worker-url').value||'').trim();
-  if(!wu){alert('Configurez d\'abord l\'URL du Cloudflare Worker.');return;}
+  var wu=localStorage.getItem('ml_worker_url')||'';
+  if(!wu){return;}
   var input=document.getElementById('rules-ai-query');
   var question=(input.value||'').trim();
   if(!question)return;
   input.value='';
+  document.getElementById('rules-reset-btn').style.display='inline-block';
   _rulesChatHistory.push({role:'user',content:question});
   _renderChatHistory();
-  var systemPrompt='Tu es un arbitre expert de Magic: The Gathering. Tu réponds aux questions de règles en te basant sur les règles officielles complètes. Sois précis, cite les numéros de règle quand c\'est utile (ex: règle 702.9), et explique clairement en français. Sois concis mais complet.';
-  // Build context from current rules search if any
+  var systemPrompt='Tu es un arbitre expert de Magic: The Gathering. Réponds aux questions de règles avec précision, cite les numéros de règle (ex: règle 702.9), explique en français. Sois concis mais complet.';
   var rulesContext='';
-  if(_rulesData&&document.getElementById('rules-query').value){
-    var q=document.getElementById('rules-query').value.trim().toLowerCase();
-    var relevant=Object.keys(_rulesData.rules).filter(function(k){return _rulesData.rules[k].toLowerCase().indexOf(q)>=0;}).slice(0,5);
-    if(relevant.length)rulesContext='\n\nExtrait des règles officielles pertinentes:\n'+relevant.map(function(n){return n+': '+_rulesData.rules[n];}).join('\n');
+  if(_rulesData){
+    var q=question.toLowerCase();
+    var relevant=Object.keys(_rulesData.rules).filter(function(k){return _rulesData.rules[k].toLowerCase().indexOf(q)>=0;}).slice(0,6);
+    if(relevant.length)rulesContext='\n\nExtrait des règles officielles:\n'+relevant.map(function(n){return n+': '+_rulesData.rules[n];}).join('\n');
   }
   var chatDiv=document.getElementById('rules-chat-history');
   var loadingEl=document.createElement('div');
@@ -4563,23 +4592,18 @@ function askRulesAI(){
   loadingEl.textContent='⏳ Réflexion…';
   chatDiv.appendChild(loadingEl);
   chatDiv.scrollTop=chatDiv.scrollHeight;
-  fetch(wu,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      system:systemPrompt+rulesContext,
-      messages:_rulesChatHistory.slice(-6)
-    })
+  fetch(wu,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({system:systemPrompt+rulesContext,messages:_rulesChatHistory.slice(-6)})
   }).then(function(r){return r.json();})
   .then(function(data){
-    var answer=(data.content&&data.content[0]&&data.content[0].text)||data.text||data.answer||'(réponse vide)';
+    var answer=(data.content&&data.content[0]&&data.content[0].text)||data.error||'(réponse vide)';
     _rulesChatHistory.push({role:'assistant',content:answer});
     chatDiv.removeChild(loadingEl);
     _renderChatHistory();
   })
   .catch(function(e){
     loadingEl.style.color='var(--rd2)';
-    loadingEl.textContent='Erreur: '+e.message+' — Vérifiez l\'URL du Worker.';
+    loadingEl.textContent='Erreur: '+e.message;
   });
 }
 
@@ -4588,7 +4612,7 @@ function _renderChatHistory(){
   if(!chatDiv)return;
   chatDiv.innerHTML=_rulesChatHistory.map(function(m){
     var isUser=m.role==='user';
-    return '<div style="align-self:'+(isUser?'flex-end':'flex-start')+';max-width:88%;background:'+(isUser?'var(--s3)':'var(--s2)')+';border-radius:10px;padding:7px 11px;font-size:.8rem;color:var(--tx'+(isUser?'2':')')+';line-height:1.5;white-space:pre-wrap">'+esc(m.content)+'</div>';
+    return '<div style="align-self:'+(isUser?'flex-end':'flex-start')+';max-width:88%;background:'+(isUser?'var(--s3)':'var(--s2)')+';border-radius:10px;padding:7px 11px;font-size:.8rem;color:var(--tx2);line-height:1.5;white-space:pre-wrap">'+esc(m.content)+'</div>';
   }).join('');
   chatDiv.scrollTop=chatDiv.scrollHeight;
 }
