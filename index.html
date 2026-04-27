@@ -6241,13 +6241,18 @@ function _populateIDB(cards,onProg){
   });
 }
 function _downloadAndPopulateIDB(uri,updatedAt,onProg){
+  // Parse at byte level: JSON structural chars are all ASCII < 128,
+  // so they never collide with UTF-8 multi-byte continuation bytes (0x80-0xFF).
+  // This avoids creating any large string — only individual card slices (~15 KB) are decoded.
+  var B_LBRACE=123,B_RBRACE=125,B_LBRACKET=91,B_RBRACKET=93,B_QUOTE=34,B_BACKSLASH=92;
   return _openIDB().then(function(idb){
     return fetch(uri).then(function(r){
       if(!r.ok)throw new Error('HTTP '+r.status);
       var total=parseInt(r.headers.get('Content-Length'))||0,received=0,stored=0;
       var reader=r.body.getReader(),decoder=new TextDecoder();
-      // Streaming JSON array parser state
-      var buf='',depth=0,inStr=false,esc=false,objStart=-1;
+      var depth=0,inStr=false,esc=false;
+      var cardStart=-1; // byte offset in current chunk where card started
+      var cardParts=[];  // Uint8Array parts when a card spans multiple chunks
       var batch=[],writeChain=Promise.resolve();
       function _idbWriteBatch(cards){
         return new Promise(function(res,rej){
@@ -6275,38 +6280,51 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
         if(!batch.length||(batch.length<400&&!force))return;
         var toWrite=batch.splice(0,400);
         writeChain=writeChain.then(function(){
-          return _idbWriteBatch(toWrite).then(function(){
-            stored+=toWrite.length;
-            if(onProg)onProg('store',stored,'?');
-          });
+          return _idbWriteBatch(toWrite).then(function(){stored+=toWrite.length;if(onProg)onProg('store',stored,'?');});
         });
       }
-      function processBuf(chunk){
-        buf+=chunk;
+      function processChunk(bytes){
         var i=0;
-        while(i<buf.length){
-          var c=buf[i];
+        while(i<bytes.length){
+          var b=bytes[i];
           if(esc){esc=false;i++;continue;}
-          if(c==='\\'&&inStr){esc=true;i++;continue;}
-          if(c==='"'){inStr=!inStr;i++;continue;}
+          if(b===B_BACKSLASH&&inStr){esc=true;i++;continue;}
+          if(b===B_QUOTE){inStr=!inStr;i++;continue;}
           if(inStr){i++;continue;}
-          if(c==='{'){if(depth===1&&objStart<0)objStart=i;depth++;}
-          else if(c==='}'){
+          if(b===B_LBRACE){
+            // Start a new card only if: depth===1, no card in progress
+            if(depth===1&&cardStart<0&&!cardParts.length)cardStart=i;
+            depth++;
+          }else if(b===B_RBRACE){
             depth--;
-            if(depth===1&&objStart>=0){
-              try{batch.push(JSON.parse(buf.slice(objStart,i+1)));}catch(e){}
-              objStart=-1;
+            if(depth===1&&(cardStart>=0||cardParts.length)){
+              // Card complete — assemble bytes and parse
+              var cb;
+              if(!cardParts.length){
+                cb=bytes.slice(cardStart,i+1);
+              }else{
+                cardParts.push(bytes.slice(0,i+1));
+                var tl=0;for(var j=0;j<cardParts.length;j++)tl+=cardParts[j].length;
+                cb=new Uint8Array(tl);var off=0;
+                for(var j=0;j<cardParts.length;j++){cb.set(cardParts[j],off);off+=cardParts[j].length;}
+                cardParts=[];
+              }
+              try{batch.push(JSON.parse(decoder.decode(cb)));}catch(e){}
+              cardStart=-1;
               flushBatch(false);
             }
-          }else if(c==='['){depth++;}
-          else if(c===']'){depth--;}
+          }else if(b===B_LBRACKET){depth++;}
+          else if(b===B_RBRACKET){depth--;}
           i++;
         }
-        // Trim buf to prevent unbounded growth:
-        // - in a card object: keep from objStart (reset to 0 after slice)
-        // - between objects: discard everything (commas/whitespace not needed)
-        if(objStart>=0){buf=buf.slice(objStart);objStart=0;}
-        else{buf='';}
+        // Save any incomplete card bytes for next chunk
+        if(cardStart>=0){
+          cardParts.push(bytes.slice(cardStart)); // card started in this chunk
+          cardStart=-1;
+        }else if(cardParts.length){
+          cardParts.push(bytes.slice()); // continuation: entire chunk belongs to current card
+        }
+        // Between cards: nothing to save (cardStart<0 && cardParts.length===0)
       }
       function read(){
         return reader.read().then(function(chunk){
@@ -6319,7 +6337,7 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
           }
           received+=chunk.value.length;
           if(onProg)onProg('dl',received,total);
-          processBuf(decoder.decode(chunk.value,{stream:true}));
+          processChunk(chunk.value);
           return read();
         });
       }
