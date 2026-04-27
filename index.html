@@ -1717,6 +1717,7 @@ function _onUserRole(user,role){
     loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
     fetchRules();
     initNotifications(user.uid);
+    _initTradesListener(user.uid);
     setTimeout(_checkScryfallIDB,2000);
   } else if(role==='pending'){
     _showAuthScreen('pending');
@@ -1860,11 +1861,14 @@ function authResetPw(){
 
 function authSignOut(){
   if(_notifUnsub){_notifUnsub();_notifUnsub=null;}
+  if(_tradesUnsub){_tradesUnsub();_tradesUnsub=null;}
   firebase.auth().signOut();
 }
 
 // ===== NOTIFICATIONS =====
 var _notifUnsub=null,_notifDocs=[],_currentUid=null;
+var _tradesUnsub=null,_firebaseTrades=[];
+var _tradesProcessed=new Set(JSON.parse(localStorage.getItem('mtg_trades_processed')||'[]'));
 
 function initNotifications(uid){
   _currentUid=uid;
@@ -1877,9 +1881,14 @@ function initNotifications(uid){
     });
 }
 
+function _visibleNotifs(){
+  return _notifDocs.filter(function(n){
+    return !n.targetUid||n.targetUid===_currentUid;
+  });
+}
 function _updateNotifBadge(){
   if(!_currentUid)return;
-  var unread=_notifDocs.filter(function(n){return !n.readBy||n.readBy.indexOf(_currentUid)<0;}).length;
+  var unread=_visibleNotifs().filter(function(n){return !n.readBy||n.readBy.indexOf(_currentUid)<0;}).length;
   var badge=document.getElementById('notif-badge');
   if(!badge)return;
   if(unread>0){
@@ -1894,19 +1903,21 @@ function _renderNotifPanel(){
   var list=document.getElementById('notif-list');
   var foot=document.getElementById('notif-foot');
   if(!list)return;
-  if(!_notifDocs.length){
+  var visible=_visibleNotifs();
+  if(!visible.length){
     list.innerHTML='<div class="notif-empty">Aucune notification</div>';
     if(foot)foot.style.display='none';
     return;
   }
-  var hasUnread=_notifDocs.some(function(n){return !n.readBy||n.readBy.indexOf(_currentUid)<0;});
+  var hasUnread=visible.some(function(n){return !n.readBy||n.readBy.indexOf(_currentUid)<0;});
   if(foot)foot.style.display=hasUnread?'block':'none';
-  list.innerHTML=_notifDocs.map(function(n){
+  list.innerHTML=visible.map(function(n){
     var unread=!n.readBy||n.readBy.indexOf(_currentUid)<0;
     var ts=n.createdAt?(n.createdAt.toDate?n.createdAt.toDate():new Date(n.createdAt)):null;
     var when=ts?_notifTimeAgo(ts):'';
+    var tradeLink=n.tradeId?'<span style="font-size:.66rem;color:var(--ac);margin-left:4px" onclick="event.stopPropagation();markNotifRead(\''+n.id+'\');goTab(\'trade\')" >→ Voir</span>':'';
     return '<div class="notif-item'+(unread?' unread':'')+'" onclick="markNotifRead(\''+n.id+'\')">'
-      +'<div class="notif-item-title">'+_notifEsc(n.title||'')+'</div>'
+      +'<div class="notif-item-title">'+_notifEsc(n.title||'')+tradeLink+'</div>'
       +(n.body?'<div class="notif-item-body">'+_notifEsc(n.body)+'</div>':'')
       +'<div class="notif-item-time">'+when+'</div>'
       +'</div>';
@@ -1939,9 +1950,9 @@ function markNotifRead(id){
 }
 
 function markAllNotifsRead(){
-  if(!_currentUid||!_notifDocs.length)return;
+  if(!_currentUid)return;
   var batch=db.batch();
-  _notifDocs.forEach(function(n){
+  _visibleNotifs().forEach(function(n){
     if(!n.readBy||n.readBy.indexOf(_currentUid)<0){
       batch.update(db.collection('notifications').doc(n.id),{
         readBy:firebase.firestore.FieldValue.arrayUnion(_currentUid)
@@ -1972,6 +1983,45 @@ function adminSendNotif(){
     btn.disabled=false;
     msg.style.color='var(--rd2)';msg.textContent='Erreur: '+e.message;
   });
+}
+
+// ===== TRADES LISTENER =====
+function _initTradesListener(uid){
+  if(_tradesUnsub){_tradesUnsub();_tradesUnsub=null;}
+  _tradesUnsub=db.collection('trades')
+    .where('participants','array-contains',uid)
+    .orderBy('createdAt','desc')
+    .onSnapshot(function(snap){
+      _firebaseTrades=[];
+      snap.forEach(function(doc){
+        _firebaseTrades.push(Object.assign({id:doc.id},doc.data()));
+      });
+      // Auto-apply card effects when trade status changes
+      _firebaseTrades.forEach(function(tr){
+        var key=tr.id+'_done';
+        if(_tradesProcessed.has(key))return;
+        if(tr.status==='accepted'&&tr.fromUid===uid){
+          // Proposer gets requested cards added to their collection
+          if(tr.type==='exchange'){
+            (tr.requested||[]).forEach(function(c){
+              addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});
+            });
+            saveProfs();
+          }
+          _tradesProcessed.add(key);
+          localStorage.setItem('mtg_trades_processed',JSON.stringify([..._tradesProcessed]));
+        } else if((tr.status==='declined'||tr.status==='cancelled')&&tr.fromUid===uid){
+          // Proposer gets offered cards back
+          (tr.offered||[]).forEach(function(c){
+            addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});
+          });
+          saveProfs();
+          _tradesProcessed.add(key);
+          localStorage.setItem('mtg_trades_processed',JSON.stringify([..._tradesProcessed]));
+        }
+      });
+      renderTradePage();
+    },function(err){console.warn('trades listener:',err);});
 }
 
 // ===== ADMIN PANEL =====
@@ -2457,14 +2507,15 @@ function _renderNtfBtns(){
   var fb=document.getElementById('ntf-from-btns');
   var tb=document.getElementById('ntf-to-btns');
   if(!fb||!tb)return;
-  var btns=PN.map(function(n,i){
-    return '<button class="prof-sel'+(ntfFrom===i?' active':'')+'" onclick="ntfSetFrom('+i+',this)">'+esc(n)+'</button>';
-  }).join('');
-  fb.innerHTML=btns;
+  // "De" is always the current user (slot 0)
+  ntfFrom=0;
+  fb.innerHTML='<span class="prof-sel active" style="cursor:default">'+esc(PN[0]||'Vous')+'</span>';
+  // "À" = all profiles except current user
   var tbtns=PN.map(function(n,i){
+    if(i===0)return '';
     return '<button class="prof-sel'+(ntfTo===i?' active':'')+'" onclick="ntfSetTo('+i+',this)">'+esc(n)+'</button>';
   }).join('');
-  tb.innerHTML=tbtns;
+  tb.innerHTML=tbtns||'<span style="font-size:.78rem;color:var(--tx3);font-style:italic">Ajoutez un profil partenaire ci-dessus</span>';
 }
 
 function _renderGamePlayerRows(){
@@ -5787,15 +5838,54 @@ function executeTrade(tr){
   }
 }
 function acceptTrade(id){
-  var tr=trades.find(function(t){return t.id===id;});if(!tr||tr.status!=='pending')return;
-  executeTrade(tr);tr.status='accepted';tr.updatedAt=Date.now();saveTrades();renderTradePage();renderColl();
+  var tr=_firebaseTrades.find(function(t){return t.id===id;});
+  if(!tr||tr.status!=='pending')return;
+  if(tr.toUid!==_currentUid){alert('Seul le destinataire peut accepter');return;}
+  // Recipient: add offered cards + remove requested (exchange)
+  (tr.offered||[]).forEach(function(c){
+    addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});
+  });
+  if(tr.type==='exchange')(tr.requested||[]).forEach(function(c){removeCardFromProf(0,c.name,c.qty);});
+  saveProfs();renderColl();
+  db.collection('trades').doc(id).update({
+    status:'accepted',updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(function(e){alert('Erreur: '+e.message);});
+  // Notify proposer
+  db.collection('notifications').add({
+    title:'Échange accepté ✓',
+    body:PN[0]+' a accepté votre proposition',
+    type:'trade_accepted',tradeId:id,
+    targetUid:tr.fromUid,
+    createdAt:firebase.firestore.FieldValue.serverTimestamp(),readBy:[]
+  }).catch(function(){});
 }
 function declineTrade(id){
-  var tr=trades.find(function(t){return t.id===id;});if(!tr||tr.status!=='pending')return;
-  tr.status='declined';tr.updatedAt=Date.now();saveTrades();renderTradePage();
+  var tr=_firebaseTrades.find(function(t){return t.id===id;});
+  if(!tr||tr.status!=='pending')return;
+  if(tr.toUid!==_currentUid){alert('Seul le destinataire peut refuser');return;}
+  db.collection('trades').doc(id).update({
+    status:'declined',updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(function(e){alert('Erreur: '+e.message);});
+  db.collection('notifications').add({
+    title:'Échange refusé',
+    body:PN[0]+' a refusé votre proposition',
+    type:'trade_declined',tradeId:id,
+    targetUid:tr.fromUid,
+    createdAt:firebase.firestore.FieldValue.serverTimestamp(),readBy:[]
+  }).catch(function(){});
+}
+function cancelTrade(id){
+  var tr=_firebaseTrades.find(function(t){return t.id===id;});
+  if(!tr||tr.status!=='pending')return;
+  if(tr.fromUid!==_currentUid){alert('Seul le proposeur peut annuler');return;}
+  db.collection('trades').doc(id).update({
+    status:'cancelled',updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(function(e){alert('Erreur: '+e.message);});
 }
 function deleteTrade(id){
-  trades=trades.filter(function(t){return t.id!==id;});saveTrades();renderTradePage();
+  var tr=_firebaseTrades.find(function(t){return t.id===id;});
+  if(tr&&tr.status==='pending'){cancelTrade(id);return;}
+  db.collection('trades').doc(id).delete().catch(function(e){console.warn(e);});
 }
 function openDetailPend(){
   if(!currentDetailName)return;
@@ -5855,37 +5945,50 @@ function renderTradePage(){
     }
   }
   var tl=document.getElementById('trades-list');if(!tl)return;
-  if(!trades.length){tl.innerHTML='<div style="color:var(--tx3);font-size:.82rem;font-style:italic;text-align:center;padding:1.2rem">Aucune proposition</div>';return;}
+  if(!_firebaseTrades.length){tl.innerHTML='<div style="color:var(--tx3);font-size:.82rem;font-style:italic;text-align:center;padding:1.2rem">Aucune proposition</div>';return;}
   var th='';
-  trades.forEach(function(tr){
-    var cls='trade-row '+(tr.status==='pending'?'trade-pnd':tr.status==='accepted'?'trade-ok':'trade-no');
+  _firebaseTrades.forEach(function(tr){
+    var isProposer=tr.fromUid===_currentUid;
+    var isRecipient=tr.toUid===_currentUid;
+    var statusMap={pending:'En attente',accepted:'Accepté',declined:'Refusé',cancelled:'Annulé'};
+    var stLbl=statusMap[tr.status]||tr.status;
+    var stCol={pending:'var(--am)',accepted:'var(--gr2)',declined:'var(--rd2)',cancelled:'var(--tx3)'}[tr.status]||'var(--tx3)';
     var typeLbl={exchange:'⇋ Échange',loan:'🔄 Prêt',gift:'🎁 Don'}[tr.type]||tr.type;
-    var stLbl={pending:'En attente',accepted:'Accepté',declined:'Refusé'}[tr.status]||'';
-    var stCol=tr.status==='pending'?'var(--am)':tr.status==='accepted'?'var(--gr2)':'var(--rd2)';
-    var dt=new Date(tr.createdAt).toLocaleDateString('fr-FR');
-    th+='<div class="'+cls+'"><div class="trade-hdr">'+
-      '<div><span style="font-weight:600;color:var(--gold2);font-size:.82rem">'+typeLbl+'</span> '+
-      '<span style="font-size:.72rem;color:var(--tx3)">'+esc(PN[tr.from])+' → '+esc(PN[tr.to])+'</span></div>'+
-      '<span style="font-size:.72rem;color:'+stCol+'">'+stLbl+'</span></div>';
+    var ts=tr.createdAt?(tr.createdAt.toDate?tr.createdAt.toDate():new Date(tr.createdAt)):null;
+    var dt=ts?ts.toLocaleDateString('fr-FR'):'';
+    var cls='trade-row '+(tr.status==='pending'?'trade-pnd':tr.status==='accepted'?'trade-ok':'trade-no');
+    th+='<div class="'+cls+'">';
+    th+='<div class="trade-hdr"><div>';
+    th+='<span style="font-weight:600;color:var(--gold2);font-size:.82rem">'+typeLbl+'</span> ';
+    th+='<span style="font-size:.72rem;color:var(--tx3)">'+esc(tr.fromName||'')+' → '+esc(tr.toName||'')+'</span>';
+    if(isProposer)th+=' <span style="font-size:.65rem;color:var(--tx3);background:var(--s3);border-radius:4px;padding:1px 5px">Vous proposez</span>';
+    if(isRecipient)th+=' <span style="font-size:.65rem;color:var(--ac2);background:rgba(201,168,76,.12);border-radius:4px;padding:1px 5px">Pour vous</span>';
+    th+='</div><span style="font-size:.72rem;color:'+stCol+'">'+stLbl+'</span></div>';
     if((tr.offered||[]).length){
-      th+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:2px">'+esc(PN[tr.from])+' donne :</div>'+
-        '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px">';
+      th+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:2px">'+esc(tr.fromName||'')+' donne :</div>';
+      th+='<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px">';
       (tr.offered||[]).forEach(function(c){th+='<span class="tc-tag">'+c.qty+'× '+esc(c.name)+'</span>';});
       th+='</div>';
     }
     if((tr.requested||[]).length&&tr.type==='exchange'){
-      th+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:2px">'+esc(PN[tr.to])+' donne :</div>'+
-        '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px">';
+      th+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:2px">'+esc(tr.toName||'')+' donne :</div>';
+      th+='<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px">';
       (tr.requested||[]).forEach(function(c){th+='<span class="tc-tag">'+c.qty+'× '+esc(c.name)+'</span>';});
       th+='</div>';
     }
     if(tr.note)th+='<div style="font-size:.72rem;color:var(--tx3);font-style:italic;margin-bottom:3px">"'+esc(tr.note)+'"</div>';
     th+='<div style="font-size:.68rem;color:var(--tx3);margin-top:2px">'+dt+'</div>';
     if(tr.status==='pending'){
-      th+='<div style="display:flex;gap:6px;margin-top:8px">'+
-        '<button class="btn btnsm" onclick="acceptTrade(\''+tr.id+'\')">✓ Accepter</button>'+
-        '<button class="btn btnsm btnrd" onclick="declineTrade(\''+tr.id+'\')">✗ Refuser</button></div>';
-    }else{
+      th+='<div style="display:flex;gap:6px;margin-top:8px">';
+      if(isRecipient){
+        th+='<button class="btn btnsm btnp" onclick="acceptTrade(\''+tr.id+'\')">✓ Valider</button>';
+        th+='<button class="btn btnsm btnrd" onclick="declineTrade(\''+tr.id+'\')">✗ Refuser</button>';
+      }
+      if(isProposer){
+        th+='<button class="btn btnsm btnrd" onclick="cancelTrade(\''+tr.id+'\')">✗ Annuler</button>';
+      }
+      th+='</div>';
+    }else if(tr.status!=='pending'){
       th+='<button class="btn btnsm" onclick="deleteTrade(\''+tr.id+'\')" style="margin-top:6px;font-size:.7rem;padding:2px 7px">Supprimer</button>';
     }
     th+='</div>';
@@ -5970,9 +6073,51 @@ function ntfRenderPicks(){
 }
 function ntfSubmit(){
   if(ntfFrom===ntfTo){alert('Les profils doivent être différents');return;}
+  if(ntfFrom!==0){alert('Vous ne pouvez proposer que depuis votre propre collection');return;}
   if(!ntfOffered.length){alert('Ajoutez au moins une carte proposée');return;}
   if(ntfType==='exchange'&&!ntfRequested.length){alert('Ajoutez les cartes demandées pour l\'échange');return;}
-  addTrade(ntfFrom,ntfTo,ntfType,[].concat(ntfOffered),[].concat(ntfRequested),(document.getElementById('ntf-note')||{}).value||'');
+  if(!_currentUid){alert('Vous devez être connecté');return;}
+  var epTrade=_epSlots['trade']||[];
+  var toIdx=ntfTo-1;
+  if(toIdx<0||toIdx>=epTrade.length){alert('Profil destinataire introuvable — ajoutez-le dans l\'onglet Échanges');return;}
+  var toUid=epTrade[toIdx].uid;
+  var toName=PN[ntfTo];
+  var fromName=PN[0];
+  var offered=[].concat(ntfOffered);
+  var requested=[].concat(ntfRequested);
+  var note=(document.getElementById('ntf-note')||{}).value||'';
+  var typeLbl={exchange:'⇋ Échange',loan:'🔄 Prêt',gift:'🎁 Don'}[ntfType]||ntfType;
+  // Remove offered cards immediately from proposer's collection
+  offered.forEach(function(c){removeCardFromProf(0,c.name,c.qty);});
+  saveProfs();renderColl();
+  // Write trade to Firestore
+  db.collection('trades').add({
+    fromUid:_currentUid,toUid:toUid,
+    fromName:fromName,toName:toName,
+    type:ntfType,
+    offered:offered,
+    requested:ntfType==='exchange'?requested:[],
+    note:note,
+    status:'pending',
+    participants:[_currentUid,toUid],
+    createdAt:firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function(ref){
+    // Send targeted notification to recipient
+    db.collection('notifications').add({
+      title:typeLbl+' de '+fromName,
+      body:fromName+' vous propose '+(ntfType==='exchange'?'un échange':(ntfType==='loan'?'un prêt':'un don'))
+        +' : '+offered.map(function(c){return c.qty+'× '+c.name;}).join(', '),
+      type:'trade',tradeId:ref.id,
+      targetUid:toUid,
+      createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+      readBy:[]
+    }).catch(function(){});
+  }).catch(function(e){
+    alert('Erreur lors de la proposition : '+e.message);
+    // Restore cards on error
+    offered.forEach(function(c){addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});});
+    saveProfs();renderColl();
+  });
   ntfOffered=[];ntfRequested=[];ntfRenderPicks();
   var n=document.getElementById('ntf-note');if(n)n.value='';
   toggleNewTrade();

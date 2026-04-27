@@ -11,27 +11,46 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Users: tout utilisateur connecté peut lire (vérification unicité pseudo, liste admin)
-    // Chaque utilisateur ne peut écrire que son propre document
+    // Users: tout utilisateur connecté peut lire, chaque utilisateur écrit son propre document
     match /users/{uid} {
       allow read: if isAuthed();
       allow write: if isAuthed() && request.auth.uid == uid;
     }
 
-    // Meta (ex: meta/scryfall): lecture pour tous les connectés, écriture admin seulement
+    // Profs (sous-collection) : propriétaire uniquement
+    match /users/{uid}/profs/{doc} {
+      allow read: if isAuthed();
+      allow write: if isAuthed() && request.auth.uid == uid;
+    }
+
+    // Meta : lecture pour tous les connectés, écriture admin seulement
     match /meta/{doc} {
       allow read: if isAuthed();
       allow write: if isAdmin();
     }
 
-    // Notifications: lecture pour tous les connectés
-    // Création/suppression: admin seulement
-    // Mise à jour: tout utilisateur connecté, mais uniquement le champ readBy
+    // Notifications : broadcast (sans targetUid) ou ciblées
     match /notifications/{notifId} {
       allow read: if isAuthed();
-      allow create, delete: if isAdmin();
+      allow create: if isAdmin() ||
+        (isAuthed() && request.resource.data.get('type', '') in ['trade', 'trade_accepted', 'trade_declined'] &&
+         request.resource.data.targetUid is string);
+      allow delete: if isAdmin();
       allow update: if isAuthed() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
+    }
+
+    // Trades : lecture/écriture pour les participants
+    match /trades/{tradeId} {
+      allow read: if isAuthed() &&
+        request.auth.uid in resource.data.participants;
+      allow create: if isAuthed() &&
+        request.resource.data.fromUid == request.auth.uid &&
+        request.auth.uid in request.resource.data.participants;
+      allow update: if isAuthed() &&
+        request.auth.uid in resource.data.participants;
+      allow delete: if isAuthed() &&
+        resource.data.fromUid == request.auth.uid;
     }
   }
 }
