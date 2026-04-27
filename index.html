@@ -1129,24 +1129,16 @@ body.mana-cursor{cursor:none}
     <div id="set-err" style="display:none;color:var(--rd2);padding:.5rem;font-size:.85rem;background:rgba(232,108,108,.08);border-radius:6px"></div>
     <div id="set-info" style="margin-bottom:6px"></div>
     <div id="set-filters" style="display:none;margin-bottom:8px">
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
+      <div id="set-color-btns" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
         <button class="dm active" onclick="setFiltColor('',this)">Toutes</button>
-        <button class="dm" onclick="setFiltColor('W',this)"><i class="ms ms-w ms-cost" style="font-size:.8rem"></i></button>
-        <button class="dm" onclick="setFiltColor('U',this)"><i class="ms ms-u ms-cost" style="font-size:.8rem"></i></button>
-        <button class="dm" onclick="setFiltColor('B',this)"><i class="ms ms-b ms-cost" style="font-size:.8rem"></i></button>
-        <button class="dm" onclick="setFiltColor('R',this)"><i class="ms ms-r ms-cost" style="font-size:.8rem"></i></button>
-        <button class="dm" onclick="setFiltColor('G',this)"><i class="ms ms-g ms-cost" style="font-size:.8rem"></i></button>
-        <button class="dm" onclick="setFiltColor('C',this)"><i class="ms ms-c ms-cost" style="font-size:.8rem"></i></button>
+        <button class="dm" data-col="W" onclick="setFiltColor('W',this)"><i class="ms ms-w ms-cost" style="font-size:.8rem"></i></button>
+        <button class="dm" data-col="U" onclick="setFiltColor('U',this)"><i class="ms ms-u ms-cost" style="font-size:.8rem"></i></button>
+        <button class="dm" data-col="B" onclick="setFiltColor('B',this)"><i class="ms ms-b ms-cost" style="font-size:.8rem"></i></button>
+        <button class="dm" data-col="R" onclick="setFiltColor('R',this)"><i class="ms ms-r ms-cost" style="font-size:.8rem"></i></button>
+        <button class="dm" data-col="G" onclick="setFiltColor('G',this)"><i class="ms ms-g ms-cost" style="font-size:.8rem"></i></button>
+        <button class="dm" data-col="C" onclick="setFiltColor('C',this)"><i class="ms ms-c ms-cost" style="font-size:.8rem"></i></button>
       </div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
-        <button class="dm active" onclick="setFiltCMC('',this)">CMC: tout</button>
-        <button class="dm" onclick="setFiltCMC('01',this)">0-1</button>
-        <button class="dm" onclick="setFiltCMC('2',this)">2</button>
-        <button class="dm" onclick="setFiltCMC('3',this)">3</button>
-        <button class="dm" onclick="setFiltCMC('4',this)">4</button>
-        <button class="dm" onclick="setFiltCMC('5p',this)">5+</button>
-      </div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <div id="set-rarity-btns" style="display:flex;gap:4px;flex-wrap:wrap">
         <button class="dm active" onclick="setFiltRarity('',this)">Toutes</button>
         <button class="dm" onclick="setFiltRarity('common',this)">Commune</button>
         <button class="dm" onclick="setFiltRarity('uncommon',this)">Peu commune</button>
@@ -3916,41 +3908,44 @@ function dlTxt(content,filename){
 var setNextPage=null;
 var _setsLoaded=false;
 var _setAllCards=[];
-var _setFiltColor='', _setFiltCMC='', _setFiltRarity='';
+var _setFiltColors=[], _setFiltRarity='';
 
 function setFiltColor(v,btn){
-  _setFiltColor=v;
-  document.querySelectorAll('#set-filters .dm').forEach(function(b){if(b.parentElement===btn.parentElement)b.classList.remove('active');});
-  btn.classList.add('active');
-  applySetFilters();
-}
-function setFiltCMC(v,btn){
-  _setFiltCMC=v;
-  document.querySelectorAll('#set-filters .dm').forEach(function(b){if(b.parentElement===btn.parentElement)b.classList.remove('active');});
-  btn.classList.add('active');
+  if(!v){
+    _setFiltColors=[];
+  }else{
+    var idx=_setFiltColors.indexOf(v);
+    if(idx>=0)_setFiltColors.splice(idx,1);
+    else _setFiltColors.push(v);
+  }
+  var row=document.getElementById('set-color-btns');
+  if(row){
+    row.querySelectorAll('.dm').forEach(function(b){b.classList.remove('active');});
+    if(_setFiltColors.length===0){
+      row.querySelector('.dm').classList.add('active');
+    }else{
+      _setFiltColors.forEach(function(fc){
+        var b=row.querySelector('[data-col="'+fc+'"]');if(b)b.classList.add('active');
+      });
+    }
+  }
   applySetFilters();
 }
 function setFiltRarity(v,btn){
   _setFiltRarity=v;
-  document.querySelectorAll('#set-filters .dm').forEach(function(b){if(b.parentElement===btn.parentElement)b.classList.remove('active');});
+  document.querySelectorAll('#set-rarity-btns .dm').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
   applySetFilters();
 }
 function applySetFilters(){
   var filtered=_setAllCards.filter(function(c){
     if(_setFiltRarity&&c.rarity!==_setFiltRarity)return false;
-    if(_setFiltCMC){
-      var cmc=c.cmc||0;
-      if(_setFiltCMC==='01'&&cmc>1)return false;
-      if(_setFiltCMC==='2'&&cmc!==2)return false;
-      if(_setFiltCMC==='3'&&cmc!==3)return false;
-      if(_setFiltCMC==='4'&&cmc!==4)return false;
-      if(_setFiltCMC==='5p'&&cmc<5)return false;
-    }
-    if(_setFiltColor){
+    if(_setFiltColors.length){
       var colors=c.colors||[];
-      if(_setFiltColor==='C'){if(colors.length>0)return false;}
-      else{if(colors.indexOf(_setFiltColor)<0)return false;}
+      var match=_setFiltColors.some(function(fc){
+        return fc==='C'?colors.length===0:colors.indexOf(fc)>=0;
+      });
+      if(!match)return false;
     }
     return true;
   });
@@ -4044,17 +4039,19 @@ function setSelPick(code){
 }
 function setSearch(){
   var q=(document.getElementById('set-in')||{value:''}).value.trim();if(!q)return;
-  setNextPage=null;_setAllCards=[];_setFiltColor='';_setFiltCMC='';_setFiltRarity='';
-  document.getElementById('set-load').style.display='block';
+  setNextPage=null;_setAllCards=[];_setFiltColors=[];_setFiltRarity='';
+  var loadEl=document.getElementById('set-load');
+  loadEl.textContent='Chargement…';loadEl.style.display='block';
   document.getElementById('set-err').style.display='none';
   document.getElementById('set-grid').innerHTML='';
   document.getElementById('set-info').innerHTML='';
   document.getElementById('set-filters').style.display='none';
   document.getElementById('set-morebtn').style.display='none';
-  document.querySelectorAll('#set-filters .dm').forEach(function(b){b.classList.remove('active');});
-  document.querySelectorAll('#set-filters div').forEach(function(row){var first=row.querySelector('.dm');if(first)first.classList.add('active');});
+  document.querySelectorAll('#set-color-btns .dm').forEach(function(b){b.classList.remove('active');});
+  document.querySelector('#set-color-btns .dm').classList.add('active');
+  document.querySelectorAll('#set-rarity-btns .dm').forEach(function(b){b.classList.remove('active');});
+  document.querySelector('#set-rarity-btns .dm').classList.add('active');
   var code=q.replace(/\s+/g,'').toLowerCase();
-  // Step 1: get set metadata (and search_uri) from /sets/{code}
   fetch('https://api.scryfall.com/sets/'+encodeURIComponent(code))
     .then(function(r){return r.json();})
     .then(function(s){
@@ -4064,11 +4061,10 @@ function setSearch(){
         +'<span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2)">'+esc(s.name)+'</span>'
         +' <span style="color:var(--tx3)">('+esc((s.code||'').toUpperCase())+')</span>'
         +' · '+s.card_count+' cartes</div>';
-      // Step 2: use Scryfall's own search_uri for the set cards
       return fetch(s.search_uri);
     })
     .then(function(r){return r.json();})
-    .then(function(d){setRenderRes(d,false,'');})
+    .then(function(d){setRenderRes(d,false);})
     .catch(function(){
       document.getElementById('set-load').style.display='none';
       var e=document.getElementById('set-err');
@@ -4076,26 +4072,31 @@ function setSearch(){
       e.style.display='block';
     });
 }
-function setLoadMore(){
-  if(!setNextPage)return;
-  document.getElementById('set-morebtn').style.display='none';
-  fetch(setNextPage).then(function(r){return r.json();}).then(function(d){setRenderRes(d,true,'');}).catch(function(){});
-}
-function setRenderRes(data,append,query){
-  document.getElementById('set-load').style.display='none';
+function setRenderRes(data,append){
   if(!data.data||!data.data.length){
+    document.getElementById('set-load').style.display='none';
     if(!append){var e=document.getElementById('set-err');e.textContent='Aucune carte trouvée.';e.style.display='block';}
+    else{document.getElementById('set-filters').style.display='block';applySetFilters();}
     return;
   }
-  setNextPage=data.has_more?data.next_page:null;
-  if(!append&&!document.getElementById('set-info').textContent){
-    var first=data.data[0];var setNm=first.set_name||'';var setCodeU=(first.set||'').toUpperCase();
-    document.getElementById('set-info').innerHTML='<div style="font-size:.82rem;color:var(--tx2);margin-bottom:4px"><span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2)">'+esc(setNm)+'</span> <span style="color:var(--tx3)">('+esc(setCodeU)+')</span> · '+(data.total_cards||data.data.length)+' cartes</div>';
-  }
   _setAllCards=append?_setAllCards.concat(data.data):data.data;
-  document.getElementById('set-filters').style.display='block';
-  document.getElementById('set-morebtn').style.display=setNextPage?'block':'none';
-  applySetFilters();
+  if(data.has_more&&data.next_page){
+    document.getElementById('set-load').textContent='Chargement… ('+_setAllCards.length+' / '+(data.total_cards||'?')+' cartes)';
+    fetch(data.next_page)
+      .then(function(r){return r.json();})
+      .then(function(d){setRenderRes(d,true);})
+      .catch(function(){
+        document.getElementById('set-load').style.display='none';
+        document.getElementById('set-filters').style.display='block';
+        document.getElementById('set-morebtn').style.display='none';
+        applySetFilters();
+      });
+  }else{
+    document.getElementById('set-load').style.display='none';
+    document.getElementById('set-filters').style.display='block';
+    document.getElementById('set-morebtn').style.display='none';
+    applySetFilters();
+  }
 }
 
 // ===== PARTIES =====
