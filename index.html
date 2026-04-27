@@ -571,8 +571,10 @@ body.mana-cursor{cursor:none}
 .ar-field-card:hover{border-color:rgba(255,255,255,.35);z-index:20}
 .ar-field-card.tapped{transform-origin:center center;transform:rotate(90deg)}
 .ar-field-card .ar-fimg{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block}
-.ar-field-card .ar-cmenu{display:none;position:absolute;top:0;left:calc(100% + 5px);z-index:80;background:rgba(10,12,20,.96);border:1px solid var(--bd2);border-radius:9px;min-width:148px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.85);padding:3px 0}
-.ar-field-card:hover .ar-cmenu{display:block}
+.ar-field-card .ar-cmenu{display:none;position:absolute;top:0;left:calc(100% + 4px);z-index:80;background:rgba(10,12,20,.96);border:1px solid var(--bd2);border-radius:9px;min-width:152px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.85);padding:3px 0}
+.ar-field-card .ar-cmenu.open{display:block}
+.ar-card-btn{position:absolute;top:3px;right:3px;width:18px;height:18px;background:rgba(0,0,0,.8);border:.5px solid rgba(255,255,255,.4);border-radius:4px;color:rgba(255,255,255,.85);font-size:.7rem;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:6;line-height:1;padding:0;font-family:monospace;transition:background .1s}
+.ar-card-btn:hover{background:rgba(201,168,76,.4)}
 .ar-cmenu-title{font-size:.62rem;color:var(--tx3);padding:5px 12px 2px;font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;border-bottom:.5px solid var(--bd);margin-bottom:2px}
 .ar-cmenu button{display:block;width:100%;text-align:left;padding:5px 12px;background:none;border:none;color:var(--tx2);font-size:.75rem;cursor:pointer;white-space:nowrap}
 .ar-cmenu button:hover{background:rgba(255,255,255,.08);color:var(--tx)}
@@ -1848,6 +1850,7 @@ body.mana-cursor{cursor:none}
     <button class="ar-btn ar-btn-gold" onclick="arNextTurn()" title="Détaper tout + piocher + tour suivant">↺ Tour</button>
     <button class="ar-btn" onclick="arMulligan()" id="ar-mul-btn">⊘ Mul (<span id="ar-mul-n">0</span>)</button>
     <button class="ar-btn" onclick="arCreateToken()">+ Jeton</button>
+    <button class="ar-btn" onclick="arOpenDeckSearch()" title="Chercher une carte dans le deck">🔍 Deck</button>
     <button class="ar-btn" onclick="arDrawCard()">Piocher</button>
     <button class="ar-btn" onclick="arShuffle()" title="Mélanger la bibliothèque">🔀</button>
     <button class="ar-btn" onclick="arRestart()" title="Remettre toutes les cartes dans le deck, mélanger et piocher 7" style="border-color:rgba(255,140,50,.5);color:#ff9060">↺ Restart</button>
@@ -1938,6 +1941,42 @@ body.mana-cursor{cursor:none}
 
   <!-- Drag ghost -->
   <div id="ar-ghost"><img id="ar-ghost-img" src="" alt=""></div>
+
+  <!-- Token search modal -->
+  <div id="ar-token-ov" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.85);z-index:95;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:16px;max-width:580px;width:92%;max-height:82vh;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.9rem">🃏 Ajouter un jeton</span>
+        <button class="ar-btn" onclick="document.getElementById('ar-token-ov').style.display='none'">✕</button>
+      </div>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="ar-token-in" placeholder="Nom du jeton (ex: Zombie, Soldat, Trésor…)" style="flex:1;font-size:.83rem" onkeydown="if(event.key==='Enter')arTokenSearch()">
+        <button class="ar-btn ar-btn-gold" onclick="arTokenSearch()">Chercher</button>
+      </div>
+      <div id="ar-token-res" style="display:flex;flex-wrap:wrap;gap:8px;overflow-y:auto;flex:1;min-height:80px;align-content:flex-start"></div>
+      <div style="font-size:.7rem;color:var(--tx3)">Cliquez sur un jeton pour le placer sur le champ de bataille. Vous pouvez aussi créer un jeton personnalisé ci-dessous.</div>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="ar-token-custom" placeholder="Nom personnalisé (ex: Soldat 1/1 blanc)" style="flex:1;font-size:.82rem">
+        <button class="ar-btn" onclick="arCreateCustomToken()">+ Créer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deck search modal -->
+  <div id="ar-deck-search-ov" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.85);z-index:95;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:16px;max-width:480px;width:92%;max-height:82vh;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.9rem">🔍 Chercher dans le deck — <span id="ar-lib-search-cnt">0</span> cartes</span>
+        <button class="ar-btn" onclick="document.getElementById('ar-deck-search-ov').style.display='none'">✕</button>
+      </div>
+      <input type="text" id="ar-lib-search-in" placeholder="Nom de carte…" style="font-size:.85rem" oninput="arLibSearchFilter()">
+      <div id="ar-lib-search-res" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:3px;min-height:100px"></div>
+      <div style="display:flex;gap:6px;padding-top:4px;border-top:.5px solid var(--bd)">
+        <button class="ar-btn ar-btn-gold" onclick="arShuffleAfterSearch()" title="Remélanger le deck pour ne plus connaître l'ordre">🔀 Remélanger</button>
+        <button class="ar-btn" onclick="document.getElementById('ar-deck-search-ov').style.display='none'">Fermer</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="ctip"><img id="ctipimg" src="" alt=""></div>
@@ -4138,7 +4177,7 @@ function arOpen(){
   if(msg)msg.textContent='';
   var startLife=parseInt(document.getElementById('ar-setup-life').value)||40;
   _ar={active:true,lib:_arShuffle(expanded.lib),hand:[],field:[],grave:[],exile:[],lands:[],
-    cmd:expanded.cmd,cmdCasts:0,life:startLife,startLife:startLife,turn:1,phase:1,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null};
+    cmd:expanded.cmd,cmdCasts:0,life:startLife,startLife:startLife,originalDeckId:id,turn:1,phase:1,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null};
   // Draw opening hand
   for(var i=0;i<7;i++)if(_ar.lib.length)_ar.hand.push(_ar.lib.pop());
   document.getElementById('arena-ov').classList.add('ar-on');
@@ -4153,10 +4192,10 @@ function arClose(){
 }
 
 function arRestart(){
-  if(!confirm('Recommencer ? Toutes les cartes retournent dans le deck mélangé, et vous piochez 7.'))return;
-  var all=_ar.hand.concat(_ar.field).concat(_ar.grave).concat(_ar.exile).concat(_ar.lands||[]);
-  all.forEach(function(c){delete c.x;delete c.y;delete c.tapped;delete c.counters;});
-  _ar.lib=_arShuffle(_ar.lib.concat(all));
+  if(!confirm('Recommencer ? Le deck repart de zéro (liste de départ), mélangé.'))return;
+  var expanded=_arExpandDeck(_ar.originalDeckId);
+  _ar.lib=_arShuffle(expanded.lib);
+  _ar.cmd=expanded.cmd;_ar.cmdCasts=0;
   _ar.hand=[];_ar.field=[];_ar.grave=[];_ar.exile=[];_ar.lands=[];
   _ar.life=_ar.startLife;_ar.turn=1;_ar.phase=1;_ar.muls=0;_ar.mulPhase=false;_ar.mulSel=[];_ar.selected=null;
   for(var i=0;i<7;i++)if(_ar.lib.length)_ar.hand.push(_ar.lib.pop());
@@ -4223,17 +4262,22 @@ function arRenderField(){
       img.className='ar-fimg';img.dataset.name=c.name;img.alt=c.name;
       _arLoadImg(c.name,img);
       el.appendChild(img);
+      var btn=document.createElement('button');btn.className='ar-card-btn';btn.textContent='⋮';
+      btn.onpointerdown=function(e){e.stopPropagation();};
+      btn.onclick=function(e){e.stopPropagation();arToggleCardMenu(el);};
       var menu=document.createElement('div');menu.className='ar-cmenu';
       menu.innerHTML='<div class="ar-cmenu-title">'+esc(c.name)+'</div>'
         +'<button onclick="arTap(\''+c.id+'\')">⟳ Taper / Détaper</button>'
         +'<button onclick="arAdjCounter(\''+c.id+'\',1)">➕ +1/+1</button>'
         +'<button onclick="arAdjCounter(\''+c.id+'\',-1)">➖ −1/−1</button>'
+        +(c.isCmd?'<button onclick="arReturnCmd(\''+c.id+'\')">👑 Zone de commande</button>':'')
         +'<button onclick="arMv(\''+c.id+'\',\'field\',\'lands\')">🌍 → Terrains</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'hand\')">↩ Retour main</button>'
+        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'hand\')">↩ Main</button>'
         +'<button onclick="arMv(\''+c.id+'\',\'field\',\'grave\')">🗑 Cimetière</button>'
         +'<button onclick="arMv(\''+c.id+'\',\'field\',\'exile\')">⬡ Exiler</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'lib-top\')">↑ Dessus deck</button>';
-      el.appendChild(menu);
+        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'lib-top\')">↑ Dessus deck</button>'
+        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'lib-bot\')">↓ Dessous deck</button>';
+      el.appendChild(btn);el.appendChild(menu);
       el.onpointerdown=function(e){arPtrDown(e,el);};
       field.appendChild(el);
     }
@@ -4261,15 +4305,19 @@ function arRenderLands(){
       el.dataset.id=c.id;el.dataset.zone='lands';el.dataset.name=c.name;
       var img=document.createElement('img');img.className='ar-fimg';img.dataset.name=c.name;img.alt=c.name;
       _arLoadImg(c.name,img);el.appendChild(img);
+      var btn2=document.createElement('button');btn2.className='ar-card-btn';btn2.textContent='⋮';
+      btn2.onpointerdown=function(e){e.stopPropagation();};
+      btn2.onclick=function(e){e.stopPropagation();arToggleCardMenu(el);};
       var menu=document.createElement('div');menu.className='ar-cmenu';
       menu.innerHTML='<div class="ar-cmenu-title">'+esc(c.name)+'</div>'
         +'<button onclick="arTapLand(\''+c.id+'\')">⟳ Taper / Détaper</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'hand\')">↩ Retour main</button>'
+        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'hand\')">↩ Main</button>'
         +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'field\')">⚔ Champ de bataille</button>'
         +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'grave\')">🗑 Cimetière</button>'
         +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'exile\')">⬡ Exiler</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'lib-top\')">↑ Dessus deck</button>';
-      el.appendChild(menu);
+        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'lib-top\')">↑ Dessus deck</button>'
+        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'lib-bot\')">↓ Dessous deck</button>';
+      el.appendChild(btn2);el.appendChild(menu);
       el.onpointerdown=function(e){arPtrDown(e,el);};
       lands.appendChild(el);
     }
@@ -4434,17 +4482,117 @@ function arCastCommander(){
   if(!_ar.cmd)return;
   var field=document.getElementById('ar-field');
   var r=field?field.getBoundingClientRect():{width:400,height:300};
-  var card={id:_arMakeId(),name:_ar.cmd.name,x:Math.max(0,r.width/2-41),y:Math.max(0,r.height/2-57),tapped:false,counters:0};
+  var card={id:_arMakeId(),name:_ar.cmd.name,x:Math.max(0,r.width/2-41),y:Math.max(0,r.height/2-57),tapped:false,counters:0,isCmd:true};
   _ar.field.push(card);_ar.cmdCasts++;arRender();
 }
 
+function arReturnCmd(id){
+  var idx=_ar.field.findIndex(function(c){return c.id===id;});
+  if(idx>=0){_ar.field.splice(idx,1);}
+  else{var li=(_ar.lands||[]).findIndex(function(c){return c.id===id;});if(li>=0)_ar.lands.splice(li,1);}
+  arRender();
+}
+
+function arToggleCardMenu(el){
+  var menu=el.querySelector('.ar-cmenu');if(!menu)return;
+  var wasOpen=menu.classList.contains('open');
+  document.querySelectorAll('.ar-cmenu.open').forEach(function(m){m.classList.remove('open');});
+  if(!wasOpen){
+    menu.classList.add('open');
+    var r=el.getBoundingClientRect();
+    var ov=document.getElementById('arena-ov').getBoundingClientRect();
+    // Horizontal position
+    if(r.right+158>ov.right){menu.style.left='auto';menu.style.right='calc(100% + 4px)';}
+    else{menu.style.left='calc(100% + 4px)';menu.style.right='auto';}
+    // Vertical position
+    if(r.top+220>ov.bottom){menu.style.top='auto';menu.style.bottom='0';}
+    else{menu.style.top='0';menu.style.bottom='auto';}
+  }
+}
+
 function arCreateToken(){
-  var name=prompt('Nom du jeton (ex: Zombie 2/2, Trésor, Soldat 1/1...) :','Soldat 1/1 blanc');
+  document.getElementById('ar-token-in').value='';
+  document.getElementById('ar-token-res').innerHTML='';
+  document.getElementById('ar-token-custom').value='';
+  document.getElementById('ar-token-ov').style.display='flex';
+}
+
+function arTokenSearch(){
+  var q=document.getElementById('ar-token-in').value.trim();
+  if(!q)return;
+  var res=document.getElementById('ar-token-res');
+  res.innerHTML='<div style="color:var(--tx3);font-size:.8rem">Recherche…</div>';
+  fetch('https://api.scryfall.com/cards/search?q=t:token+'+encodeURIComponent(q)+'&order=name&unique=cards')
+    .then(function(r){return r.json();})
+    .then(function(data){
+      res.innerHTML='';
+      var cards=(data.data||[]).slice(0,20);
+      if(!cards.length){res.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem">Aucun jeton trouvé</div>';return;}
+      cards.forEach(function(card){
+        var imgUrl=card.image_uris?card.image_uris.small:(card.card_faces&&card.card_faces[0].image_uris?card.card_faces[0].image_uris.small:'');
+        var div=document.createElement('div');
+        div.style.cssText='display:inline-flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:2px';
+        div.innerHTML='<img src="'+esc(imgUrl)+'" style="width:78px;height:110px;border-radius:6px;object-fit:cover;border:2px solid transparent;transition:border-color .12s" onerror="this.src=\''+_AR_BACK+'\'">'
+          +'<span style="font-size:.58rem;color:var(--tx2);text-align:center;max-width:78px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(card.name)+'</span>';
+        div.querySelector('img').onmouseover=function(){this.style.borderColor='var(--gold)';};
+        div.querySelector('img').onmouseout=function(){this.style.borderColor='transparent';};
+        div.onclick=function(){
+          var field=document.getElementById('ar-field');
+          var r=field?field.getBoundingClientRect():{width:400,height:300};
+          _arImgCache[card.name.toLowerCase()]=imgUrl;
+          _ar.field.push({id:_arMakeId(),name:card.name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true});
+          arRenderField();
+          document.getElementById('ar-token-ov').style.display='none';
+        };
+        res.appendChild(div);
+      });
+    }).catch(function(){res.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Erreur réseau</div>';});
+}
+
+function arCreateCustomToken(){
+  var name=document.getElementById('ar-token-custom').value.trim();
   if(!name)return;
   var field=document.getElementById('ar-field');
   var r=field?field.getBoundingClientRect():{width:400,height:300};
-  _ar.field.push({id:_arMakeId(),name:name,x:Math.random()*(r.width-100),y:Math.random()*(r.height-130),tapped:false,counters:0,token:true});
+  _ar.field.push({id:_arMakeId(),name:name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true});
   arRenderField();
+  document.getElementById('ar-token-ov').style.display='none';
+}
+
+function arOpenDeckSearch(){
+  document.getElementById('ar-lib-search-cnt').textContent=_ar.lib.length;
+  document.getElementById('ar-lib-search-in').value='';
+  arLibSearchFilter();
+  document.getElementById('ar-deck-search-ov').style.display='flex';
+}
+
+function arLibSearchFilter(){
+  var q=(document.getElementById('ar-lib-search-in').value||'').toLowerCase();
+  var res=document.getElementById('ar-lib-search-res');
+  var grouped={};
+  _ar.lib.forEach(function(c){if(c.name.toLowerCase().includes(q))grouped[c.name]=(grouped[c.name]||0)+1;});
+  var keys=Object.keys(grouped).sort();
+  if(!keys.length){res.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem">Aucune carte trouvée</div>';return;}
+  res.innerHTML='';
+  keys.forEach(function(name){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:rgba(255,255,255,.04)';
+    row.innerHTML='<span style="flex:1;font-size:.82rem;color:var(--tx)">'+esc(name)+'</span>'
+      +'<span style="font-size:.75rem;color:var(--tx3);min-width:24px;text-align:right">×'+grouped[name]+'</span>'
+      +'<button class="ar-btn ar-btn-gold" style="font-size:.68rem;padding:3px 8px">↓ Prendre</button>';
+    row.querySelector('button').onclick=function(){
+      var idx=_ar.lib.findIndex(function(c){return c.name===name;});
+      if(idx>=0){_ar.hand.push(_ar.lib.splice(idx,1)[0]);}
+      document.getElementById('ar-lib-search-cnt').textContent=_ar.lib.length;
+      arLibSearchFilter();arRenderHand();arRenderRight();
+    };
+    res.appendChild(row);
+  });
+}
+
+function arShuffleAfterSearch(){
+  _arShuffle(_ar.lib);arRenderRight();
+  document.getElementById('ar-deck-search-ov').style.display='none';
 }
 
 function arOpenZone(zone){
@@ -4482,6 +4630,7 @@ var _arDrag=null;
 function arPtrDown(e,el){
   if(e.button!==undefined&&e.button!==0)return;
   e.preventDefault();
+  document.querySelectorAll('.ar-cmenu.open').forEach(function(m){m.classList.remove('open');});
   var id=el.dataset.id;var zone=el.dataset.zone;
   _arDrag={id:id,zone:zone,startX:e.clientX,startY:e.clientY,offX:e.offsetX||40,offY:e.offsetY||56,el:el,moved:false};
   el.setPointerCapture(e.pointerId);
@@ -4516,6 +4665,8 @@ function arPtrUp(e){
   var landsEl=document.getElementById('ar-lands');if(landsEl)landsEl.classList.remove('ar-drop-over');
 
   if(!_arDrag){
+    if(!e.target.closest('.ar-card-btn')&&!e.target.closest('.ar-cmenu'))
+      document.querySelectorAll('.ar-cmenu.open').forEach(function(m){m.classList.remove('open');});
     if(_ar.selected&&!e.target.closest('.ar-field-card'))arFieldClick(e);
     return;
   }
