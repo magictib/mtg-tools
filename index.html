@@ -491,11 +491,18 @@ body.mana-cursor{cursor:none}
         <i class="ms ms-r ms-cost ml-pent-sym" data-mana="R" onclick="setActiveMana('R')" style="bottom:2px;left:11%"></i>
         <i class="ms ms-g ms-cost ml-pent-sym" data-mana="G" onclick="setActiveMana('G')" style="top:18%;left:0"></i>
         <svg class="ml-flask" viewBox="0 0 40 50" width="30" height="38">
-          <rect x="14" y="1" width="12" height="15" rx="2" fill="none" stroke="#c9a84c" stroke-width="2.2"/>
-          <path d="M14,16 L2,46 H38 L26,16 Z" fill="rgba(80,160,255,0.13)" stroke="#c9a84c" stroke-width="2.2" stroke-linejoin="round"/>
-          <path d="M6,37 L34,37 L38,46 H2 Z" fill="rgba(80,160,255,0.38)"/>
-          <circle cx="12" cy="40" r="1.6" fill="rgba(255,255,255,0.5)"/>
-          <circle cx="22" cy="42" r="1" fill="rgba(255,255,255,0.4)"/>
+          <path d="M14,22 Q12,17 14,12" fill="none" stroke="#c9a84c" stroke-width="1" stroke-linecap="round" opacity=".4"/>
+          <path d="M20,21 Q18,16 20,11" fill="none" stroke="#c9a84c" stroke-width="1" stroke-linecap="round" opacity=".4"/>
+          <path d="M26,22 Q24,17 26,12" fill="none" stroke="#c9a84c" stroke-width="1" stroke-linecap="round" opacity=".4"/>
+          <line x1="13" y1="38" x2="9" y2="47" stroke="#c9a84c" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="20" y1="40" x2="20" y2="48" stroke="#c9a84c" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="27" y1="38" x2="31" y2="47" stroke="#c9a84c" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M6,24 C5,39 12,42 20,42 C28,42 35,39 34,24 Z" fill="rgba(80,160,255,0.13)" stroke="#c9a84c" stroke-width="2.2" stroke-linejoin="round"/>
+          <ellipse cx="20" cy="24" rx="14" ry="4" fill="rgba(80,160,255,0.08)" stroke="#c9a84c" stroke-width="2.2"/>
+          <path d="M6,28 Q1,24 6,20" fill="none" stroke="#c9a84c" stroke-width="2" stroke-linecap="round"/>
+          <path d="M34,28 Q39,24 34,20" fill="none" stroke="#c9a84c" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="15" cy="33" r="2" fill="none" stroke="#c9a84c" stroke-width=".8" opacity=".6"/>
+          <circle cx="25" cy="36" r="1.4" fill="none" stroke="#c9a84c" stroke-width=".8" opacity=".6"/>
         </svg>
       </div>
       <div style="font-family:'Cinzel',serif;font-size:1.5rem;color:var(--gold2);letter-spacing:.12em">Mana<span style="font-weight:300;color:var(--tx2)">LAB</span></div>
@@ -515,11 +522,12 @@ body.mana-cursor{cursor:none}
         </div>
       </div>
       <div id="auth-register-panel" style="display:none">
-        <input type="text" id="auth-displayname" placeholder="Votre prénom ou pseudo" style="width:100%;margin-bottom:8px">
+        <input type="text" id="auth-displayname" placeholder="Nom d'utilisateur (visible par tous)" style="width:100%;margin-bottom:8px" maxlength="24">
         <input type="email" id="auth-reg-email" placeholder="Email" style="width:100%;margin-bottom:8px">
         <input type="password" id="auth-reg-pw" placeholder="Mot de passe (6 car. min.)" style="width:100%;margin-bottom:8px">
         <input type="password" id="auth-reg-pw2" placeholder="Confirmer le mot de passe" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')authRegister()">
         <button class="btn btnp" style="width:100%" onclick="authRegister()">Créer un compte</button>
+        <div style="font-size:.7rem;color:var(--tx3);margin-top:6px;text-align:center">Le compte est activé automatiquement. L'admin peut promouvoir aux droits administrateur.</div>
       </div>
       <div id="auth-msg" class="auth-msg"></div>
     </div>
@@ -1551,7 +1559,7 @@ firebase.auth().onAuthStateChanged(function(user){
   db.collection('users').doc(user.uid).get().then(function(doc){
     var role;
     if(!doc.exists){
-      role=user.email===_ADMIN_EMAIL?'admin':'pending';
+      role=user.email===_ADMIN_EMAIL?'admin':'approved';
       return db.collection('users').doc(user.uid).set({
         email:user.email,
         name:user.displayName||user.email.split('@')[0],
@@ -1689,18 +1697,22 @@ function authRegister(){
   var email=(document.getElementById('auth-reg-email').value||'').trim();
   var pw=document.getElementById('auth-reg-pw').value;
   var pw2=document.getElementById('auth-reg-pw2').value;
-  if(!name){_authMsg('Entrez un prénom ou pseudo',true);return;}
+  if(!name||name.length<2){_authMsg('Nom d\'utilisateur requis (2 caractères min.)',true);return;}
   if(!email){_authMsg('Email requis',true);return;}
   if(pw.length<6){_authMsg('Mot de passe : 6 caractères minimum',true);return;}
   if(pw!==pw2){_authMsg('Les mots de passe ne correspondent pas',true);return;}
-  _authMsg('Création du compte…',false);
-  firebase.auth().createUserWithEmailAndPassword(email,pw).then(function(cred){
-    return cred.user.updateProfile({displayName:name});
-  }).catch(function(e){
-    var msgs={'auth/email-already-in-use':'Un compte existe déjà avec cet email',
-      'auth/invalid-email':'Email invalide','auth/weak-password':'Mot de passe trop faible'};
-    _authMsg(msgs[e.code]||e.message,true);
-  });
+  _authMsg('Vérification du nom d\'utilisateur…',false);
+  db.collection('users').where('name','==',name).get().then(function(snap){
+    if(!snap.empty){_authMsg('Ce nom d\'utilisateur est déjà pris, choisissez-en un autre.',true);return;}
+    _authMsg('Création du compte…',false);
+    return firebase.auth().createUserWithEmailAndPassword(email,pw).then(function(cred){
+      return cred.user.updateProfile({displayName:name});
+    }).catch(function(e){
+      var msgs={'auth/email-already-in-use':'Un compte existe déjà avec cet email',
+        'auth/invalid-email':'Email invalide','auth/weak-password':'Mot de passe trop faible'};
+      _authMsg(msgs[e.code]||e.message,true);
+    });
+  }).catch(function(e){_authMsg('Erreur : '+e.message,true);});
 }
 
 function authResetPw(){
@@ -1726,8 +1738,8 @@ function _loadAdminUsers(){
   list.innerHTML='<div style="color:var(--tx3);font-size:.82rem">Chargement…</div>';
   db.collection('users').get().then(function(snap){
     if(snap.empty){list.innerHTML='<div style="color:var(--tx3)">Aucun utilisateur</div>';return;}
-    var roleLabel={admin:'⭐ Admin',approved:'✓ Approuvé',pending:'⏳ En attente',banned:'🚫 Banni'};
-    var roleColor={admin:'var(--gold2)',approved:'var(--gr2)',pending:'var(--am)',banned:'var(--rd2)'};
+    var roleLabel={admin:'⭐ Admin',approved:'✓ Approuvé',banned:'🚫 Banni'};
+    var roleColor={admin:'var(--gold2)',approved:'var(--gr2)',banned:'var(--rd2)'};
     var docs=snap.docs.slice().sort(function(a,b){
       var ord={admin:0,approved:1,pending:2,banned:3};
       return (ord[a.data().role]||9)-(ord[b.data().role]||9);
@@ -1741,11 +1753,12 @@ function _loadAdminUsers(){
         +'<div style="font-size:.72rem;color:var(--tx3)">'+esc(u.email||'')+'</div>'
         +'</div>'
         +'<span style="font-size:.75rem;font-weight:600;color:'+(roleColor[u.role]||'var(--tx3)')+'">'+( roleLabel[u.role]||u.role)+'</span>'
-        +(!isMe&&u.role!=='admin'
-          ?'<div style="display:flex;gap:4px">'
-            +(u.role!=='approved'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--gr2);border-color:var(--gr2)" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">✓ Valider</button>':'')
-            +(u.role!=='banned'?'<button class="btn btnsm btnrd" style="font-size:.7rem;padding:2px 8px" onclick="adminSetRole(\''+uid+'\',\'banned\',this)">✕ Bannir</button>':'')
-            +(u.role==='banned'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">↩ Restaurer</button>':'')
+        +(!isMe
+          ?'<div style="display:flex;gap:4px;flex-wrap:wrap">'
+            +(u.role==='approved'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--gold2);border-color:var(--gold2)" onclick="adminSetRole(\''+uid+'\',\'admin\',this)">⭐ Admin</button>':'')
+            +(u.role==='admin'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--tx2)" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">↩ Utilisateur</button>':'')
+            +(u.role!=='banned'&&u.role!=='admin'?'<button class="btn btnsm btnrd" style="font-size:.7rem;padding:2px 8px" onclick="adminSetRole(\''+uid+'\',\'banned\',this)">✕ Bannir</button>':'')
+            +(u.role==='banned'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--gr2);border-color:var(--gr2)" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">↩ Restaurer</button>':'')
             +'</div>'
           :'')
         +'</div>';
