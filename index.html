@@ -474,6 +474,26 @@ body.mana-cursor{cursor:none}
 .ml-pent-sym.mana-active{filter:drop-shadow(0 0 14px currentColor) drop-shadow(0 0 5px #fff);animation:mana-pulse 1.1s ease-in-out infinite}
 @keyframes mana-pulse{0%,100%{transform:scale(1.3) rotate(-6deg)} 50%{transform:scale(1.5) rotate(6deg)}}
 
+/* ===== HAND TESTER ===== */
+.ht-zone{margin-bottom:10px}
+.ht-zone-lbl{font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+.ht-zone-lbl b{font-family:'Crimson Pro',serif;font-size:.78rem;color:var(--tx2);font-weight:400;letter-spacing:0}
+.ht-cards{display:flex;flex-wrap:wrap;gap:4px;min-height:24px;padding:4px 0}
+.ht-card{position:relative;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;padding:3px 8px;font-size:.75rem;color:var(--tx);cursor:pointer;transition:border-color .15s;user-select:none}
+.ht-card:hover{border-color:var(--gold);z-index:20}
+.ht-card.ht-sel{border-color:var(--rd2)!important;background:rgba(232,108,108,.15)!important}
+.ht-card.ht-tap{opacity:.55;transform:rotate(6deg);display:inline-block}
+.ht-cmenu{display:none;position:absolute;bottom:calc(100% + 5px);left:0;z-index:60;background:var(--s2);border:.5px solid var(--bd2);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.7);min-width:130px;overflow:hidden}
+.ht-card:hover .ht-cmenu{display:block}
+.ht-cmenu button{display:block;width:100%;text-align:left;padding:5px 12px;background:none;border:none;color:var(--tx2);font-size:.75rem;cursor:pointer;white-space:nowrap}
+.ht-cmenu button:hover{background:var(--s3);color:var(--tx)}
+.ht-cmenu hr{border:none;border-top:.5px solid var(--bd);margin:2px 0}
+.ht-info-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:6px 10px;background:var(--s1);border-radius:8px;border:.5px solid var(--bd)}
+.ht-stat{font-size:.78rem;color:var(--tx3);display:flex;flex-direction:column;align-items:center;min-width:36px}
+.ht-stat strong{font-size:1.05rem;color:var(--tx);font-family:'Goudy Mediaeval',serif}
+.ht-mul-bar{background:rgba(232,108,108,.1);border:.5px solid rgba(232,108,108,.3);border-radius:8px;padding:7px 12px;margin-bottom:8px;font-size:.8rem;color:var(--tx2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ht-empty{color:var(--tx3);font-size:.75rem;font-style:italic;padding:2px 0}
+
 /* ===== RESPONSIVE MOBILE ===== */
 @media(max-width:600px){
   /* Wrap & header */
@@ -1317,6 +1337,61 @@ body.mana-cursor{cursor:none}
 
 <!-- PARTIES -->
 <div class="page" id="pg-game">
+
+  <!-- Testeur de main -->
+  <div class="card" id="ht-panel">
+    <div class="row" style="margin-bottom:8px">
+      <div class="lbl" style="margin-bottom:0">🃏 Testeur de main</div>
+      <button class="btn btnsm" id="ht-close-btn" onclick="htReset(true)" style="display:none;color:var(--tx3)">✕ Fermer</button>
+    </div>
+    <div id="ht-setup-bar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="ht-deck-sel" style="flex:1;min-width:140px;font-size:.82rem;padding:4px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+        <option value="">— Choisir un deck —</option>
+      </select>
+      <button class="btn btnsm btnp" onclick="htStart()">▶ Tester</button>
+    </div>
+    <div id="ht-active" style="display:none;margin-top:10px">
+      <!-- Barre d'info -->
+      <div class="ht-info-bar">
+        <div class="ht-stat"><strong id="ht-s-turn">1</strong><span>Tour</span></div>
+        <div style="width:.5px;height:28px;background:var(--bd);margin:0 2px"></div>
+        <div class="ht-stat"><strong id="ht-s-lib">—</strong><span>Biblio</span></div>
+        <div class="ht-stat"><strong id="ht-s-hand">0</strong><span>Main</span></div>
+        <div class="ht-stat"><strong id="ht-s-field">0</strong><span>Champ</span></div>
+        <div class="ht-stat"><strong id="ht-s-grave">0</strong><span>Cimetière</span></div>
+        <div style="flex:1"></div>
+        <button class="btn btnsm" onclick="htDraw(1)" id="ht-draw-btn">Piocher</button>
+        <button class="btn btnsm" onclick="htNextTurn()" id="ht-nextturn-btn">Tour +1</button>
+        <button class="btn btnsm" onclick="htMulligan()" id="ht-mul-btn">Mulligan <span id="ht-mul-cnt" style="opacity:.7">(0)</span></button>
+      </div>
+      <!-- Phase mulligan -->
+      <div class="ht-mul-bar" id="ht-mul-bar" style="display:none">
+        <span>Sélectionnez <strong id="ht-mul-need" style="color:var(--rd2)">1</strong> carte(s) à remettre sous la bibliothèque</span>
+        <button class="btn btnsm btnp" onclick="htConfirmMul()" id="ht-mul-confirm" disabled>Valider (0/<span id="ht-mul-need2">1</span>)</button>
+        <button class="btn btnsm" onclick="htCancelMul()">Annuler</button>
+      </div>
+      <!-- Main -->
+      <div class="ht-zone">
+        <div class="ht-zone-lbl">MAIN <b id="ht-lbl-hand"></b></div>
+        <div class="ht-cards" id="ht-hand-cards"><div class="ht-empty">Vide</div></div>
+      </div>
+      <!-- Champ de bataille -->
+      <div class="ht-zone">
+        <div class="ht-zone-lbl">CHAMP DE BATAILLE <b id="ht-lbl-field"></b></div>
+        <div class="ht-cards" id="ht-field-cards"><div class="ht-empty">Vide</div></div>
+      </div>
+      <!-- Cimetière -->
+      <div class="ht-zone">
+        <div class="ht-zone-lbl">CIMETIÈRE <b id="ht-lbl-grave"></b></div>
+        <div class="ht-cards" id="ht-grave-cards"><div class="ht-empty">Vide</div></div>
+      </div>
+      <!-- Exil -->
+      <div class="ht-zone" id="ht-exile-zone" style="display:none">
+        <div class="ht-zone-lbl">EXIL <b id="ht-lbl-exile"></b></div>
+        <div class="ht-cards" id="ht-exile-cards"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- Setup nouvelle partie -->
   <div class="card" id="game-setup">
@@ -2717,6 +2792,7 @@ function loadDecks(){
     }).catch(function(){});
 }
 function saveDecks(){
+  htPopulateSel();
   try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
   var batch=db.batch();
   var ref=db.collection('users').doc(userId).collection('decks');
@@ -3797,11 +3873,190 @@ function _buildDeckSelect(sel, ownerPi){
   if(prev)sel.value=prev;
 }
 
+// ===== HAND TESTER =====
+var _ht={on:false,deckId:null,lib:[],hand:[],field:[],grave:[],exile:[],turn:0,muls:0,mulPhase:false,mulSel:[]};
+
+function _htShuffle(arr){for(var i=arr.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=arr[i];arr[i]=arr[j];arr[j]=t;}return arr;}
+
+function _htExpandDeck(deckId){
+  var d=decks[deckId];if(!d)return[];
+  var cards=[];
+  (d.cards||[]).forEach(function(c){
+    if(c.sec&&c.sec.toLowerCase().indexOf('side')>=0)return; // skip sideboard
+    for(var i=0;i<(c.qty||1);i++)cards.push({name:c.name,id:Math.random().toString(36).slice(2)});
+  });
+  return cards;
+}
+
+function htPopulateSel(){
+  var sel=document.getElementById('ht-deck-sel');if(!sel)return;
+  var ids=Object.keys(decks);
+  sel.innerHTML='<option value="">— Choisir un deck —</option>'+
+    ids.filter(function(id){return (decks[id].owner||0)===0||(decks[id].owner===actP);})
+    .map(function(id){return '<option value="'+id+'">'+esc(decks[id].name)+'</option>';}).join('');
+}
+
+function htStart(){
+  var sel=document.getElementById('ht-deck-sel');
+  var id=sel&&sel.value;
+  if(!id){alert('Choisissez un deck');return;}
+  var cards=_htExpandDeck(id);
+  if(cards.length<7){alert('Le deck doit contenir au moins 7 cartes');return;}
+  _ht={on:true,deckId:id,lib:_htShuffle(cards),hand:[],field:[],grave:[],exile:[],turn:1,muls:0,mulPhase:false,mulSel:[]};
+  // Draw opening hand of 7
+  for(var i=0;i<7;i++)_ht.hand.push(_ht.lib.pop());
+  document.getElementById('ht-active').style.display='block';
+  document.getElementById('ht-close-btn').style.display='inline-flex';
+  document.getElementById('ht-setup-bar').style.display='none';
+  htRender();
+}
+
+function htReset(close){
+  _ht={on:false,deckId:null,lib:[],hand:[],field:[],grave:[],exile:[],turn:0,muls:0,mulPhase:false,mulSel:[]};
+  document.getElementById('ht-active').style.display='none';
+  document.getElementById('ht-close-btn').style.display='none';
+  document.getElementById('ht-setup-bar').style.display='flex';
+  document.getElementById('ht-mul-bar').style.display='none';
+}
+
+function htDraw(n){
+  if(!_ht.on||_ht.mulPhase)return;
+  for(var i=0;i<n;i++){
+    if(!_ht.lib.length)break;
+    _ht.hand.push(_ht.lib.pop());
+  }
+  htRender();
+}
+
+function htNextTurn(){
+  if(!_ht.on||_ht.mulPhase)return;
+  _ht.turn++;
+  htDraw(1);
+}
+
+function htMulligan(){
+  if(!_ht.on||_ht.mulPhase)return;
+  // Return hand + put it back shuffled, redraw 7
+  _ht.lib=_ht.lib.concat(_ht.hand);
+  _ht.hand=[];
+  _htShuffle(_ht.lib);
+  _ht.muls++;
+  for(var i=0;i<7;i++){if(_ht.lib.length)_ht.hand.push(_ht.lib.pop());}
+  if(_ht.muls>0){
+    _ht.mulPhase=true;
+    _ht.mulSel=[];
+  }
+  htRender();
+}
+
+function htToggleMulSel(id){
+  if(!_ht.mulPhase)return;
+  var idx=_ht.mulSel.indexOf(id);
+  if(idx>=0)_ht.mulSel.splice(idx,1);
+  else if(_ht.mulSel.length<_ht.muls)_ht.mulSel.push(id);
+  htRender();
+}
+
+function htConfirmMul(){
+  if(!_ht.mulPhase||_ht.mulSel.length!==_ht.muls)return;
+  var putBack=_ht.mulSel.slice();
+  _ht.hand=_ht.hand.filter(function(c){
+    if(putBack.indexOf(c.id)>=0){_ht.lib.unshift(c);return false;}
+    return true;
+  });
+  _ht.mulPhase=false;_ht.mulSel=[];
+  htRender();
+}
+
+function htCancelMul(){
+  // Cancel mulligan: return hand, put hand back in lib, restore previous state
+  // Simplest: just exit mulPhase without putting cards back
+  _ht.mulPhase=false;_ht.mulSel=[];
+  htRender();
+}
+
+// Move card from zone 'from' (hand/field/grave/exile) at index idx to zone 'to'
+function htMove(from,id,to){
+  var src=_ht[from];
+  var idx=-1;
+  for(var i=0;i<src.length;i++){if(src[i].id===id){idx=i;break;}}
+  if(idx<0)return;
+  var card=src.splice(idx,1)[0];
+  if(to==='lib-top')_ht.lib.push(card);
+  else if(to==='lib-bot')_ht.lib.unshift(card);
+  else _ht[to].push(card);
+  if(to==='exile'||_ht.exile.length)document.getElementById('ht-exile-zone').style.display='block';
+  htRender();
+}
+
+function htRender(){
+  // Stats
+  var el=function(id){return document.getElementById(id);};
+  el('ht-s-turn').textContent=_ht.turn;
+  el('ht-s-lib').textContent=_ht.lib.length;
+  el('ht-s-hand').textContent=_ht.hand.length;
+  el('ht-s-field').textContent=_ht.field.length;
+  el('ht-s-grave').textContent=_ht.grave.length;
+  el('ht-lbl-hand').textContent=_ht.hand.length?'('+_ht.hand.length+')':'';
+  el('ht-lbl-field').textContent=_ht.field.length?'('+_ht.field.length+')':'';
+  el('ht-lbl-grave').textContent=_ht.grave.length?'('+_ht.grave.length+')':'';
+  el('ht-lbl-exile').textContent=_ht.exile.length?'('+_ht.exile.length+')':'';
+  el('ht-mul-cnt').textContent='('+_ht.muls+')';
+  // Mulligan bar
+  var mulBar=el('ht-mul-bar');
+  mulBar.style.display=_ht.mulPhase?'flex':'none';
+  if(_ht.mulPhase){
+    el('ht-mul-need').textContent=_ht.muls;
+    el('ht-mul-need2').textContent=_ht.muls;
+    var confirmBtn=el('ht-mul-confirm');
+    confirmBtn.textContent='Valider ('+_ht.mulSel.length+'/'+_ht.muls+')';
+    confirmBtn.disabled=_ht.mulSel.length!==_ht.muls;
+  }
+  // Render zone
+  function renderZone(containerId,zone,actions){
+    var c=el(containerId);if(!c)return;
+    if(!zone.length){c.innerHTML='<div class="ht-empty">Vide</div>';return;}
+    c.innerHTML=zone.map(function(card){
+      var isSel=_ht.mulSel.indexOf(card.id)>=0;
+      var cls='ht-card'+(isSel?' ht-sel':'');
+      var clickHdl=_ht.mulPhase?'htToggleMulSel(\''+card.id+'\')':'';
+      var menu=!_ht.mulPhase?('<div class="ht-cmenu">'+actions.map(function(a){
+        return '<button onclick="htMove(\''+a.from+'\',\''+card.id+'\',\''+a.to+'\');event.stopPropagation()">'+a.label+'</button>';
+      }).join('')+'</div>'):'';
+      return '<div class="'+cls+'" onclick="'+clickHdl+'" title="'+esc(card.name)+'">'+esc(card.name)+menu+'</div>';
+    }).join('');
+  }
+  renderZone('ht-hand-cards',_ht.hand,[
+    {from:'hand',to:'field',label:'▶ Jouer'},
+    {from:'hand',to:'grave',label:'🗑 Défausser'},
+    {from:'hand',to:'exile',label:'⬡ Exiler'},
+    {from:'hand',to:'lib-top',label:'↑ Dessus biblio'},
+    {from:'hand',to:'lib-bot',label:'↓ Dessous biblio'}
+  ]);
+  renderZone('ht-field-cards',_ht.field,[
+    {from:'field',to:'grave',label:'🗑 Cimetière'},
+    {from:'field',to:'exile',label:'⬡ Exiler'},
+    {from:'field',to:'hand',label:'← Retour main'}
+  ]);
+  renderZone('ht-grave-cards',_ht.grave,[
+    {from:'grave',to:'hand',label:'← Retour main'},
+    {from:'grave',to:'field',label:'▶ Mettre en jeu'},
+    {from:'grave',to:'lib-top',label:'↑ Dessus biblio'},
+    {from:'grave',to:'exile',label:'⬡ Exiler'}
+  ]);
+  renderZone('ht-exile-cards',_ht.exile,[
+    {from:'exile',to:'hand',label:'← Retour main'},
+    {from:'exile',to:'field',label:'▶ Mettre en jeu'}
+  ]);
+  if(_ht.exile.length)el('ht-exile-zone').style.display='block';
+}
+
 function initSetupDecks(){
   profs.forEach(function(_,pi){
     var sel=document.getElementById('gsetup-deck'+pi);if(!sel)return;
     _buildDeckSelect(sel,pi);
   });
+  htPopulateSel();
 }
 
 function toggleSetupColor(slot,color,btn){
