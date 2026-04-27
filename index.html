@@ -571,8 +571,11 @@ body.mana-cursor{cursor:none}
 .ar-field-card:hover{border-color:rgba(255,255,255,.35);z-index:20}
 .ar-field-card.tapped{transform-origin:center center;transform:rotate(90deg)}
 .ar-field-card .ar-fimg{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block}
-.ar-field-card .ar-cmenu{display:none;position:absolute;top:0;left:calc(100% + 4px);z-index:80;background:rgba(10,12,20,.96);border:1px solid var(--bd2);border-radius:9px;min-width:152px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.85);padding:3px 0}
-.ar-field-card .ar-cmenu.open{display:block}
+/* Global context menu (outside card transforms) */
+#ar-ctx-menu{display:none;position:absolute;z-index:88;background:rgba(10,12,20,.97);border:1px solid var(--bd2);border-radius:9px;min-width:156px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.88);padding:3px 0}
+/* Card hover tooltip */
+#ar-card-tip{position:fixed;pointer-events:none;z-index:820;display:none;width:200px;height:280px;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.92);overflow:hidden}
+#ar-card-tip img{width:100%;height:100%;object-fit:cover;display:block;border-radius:9px}
 .ar-card-btn{position:absolute;top:3px;right:3px;width:18px;height:18px;background:rgba(0,0,0,.8);border:.5px solid rgba(255,255,255,.4);border-radius:4px;color:rgba(255,255,255,.85);font-size:.7rem;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:6;line-height:1;padding:0;font-family:monospace;transition:background .1s}
 .ar-card-btn:hover{background:rgba(201,168,76,.4)}
 .ar-cmenu-title{font-size:.62rem;color:var(--tx3);padding:5px 12px 2px;font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;border-bottom:.5px solid var(--bd);margin-bottom:2px}
@@ -1870,6 +1873,9 @@ body.mana-cursor{cursor:none}
     <button class="ar-btn" onclick="arDrawCard()">Piocher</button>
     <button class="ar-btn" onclick="arShuffle()" title="Mélanger la bibliothèque">🔀</button>
     <div class="ar-sep"></div>
+    <button class="ar-btn" onclick="arHandZoom(-15)" title="Réduire les cartes en main" style="padding:4px 7px">🃏−</button>
+    <button class="ar-btn" onclick="arHandZoom(15)" title="Agrandir les cartes en main" style="padding:4px 7px">🃏+</button>
+    <div class="ar-sep"></div>
     <button class="ar-btn" onclick="arOpenDice()" title="Lancer un dé / Pile ou Face">🎲</button>
     <button class="ar-btn" onclick="arOpenCounters()" title="Compteurs joueur (Poison, Énergie, etc.)">📊</button>
     <div class="ar-sep"></div>
@@ -1904,8 +1910,8 @@ body.mana-cursor{cursor:none}
           <div id="ar-cmd-tax" style="font-size:.7rem;color:var(--am);text-align:center;margin-top:1px">—</div>
         </div>
         <!-- Command Zone -->
-        <div class="ar-zone-box" id="ar-pile-cmd" onclick="arCastCommander()" style="display:none" title="Cliquer pour lancer le commandant">
-          <img id="ar-cmd-img" class="ar-zone-img" src="" alt="">
+        <div class="ar-zone-box" id="ar-pile-cmd" data-zone="cmd" data-id="__cmd__" onpointerdown="arPtrDown(event,this)" style="display:none;touch-action:none;user-select:none" title="Glisser sur le champ ou cliquer pour lancer le commandant">
+          <img id="ar-cmd-img" class="ar-zone-img" src="" alt="" style="pointer-events:none">
           <div class="ar-pile-lbl" style="margin-top:2px">Zone de commande</div>
         </div>
         <!-- Library -->
@@ -1985,6 +1991,12 @@ body.mana-cursor{cursor:none}
       </div>
     </div>
   </div>
+
+  <!-- Global context menu (outside card transforms, always vertical) -->
+  <div id="ar-ctx-menu"></div>
+
+  <!-- Card hover zoom tip -->
+  <div id="ar-card-tip"><img src="" alt=""></div>
 
   <!-- Drag ghost -->
   <div id="ar-ghost"><img id="ar-ghost-img" src="" alt=""></div>
@@ -4225,8 +4237,10 @@ function _arMakeId(){return Math.random().toString(36).slice(2,9);}
 function _arExpandDeck(deckId){
   var d=decks[deckId];if(!d)return{lib:[],cmd:null};
   var lib=[];var cmd=null;
+  var cmdName=d.commander?d.commander.name.toLowerCase():'';
   (d.cards||[]).forEach(function(c){
     if(c.sec&&c.sec.toLowerCase().indexOf('side')>=0)return;
+    if(cmdName&&c.name.toLowerCase()===cmdName)return;
     for(var i=0;i<(c.qty||1);i++)lib.push({id:_arMakeId(),name:c.name});
   });
   if(d.commander)cmd={name:d.commander.name,img:d.commander.img||'',casts:0};
@@ -4441,7 +4455,7 @@ function arRenderHand(){
     var isSel=_ar.selected===c.id;
     var isMul=_ar.mulPhase&&_ar.mulSel.indexOf(c.id)>=0;
     var cls='ar-hand-card'+(isSel?' ar-sel':'')+(isMul?' ar-mul-sel':'');
-    return '<div class="'+cls+'" data-id="'+c.id+'" data-zone="hand" data-name="'+esc(c.name)+'" onpointerdown="arPtrDown(event,this)" onclick="arHandClick(event,this)" title="'+esc(c.name)+'">'
+    return '<div class="'+cls+'" data-id="'+c.id+'" data-zone="hand" data-name="'+esc(c.name)+'" onpointerdown="arPtrDown(event,this)" onclick="arHandClick(event,this)" onmouseenter="arShowTip(\''+esc(c.name)+'\',event)" onmouseleave="arHideTip()" title="'+esc(c.name)+'">'
       +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'" loading="lazy">'
       +'</div>';
   }).join('');
@@ -4470,21 +4484,11 @@ function arRenderField(){
       el.appendChild(img);
       var btn=document.createElement('button');btn.className='ar-card-btn';btn.textContent='⋮';
       btn.onpointerdown=function(e){e.stopPropagation();};
-      btn.onclick=function(e){e.stopPropagation();arToggleCardMenu(el);};
-      var menu=document.createElement('div');menu.className='ar-cmenu';
-      menu.innerHTML='<div class="ar-cmenu-title">'+esc(c.name)+'</div>'
-        +'<button onclick="arTap(\''+c.id+'\')">⟳ Taper / Détaper</button>'
-        +'<button onclick="arAdjCounter(\''+c.id+'\',1)">➕ +1/+1</button>'
-        +'<button onclick="arAdjCounter(\''+c.id+'\',-1)">➖ −1/−1</button>'
-        +(c.isCmd?'<button onclick="arReturnCmd(\''+c.id+'\')">👑 Zone de commande</button>':'')
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'lands\')">🌍 → Terrains</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'hand\')">↩ Main</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'grave\')">🗑 Cimetière</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'exile\')">⬡ Exiler</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'lib-top\')">↑ Dessus deck</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'field\',\'lib-bot\')">↓ Dessous deck</button>';
-      el.appendChild(btn);el.appendChild(menu);
+      btn.onclick=function(e){e.stopPropagation();arHideTip();arToggleCardMenu(el);};
+      el.appendChild(btn);
       el.onpointerdown=function(e){arPtrDown(e,el);};
+      el.onmouseenter=function(ev){arShowTip(c.name,ev);};
+      el.onmouseleave=function(){arHideTip();};
       field.appendChild(el);
     }
     el.style.left=c.x+'px';el.style.top=c.y+'px';
@@ -4513,18 +4517,11 @@ function arRenderLands(){
       _arLoadImg(c.name,img);el.appendChild(img);
       var btn2=document.createElement('button');btn2.className='ar-card-btn';btn2.textContent='⋮';
       btn2.onpointerdown=function(e){e.stopPropagation();};
-      btn2.onclick=function(e){e.stopPropagation();arToggleCardMenu(el);};
-      var menu=document.createElement('div');menu.className='ar-cmenu';
-      menu.innerHTML='<div class="ar-cmenu-title">'+esc(c.name)+'</div>'
-        +'<button onclick="arTapLand(\''+c.id+'\')">⟳ Taper / Détaper</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'hand\')">↩ Main</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'field\')">⚔ Champ de bataille</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'grave\')">🗑 Cimetière</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'exile\')">⬡ Exiler</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'lib-top\')">↑ Dessus deck</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\'lands\',\'lib-bot\')">↓ Dessous deck</button>';
-      el.appendChild(btn2);el.appendChild(menu);
+      btn2.onclick=function(e){e.stopPropagation();arHideTip();arToggleCardMenu(el);};
+      el.appendChild(btn2);
       el.onpointerdown=function(e){arPtrDown(e,el);};
+      el.onmouseenter=function(ev){arShowTip(c.name,ev);};
+      el.onmouseleave=function(){arHideTip();};
       lands.appendChild(el);
     }
     el.style.left=c.x+'px';el.style.top=c.y+'px';
@@ -4702,23 +4699,6 @@ function arReturnCmd(id){
   arRender();
 }
 
-function arToggleCardMenu(el){
-  var menu=el.querySelector('.ar-cmenu');if(!menu)return;
-  var wasOpen=menu.classList.contains('open');
-  document.querySelectorAll('.ar-cmenu.open').forEach(function(m){m.classList.remove('open');});
-  if(!wasOpen){
-    menu.classList.add('open');
-    var r=el.getBoundingClientRect();
-    var ov=document.getElementById('arena-ov').getBoundingClientRect();
-    // Horizontal position
-    if(r.right+158>ov.right){menu.style.left='auto';menu.style.right='calc(100% + 4px)';}
-    else{menu.style.left='calc(100% + 4px)';menu.style.right='auto';}
-    // Vertical position
-    if(r.top+220>ov.bottom){menu.style.top='auto';menu.style.bottom='0';}
-    else{menu.style.top='0';menu.style.bottom='auto';}
-  }
-}
-
 function arCreateToken(){
   document.getElementById('ar-token-in').value='';
   document.getElementById('ar-token-res').innerHTML='';
@@ -4847,6 +4827,80 @@ function arResetAllCounters(){
   arRenderCounters();
 }
 
+// --- Card hover tip ---
+function arShowTip(name,e){
+  var tip=document.getElementById('ar-card-tip');if(!tip)return;
+  var img=tip.querySelector('img');
+  var url=_arImgCache[(name||'').toLowerCase()]||_AR_BACK;
+  if(img)img.src=url;
+  var x=e.clientX+18,y=e.clientY-60;
+  var mw=200,mh=280;
+  if(x+mw>window.innerWidth-8)x=e.clientX-mw-18;
+  if(y+mh>window.innerHeight-8)y=window.innerHeight-mh-8;
+  tip.style.left=Math.max(4,x)+'px';tip.style.top=Math.max(4,y)+'px';
+  tip.style.display='block';
+}
+function arHideTip(){var t=document.getElementById('ar-card-tip');if(t)t.style.display='none';}
+
+// --- Hand zoom ---
+var _arHandScale=100;
+function arHandZoom(delta){
+  _arHandScale=Math.max(55,Math.min(170,_arHandScale+delta));
+  var s=_arHandScale/100;
+  var hand=document.getElementById('ar-hand');
+  if(!hand)return;
+  hand.style.height=Math.round(140*s+30)+'px';
+  hand.querySelectorAll('.ar-hand-card').forEach(function(c){
+    c.style.width=Math.round(100*s)+'px';c.style.height=Math.round(140*s)+'px';
+  });
+}
+
+// --- Global context menu ---
+function arToggleCardMenu(el){
+  var ctx=document.getElementById('ar-ctx-menu');if(!ctx)return;
+  var isOpen=ctx.style.display!=='none'&&ctx.dataset.forId===el.dataset.id;
+  ctx.style.display='none';
+  if(isOpen)return;
+  var id=el.dataset.id,zone=el.dataset.zone;
+  var c=null;
+  if(zone==='field')c=_ar.field.find(function(x){return x.id===id;});
+  else if(zone==='lands')c=(_ar.lands||[]).find(function(x){return x.id===id;});
+  if(!c)return;
+  ctx.dataset.forId=id;
+  var html='<div class="ar-cmenu-title">'+esc(c.name)+'</div>';
+  if(zone==='field'){
+    html+='<button onclick="arTap(\''+id+'\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">⟳ Taper / Détaper</button>'
+      +'<button onclick="arAdjCounter(\''+id+'\',1);document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">➕ +1/+1</button>'
+      +'<button onclick="arAdjCounter(\''+id+'\',-1);document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">➖ −1/−1</button>'
+      +(c.isCmd?'<button onclick="arReturnCmd(\''+id+'\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">👑 Zone de commande</button>':'')
+      +'<button onclick="arMv(\''+id+'\',\'field\',\'lands\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">🌍 → Terrains</button>'
+      +'<button onclick="arMv(\''+id+'\',\'field\',\'hand\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">↩ Main</button>'
+      +'<button onclick="arMv(\''+id+'\',\'field\',\'grave\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">🗑 Cimetière</button>'
+      +'<button onclick="arMv(\''+id+'\',\'field\',\'exile\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">⬡ Exiler</button>'
+      +'<button onclick="arMv(\''+id+'\',\'field\',\'lib-top\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">↑ Dessus deck</button>'
+      +'<button onclick="arMv(\''+id+'\',\'field\',\'lib-bot\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">↓ Dessous deck</button>';
+  }else{
+    html+='<button onclick="arTapLand(\''+id+'\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">⟳ Taper / Détaper</button>'
+      +'<button onclick="arMv(\''+id+'\',\'lands\',\'hand\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">↩ Main</button>'
+      +'<button onclick="arMv(\''+id+'\',\'lands\',\'field\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">⚔ Champ de bataille</button>'
+      +'<button onclick="arMv(\''+id+'\',\'lands\',\'grave\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">🗑 Cimetière</button>'
+      +'<button onclick="arMv(\''+id+'\',\'lands\',\'exile\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">⬡ Exiler</button>'
+      +'<button onclick="arMv(\''+id+'\',\'lands\',\'lib-top\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">↑ Dessus deck</button>'
+      +'<button onclick="arMv(\''+id+'\',\'lands\',\'lib-bot\');document.getElementById(\'ar-ctx-menu\').style.display=\'none\'">↓ Dessous deck</button>';
+  }
+  ctx.innerHTML=html;
+  ctx.style.display='block';
+  // Position based on card's VISUAL bounding rect (works for tapped cards too)
+  var r=el.getBoundingClientRect();
+  var ov=document.getElementById('arena-ov').getBoundingClientRect();
+  var mw=160,mh=ctx.offsetHeight||230;
+  var left=r.right-ov.left+6;
+  var top=r.top-ov.top;
+  if(left+mw>ov.width-4)left=r.left-ov.left-mw-6;
+  if(top+mh>ov.height-4)top=Math.max(0,ov.height-mh-8);
+  ctx.style.left=left+'px';ctx.style.top=top+'px';
+}
+
 function arCreateCustomToken(){
   var name=document.getElementById('ar-token-custom').value.trim();
   if(!name)return;
@@ -4927,10 +4981,10 @@ function arOpenZone(zone){
 var _arDrag=null;
 function arPtrDown(e,el){
   if(e.button!==undefined&&e.button!==0)return;
-  if(e.target.closest('.ar-cmenu'))return;
+  if(e.target.closest('#ar-ctx-menu'))return;
   e.preventDefault();
   if(_ar.mulPhase&&el.dataset.zone==='hand'){arToggleMulSel(el.dataset.id);return;}
-  document.querySelectorAll('.ar-cmenu.open').forEach(function(m){m.classList.remove('open');});
+  var ctx=document.getElementById('ar-ctx-menu');if(ctx)ctx.style.display='none';
   var id=el.dataset.id;var zone=el.dataset.zone;
   _arDrag={id:id,zone:zone,startX:e.clientX,startY:e.clientY,offX:e.offsetX||40,offY:e.offsetY||56,el:el,moved:false};
   el.setPointerCapture(e.pointerId);
@@ -4940,11 +4994,16 @@ function arPtrMove(e){
   var dx=e.clientX-_arDrag.startX,dy=e.clientY-_arDrag.startY;
   if(!_arDrag.moved&&dx*dx+dy*dy<64)return;
   _arDrag.moved=true;
+  arHideTip();
   var ghost=document.getElementById('ar-ghost');
   var gimg=document.getElementById('ar-ghost-img');
-  var allCards=_ar.hand.concat(_ar.field).concat(_ar.grave||[]).concat(_ar.exile||[]).concat(_ar.lands||[]);
-  var card=allCards.find(function(c){return c.id===_arDrag.id;});
-  if(card&&gimg){gimg.src=_arImgCache[card.name.toLowerCase()]||_AR_BACK;}
+  if(_arDrag.id==='__cmd__'&&_ar.cmd&&gimg){
+    gimg.src=_ar.cmd.img||_arImgCache[(_ar.cmd.name||'').toLowerCase()]||_AR_BACK;
+  }else{
+    var allCards=_ar.hand.concat(_ar.field).concat(_ar.grave||[]).concat(_ar.exile||[]).concat(_ar.lands||[]);
+    var card=allCards.find(function(c){return c.id===_arDrag.id;});
+    if(card&&gimg){gimg.src=_arImgCache[card.name.toLowerCase()]||_AR_BACK;}
+  }
   ghost.style.display='block';
   ghost.style.left=(e.clientX-(_arDrag.offX||41))+'px';
   ghost.style.top=(e.clientY-(_arDrag.offY||57))+'px';
@@ -4965,15 +5024,16 @@ function arPtrUp(e){
   var landsEl=document.getElementById('ar-lands');if(landsEl)landsEl.classList.remove('ar-drop-over');
 
   if(!_arDrag){
-    if(!e.target.closest('.ar-card-btn')&&!e.target.closest('.ar-cmenu'))
-      document.querySelectorAll('.ar-cmenu.open').forEach(function(m){m.classList.remove('open');});
+    var ctx2=document.getElementById('ar-ctx-menu');
+    if(ctx2&&!e.target.closest('#ar-ctx-menu')&&!e.target.closest('.ar-card-btn'))ctx2.style.display='none';
     if(_ar.selected&&!e.target.closest('.ar-field-card'))arFieldClick(e);
     return;
   }
   var ghost=document.getElementById('ar-ghost');ghost.style.display='none';
-  _arDrag.el.style.opacity='';
+  if(_arDrag.zone!=='cmd')_arDrag.el.style.opacity='';
   if(!_arDrag.moved){
     if(_arDrag.zone==='hand')arHandClick(e,_arDrag.el);
+    else if(_arDrag.zone==='cmd')arCastCommander();
     _arDrag=null;return;
   }
 
@@ -4988,6 +5048,9 @@ function arPtrUp(e){
     var y=Math.max(0,Math.min(fr.height-115,cy-fr.top-57));
     if(fromZone==='hand'){arPlayCard(id,x,y);arRender();}
     else if(fromZone==='field'){var fc=_ar.field.find(function(c){return c.id===id;});if(fc){fc.x=x;fc.y=y;arRenderField();}}
+    else if(fromZone==='cmd'){
+      if(_ar.cmd){var card={id:_arMakeId(),name:_ar.cmd.name,x:x,y:y,tapped:false,counters:0,isCmd:true};_ar.field.push(card);_ar.cmdCasts++;arRender();}
+    }
     else{arMv(id,fromZone,'field');}
     return;
   }
