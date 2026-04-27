@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthed() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Users: tout utilisateur connecté peut lire (vérification unicité pseudo, liste admin)
+    // Chaque utilisateur ne peut écrire que son propre document
+    match /users/{uid} {
+      allow read: if isAuthed();
+      allow write: if isAuthed() && request.auth.uid == uid;
+    }
+
+    // Meta (ex: meta/scryfall): lecture pour tous les connectés, écriture admin seulement
+    match /meta/{doc} {
+      allow read: if isAuthed();
+      allow write: if isAdmin();
+    }
+
+    // Notifications: lecture pour tous les connectés
+    // Création/suppression: admin seulement
+    // Mise à jour: tout utilisateur connecté, mais uniquement le champ readBy
+    match /notifications/{notifId} {
+      allow read: if isAuthed();
+      allow create, delete: if isAdmin();
+      allow update: if isAuthed() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
+    }
+  }
+}
