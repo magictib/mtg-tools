@@ -6247,7 +6247,7 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
       var total=parseInt(r.headers.get('Content-Length'))||0,received=0,stored=0;
       var reader=r.body.getReader(),decoder=new TextDecoder();
       // Streaming JSON array parser state
-      var buf='',depth=0,inStr=false,esc=false,objStart=-1,keepFrom=0;
+      var buf='',depth=0,inStr=false,esc=false,objStart=-1;
       var batch=[],writeChain=Promise.resolve();
       function _idbWriteBatch(cards){
         return new Promise(function(res,rej){
@@ -6295,16 +6295,18 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
             depth--;
             if(depth===1&&objStart>=0){
               try{batch.push(JSON.parse(buf.slice(objStart,i+1)));}catch(e){}
-              objStart=-1;keepFrom=i+1;
+              objStart=-1;
               flushBatch(false);
             }
           }else if(c==='['){depth++;}
           else if(c===']'){depth--;}
           i++;
         }
-        buf=objStart>=0?buf.slice(objStart):buf.slice(keepFrom);
-        if(objStart>=0)objStart=0;
-        keepFrom=0;
+        // Trim buf to prevent unbounded growth:
+        // - in a card object: keep from objStart (reset to 0 after slice)
+        // - between objects: discard everything (commas/whitespace not needed)
+        if(objStart>=0){buf=buf.slice(objStart);objStart=0;}
+        else{buf='';}
       }
       function read(){
         return reader.read().then(function(chunk){
