@@ -552,9 +552,24 @@ body.mana-cursor{cursor:none}
 <div id="admin-overlay" style="display:none">
   <div class="admin-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-      <span style="font-family:'Cinzel',serif;color:var(--gold2);font-size:.9rem;letter-spacing:.08em">⚙ GESTION UTILISATEURS</span>
+      <span style="font-family:'Cinzel',serif;color:var(--gold2);font-size:.9rem;letter-spacing:.08em">⚙ ADMINISTRATION</span>
       <button class="btn btnsm" onclick="closeAdminPanel()">✕</button>
     </div>
+    <!-- Scryfall DB section -->
+    <div style="border:.5px solid var(--bd);border-radius:8px;margin-bottom:1rem;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--s2);cursor:pointer" onclick="document.getElementById('admin-scryfall-body').classList.toggle('hidden')">
+        <span style="font-family:'Cinzel',serif;color:var(--tx2);font-size:.76rem;letter-spacing:.06em">📚 BASE SCRYFALL</span>
+        <span style="font-size:.7rem;color:var(--tx3)">▾</span>
+      </div>
+      <div id="admin-scryfall-body" style="padding:10px">
+        <div id="admin-scryfall-status" style="font-size:.74rem;color:var(--tx3);margin-bottom:8px">Chargement…</div>
+        <button class="btn btnsm" id="admin-scryfall-btn" onclick="adminSyncScryfall()" style="font-size:.76rem">⟳ Synchroniser depuis Scryfall</button>
+        <div id="admin-scryfall-prog" style="font-size:.72rem;color:var(--tx2);margin-top:6px;min-height:.9rem"></div>
+        <div style="font-size:.68rem;color:var(--tx3);margin-top:5px">Télécharge oracle_cards.json (~25 Mo) depuis Scryfall, le met en cache IndexedDB local et notifie les autres utilisateurs qu'une mise à jour est disponible.</div>
+      </div>
+    </div>
+    <!-- Users section -->
+    <div style="font-family:'Cinzel',serif;color:var(--tx2);font-size:.76rem;letter-spacing:.06em;margin-bottom:8px">👥 UTILISATEURS</div>
     <div id="admin-user-list"><div style="color:var(--tx3);font-size:.82rem">Chargement…</div></div>
   </div>
 </div>
@@ -1589,6 +1604,7 @@ function _onUserRole(user,role){
     PN[0]=user.displayName||user.email;
     loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
     fetchRules();
+    setTimeout(_checkScryfallIDB,2000);
   } else if(role==='pending'){
     _showAuthScreen('pending');
   } else {
@@ -1730,6 +1746,7 @@ function openAdminPanel(){
   if(_userRole!=='admin')return;
   document.getElementById('admin-overlay').style.display='flex';
   _loadAdminUsers();
+  _loadAdminScryfallStatus();
 }
 function closeAdminPanel(){document.getElementById('admin-overlay').style.display='none';}
 
@@ -5370,39 +5387,47 @@ function toggleCollColor(c,btn){
   enrichCollCache();
   renderColl();
 }
+function _buildDatFromAPI(c){
+  var img='';
+  if(c.image_uris)img=c.image_uris.normal||c.image_uris.large||'';
+  else if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)img=c.card_faces[0].image_uris.normal||c.card_faces[0].image_uris.large||'';
+  var oracle='';
+  if(c.card_faces&&!c.image_uris)oracle=c.card_faces.map(function(f){return (f.name?'<span style="font-weight:600;color:var(--tx)">'+esc(f.name)+'</span><br>':'')+(esc(f.oracle_text||'').replace(/\n/g,'<br>'));}).join('<div style="border-top:.5px solid var(--bd);margin:5px 0"></div>');
+  else oracle=esc(c.oracle_text||'').replace(/\n/g,'<br>');
+  var p=c.prices||{};
+  var prices=[{l:'USD',v:p.usd,s:'$'},{l:'EUR',v:p.eur,s:'€'},{l:'Foil USD',v:p.usd_foil,s:'$'},{l:'Foil EUR',v:p.eur_foil,s:'€'}].filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
+  var pt=c.power!=null?c.power+'/'+c.toughness+' ':c.loyalty?'Loyauté '+c.loyalty+' ':'';
+  var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
+  return {colors:c.colors||[],rarity:c.rarity||'',img:img,oracle:oracle,type:c.type_line||'',prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
+}
+function _apiBatch(batch){
+  fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
+  }).then(function(r){return r.json();}).then(function(data){
+    (data.data||[]).forEach(function(c){
+      var dat=_buildDatFromAPI(c);
+      collCache[c.name.toLowerCase()]=dat;
+      collCache[stripDFC(c.name).toLowerCase()]=dat;
+    });
+    renderColl();
+  }).catch(function(){});
+}
 function enrichCollCache(){
   var cards=getProfCards(collP);
   var unique=[...new Set(cards.map(function(c){return c.name;}).filter(function(n){return n&&!collCache[n.toLowerCase()];}))];
   if(!unique.length)return;
-  for(var i=0;i<unique.length;i+=75){
-    (function(batch){
-      fetch('https://api.scryfall.com/cards/collection',{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
-      }).then(function(r){return r.json();}).then(function(data){
-        (data.data||[]).forEach(function(c){
-          var img='';
-          if(c.image_uris)img=c.image_uris.normal||c.image_uris.large||'';
-          else if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)img=c.card_faces[0].image_uris.normal||c.card_faces[0].image_uris.large||'';
-          var oracle='';
-          if(c.card_faces&&!c.image_uris)oracle=c.card_faces.map(function(f){return (f.name?'<span style="font-weight:600;color:var(--tx)">'+esc(f.name)+'</span><br>':'')+(esc(f.oracle_text||'').replace(/\n/g,'<br>'));}).join('<div style="border-top:.5px solid var(--bd);margin:5px 0"></div>');
-          else oracle=esc(c.oracle_text||'').replace(/\n/g,'<br>');
-          var p=c.prices||{};
-          var prices=[{l:'USD',v:p.usd,s:'$'},{l:'EUR',v:p.eur,s:'€'},{l:'Foil USD',v:p.usd_foil,s:'$'},{l:'Foil EUR',v:p.eur_foil,s:'€'}].filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
-          var pt=c.power!=null?c.power+'/'+c.toughness+' ':c.loyalty?'Loyauté '+c.loyalty+' ':'';
-          var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
-          var dat={
-            colors:c.colors||[],rarity:c.rarity||'',img:img,
-            oracle:oracle,type:c.type_line||'',prices:prices,pt:pt,rar:rar,
-            scryfall_uri:c.scryfall_uri||''
-          };
-          collCache[c.name.toLowerCase()]=dat;
-          collCache[stripDFC(c.name).toLowerCase()]=dat;
-        });
-        renderColl();
-      }).catch(function(){});
-    })(unique.slice(i,i+75));
-  }
+  _idbGetByNames(unique).then(function(hits){
+    var notFound=[];
+    unique.forEach(function(n){
+      var h=hits[n.toLowerCase()];
+      if(h){collCache[n.toLowerCase()]=_cacheFromIDB(h);}
+      else notFound.push(n);
+    });
+    if(Object.keys(hits).length)renderColl();
+    for(var i=0;i<notFound.length;i+=75)_apiBatch(notFound.slice(i,i+75));
+  }).catch(function(){
+    for(var i=0;i<unique.length;i+=75)_apiBatch(unique.slice(i,i+75));
+  });
 }
 
 // ===== COLLECTION DETAIL =====
@@ -5960,6 +5985,174 @@ function importPrelistToBld(){
       }).catch(function(){});
     })(names.slice(i,i+75));
   }
+}
+
+// ===== INDEXEDDB SCRYFALL CACHE =====
+var _idb=null;
+function _openIDB(){
+  return new Promise(function(res,rej){
+    if(_idb){res(_idb);return;}
+    var req=indexedDB.open('manalab-cards',1);
+    req.onupgradeneeded=function(e){
+      var d=e.target.result;
+      if(!d.objectStoreNames.contains('cards'))d.createObjectStore('cards',{keyPath:'name'});
+      if(!d.objectStoreNames.contains('meta'))d.createObjectStore('meta',{keyPath:'key'});
+    };
+    req.onsuccess=function(e){_idb=e.target.result;res(_idb);};
+    req.onerror=function(){rej(req.error);};
+  });
+}
+function _idbGetMeta(key){
+  return _openIDB().then(function(d){return new Promise(function(res){var req=d.transaction('meta','readonly').objectStore('meta').get(key);req.onsuccess=function(){res(req.result?req.result.value:null);};req.onerror=function(){res(null);};});}).catch(function(){return null;});
+}
+function _idbSetMeta(key,value){
+  return _openIDB().then(function(d){return new Promise(function(res,rej){var tx=d.transaction('meta','readwrite');tx.objectStore('meta').put({key:key,value:value});tx.oncomplete=res;tx.onerror=function(){rej(tx.error);};});});
+}
+function _idbGetByNames(names){
+  return _openIDB().then(function(d){
+    return new Promise(function(res){
+      var result={},pending=names.length;
+      if(!pending){res(result);return;}
+      var tx=d.transaction('cards','readonly'),store=tx.objectStore('cards');
+      names.forEach(function(n){
+        var req=store.get(n.toLowerCase());
+        req.onsuccess=function(){if(req.result)result[n.toLowerCase()]=req.result;if(--pending===0)res(result);};
+        req.onerror=function(){if(--pending===0)res(result);};
+      });
+    });
+  }).catch(function(){return {};});
+}
+function _idbCount(){
+  return _openIDB().then(function(d){return new Promise(function(res){var req=d.transaction('cards','readonly').objectStore('cards').count();req.onsuccess=function(){res(req.result);};req.onerror=function(){res(0);};});}).catch(function(){return 0;});
+}
+function _cacheFromIDB(c){
+  var oracle='';
+  if(c.faces)oracle=c.faces.map(function(f){return (f.name?'<span style="font-weight:600;color:var(--tx)">'+esc(f.name)+'</span><br>':'')+esc(f.oracle_text||'').replace(/\n/g,'<br>');}).join('<div style="border-top:.5px solid var(--bd);margin:5px 0"></div>');
+  else oracle=esc(c.oracle_text||'').replace(/\n/g,'<br>');
+  var p=c.prices||{};
+  var prices=[{l:'USD',v:p.usd,s:'$'},{l:'EUR',v:p.eur,s:'€'},{l:'Foil USD',v:p.usd_foil,s:'$'},{l:'Foil EUR',v:p.eur_foil,s:'€'}].filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
+  var pt=c.power!=null?c.power+'/'+c.toughness+' ':c.loyalty?'Loyauté '+c.loyalty+' ':'';
+  var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
+  return {colors:c.colors||[],rarity:c.rarity||'',img:c.image_uri||'',oracle:oracle,type:c.type_line||'',prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
+}
+function _populateIDB(cards,onProg){
+  return _openIDB().then(function(d){
+    return new Promise(function(res,rej){
+      var total=cards.length,i=0,BATCH=400;
+      function next(){
+        var batch=cards.slice(i,i+BATCH);i+=BATCH;
+        if(onProg)onProg(Math.min(i,total),total);
+        var tx=d.transaction('cards','readwrite'),store=tx.objectStore('cards');
+        batch.forEach(function(c){
+          var img='',faces=null;
+          if(c.image_uris)img=c.image_uris.normal||c.image_uris.large||'';
+          else if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris){
+            img=c.card_faces[0].image_uris.normal||'';
+            faces=c.card_faces.map(function(f){return {name:f.name||'',oracle_text:f.oracle_text||''};});
+          }
+          store.put({name:(c.name||'').toLowerCase(),display_name:c.name||'',oracle_id:c.oracle_id||'',
+            colors:c.colors||[],color_identity:c.color_identity||[],mana_cost:c.mana_cost||'',
+            cmc:c.cmc||0,type_line:c.type_line||'',rarity:c.rarity||'',oracle_text:c.oracle_text||'',
+            power:c.power||null,toughness:c.toughness||null,loyalty:c.loyalty||null,
+            image_uri:img,faces:faces,
+            prices:{usd:(c.prices&&c.prices.usd)||null,eur:(c.prices&&c.prices.eur)||null,
+              usd_foil:(c.prices&&c.prices.usd_foil)||null,eur_foil:(c.prices&&c.prices.eur_foil)||null},
+            scryfall_uri:c.scryfall_uri||'',set:c.set||'',updated_at:c.updated_at||''});
+        });
+        tx.oncomplete=function(){if(i<total)setTimeout(next,0);else res();};
+        tx.onerror=function(){rej(tx.error);};
+      }
+      next();
+    });
+  });
+}
+function _downloadAndPopulateIDB(uri,updatedAt,onProg){
+  return fetch(uri).then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    var total=parseInt(r.headers.get('Content-Length'))||0,received=0,chunks=[];
+    var reader=r.body.getReader();
+    function read(){
+      return reader.read().then(function(chunk){
+        if(chunk.done){if(onProg)onProg('parse',0,0);return new Blob(chunks,{type:'application/json'}).text();}
+        chunks.push(chunk.value);received+=chunk.value.length;
+        if(onProg)onProg('dl',received,total);
+        return read();
+      });
+    }
+    return read();
+  }).then(function(text){
+    var cards=JSON.parse(text);
+    return _populateIDB(cards,function(n,t){if(onProg)onProg('store',n,t);})
+      .then(function(){return Promise.all([_idbSetMeta('updated_at',updatedAt),_idbSetMeta('card_count',cards.length)]);})
+      .then(function(){return cards.length;});
+  });
+}
+// Admin: synchronize metadata + local download
+function adminSyncScryfall(){
+  var btn=document.getElementById('admin-scryfall-btn');
+  var prog=document.getElementById('admin-scryfall-prog');
+  btn.disabled=true;prog.textContent='Interrogation Scryfall…';
+  fetch('https://api.scryfall.com/bulk-data').then(function(r){return r.json();}).then(function(data){
+    var oracle=(data.data||[]).find(function(d){return d.type==='oracle_cards';});
+    if(!oracle)throw new Error('oracle_cards introuvable dans la réponse Scryfall');
+    var upd=oracle.updated_at,uri=oracle.download_uri,cnt=oracle.size||'?';
+    prog.textContent='Enregistrement des métadonnées…';
+    return db.collection('meta').doc('scryfall').set({updated_at:upd,download_uri:uri,card_count:cnt,synced_at:new Date().toISOString()}).then(function(){
+      prog.textContent='Téléchargement du JSON Scryfall (~25 Mo)…';
+      return _downloadAndPopulateIDB(uri,upd,function(phase,a,b){
+        if(phase==='dl')prog.textContent='Téléchargement… '+Math.round(a/1024/1024)+'/'+(b?Math.round(b/1024/1024):'?')+'Mo';
+        else if(phase==='parse')prog.textContent='Analyse JSON…';
+        else if(phase==='store')prog.textContent='Mise en cache IndexedDB… '+a+'/'+b+' cartes';
+      });
+    });
+  }).then(function(n){
+    prog.textContent='✓ '+n+' cartes en cache local';
+    btn.disabled=false;
+    _loadAdminScryfallStatus();
+  }).catch(function(e){prog.textContent='Erreur : '+e.message;btn.disabled=false;});
+}
+function _loadAdminScryfallStatus(){
+  var el=document.getElementById('admin-scryfall-status');if(!el)return;
+  Promise.all([db.collection('meta').doc('scryfall').get(),_idbCount(),_idbGetMeta('updated_at')]).then(function(r){
+    var d=r[0].data(),cnt=r[1],localUpd=r[2];
+    if(d){
+      var srvDate=d.updated_at?new Date(d.updated_at).toLocaleDateString('fr-FR'):'?';
+      var locDate=localUpd?new Date(localUpd).toLocaleDateString('fr-FR'):'aucun';
+      var ok=localUpd===d.updated_at;
+      el.innerHTML='Serveur : <b>'+d.card_count+' cartes</b> ('+srvDate+')'+(ok?' · Local : ✓ à jour':' · Local : <span style="color:var(--am)">'+cnt+' cartes ('+locDate+')</span>');
+    } else {
+      el.textContent='Pas encore synchronisé. Local : '+cnt+' cartes.';
+    }
+  }).catch(function(){el.textContent='—';});
+}
+// Client: check if IDB needs update after login
+function _checkScryfallIDB(){
+  db.collection('meta').doc('scryfall').get().then(function(doc){
+    if(!doc.exists)return;
+    var srv=doc.data();if(!srv.download_uri||!srv.updated_at)return;
+    _idbGetMeta('updated_at').then(function(local){
+      if(local===srv.updated_at)return;
+      var banner=document.createElement('div');
+      banner.id='scryfall-update-banner';
+      banner.style.cssText='position:fixed;bottom:8px;left:50%;transform:translateX(-50%);background:var(--s2);border:.5px solid var(--bd2);border-radius:8px;padding:8px 14px;font-size:.75rem;color:var(--tx2);z-index:1500;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.55);max-width:94vw';
+      banner.innerHTML='<span>Base Scryfall : mise à jour disponible ('+new Date(srv.updated_at).toLocaleDateString('fr-FR')+')</span>'
+        +'<button class="btn btnsm" style="font-size:.7rem;padding:2px 10px;white-space:nowrap" onclick="_startClientSync(\''+srv.download_uri+'\',\''+srv.updated_at+'\',this.closest(\'[id]\'))">Mettre à jour</button>'
+        +'<button onclick="this.closest(\'[id]\').remove()" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:0 2px">✕</button>';
+      document.body.appendChild(banner);
+    });
+  }).catch(function(){});
+}
+function _startClientSync(uri,updatedAt,banner){
+  banner.innerHTML='<span id="_sync-prog">Téléchargement…</span>';
+  _downloadAndPopulateIDB(uri,updatedAt,function(phase,a,b){
+    var el=document.getElementById('_sync-prog');if(!el)return;
+    if(phase==='dl')el.textContent='Téléchargement… '+Math.round(a/1024/1024)+'Mo';
+    else if(phase==='parse')el.textContent='Analyse JSON…';
+    else if(phase==='store')el.textContent='Mise en cache… '+a+'/'+b;
+  }).then(function(n){
+    banner.innerHTML='<span>✓ '+n+' cartes Scryfall en cache</span>';
+    setTimeout(function(){if(banner.parentNode)banner.remove();},3000);
+  }).catch(function(e){banner.innerHTML='<span style="color:var(--rd2)">Erreur : '+e.message+'</span>';});
 }
 
 // ===== STONE WALL BACKGROUND =====
