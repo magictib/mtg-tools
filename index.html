@@ -599,6 +599,20 @@ body.mana-cursor{cursor:none}
 .ar-zone-ov-inner{background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:16px;max-width:88vw;max-height:80vh;overflow-y:auto;min-width:280px}
 #ar-ghost{position:fixed;pointer-events:none;z-index:700;display:none;width:82px;height:115px}
 #ar-ghost img{width:100%;height:100%;border-radius:7px;object-fit:cover;box-shadow:0 10px 30px rgba(0,0,0,.9);display:block;opacity:.9}
+/* Dice / Coin */
+#ar-dice-ov{display:none;position:absolute;inset:0;background:rgba(0,0,0,.87);z-index:96;align-items:center;justify-content:center}
+.ar-dice-inner{background:var(--s2);border:1px solid var(--bd2);border-radius:16px;padding:22px 28px;text-align:center;min-width:270px}
+.ar-dice-lbl{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;margin-bottom:12px}
+.ar-dice-btns{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:14px}
+.ar-dice-res{font-family:'Goudy Mediaeval',serif;font-size:3.8rem;color:var(--gold2);text-shadow:0 0 20px rgba(201,168,76,.55);min-height:72px;display:flex;align-items:center;justify-content:center;margin-bottom:14px;transition:transform .12s,opacity .12s}
+/* Player counters */
+#ar-counters-ov{display:none;position:absolute;inset:0;background:rgba(0,0,0,.87);z-index:96;align-items:center;justify-content:center}
+.ar-cnt-row{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:.5px solid rgba(255,255,255,.07)}
+.ar-cnt-row:last-child{border-bottom:none}
+.ar-cnt-lbl{flex:1;font-size:.84rem;color:var(--tx)}
+.ar-cnt-val{min-width:34px;text-align:center;font-size:1rem;font-family:'Goudy Mediaeval',serif;color:var(--gold2)}
+.ar-cnt-btn{width:26px;height:26px;border-radius:6px;background:rgba(255,255,255,.08);border:.5px solid rgba(255,255,255,.18);color:var(--tx);font-size:.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:background .1s}
+.ar-cnt-btn:hover{background:rgba(201,168,76,.25);border-color:var(--gold)}
 @media(max-width:600px){
   #ar-topbar{height:44px;gap:3px;padding:0 6px}
   .ar-hand-card{width:72px;height:101px}
@@ -1863,6 +1877,10 @@ body.mana-cursor{cursor:none}
     <button class="ar-btn" onclick="arOpenDeckSearch()" title="Chercher une carte dans le deck">🔍 Deck</button>
     <button class="ar-btn" onclick="arDrawCard()">Piocher</button>
     <button class="ar-btn" onclick="arShuffle()" title="Mélanger la bibliothèque">🔀</button>
+    <div class="ar-sep"></div>
+    <button class="ar-btn" onclick="arOpenDice()" title="Lancer un dé / Pile ou Face">🎲</button>
+    <button class="ar-btn" onclick="arOpenCounters()" title="Compteurs joueur (Poison, Énergie, etc.)">📊</button>
+    <div class="ar-sep"></div>
     <button class="ar-btn" onclick="arRestart()" title="Remettre toutes les cartes dans le deck, mélanger et piocher 7" style="border-color:rgba(255,140,50,.5);color:#ff9060">↺ Restart</button>
   </div>
 
@@ -1995,6 +2013,42 @@ body.mana-cursor{cursor:none}
       <div style="display:flex;gap:6px">
         <input type="text" id="ar-token-custom" placeholder="Nom personnalisé (ex: Soldat 1/1 blanc)" style="flex:1;font-size:.82rem">
         <button class="ar-btn" onclick="arCreateCustomToken()">+ Créer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dice & Coin modal -->
+  <div id="ar-dice-ov" onclick="if(event.target===this)this.style.display='none'">
+    <div class="ar-dice-inner">
+      <div class="ar-dice-lbl" id="ar-dice-lbl">🎲 Lancer un dé</div>
+      <div class="ar-dice-btns">
+        <button class="ar-btn ar-btn-gold" onclick="arRollDice(4)">d4</button>
+        <button class="ar-btn ar-btn-gold" onclick="arRollDice(6)">d6</button>
+        <button class="ar-btn ar-btn-gold" onclick="arRollDice(8)">d8</button>
+        <button class="ar-btn ar-btn-gold" onclick="arRollDice(10)">d10</button>
+        <button class="ar-btn ar-btn-gold" onclick="arRollDice(12)">d12</button>
+        <button class="ar-btn ar-btn-gold" onclick="arRollDice(20)">d20</button>
+      </div>
+      <div class="ar-dice-res" id="ar-dice-res">—</div>
+      <button class="ar-btn" style="width:100%;margin-bottom:8px" onclick="arCoinFlip()">🪙 Pile ou Face</button>
+      <button class="ar-btn" style="width:100%" onclick="document.getElementById('ar-dice-ov').style.display='none'">Fermer</button>
+    </div>
+  </div>
+
+  <!-- Player counters modal -->
+  <div id="ar-counters-ov" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:20px;width:300px;max-height:85vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <span style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem">📊 Compteurs joueur</span>
+        <button class="ar-btn" onclick="document.getElementById('ar-counters-ov').style.display='none'">✕</button>
+      </div>
+      <div id="ar-cnt-list"></div>
+      <div style="margin-top:12px;display:flex;gap:6px;border-top:.5px solid var(--bd);padding-top:10px">
+        <input type="text" id="ar-cnt-custom-in" placeholder="Nom compteur personnalisé…" style="flex:1;font-size:.8rem">
+        <button class="ar-btn" onclick="arAddCustomCounter()">+ Ajouter</button>
+      </div>
+      <div style="margin-top:8px;text-align:right">
+        <button class="ar-btn" onclick="arResetAllCounters()" style="border-color:rgba(220,70,70,.4);color:var(--rd2)">↺ Tout réinitialiser</button>
       </div>
     </div>
   </div>
@@ -4676,7 +4730,7 @@ function arTokenSearch(){
   if(!q)return;
   var res=document.getElementById('ar-token-res');
   res.innerHTML='<div style="color:var(--tx3);font-size:.8rem">Recherche…</div>';
-  fetch('https://api.scryfall.com/cards/search?q=t:token+'+encodeURIComponent(q)+'&order=name&unique=cards')
+  fetch('https://api.scryfall.com/cards/search?q=is:token+'+encodeURIComponent(q)+'&order=name&unique=cards')
     .then(function(r){return r.json();})
     .then(function(data){
       res.innerHTML='';
@@ -4701,6 +4755,95 @@ function arTokenSearch(){
         res.appendChild(div);
       });
     }).catch(function(){res.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Erreur réseau</div>';});
+}
+
+// --- Dice & Coin ---
+function arOpenDice(){
+  document.getElementById('ar-dice-res').textContent='—';
+  document.getElementById('ar-dice-lbl').textContent='🎲 Lancer un dé';
+  document.getElementById('ar-dice-ov').style.display='flex';
+}
+function arRollDice(sides){
+  var result=Math.floor(Math.random()*sides)+1;
+  var lbl=document.getElementById('ar-dice-lbl');
+  var el=document.getElementById('ar-dice-res');
+  lbl.textContent='d'+sides+' →';
+  el.style.opacity='0';el.style.transform='scale(.5)';
+  setTimeout(function(){
+    el.textContent=result;
+    el.style.opacity='1';el.style.transform='scale(1)';
+  },100);
+}
+function arCoinFlip(){
+  var result=Math.random()<0.5?'🗡 PILE':'🛡 FACE';
+  var lbl=document.getElementById('ar-dice-lbl');
+  var el=document.getElementById('ar-dice-res');
+  lbl.textContent='Pile ou Face →';
+  el.style.opacity='0';el.style.transform='scale(.5)';
+  setTimeout(function(){
+    el.textContent=result;
+    el.style.opacity='1';el.style.transform='scale(1)';
+  },100);
+}
+
+// --- Player counters ---
+var _arCounters={
+  poison:{label:'☠ Poison',val:0},
+  energy:{label:'⚡ Énergie',val:0},
+  rad:{label:'☢ Rad',val:0},
+  storm:{label:'⛈ Storm',val:0},
+  exp:{label:'✨ Expérience',val:0}
+};
+var _arCustomCounters=[];
+function arOpenCounters(){
+  arRenderCounters();
+  document.getElementById('ar-counters-ov').style.display='flex';
+}
+function arRenderCounters(){
+  var list=document.getElementById('ar-cnt-list');
+  if(!list)return;
+  var html='';
+  Object.keys(_arCounters).forEach(function(k){
+    var c=_arCounters[k];
+    html+='<div class="ar-cnt-row">'
+      +'<span class="ar-cnt-lbl">'+c.label+'</span>'
+      +'<button class="ar-cnt-btn" onclick="arAdjCnt(\''+k+'\',false,-1)">−</button>'
+      +'<span class="ar-cnt-val" id="ar-cnt-v-'+k+'">'+c.val+'</span>'
+      +'<button class="ar-cnt-btn" onclick="arAdjCnt(\''+k+'\',false,1)">+</button>'
+      +'</div>';
+  });
+  _arCustomCounters.forEach(function(c,i){
+    html+='<div class="ar-cnt-row">'
+      +'<span class="ar-cnt-lbl" style="color:var(--am)">★ '+esc(c.label)+'</span>'
+      +'<button class="ar-cnt-btn" onclick="arAdjCnt('+i+',true,-1)">−</button>'
+      +'<span class="ar-cnt-val" id="ar-cnt-v-c'+i+'">'+c.val+'</span>'
+      +'<button class="ar-cnt-btn" onclick="arAdjCnt('+i+',true,1)">+</button>'
+      +'</div>';
+  });
+  list.innerHTML=html;
+}
+function arAdjCnt(key,isCustom,delta){
+  if(isCustom){
+    var c=_arCustomCounters[key];if(!c)return;
+    c.val+=delta;if(c.val<0)c.val=0;
+    var el=document.getElementById('ar-cnt-v-c'+key);if(el)el.textContent=c.val;
+  }else{
+    var c=_arCounters[key];if(!c)return;
+    c.val+=delta;if(c.val<0)c.val=0;
+    var el=document.getElementById('ar-cnt-v-'+key);if(el)el.textContent=c.val;
+  }
+}
+function arAddCustomCounter(){
+  var name=document.getElementById('ar-cnt-custom-in').value.trim();
+  if(!name)return;
+  _arCustomCounters.push({label:name,val:0});
+  document.getElementById('ar-cnt-custom-in').value='';
+  arRenderCounters();
+}
+function arResetAllCounters(){
+  Object.keys(_arCounters).forEach(function(k){_arCounters[k].val=0;});
+  _arCustomCounters.forEach(function(c){c.val=0;});
+  arRenderCounters();
 }
 
 function arCreateCustomToken(){
@@ -4783,7 +4926,9 @@ function arOpenZone(zone){
 var _arDrag=null;
 function arPtrDown(e,el){
   if(e.button!==undefined&&e.button!==0)return;
+  if(e.target.closest('.ar-cmenu'))return;
   e.preventDefault();
+  if(_ar.mulPhase&&el.dataset.zone==='hand'){arToggleMulSel(el.dataset.id);return;}
   document.querySelectorAll('.ar-cmenu.open').forEach(function(m){m.classList.remove('open');});
   var id=el.dataset.id;var zone=el.dataset.zone;
   _arDrag={id:id,zone:zone,startX:e.clientX,startY:e.clientY,offX:e.offsetX||40,offY:e.offsetY||56,el:el,moved:false};
