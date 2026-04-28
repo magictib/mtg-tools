@@ -558,7 +558,7 @@ body.mana-cursor{cursor:none}
 #ar-field-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1}
 #ar-field-deco{display:flex;flex-direction:column;align-items:center;justify-content:center}
 #ar-cauldron-wrap{position:relative;width:110px;height:155px;flex-shrink:0}
-.ar-mana-drop{position:absolute;left:50%;top:0;font-size:1.9rem;opacity:0;animation:ar-mana-fall 4.5s cubic-bezier(.35,0,.65,1) infinite;filter:drop-shadow(0 0 8px currentColor)}
+.ar-mana-drop{position:absolute;left:50%;top:0;font-size:1.9rem;opacity:0;animation:ar-mana-fall 4.5s cubic-bezier(.35,0,.65,1) 2 forwards;filter:drop-shadow(0 0 8px currentColor)}
 @keyframes ar-mana-fall{
   0%{transform:translateX(-50%) translateY(-55px) scale(1.1);opacity:0}
   7%{opacity:1}
@@ -7200,8 +7200,10 @@ function _detectFmt(hdrs){
   if(hdrs.some(function(h){return h==='Card Name';}))return 'B';
   return 'C';
 }
+function _collPName(){var ep=collP>0?(_epSlots.coll||[])[collP-1]:null;return PN[collP]||(ep&&ep.name)||'ce profil';}
 function importCollCSV(input){
   var file=input.files[0];if(!file)return;
+  var pname=_collPName();
   var reader=new FileReader();
   reader.onload=function(e){
     var res=parseCSV(e.target.result);
@@ -7209,13 +7211,14 @@ function importCollCSV(input){
     var fmt=_detectFmt(res.hdrs);
     profs[collP]=res.data.map(function(r){return normalizeRow(r,fmt);});
     saveProfs();renderColl();renderProfs();
-    alert('✓ '+res.data.length+' cartes importées dans la collection de '+PN[collP]+'.');
+    alert('✓ '+res.data.length+' cartes importées dans la collection de '+pname+'.');
   };
   reader.readAsText(file,'UTF-8');
   input.value='';
 }
 function importCollUpdate(input){
   var file=input.files[0];if(!file)return;
+  var pname=_collPName();
   var reader=new FileReader();
   reader.onload=function(e){
     var res=parseCSV(e.target.result);
@@ -7249,7 +7252,7 @@ function importCollUpdate(input){
     });
     profs[collP]=old;
     saveProfs();renderColl();renderProfs();
-    alert('✓ '+added+' carte(s) ajoutée(s), '+updated+' quantité(s) mise(s) à jour dans '+PN[collP]+'.');
+    alert('✓ '+added+' carte(s) ajoutée(s), '+updated+' quantité(s) mise(s) à jour dans '+pname+'.');
   };
   reader.readAsText(file,'UTF-8');
   input.value='';
@@ -8528,16 +8531,27 @@ function triggerCauldronAnim(){
     t<1?requestAnimationFrame(phase1):setTimeout(phase2,0);
   }
   requestAnimationFrame(phase1);
-  // Phase 2 — pour into cauldron (0.45s)
+  // Phase 2 — fall one by one into cauldron opening
   function phase2(){
+    // Cauldron opening ≈ (cx, cy−1) in logo-relative coords
+    var openY=cy-1;
     syms.forEach(function(el,i){
-      el.style.transition='left .45s ease-in,top .45s ease-in,transform .4s ease-in,opacity .35s .1s ease-in';
-      el.style.left=(cx-snaps[i].hw)+'px';
-      el.style.top=(cy-snaps[i].hh)+'px';
-      el.style.transform='scale(0) rotate(360deg)';
-      el.style.opacity='0';
+      setTimeout(function(){
+        // 1. snap above the opening
+        el.style.transition='left .13s ease-out,top .13s ease-out,transform .1s';
+        el.style.left=(cx-snaps[i].hw)+'px';
+        el.style.top=(openY-46-snaps[i].hh)+'px';
+        el.style.transform='scale(1.15)';
+        // 2. fall into opening with liquefaction
+        setTimeout(function(){
+          el.style.transition='top .28s ease-in,left .1s,transform .22s ease-in,opacity .18s .08s ease-in';
+          el.style.top=(openY-snaps[i].hh+7)+'px';
+          el.style.transform='scaleX(.1) scaleY(.06)';
+          el.style.opacity='0';
+        },140);
+      },i*180);
     });
-    setTimeout(phase3,500);
+    setTimeout(phase3,syms.length*180+380);
   }
   // Phase 3 — shake + explosion (0.65s)
   function phase3(){
