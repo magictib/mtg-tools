@@ -203,6 +203,10 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .scload{text-align:center;color:var(--tx2);font-style:italic;padding:2rem 1rem;font-size:.9rem;display:none}
 .scerr{color:var(--rd2);padding:.75rem 1rem;font-size:.85rem;background:rgba(232,108,108,.08);border-radius:8px;display:none;border:.5px solid rgba(232,108,108,.2)}
 .psel{width:100%;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-family:'Crimson Pro',serif;font-size:.85rem;outline:none;margin-bottom:8px}
+.deck-prof-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.deck-chip{background:var(--s2);border:.5px solid var(--bd2);color:var(--tx3);border-radius:20px;padding:3px 11px;font-size:.73rem;cursor:pointer;transition:background .13s,border-color .13s,color .13s;white-space:nowrap;font-family:'Crimson Pro',serif}
+.deck-chip:hover{border-color:var(--bd2);color:var(--tx2)}
+.deck-chip.active{background:rgba(201,168,76,.14);border-color:rgba(201,168,76,.5);color:var(--gold2)}
 .dprofs{display:flex;flex-direction:column;gap:8px}
 .dpsec{border-radius:8px;overflow:hidden}
 .dphdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--s2);border:.5px solid var(--bd);border-radius:8px;cursor:pointer;user-select:none;transition:border-color .15s;-webkit-tap-highlight-color:transparent}
@@ -1265,9 +1269,7 @@ body.mana-cursor{cursor:none}
       <div class="lbl" style="margin-bottom:0">Mes decks</div>
       <button class="btn btnsm btnp" onclick="newDeck()" style="margin-left:auto">+ Nouveau deck</button>
     </div>
-    <select id="deck-list-filter" onchange="_onDeckListFilterChange()" style="width:100%;font-size:.8rem;padding:5px 9px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;margin-bottom:8px">
-      <option value="-1">Tous les profils</option>
-    </select>
+    <div class="deck-prof-chips" id="deck-prof-chips"></div>
     <div class="dprofs" id="dprofs">
       <div style="color:var(--tx3);font-size:.82rem;font-style:italic">Aucun deck sauvegardé</div>
     </div>
@@ -2875,7 +2877,7 @@ var dFormat='', dCommander=null, dColors=[];
 var dCardMeta={}, dSortMode='sec';
 var COMMANDER_FMTS=['commander','paupercmd','brawl','oathbreaker'];
 var dbarOpen=[false]; // dynamic length
-var _deckListFilter=-1; // -1 = all profiles
+var _deckFilterActive=null; // null = not init; array of active profile indices
 var collP=0;
 var collFiltSet='', collFiltRar='', collFiltColors=new Set();
 var collCache={};
@@ -3482,16 +3484,20 @@ function removeCardFromProf(pi,name,qty){
   profs[pi]=cards;
 }
 function _populateDeckListFilter(){
-  var sel=document.getElementById('deck-list-filter');if(!sel)return;
-  var cur=sel.value;
-  sel.innerHTML='<option value="-1">Tous les profils</option>'
-    +profs.map(function(_,i){return'<option value="'+i+'">'+esc(PN[i]||'Profil '+i)+'</option>';}).join('');
-  if(cur!==''&&cur!==undefined)sel.value=cur;
-  _deckListFilter=parseInt(sel.value||'-1');
+  var cont=document.getElementById('deck-prof-chips');if(!cont)return;
+  if(_deckFilterActive===null)_deckFilterActive=profs.map(function(_,i){return i;});
+  cont.innerHTML=profs.map(function(_,i){
+    var on=_deckFilterActive.indexOf(i)!==-1;
+    return'<button class="deck-chip'+(on?' active':'')+'" onclick="_toggleDeckFilter('+i+')">'+esc(PN[i]||'Profil '+i)+'</button>';
+  }).join('');
 }
-function _onDeckListFilterChange(){
-  var sel=document.getElementById('deck-list-filter');
-  _deckListFilter=sel?parseInt(sel.value):-1;
+function _toggleDeckFilter(pi){
+  if(_deckFilterActive===null)_deckFilterActive=profs.map(function(_,i){return i;});
+  var idx=_deckFilterActive.indexOf(pi);
+  if(idx!==-1)_deckFilterActive.splice(idx,1);
+  else _deckFilterActive.push(pi);
+  if(_deckFilterActive.length===0)_deckFilterActive=profs.map(function(_,i){return i;});
+  _populateDeckListFilter();
   renderDBar();
 }
 function renderDBar(){
@@ -3502,13 +3508,15 @@ function renderDBar(){
   if(!ids.length){bar.innerHTML='<div style="color:var(--tx3);font-size:.82rem;font-style:italic">Aucun deck sauvegardé</div>';return;}
   var html='';
   var fmtLabel={commander:'Commander',paupercmd:'Pauper Cdr',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',pauper:'Pauper',vintage:'Vintage'};
+  var fa=_deckFilterActive||profs.map(function(_,i){return i;});
+  var allActive=fa.length===profs.length;
   profs.forEach(function(_,pi){
-    if(_deckListFilter!==-1&&pi!==_deckListFilter)return;
+    if(fa.indexOf(pi)===-1)return;
     var pids=ids.filter(function(id){return (decks[id].owner||0)===pi;});
-    if(_deckListFilter===-1&&pi>0&&!pids.length)return;
-    var open=(_deckListFilter!==-1)||dbarOpen[pi]||false;
+    if(allActive&&pi>0&&!pids.length)return;
+    var open=!allActive||dbarOpen[pi]||false;
     html+='<div class="dpsec">';
-    if(_deckListFilter===-1){
+    if(allActive){
       html+='<div class="dphdr" onclick="toggleDSec('+pi+')">';
       html+='<span class="dpn">'+esc(PN[pi]||'Profil '+pi)+'</span><span class="dpc">('+pids.length+')</span>';
       html+='<span class="dparr'+(open?' op':'')+'">&#x25B6;</span></div>';
