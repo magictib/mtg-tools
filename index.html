@@ -3016,11 +3016,16 @@ function removeExtraProf(ctx,uid){
 
 function _loadEpCards(uid,cb){
   if(_epCards[uid]!==undefined){if(cb)cb();return;}
-  _epCards[uid]=null; // mark as loading
+  _epCards[uid]=null;
   db.collection('users').doc(uid).collection('profs').doc('0').get().then(function(doc){
-    _epCards[uid]=(doc.exists&&doc.data().cards)?doc.data().cards:[];
+    var fs=(doc.exists&&doc.data().cards&&doc.data().cards.length)?doc.data().cards:null;
+    if(fs){_epCards[uid]=fs;}
+    else{try{var ls=localStorage.getItem('mtg_ep_cards_'+uid);_epCards[uid]=ls?JSON.parse(ls):[];}catch(e){_epCards[uid]=[];}}
     if(cb)cb();
-  }).catch(function(){_epCards[uid]=[];if(cb)cb();});
+  }).catch(function(){
+    try{var ls=localStorage.getItem('mtg_ep_cards_'+uid);_epCards[uid]=ls?JSON.parse(ls):[];}catch(e){_epCards[uid]=[];}
+    if(cb)cb();
+  });
 }
 
 function _saveEpSlots(){
@@ -3069,18 +3074,18 @@ function _refreshTradeAndGame(){
 }
 
 function _renderNtfBtns(){
+  _syncProfsForCtx('trade');
   var fb=document.getElementById('ntf-from-btns');
   var tb=document.getElementById('ntf-to-btns');
   if(!fb||!tb)return;
-  // "De" is always the current user (slot 0)
   ntfFrom=0;
   fb.innerHTML='<span class="prof-sel active" style="cursor:default">'+esc(PN[0]||'Vous')+'</span>';
-  // "À" = all profiles except current user
   var tbtns=PN.map(function(n,i){
     if(i===0)return '';
     return '<button class="prof-sel'+(ntfTo===i?' active':'')+'" onclick="ntfSetTo('+i+',this)">'+esc(n)+'</button>';
   }).join('');
-  tb.innerHTML=tbtns||'<span style="font-size:.78rem;color:var(--tx3);font-style:italic">Ajoutez un profil partenaire ci-dessus</span>';
+  var plus='<button onclick="openProfilePicker(\'trade\')" style="padding:2px 8px;border-radius:6px;border:.5px dashed var(--bd2);background:transparent;cursor:pointer;color:var(--tx3);font-size:.85rem;line-height:1.6" title="Ajouter un profil">＋</button>';
+  tb.innerHTML=tbtns+plus;
 }
 
 function _renderGamePlayerRows(){
@@ -4125,9 +4130,8 @@ function _appendSetGrid(){
   _setGridOffset+=batch.length;
   var html=batch.map(function(c){
     var img=c.image_uris?c.image_uris.normal:(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris?c.card_faces[0].image_uris.normal:'');
-    var nm=c.name.replace(/'/g,"&#39;");
     var pr=c.prices&&c.prices.eur?'<span style="color:var(--gr2);font-size:.62rem">'+parseFloat(c.prices.eur).toFixed(2)+'€</span>':'';
-    return '<div class="edh-card" onclick="sSearch(\''+nm+'\');goTab(\'scry\')">'
+    return '<div class="edh-card" data-nm="'+esc(c.name)+'" onclick="sSearch(this.dataset.nm);document.getElementById(\'scin\').value=this.dataset.nm">'
       +(img?'<img src="'+img+'" alt="'+esc(c.name)+'" loading="lazy">'
            :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(c.name)+'</div>')
       +'<div class="edh-meta"><div class="edh-nm">'+esc(c.name)+'</div>'
@@ -7207,7 +7211,8 @@ function _collPName(){var ep=collP>0?(_epSlots.coll||[])[collP-1]:null;return PN
 function _saveCollP(){
   if(collP===0){saveProfs();return;}
   var ep=(_epSlots.coll||[])[collP-1];if(!ep||!ep.uid)return;
-  _epCards[ep.uid]=profs[collP]; // patch le cache mémoire avant _syncProfsForCtx
+  _epCards[ep.uid]=profs[collP];
+  try{localStorage.setItem('mtg_ep_cards_'+ep.uid,JSON.stringify(profs[collP]));}catch(e){}
   db.collection('users').doc(ep.uid).collection('profs').doc('0')
     .set({cards:profs[collP]}).catch(function(e){console.warn('saveExtraProf',e);});
 }
