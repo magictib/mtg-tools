@@ -558,7 +558,7 @@ body.mana-cursor{cursor:none}
 #ar-field-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1}
 #ar-field-deco{display:flex;flex-direction:column;align-items:center;justify-content:center}
 #ar-cauldron-wrap{position:relative;width:110px;height:155px;flex-shrink:0}
-.ar-mana-drop{position:absolute;left:50%;top:0;font-size:1.9rem;opacity:0;animation:ar-mana-fall 4.5s cubic-bezier(.35,0,.65,1) 2 forwards;filter:drop-shadow(0 0 8px currentColor)}
+.ar-mana-drop{position:absolute;left:50%;top:0;font-size:1.9rem;opacity:0;animation:ar-mana-fall 2.5s cubic-bezier(.35,0,.65,1) 2 forwards;filter:drop-shadow(0 0 8px currentColor)}
 @keyframes ar-mana-fall{
   0%{transform:translateX(-50%) translateY(-55px) scale(1.1);opacity:0}
   7%{opacity:1}
@@ -607,6 +607,13 @@ body.mana-cursor{cursor:none}
 .ar-btn-gold:hover{background:rgba(201,168,76,.12)}
 .ar-btn-red{border-color:rgba(220,70,70,.4);color:var(--rd2)}
 .ar-btn-red:hover{background:rgba(220,70,70,.12)}
+.ar-field-card.ar-multi-sel{border-color:#4af!important;box-shadow:0 0 0 2px rgba(68,170,255,.5),0 4px 16px rgba(0,0,0,.7)!important}
+#ar-lasso{position:absolute;border:1.5px solid rgba(100,200,255,.75);background:rgba(100,200,255,.08);pointer-events:none;display:none;z-index:50;border-radius:2px}
+#ar-multi-bar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);background:rgba(8,16,30,.93);border:1px solid rgba(100,200,255,.35);border-radius:9px;padding:5px 12px;display:none;flex-direction:row;align-items:center;gap:8px;z-index:60;white-space:nowrap;box-shadow:0 4px 18px rgba(0,0,0,.7)}
+#ar-multi-bar span{font-size:.73rem;color:rgba(180,220,255,.85);margin-right:4px}
+#ar-multi-bar button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#cce;border-radius:5px;padding:3px 9px;font-size:.73rem;cursor:pointer;transition:background .1s}
+#ar-multi-bar button:hover{background:rgba(255,255,255,.22)}
+#ar-multi-bar .ambar-close{background:rgba(220,80,80,.15);border-color:rgba(220,80,80,.35);color:var(--rd2)}
 .ar-phase-bar{display:flex;align-items:center;gap:2px}
 .ar-ph-btn{padding:3px 7px;border-radius:4px;border:.5px solid transparent;color:var(--tx3);font-size:.68rem;cursor:pointer;background:transparent;transition:all .1s;font-family:'Crimson Pro',serif;white-space:nowrap;line-height:1}
 .ar-ph-btn.on{background:rgba(201,168,76,.18);border-color:rgba(201,168,76,.5);color:var(--gold2);font-weight:600}
@@ -1871,6 +1878,21 @@ body.mana-cursor{cursor:none}
           <div class="lbl" style="margin-bottom:4px">Points de vie</div>
           <input type="number" id="ar-setup-life" value="40" min="1" max="999" style="width:100%;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;outline:none;text-align:center">
         </div>
+        <div style="flex:1;min-width:90px">
+          <div class="lbl" style="margin-bottom:4px">Langue des cartes</div>
+          <select id="ar-setup-lang" style="width:100%;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;outline:none">
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="es">Español</option>
+            <option value="it">Italiano</option>
+            <option value="pt">Português</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+            <option value="ru">Русский</option>
+            <option value="zhs">简体中文</option>
+          </select>
+        </div>
       </div>
       <button class="btn btnp" onclick="arOpen()" style="width:100%;padding:10px;font-size:.9rem">▶ Lancer l'Arène</button>
       <div id="ar-setup-msg" style="margin-top:8px;font-size:.78rem;color:var(--rd2);min-height:1rem"></div>
@@ -1935,16 +1957,26 @@ body.mana-cursor{cursor:none}
   <div id="ar-content">
     <!-- Left: Battlefield + Lands -->
     <div id="ar-left">
-      <div id="ar-field" onclick="arFieldClick(event)">
+      <div id="ar-field" onclick="arFieldClick(event)" onpointerdown="arFieldPtrDown(event)">
         <canvas id="ar-field-bg"></canvas>
+        <div id="ar-lasso"></div>
+        <div id="ar-multi-bar">
+          <span id="ar-multi-count">0 cartes sélectionnées</span>
+          <button onclick="arMultiTap()">Taper/Détaper</button>
+          <button onclick="arMultiUntap()">Détaper tout</button>
+          <button onclick="arMultiToGrave()">Défausser</button>
+          <button onclick="arMultiToExile()">Exiler</button>
+          <button onclick="arMultiToHand()">En main</button>
+          <button class="ambar-close" onclick="arMultiClear()">✕</button>
+        </div>
         <div id="ar-field-hint">
           <div id="ar-field-deco">
             <div id="ar-cauldron-wrap">
               <i class="ms ms-w ms-cost ar-mana-drop" style="color:#ffd860"></i>
-              <i class="ms ms-u ms-cost ar-mana-drop" style="color:#4090ff;animation-delay:.9s"></i>
-              <i class="ms ms-b ms-cost ar-mana-drop" style="color:#b060e0;animation-delay:1.8s"></i>
-              <i class="ms ms-r ms-cost ar-mana-drop" style="color:#ff6010;animation-delay:2.7s"></i>
-              <i class="ms ms-g ms-cost ar-mana-drop" style="color:#30c060;animation-delay:3.6s"></i>
+              <i class="ms ms-u ms-cost ar-mana-drop" style="color:#4090ff;animation-delay:.5s"></i>
+              <i class="ms ms-b ms-cost ar-mana-drop" style="color:#b060e0;animation-delay:1.0s"></i>
+              <i class="ms ms-r ms-cost ar-mana-drop" style="color:#ff6010;animation-delay:1.5s"></i>
+              <i class="ms ms-g ms-cost ar-mana-drop" style="color:#30c060;animation-delay:2.0s"></i>
               <svg viewBox="0 0 40 50" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%)" width="90" height="112">
                 <path d="M14,22 Q12,17 14,12" fill="none" stroke="#c9a84c" stroke-width="1" stroke-linecap="round" opacity=".4"/>
                 <path d="M20,21 Q18,16 20,11" fill="none" stroke="#c9a84c" stroke-width="1" stroke-linecap="round" opacity=".4"/>
@@ -4378,7 +4410,9 @@ function _buildDeckSelect(sel, ownerPi){
 // ===== ARENA =====
 var _AR_BACK="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 63 88'%3E%3Crect width='63' height='88' rx='5' fill='%23162d4a'/%3E%3Crect x='3' y='3' width='57' height='82' rx='3' fill='none' stroke='%23c9a84c' stroke-width='1.5'/%3E%3Ctext x='31.5' y='44' font-size='32' text-anchor='middle' fill='%23c9a84c'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E";
 var _arImgCache={};
-var _ar={active:false,lib:[],hand:[],field:[],grave:[],exile:[],lands:[],cmd:null,cmdCasts:0,life:40,startLife:40,turn:0,phase:0,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null};
+var _arLang='en';
+var _arLasso=null;
+var _ar={active:false,lib:[],hand:[],field:[],grave:[],exile:[],lands:[],cmd:null,cmdCasts:0,life:40,startLife:40,turn:0,phase:0,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false};
 
 function _arShuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 
@@ -4387,10 +4421,10 @@ function _arMakeId(){return Math.random().toString(36).slice(2,9);}
 function _arExpandDeck(deckId){
   var d=decks[deckId];if(!d)return{lib:[],cmd:null};
   var lib=[];var cmd=null;
-  var cmdName=d.commander?d.commander.name.toLowerCase():'';
+  var cmdName=d.commander?(d.commander.name||'').trim().toLowerCase():'';
   (d.cards||[]).forEach(function(c){
     if(c.sec&&c.sec.toLowerCase().indexOf('side')>=0)return;
-    if(cmdName&&c.name.toLowerCase()===cmdName)return;
+    if(cmdName&&(c.name||'').trim().toLowerCase()===cmdName)return;
     for(var i=0;i<(c.qty||1);i++)lib.push({id:_arMakeId(),name:c.name});
   });
   if(d.commander)cmd={name:d.commander.name,img:d.commander.img||'',casts:0};
@@ -4400,18 +4434,21 @@ function _arExpandDeck(deckId){
 function _arLoadImg(name,el){
   var k=name.toLowerCase();
   if(_arImgCache[k]){el.src=_arImgCache[k];return;}
+  el.src=_AR_BACK;
+  var langParam=(_arLang&&_arLang!=='en')?'&lang='+_arLang:'';
+  if(langParam){
+    var url='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version=small'+langParam;
+    _arImgCache[k]=url;if(el.dataset.name===name)el.src=url;return;
+  }
   var cd=collCache[k];
   if(cd&&cd.img){_arImgCache[k]=cd.img;el.src=cd.img;return;}
-  el.src=_AR_BACK;
   _idbGetByNames([name]).then(function(hits){
     var h=hits[k];
     var url=h&&h.image_uri?h.image_uri:'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version=small';
-    _arImgCache[k]=url;
-    if(el.dataset.name===name)el.src=url;
+    _arImgCache[k]=url;if(el.dataset.name===name)el.src=url;
   }).catch(function(){
     var url='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version=small';
-    _arImgCache[k]=url;
-    if(el.dataset.name===name)el.src=url;
+    _arImgCache[k]=url;if(el.dataset.name===name)el.src=url;
   });
 }
 
@@ -4435,8 +4472,10 @@ function arOpen(){
   if(expanded.lib.length<7){if(msg)msg.textContent='Le deck doit avoir au moins 7 cartes';return;}
   if(msg)msg.textContent='';
   var startLife=parseInt(document.getElementById('ar-setup-life').value)||40;
+  _arLang=(document.getElementById('ar-setup-lang')||{}).value||'en';
+  _arImgCache={};
   _ar={active:true,lib:_arShuffle(expanded.lib),hand:[],field:[],grave:[],exile:[],lands:[],
-    cmd:expanded.cmd,cmdCasts:0,life:startLife,startLife:startLife,originalDeckId:id,turn:1,phase:1,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,
+    cmd:expanded.cmd,cmdCasts:0,life:startLife,startLife:startLife,originalDeckId:id,turn:1,phase:1,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false,
     ss:{deckId:id,deckName:decks[id]?decks[id].name:'',t0:Date.now(),turns:0,muls:0,drawn:7}};
   // Draw opening hand
   for(var i=0;i<7;i++)if(_ar.lib.length)_ar.hand.push(_ar.lib.pop());
@@ -4568,7 +4607,7 @@ function arRestart(){
   _ar.cmd=expanded.cmd;_ar.cmdCasts=0;
   _ar.hand=[];_ar.field=[];_ar.grave=[];_ar.exile=[];_ar.lands=[];
   var did=_ar.originalDeckId;
-  _ar.life=_ar.startLife;_ar.turn=1;_ar.phase=1;_ar.muls=0;_ar.mulPhase=false;_ar.mulSel=[];_ar.selected=null;
+  _ar.life=_ar.startLife;_ar.turn=1;_ar.phase=1;_ar.muls=0;_ar.mulPhase=false;_ar.mulSel=[];_ar.selected=null;_ar.multiSel=[];_ar.fieldUsed=false;
   _ar.ss={deckId:did,deckName:decks[did]?decks[did].name:'',t0:Date.now(),turns:0,muls:0,drawn:7};
   for(var i=0;i<7;i++)if(_ar.lib.length)_ar.hand.push(_ar.lib.pop());
   arRender();
@@ -4578,6 +4617,7 @@ function arRender(){
   arRenderTopbar();
   arRenderHand();
   arRenderField();
+  arUpdateMultiBar();
   arRenderLands();
   arRenderRight();
 }
@@ -4601,7 +4641,7 @@ function arRenderTopbar(){
 function arRenderHand(){
   var hand=document.getElementById('ar-hand');if(!hand)return;
   var hint=document.getElementById('ar-field-hint');
-  if(hint)hint.style.display=_ar.field.length?'none':'flex';
+  if(hint)hint.style.display=(_ar.field.length||_ar.fieldUsed)?'none':'flex';
   if(!_ar.hand.length){hand.innerHTML='<div style="color:rgba(255,255,255,.25);font-size:.82rem;font-style:italic;margin:auto">Main vide</div>';return;}
   hand.innerHTML=_ar.hand.map(function(c){
     var isSel=_ar.selected===c.id;
@@ -4618,7 +4658,7 @@ function arRenderHand(){
 function arRenderField(){
   var field=document.getElementById('ar-field');if(!field)return;
   var hint=document.getElementById('ar-field-hint');
-  if(hint)hint.style.display=_ar.field.length?'none':'flex';
+  if(hint)hint.style.display=(_ar.field.length||_ar.fieldUsed)?'none':'flex';
   var existing={};
   field.querySelectorAll('.ar-field-card').forEach(function(el){existing[el.dataset.id]=el;});
   // Remove cards no longer on field
@@ -4648,6 +4688,7 @@ function arRenderField(){
     }
     el.style.left=c.x+'px';el.style.top=c.y+'px';
     el.classList.toggle('tapped',!!c.tapped);
+    el.classList.toggle('ar-multi-sel',(_ar.multiSel||[]).indexOf(c.id)>=0);
     // Counter badge
     var badge=el.querySelector('.ar-counter');
     if(c.counters){if(!badge){badge=document.createElement('div');badge.className='ar-counter';el.appendChild(badge);}badge.textContent=(c.counters>0?'+':'')+c.counters+'/+'+(c.counters>0?c.counters:0);}
@@ -4761,7 +4802,7 @@ function arDrawCard(){
   if(_ar.ss)_ar.ss.drawn++;
   arRenderHand();arRenderRight();
   var hint=document.getElementById('ar-field-hint');
-  if(hint)hint.style.display=_ar.field.length?'none':'flex';
+  if(hint)hint.style.display=(_ar.field.length||_ar.fieldUsed)?'none':'flex';
 }
 
 function arShuffle(){_arShuffle(_ar.lib);arRenderRight();}
@@ -4863,6 +4904,7 @@ function arPlayCard(id,x,y){
   var card=_ar.hand.splice(idx,1)[0];
   card.x=x;card.y=y;card.tapped=false;card.counters=0;
   _ar.field.push(card);
+  _ar.fieldUsed=true;
 }
 
 function arMv(id,from,to){
@@ -5244,7 +5286,76 @@ function arPtrDown(e,el){
   _arDrag={id:id,zone:zone,startX:e.clientX,startY:e.clientY,offX:e.offsetX||40,offY:e.offsetY||56,el:el,moved:false};
   el.setPointerCapture(e.pointerId);
 }
+function arFieldPtrDown(e){
+  if(e.button!==undefined&&e.button!==0)return;
+  if(e.target.closest('.ar-field-card')||e.target.closest('#ar-ctx-menu')||e.target.closest('#ar-multi-bar'))return;
+  e.preventDefault();
+  var fieldEl=document.getElementById('ar-field');
+  var r=fieldEl.getBoundingClientRect();
+  _arLasso={x0:e.clientX-r.left,y0:e.clientY-r.top,x1:e.clientX-r.left,y1:e.clientY-r.top};
+  fieldEl.setPointerCapture(e.pointerId);
+  if(!e.shiftKey){_ar.multiSel=[];arUpdateMultiBar();}
+}
+function arDrawLasso(){
+  var el=document.getElementById('ar-lasso');if(!el||!_arLasso)return;
+  var x=Math.min(_arLasso.x0,_arLasso.x1),y=Math.min(_arLasso.y0,_arLasso.y1);
+  var w=Math.abs(_arLasso.x1-_arLasso.x0),h=Math.abs(_arLasso.y1-_arLasso.y0);
+  el.style.cssText='position:absolute;display:block;left:'+x+'px;top:'+y+'px;width:'+w+'px;height:'+h+'px';
+}
+function arFinalizeLasso(){
+  if(!_arLasso)return;
+  var x1=Math.min(_arLasso.x0,_arLasso.x1),y1=Math.min(_arLasso.y0,_arLasso.y1);
+  var x2=Math.max(_arLasso.x0,_arLasso.x1),y2=Math.max(_arLasso.y0,_arLasso.y1);
+  if(x2-x1<6&&y2-y1<6){_arLasso=null;return;}
+  _ar.multiSel=[];
+  _ar.field.forEach(function(c){
+    var cx=c.x+41,cy=c.y+57;
+    if(cx>=x1&&cx<=x2&&cy>=y1&&cy<=y2)_ar.multiSel.push(c.id);
+  });
+  _arLasso=null;
+  var lassoEl=document.getElementById('ar-lasso');if(lassoEl)lassoEl.style.display='none';
+  arRenderField();arUpdateMultiBar();
+}
+function arUpdateMultiBar(){
+  var bar=document.getElementById('ar-multi-bar');if(!bar)return;
+  var n=(_ar.multiSel||[]).length;
+  bar.style.display=n>0?'flex':'none';
+  var cnt=document.getElementById('ar-multi-count');
+  if(cnt)cnt.textContent=n+' carte'+(n>1?'s':'')+' sélectionnée'+(n>1?'s':'');
+}
+function arMultiTap(){
+  var ids=(_ar.multiSel||[]).slice();
+  var allTapped=ids.every(function(id){var c=_ar.field.find(function(x){return x.id===id;});return c&&c.tapped;});
+  ids.forEach(function(id){var c=_ar.field.find(function(x){return x.id===id;});if(c)c.tapped=!allTapped;});
+  arRenderField();
+}
+function arMultiUntap(){
+  (_ar.multiSel||[]).forEach(function(id){var c=_ar.field.find(function(x){return x.id===id;});if(c)c.tapped=false;});
+  arRenderField();
+}
+function arMultiToGrave(){
+  var ids=(_ar.multiSel||[]).slice();
+  ids.forEach(function(id){arMv(id,'field','grave');});
+  _ar.multiSel=[];arUpdateMultiBar();arRender();
+}
+function arMultiToExile(){
+  var ids=(_ar.multiSel||[]).slice();
+  ids.forEach(function(id){arMv(id,'field','exile');});
+  _ar.multiSel=[];arUpdateMultiBar();arRender();
+}
+function arMultiToHand(){
+  var ids=(_ar.multiSel||[]).slice();
+  ids.forEach(function(id){arMv(id,'field','hand');});
+  _ar.multiSel=[];arUpdateMultiBar();arRender();
+}
+function arMultiClear(){_ar.multiSel=[];arRenderField();arUpdateMultiBar();}
 function arPtrMove(e){
+  if(_arLasso){
+    var fieldEl=document.getElementById('ar-field');
+    var r=fieldEl.getBoundingClientRect();
+    _arLasso.x1=e.clientX-r.left;_arLasso.y1=e.clientY-r.top;
+    arDrawLasso();return;
+  }
   if(!_arDrag)return;
   var dx=e.clientX-_arDrag.startX,dy=e.clientY-_arDrag.startY;
   if(!_arDrag.moved&&dx*dx+dy*dy<64)return;
@@ -5281,6 +5392,7 @@ function arPtrMove(e){
   }
 }
 function arPtrUp(e){
+  if(_arLasso){arFinalizeLasso();return;}
   // Clear all drop highlights
   document.querySelectorAll('[data-drop-zone]').forEach(function(el){el.classList.remove('ar-drop-over');});
   var landsEl=document.getElementById('ar-lands');if(landsEl)landsEl.classList.remove('ar-drop-over');
