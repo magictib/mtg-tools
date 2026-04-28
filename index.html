@@ -2109,6 +2109,7 @@ var userId = 'default_user';
 var _ADMIN_EMAIL='thibaud.combes31@gmail.com';
 var _currentUser=null;
 var _userRole=null;
+var _pendingRegName=null;
 
 firebase.auth().onAuthStateChanged(function(user){
   if(!user){
@@ -2119,18 +2120,22 @@ firebase.auth().onAuthStateChanged(function(user){
   db.collection('users').doc(user.uid).get().then(function(doc){
     var role;
     if(!doc.exists){
+      var displayName=_pendingRegName||user.displayName||user.email.split('@')[0];
+      _pendingRegName=null;
       role=user.email===_ADMIN_EMAIL?'admin':'approved';
       return db.collection('users').doc(user.uid).set({
         email:user.email,
-        name:user.displayName||user.email.split('@')[0],
+        name:displayName,
         role:role,
         createdAt:firebase.firestore.FieldValue.serverTimestamp()
       }).then(function(){_onUserRole(user,role);});
     }
+    _pendingRegName=null;
     role=doc.data().role;
     _onUserRole(user,role);
   }).catch(function(){
     // Firestore unavailable — allow admin by email, else block
+    _pendingRegName=null;
     _onUserRole(user,user.email===_ADMIN_EMAIL?'admin':'pending');
   });
 });
@@ -2272,18 +2277,16 @@ function authRegister(){
   if(!email){_authMsg('Email requis',true);return;}
   if(pw.length<6){_authMsg('Mot de passe : 6 caractères minimum',true);return;}
   if(pw!==pw2){_authMsg('Les mots de passe ne correspondent pas',true);return;}
-  _authMsg('Vérification du nom d\'utilisateur…',false);
-  db.collection('users').where('name','==',name).get().then(function(snap){
-    if(!snap.empty){_authMsg('Ce nom d\'utilisateur est déjà pris, choisissez-en un autre.',true);return;}
-    _authMsg('Création du compte…',false);
-    return firebase.auth().createUserWithEmailAndPassword(email,pw).then(function(cred){
-      return cred.user.updateProfile({displayName:name});
-    }).catch(function(e){
-      var msgs={'auth/email-already-in-use':'Un compte existe déjà avec cet email',
-        'auth/invalid-email':'Email invalide','auth/weak-password':'Mot de passe trop faible'};
-      _authMsg(msgs[e.code]||e.message,true);
-    });
-  }).catch(function(e){_authMsg('Erreur : '+e.message,true);});
+  _authMsg('Création du compte…',false);
+  _pendingRegName=name;
+  firebase.auth().createUserWithEmailAndPassword(email,pw).then(function(cred){
+    return cred.user.updateProfile({displayName:name});
+  }).catch(function(e){
+    _pendingRegName=null;
+    var msgs={'auth/email-already-in-use':'Un compte existe déjà avec cet email',
+      'auth/invalid-email':'Email invalide','auth/weak-password':'Mot de passe trop faible'};
+    _authMsg(msgs[e.code]||e.message,true);
+  });
 }
 
 function authResetPw(){
