@@ -95,8 +95,9 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 .bsuc{background:rgba(76,175,128,.2);color:var(--gr2);border:.5px solid rgba(76,175,128,.4)}
 .btn{padding:7px 16px;border-radius:8px;font-size:.9rem;font-family:'Crimson Pro',serif;font-weight:600;cursor:pointer;border:.5px solid var(--bd2);background:transparent;color:var(--tx);transition:all .15s;-webkit-tap-highlight-color:transparent}
 .btn:hover{background:var(--s2)}.btn:active{transform:scale(.97)}
-.btnp{background:linear-gradient(135deg,rgba(180,130,30,.3),rgba(201,168,76,.2));border-color:var(--gold);color:var(--gold2);text-shadow:0 1px 4px rgba(0,0,0,.6)}
-.btnp:hover{opacity:.85}
+@keyframes mana-btn{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.btnp{background:linear-gradient(135deg,rgba(255,225,90,.82),rgba(45,120,255,.82),rgba(140,40,210,.82),rgba(230,65,15,.82),rgba(15,175,55,.82),rgba(255,225,90,.82));background-size:400% 400%;animation:mana-btn 7s ease infinite;border-color:rgba(255,255,255,.22);color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.65)}
+.btnp:hover{filter:brightness(1.12);animation-duration:2.8s;border-color:rgba(255,255,255,.4)}
 .btnsm{padding:4px 11px;font-size:.8rem}
 .btnrd{color:var(--rd2);border-color:rgba(232,108,108,.3)}
 .btnrd:hover{background:rgba(232,108,108,.08)}
@@ -658,12 +659,12 @@ body.mana-cursor{cursor:none}
 .ar-scry-zone-grave{border-color:rgba(220,80,80,.22)}
 .ar-scry-zone-lbl{font-size:.68rem;color:var(--tx3);margin-bottom:6px;display:flex;align-items:center;gap:6px}
 .ar-scry-zone-hint{font-size:.6rem;color:rgba(255,255,255,.2);margin-left:auto}
-.ar-scry-row{display:flex;gap:8px;min-height:170px;align-items:flex-end;padding:2px 2px 4px;overflow-x:auto;scrollbar-width:thin}
-.ar-scry-card-item{flex-shrink:0;cursor:grab;position:relative;border-radius:10px;border:2px solid transparent;transition:transform .12s,border-color .1s,opacity .1s;user-select:none}
-.ar-scry-card-item:hover{border-color:rgba(255,255,255,.35);transform:translateY(-6px)}
+.ar-scry-row{display:flex;gap:6px;min-height:100px;align-items:flex-end;padding:2px 2px 4px;overflow-x:auto;scrollbar-width:thin}
+.ar-scry-card-item{flex-shrink:0;cursor:grab;position:relative;border-radius:7px;border:2px solid transparent;transition:transform .12s,border-color .1s,opacity .1s;user-select:none}
+.ar-scry-card-item:hover{border-color:rgba(255,255,255,.35);transform:translateY(-4px)}
 .ar-scry-card-item.dragging{opacity:.35;transform:scale(.93)}
-.ar-scry-card-item img{width:120px;height:168px;border-radius:8px;display:block;pointer-events:none}
-.ar-scry-drop-slot{width:6px;height:168px;background:rgba(201,168,76,.7);border-radius:3px;flex-shrink:0;align-self:flex-end}
+.ar-scry-card-item img{width:68px;height:95px;border-radius:5px;display:block;pointer-events:none}
+.ar-scry-drop-slot{width:5px;height:95px;background:rgba(201,168,76,.7);border-radius:3px;flex-shrink:0;align-self:flex-end}
 /* Multiplayer opponent bar */
 #ar-opponent-bar{background:rgba(0,0,0,.5);border-bottom:1px solid rgba(80,140,255,.22);padding:5px 12px;display:none;flex-shrink:0;gap:16px;align-items:center;font-size:.78rem;color:var(--tx2)}
 #ar-opponent-bar.mp-on{display:flex}
@@ -5300,6 +5301,18 @@ function arResetAllCounters(){
 }
 
 // --- Card hover tip ---
+function _arShowTipForced(name,e){
+  var tip=document.getElementById('ar-card-tip');if(!tip)return;
+  var img=tip.querySelector('img');
+  var url=_arImgCache[(name||'').toLowerCase()]||_AR_BACK;
+  if(img)img.src=url;
+  tip.style.display='block';
+  var x=e.clientX+18,y=e.clientY-60;
+  if(x+200>window.innerWidth-8)x=e.clientX-218;
+  if(y+280>window.innerHeight-8)y=window.innerHeight-288;
+  if(y<4)y=4;
+  tip.style.left=Math.max(4,x)+'px';tip.style.top=y+'px';
+}
 function arShowTip(name,e){
   var ov=document.getElementById('arena-ov');
   if(ov&&ov.classList.contains('ar-no-zoom'))return;
@@ -5374,12 +5387,13 @@ function arToggleCardMenu(el){
   ctx.style.display='block';
   var r=el.getBoundingClientRect();
   var ov=document.getElementById('arena-ov').getBoundingClientRect();
-  var mw=186,mh=ctx.offsetHeight||280;
+  var mw=ctx.offsetWidth||194;
+  var mh=ctx.offsetHeight||280;
   var left=r.right-ov.left+6;
   var top=r.top-ov.top;
   if(left+mw>ov.width-4)left=r.left-ov.left-mw-6;
-  if(top+mh>ov.height-4)top=Math.max(0,ov.height-mh-8);
-  ctx.style.left=left+'px';ctx.style.top=top+'px';
+  left=Math.max(4,Math.min(left,ov.width-mw-4));
+  top=Math.max(4,Math.min(top,ov.height-mh-4));
 }
 
 function arCreateCustomToken(){
@@ -5596,6 +5610,17 @@ function arUpdateMultiBar(){
         +b('arMultiToLibBot()','↓ Dessous','ar-cmenu-mv')
         +b('arMultiToGrave()','🗑 Défausser','ar-cmenu-danger')
         +b('arMultiToExile()','⬡ Exiler','ar-cmenu-danger'));
+  // Clamp position within field bounds
+  requestAnimationFrame(function(){
+    bar.style.left='';bar.style.right='';bar.style.transform='';
+    var field=document.getElementById('ar-field');
+    if(!field)return;
+    var fw=field.offsetWidth,bw=bar.offsetWidth,bh=bar.offsetHeight;
+    var left=Math.max(6,Math.min(Math.floor((fw-bw)/2),fw-bw-6));
+    bar.style.left=left+'px';bar.style.bottom='10px';
+    var fh=field.offsetHeight;
+    if(bh>fh-20)bar.style.overflowY='auto',bar.style.maxHeight=(fh-20)+'px';
+  });
 }
 function arMultiTap(){
   var ids=(_ar.multiSel||[]).slice();
@@ -5732,6 +5757,8 @@ function _arRenderScryZone(zoneName){
       +' ondragstart="arScryDragStart(event,\''+zoneName+'\','+i+')"'
       +' ondragover="arScryCardDragOver(event,\''+zoneName+'\','+i+')"'
       +' ondrop="arScryDropBefore(event,\''+zoneName+'\','+i+')"'
+      +' onmouseenter="_arShowTipForced(\''+esc(c.name)+'\',event)"'
+      +' onmouseleave="arHideTip()"'
       +' title="'+esc(c.name)+'">'
       +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'">'
       +'</div>';
@@ -5824,7 +5851,9 @@ function arCreateRoom(){
   }).then(function(){
     _arRoom={id:code,code:code,playerNum:1};
     var s=document.getElementById('ar-room-status');
-    if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.88rem;letter-spacing:.1em">'+code+'</strong> — En attente d\'un adversaire…';
+    if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
+      +'<br><span style="color:var(--tx3);font-size:.7rem">En attente d\'un adversaire…</span>'
+      +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
     arListenRoom();
   }).catch(function(e){
     var s=document.getElementById('ar-room-status');
@@ -5846,7 +5875,8 @@ function arJoinRoom(){
     }).then(function(){
       _arRoom={id:code,code:code,playerNum:2};
       var s=document.getElementById('ar-room-status');
-      if(s)s.textContent='Rejoint ! Lancez l\'arène.';
+      if(s)s.innerHTML='Rejoint !'
+        +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
       arListenRoom();
     });
   }).catch(function(e){
@@ -5872,7 +5902,8 @@ function _arApplyRemoteState(data){
     // Game not yet open: just update room status UI
     if(pn===1&&data.p2&&!data.active){
       var s=document.getElementById('ar-room-status');
-      if(s)s.textContent=(data.p2.name||'Joueur 2')+' a rejoint ! Choisissez votre deck et lancez.';
+      if(s)s.innerHTML='<span style="color:var(--gr2)">'+esc(data.p2.name||'Joueur 2')+' a rejoint !</span>'
+        +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
     }
     return;
   }
