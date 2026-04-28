@@ -673,8 +673,23 @@ body.mana-cursor{cursor:none}
         <button class="btn btnp btnsm" style="width:100%;margin-bottom:4px" onclick="authRenameUser()">Valider</button>
         <div id="um-rename-msg" style="font-size:.75rem;min-height:1rem;text-align:center"></div>
       </div>
+      <button class="um-btn danger" onclick="openDeleteProfileOv()">🗑 Supprimer le profil</button>
       <button class="um-btn danger" onclick="authSignOut();toggleUserMenu()">⏻ Déconnexion</button>
     </div>
+  </div>
+</div>
+
+<!-- Popup suppression profil -->
+<div id="delete-profile-ov" style="display:none;position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:1rem">
+  <div style="background:var(--s2);border:1px solid rgba(220,80,80,.45);border-radius:14px;padding:1.5rem 1.25rem;max-width:310px;width:100%;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.85)">
+    <div style="font-size:2rem;margin-bottom:.6rem">⚠️</div>
+    <div style="font-family:'Goudy Mediaeval',serif;color:var(--rd2);font-size:1rem;margin-bottom:.5rem">Supprimer le profil ?</div>
+    <div style="color:var(--tx2);font-size:.82rem;line-height:1.65;margin-bottom:1.25rem">Toutes tes données seront définitivement supprimées :<br>collection, decks, échanges.<br><br><span style="color:var(--tx);font-weight:600">Cette action est irréversible.</span></div>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="btn btnsm" onclick="document.getElementById('delete-profile-ov').style.display='none'">Annuler</button>
+      <button class="btn btnsm" style="background:rgba(220,50,50,.12);border-color:var(--rd2);color:var(--rd2)" onclick="confirmDeleteProfile()">Supprimer définitivement</button>
+    </div>
+    <div id="delete-profile-msg" style="font-size:.78rem;min-height:1.2rem;margin-top:.75rem"></div>
   </div>
 </div>
 
@@ -2303,6 +2318,56 @@ function authSignOut(){
   if(_notifUnsub){_notifUnsub();_notifUnsub=null;}
   if(_tradesUnsub){_tradesUnsub();_tradesUnsub=null;}
   firebase.auth().signOut();
+}
+
+function openDeleteProfileOv(){
+  document.getElementById('delete-profile-msg').textContent='';
+  document.getElementById('delete-profile-msg').style.color='var(--rd2)';
+  document.getElementById('delete-profile-ov').style.display='flex';
+  var panel=document.getElementById('user-menu-panel');
+  if(panel)panel.classList.remove('open');
+}
+
+function confirmDeleteProfile(){
+  var user=firebase.auth().currentUser;
+  if(!user)return;
+  var msg=document.getElementById('delete-profile-msg');
+  msg.style.color='var(--tx3)';
+  msg.textContent='Suppression en cours…';
+  var uid=user.uid;
+  // 1. Supprimer la sous-collection profs
+  db.collection('users').doc(uid).collection('profs').get()
+    .then(function(snap){
+      var batch=db.batch();
+      snap.docs.forEach(function(d){batch.delete(d.ref);});
+      return batch.commit();
+    })
+    .then(function(){
+      // 2. Supprimer les trades créés par l'utilisateur
+      return db.collection('trades').where('fromUid','==',uid).get();
+    })
+    .then(function(snap){
+      var batch=db.batch();
+      snap.docs.forEach(function(d){batch.delete(d.ref);});
+      return batch.commit();
+    })
+    .then(function(){
+      // 3. Supprimer le document utilisateur
+      return db.collection('users').doc(uid).delete();
+    })
+    .then(function(){
+      // 4. Supprimer le compte Firebase Auth (déclenche onAuthStateChanged → écran login)
+      return user.delete();
+    })
+    .catch(function(e){
+      if(e.code==='auth/requires-recent-login'){
+        msg.style.color='var(--rd2)';
+        msg.textContent='Reconnecte-toi d\'abord puis réessaie.';
+      } else {
+        msg.style.color='var(--rd2)';
+        msg.textContent='Erreur : '+e.message;
+      }
+    });
 }
 
 // ===== NOTIFICATIONS =====
