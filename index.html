@@ -7201,6 +7201,13 @@ function _detectFmt(hdrs){
   return 'C';
 }
 function _collPName(){var ep=collP>0?(_epSlots.coll||[])[collP-1]:null;return PN[collP]||(ep&&ep.name)||'ce profil';}
+function _saveCollP(){
+  if(collP===0){saveProfs();return;}
+  var ep=(_epSlots.coll||[])[collP-1];if(!ep||!ep.uid)return;
+  _epCards[ep.uid]=profs[collP]; // patch le cache mémoire avant _syncProfsForCtx
+  db.collection('users').doc(ep.uid).collection('profs').doc('0')
+    .set({cards:profs[collP]}).catch(function(e){console.warn('saveExtraProf',e);});
+}
 function importCollCSV(input){
   var file=input.files[0];if(!file)return;
   var pname=_collPName();
@@ -7210,7 +7217,7 @@ function importCollCSV(input){
     if(!res.data.length){alert('Fichier vide ou format non reconnu.');return;}
     var fmt=_detectFmt(res.hdrs);
     profs[collP]=res.data.map(function(r){return normalizeRow(r,fmt);});
-    saveProfs();renderColl();renderProfs();
+    _saveCollP();renderColl();renderProfs();
     alert('✓ '+res.data.length+' cartes importées dans la collection de '+pname+'.');
   };
   reader.readAsText(file,'UTF-8');
@@ -7251,7 +7258,7 @@ function importCollUpdate(input){
       }
     });
     profs[collP]=old;
-    saveProfs();renderColl();renderProfs();
+    _saveCollP();renderColl();renderProfs();
     alert('✓ '+added+' carte(s) ajoutée(s), '+updated+' quantité(s) mise(s) à jour dans '+pname+'.');
   };
   reader.readAsText(file,'UTF-8');
