@@ -222,6 +222,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ditem{padding:8px 12px;border-radius:8px;border:.5px solid var(--bd);background:var(--s2);cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent}
 .ditem:hover{border-color:var(--bd2)}
 .ditem.active{border:1.5px solid var(--ac);background:rgba(180,140,50,.1)}
+.ditem[draggable]{cursor:grab}
+.ditem.drag-over{border-top:2px solid var(--gd1);background:rgba(201,168,76,.08)}
 .dn{font-family:'Goudy Mediaeval',serif;font-size:11px;color:var(--gold2)}
 .di{font-size:10px;color:var(--tx3);margin-top:2px}
 .posel{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
@@ -3186,6 +3188,7 @@ var csvRows=[], outRows=[], prevSnap=new Map();
 var profs=[null], actP=0, eMode='new'; // slot 0 = current user only
 var scAllP=[], scFlips=[], scFlipN=0, scSugTO=null;
 var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0, allPriceMap={};
+var _deckOrders={}, _dkDragId=null, _dkDragPi=null;
 var dFormat='', dCommander=null, dColors=[];
 var dCardMeta={}, dSortMode='sec';
 var COMMANDER_FMTS=['commander','paupercmd','brawl','oathbreaker'];
@@ -3787,7 +3790,10 @@ function scState(s,msg){
 }
 
 // ===== DECK =====
+function loadDeckOrders(){try{var s=localStorage.getItem('mtg_deck_orders');if(s)_deckOrders=JSON.parse(s);}catch(e){_deckOrders={};}}
+function saveDeckOrders(){try{localStorage.setItem('mtg_deck_orders',JSON.stringify(_deckOrders));}catch(e){}}
 function loadDecks(){
+  loadDeckOrders();
   try{var s=localStorage.getItem('mtg_decks');if(s)decks=JSON.parse(s);}catch(e){decks={};}
   renderDBar();
   db.collection('users').doc(userId).collection('decks').get()
@@ -3872,14 +3878,21 @@ function renderDBar(){
     }
     html+='<div class="dpdecks'+(open?' op':'')+'">';
     if(!pids.length)html+='<div style="color:var(--tx3);font-size:.78rem;font-style:italic;padding:4px">Aucun deck</div>';
-    pids.forEach(function(id){
-      var d=decks[id];
+    var orderedPids=getDeckOrder(pi);
+    orderedPids.forEach(function(id,rank){
+      var d=decks[id];if(!d)return;
       var n=d.cards?d.cards.reduce(function(s,c){return s+c.qty;},0):0;
       var fmtBadge=d.format?'<span style="font-size:.62rem;background:var(--s3);border:.5px solid var(--bd2);border-radius:3px;padding:0 4px;color:var(--tx3);margin-left:4px">'+esc(fmtLabel[d.format]||d.format)+'</span>':'';
       var cmdBadge=d.commander?'<span title="'+esc(d.commander.name)+'" style="font-size:.62rem;color:var(--gold2);margin-left:3px">★</span>':'';
-      html+='<div class="ditem'+(id===actDeck?' active':'')+'" onclick="loadDeck(\''+id+'\')">'+
-        '<div class="dn">'+esc(d.name)+fmtBadge+cmdBadge+'</div>'+
-        '<div class="di">'+n+' cartes · '+new Date(d.updatedAt).toLocaleDateString('fr-FR')+'</div></div>';
+      var rankBadge='<span style="font-size:.58rem;color:var(--tx3);margin-right:4px;min-width:12px;display:inline-block">'+(rank+1)+'.</span>';
+      html+='<div class="ditem'+(id===actDeck?' active':'')+'" draggable="true"'
+        +' ondragstart="dkDragStart(event,\''+id+'\','+pi+')"'
+        +' ondragover="dkDragOver(event)"'
+        +' ondragleave="dkDragLeave(event)"'
+        +' ondrop="dkDrop(event,\''+id+'\','+pi+')"'
+        +' onclick="loadDeck(\''+id+'\')">'
+        +'<div class="dn">'+rankBadge+esc(d.name)+fmtBadge+cmdBadge+'</div>'
+        +'<div class="di">'+n+' cartes · '+new Date(d.updatedAt).toLocaleDateString('fr-FR')+'</div></div>';
     });
     html+='</div></div>';
   });
@@ -4089,7 +4102,7 @@ function analyzeDeck(){
   var BASICS=['marais','plaine','forêt','foret','montagne','île','ile','swamp','plains','forest','mountain','island'];
   function isBasic(c){return BASICS.indexOf(c.nl)>=0;}
   var ownerPm=pms[dOwner];
-  var ownerUsage=getDeckUsage(dOwner);
+  var ownerUsage=getDeckUsageByPriority(dOwner,actDeck);
   var nonBasicDCards=dCards.filter(function(c){return !isBasic(c);});
   function ownerFree(c){var has=ownerPm.get(getKey(c))||0;var used=(ownerUsage.get(c.nl)||{qty:0}).qty;return Math.max(0,has-used);}
   var owned=dCards.filter(function(c){return mx(c)>=c.qty;});
@@ -4368,13 +4381,53 @@ function getDeckUsage(profIdx){
   });
   return usage;
 }
+function getDeckOrder(pi){
+  var stored=_deckOrders[pi]||[];
+  var current=Object.keys(decks).filter(function(id){return(decks[id].owner||0)===pi;});
+  var ordered=stored.filter(function(id){return current.indexOf(id)>=0;});
+  current.forEach(function(id){if(ordered.indexOf(id)<0)ordered.push(id);});
+  return ordered;
+}
+function getDeckUsageByPriority(profIdx,currentDeckId){
+  if(!currentDeckId)return getDeckUsage(profIdx);
+  var order=getDeckOrder(profIdx);
+  var curPos=order.indexOf(currentDeckId);
+  if(curPos<0)curPos=order.length;
+  var usage=new Map();
+  for(var i=0;i<curPos;i++){
+    var id=order[i];if(id===currentDeckId)continue;
+    var dk=decks[id];if(!dk||(dk.owner||0)!==profIdx)continue;
+    var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+    var cards=parseList(raw||'');var dname=dk.name||'Deck sans nom';
+    cards.forEach(function(c){
+      var k=c.nl;var prev=usage.get(k)||{qty:0,decks:[]};
+      prev.qty+=c.qty;if(prev.decks.indexOf(dname)<0)prev.decks.push(dname);
+      usage.set(k,prev);
+    });
+  }
+  return usage;
+}
+function dkDragStart(e,id,pi){_dkDragId=id;_dkDragPi=pi;e.dataTransfer.effectAllowed='move';}
+function dkDragOver(e){e.preventDefault();e.currentTarget.classList.add('drag-over');}
+function dkDragLeave(e){e.currentTarget.classList.remove('drag-over');}
+function dkDrop(e,targetId,pi){
+  e.preventDefault();e.currentTarget.classList.remove('drag-over');
+  if(!_dkDragId||_dkDragId===targetId||_dkDragPi!==pi)return;
+  var order=getDeckOrder(pi);
+  var fi=order.indexOf(_dkDragId),ti=order.indexOf(targetId);
+  if(fi<0||ti<0)return;
+  order.splice(fi,1);order.splice(ti,0,_dkDragId);
+  _deckOrders[pi]=order;saveDeckOrders();renderDBar();
+  if(actDeck)analyzeDeck();
+  _dkDragId=null;_dkDragPi=null;
+}
 function renderDeck(){
   _syncProfsForCtx('deck');
   var pms=profs.map(function(_,i){return getPMap(i);});
   var srch=(document.getElementById('fsrch')?document.getElementById('fsrch').value:'').toLowerCase();
   var usages=profs.map(function(_,i){return getDeckUsage(i);});
   function mx(c){return Math.max.apply(null,pms.map(function(m){return m.get(getKey(c))||0;}));}
-  var _owPmR=pms[dOwner],_owUsgR=usages[dOwner];
+  var _owPmR=pms[dOwner],_owUsgR=getDeckUsageByPriority(dOwner,actDeck);
   function ownerFreeR(c){var h=_owPmR.get(getKey(c))||0;var u=(_owUsgR.get(c.nl)||{qty:0}).qty;return Math.max(0,h-u);}
   var filtered=dCards.filter(function(c){
     if(srch&&c.nl.indexOf(srch)<0)return false;
