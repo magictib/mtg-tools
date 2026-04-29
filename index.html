@@ -253,7 +253,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .dadd-btn.in{background:var(--gold2);color:#000;border-color:var(--gold2)}
 .drow:hover{background:var(--s3)}
 .drow.rok{border-color:rgba(76,175,128,.2)}
-.drow.rpa{border-color:rgba(232,168,76,.2)}
+.drow.rpa{border-color:rgba(232,168,76,.45)}
 .drow.rno{opacity:.5}
 .dq{font-family:'Goudy Mediaeval',serif;font-size:11px;font-weight:600;color:var(--gold2);text-align:center}
 .dname{color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -4095,10 +4095,13 @@ function analyzeDeck(){
   var owned=dCards.filter(function(c){return mx(c)>=c.qty;});
   var partial=nonBasicDCards.filter(function(c){var f=ownerFree(c);return f>0&&f<c.qty;});
   var missing=dCards.filter(function(c){return mx(c)===0;});
-  // Cartes deck : séparer terrains de base vs non-terrains
   var totBasic=dCards.filter(isBasic).reduce(function(s,c){return s+c.qty;},0);
   var totNonBasic=nonBasicDCards.reduce(function(s,c){return s+c.qty;},0);
   var tot=totBasic+totNonBasic;
+  // Terrains = de base (nom) + non-basiques dans une section "terre/land/terrain"
+  function isLandSec(c){var s=(c.sec||'').toLowerCase();return s.indexOf('land')>=0||s.indexOf('terre')>=0||s.indexOf('terrain')>=0;}
+  var totLands=dCards.filter(function(c){return isBasic(c)||isLandSec(c);}).reduce(function(s,c){return s+c.qty;},0);
+  var totNonBasicLands=totLands-totBasic;
   var completes=nonBasicDCards.filter(function(c){return ownerFree(c)>=c.qty;});
   var missingNonBasic=nonBasicDCards.filter(function(c){return ownerFree(c)===0;});
   var hasOwner=0;dCards.forEach(function(c){hasOwner+=Math.min(ownerFree(c),c.qty);});
@@ -4106,8 +4109,14 @@ function analyzeDeck(){
   var dn=document.getElementById('dnamein').value.trim()||'Deck';
   document.getElementById('dreslbl').textContent=dn;
   document.getElementById('smb').innerHTML='<span class="sp spok">✓ '+owned.length+' complètes</span><span class="sp sppa">◑ '+partial.length+' partielles</span><span class="sp spno">✗ '+missing.length+' manquantes</span>';
-  var cartesVal=(totBasic>0?'<div class="sv">'+totNonBasic+' / '+totBasic+'</div>':'<div class="sv">'+totNonBasic+'</div>')+'<div style="font-size:.72rem;color:var(--tx3);margin-top:1px">'+tot+' total</div>';
-  document.getElementById('dstats').innerHTML='<div class="stat"><div>'+cartesVal+'</div><div class="sl">Cartes deck</div></div><div class="stat"><div class="sv">'+pct+'%</div><div class="sl">Complété</div></div><div class="stat"><div class="sv">'+completes.length+'</div><div class="sl">Complètes</div></div><div class="stat"><div class="sv">'+missingNonBasic.length+'</div><div class="sl">Manquantes</div></div>';
+  var landSub=totNonBasicLands>0?'<div style="font-size:.72rem;color:var(--tx3);margin-top:1px">dont '+totBasic+' de base</div>':'';
+  var dstatsEl=document.getElementById('dstats');
+  dstatsEl.style.gridTemplateColumns='repeat(5,1fr)';
+  dstatsEl.innerHTML='<div class="stat"><div class="sv">'+tot+'</div><div class="sl">Cartes deck</div></div>'
+    +'<div class="stat"><div class="sv">'+totLands+'</div>'+landSub+'<div class="sl">Terrains</div></div>'
+    +'<div class="stat"><div class="sv">'+pct+'%</div><div class="sl">Complété</div></div>'
+    +'<div class="stat"><div class="sv">'+completes.length+'</div><div class="sl">Complètes</div></div>'
+    +'<div class="stat"><div class="sv">'+missingNonBasic.length+'</div><div class="sl">Manquantes</div></div>';
   var ph=document.getElementById('phelp');
   if(hasP){
     ph.style.display='grid';
@@ -4365,6 +4374,8 @@ function renderDeck(){
   var srch=(document.getElementById('fsrch')?document.getElementById('fsrch').value:'').toLowerCase();
   var usages=profs.map(function(_,i){return getDeckUsage(i);});
   function mx(c){return Math.max.apply(null,pms.map(function(m){return m.get(getKey(c))||0;}));}
+  var _owPmR=pms[dOwner],_owUsgR=usages[dOwner];
+  function ownerFreeR(c){var h=_owPmR.get(getKey(c))||0;var u=(_owUsgR.get(c.nl)||{qty:0}).qty;return Math.max(0,h-u);}
   var filtered=dCards.filter(function(c){
     if(srch&&c.nl.indexOf(srch)<0)return false;
     var x=mx(c);
@@ -4420,7 +4431,7 @@ function renderDeck(){
         var k=getKey(card);
         var qs=pms.map(function(m){return m.get(k)||0;});
         var x=Math.max.apply(null,qs);
-        var rc='drow'+(x===0?' rno':x<card.qty?' rpa':' rok');
+        var f=ownerFreeR(card);var rc='drow'+(f===0?' rno':f<card.qty?' rpa':' rok');
         var pc=qs.map(function(q,i){
           if(pms[i].size===0)return '<div class="pc pem">—</div>';
           var uentry=usages[i].get(card.nl)||{qty:0,decks:[]};
