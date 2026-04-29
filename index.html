@@ -468,6 +468,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 #notif-wrap{position:relative}
 #notif-btn{width:34px;height:34px;border-radius:50%;background:var(--s2);border:.5px solid var(--bd2);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:1rem;transition:all .15s;box-shadow:0 2px 12px rgba(0,0,0,.4);color:var(--tx2)}
 #notif-btn:hover{border-color:var(--gold2);color:var(--gold2)}
+#friend-btn{width:34px;height:34px;border-radius:50%;background:var(--s2);border:.5px solid var(--bd2);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:1rem;transition:all .15s;box-shadow:0 2px 12px rgba(0,0,0,.4);color:var(--tx2)}
+#friend-btn:hover{border-color:var(--gold2);color:var(--gold2)}
 #notif-badge{position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;border-radius:8px;background:var(--rd);color:#fff;font-size:.62rem;font-family:'Crimson Pro',serif;display:none;align-items:center;justify-content:center;padding:0 3px;pointer-events:none;line-height:1}
 #notif-panel{display:none;position:absolute;top:42px;right:0;background:var(--s2);border:.5px solid var(--bd2);border-radius:12px;min-width:280px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.6);overflow:hidden;z-index:310}
 #notif-panel.open{display:block}
@@ -726,6 +728,8 @@ body.mana-cursor{cursor:none}
 
 <!-- User menu (top-right) -->
 <div id="user-menu-wrap">
+  <!-- Friend button -->
+  <button id="friend-btn" onclick="openFriendModal()" title="Amis">👥</button>
   <!-- Bell notifications -->
   <div id="notif-wrap">
     <button id="notif-btn" onclick="toggleNotifPanel()">🔔</button>
@@ -770,6 +774,22 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" style="background:rgba(220,50,50,.12);border-color:var(--rd2);color:var(--rd2)" onclick="confirmDeleteProfile()">Supprimer définitivement</button>
     </div>
     <div id="delete-profile-msg" style="font-size:.78rem;min-height:1.2rem;margin-top:.75rem"></div>
+  </div>
+</div>
+
+<!-- Arena invite modal -->
+<div id="ar-invite-modal" style="display:none;position:fixed;inset:0;z-index:5600;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:1.5rem">
+  <div style="background:var(--s2);border:.5px solid var(--bd2);border-radius:14px;padding:1.25rem;max-width:320px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.85)">
+    <div class="row" style="margin-bottom:.75rem">
+      <div class="lbl" style="margin-bottom:0">⚡ Inviter un ami</div>
+      <button class="btn btnsm" onclick="document.getElementById('ar-invite-modal').style.display='none'">✕</button>
+    </div>
+    <div style="text-align:center;margin-bottom:.85rem">
+      <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">CODE DE PARTIE</div>
+      <div id="ar-invite-code" style="font-size:1.5rem;font-family:'Goudy Mediaeval',serif;color:var(--gold2);letter-spacing:.2em;font-weight:700"></div>
+    </div>
+    <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">ENVOYER À</div>
+    <div id="ar-invite-list"></div>
   </div>
 </div>
 
@@ -2422,6 +2442,7 @@ function _onUserRole(user,role){
     var btn=document.getElementById('user-menu-btn');
     btn.style.display='flex';
     document.getElementById('notif-btn').style.display='flex';
+    document.getElementById('friend-btn').style.display='flex';
     document.getElementById('um-display-name').textContent=user.displayName||user.email;
     document.getElementById('um-admin-btn').style.display=role==='admin'?'block':'none';
     userId=user.uid;
@@ -2851,6 +2872,12 @@ function _renderNotifPanel(){
       friendBtns='<div style="display:flex;gap:6px;margin-top:6px">'
         +'<button onclick="event.stopPropagation();acceptFriendRequest(\''+n.id+'\',\''+_notifEsc(n.fromUid||'')+'\',\''+_notifEsc(n.fromName||'')+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gr2);background:rgba(76,175,128,.12);color:var(--gr2);font-size:.72rem;cursor:pointer">✓ Accepter</button>'
         +'<button onclick="event.stopPropagation();declineFriendRequest(\''+n.id+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid rgba(220,80,80,.4);background:rgba(220,80,80,.08);color:var(--rd2);font-size:.72rem;cursor:pointer">✕ Refuser</button>'
+        +'</div>';
+    }
+    if(n.type==='arena_invite'&&n.arenaCode&&n.targetUid===_currentUid){
+      friendBtns='<div style="margin-top:6px">'
+        +'<span style="font-size:.78rem;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.1em;margin-right:8px">'+_notifEsc(n.arenaCode)+'</span>'
+        +'<button onclick="event.stopPropagation();_arJoinFromNotif(\''+_notifEsc(n.arenaCode)+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);font-size:.72rem;cursor:pointer">⚡ Rejoindre</button>'
         +'</div>';
     }
     return '<div class="notif-item'+(unread?' unread':'')+'" onclick="markNotifRead(\''+n.id+'\')">'
@@ -6143,7 +6170,55 @@ function arCancelScry(){
   _arScryData=null;_arScryDragCard=null;
 }
 
-/* ---- Multiplayer ---- */
+/* ---- Multiplayer / Invitations ---- */
+function arOpenInviteModal(code){
+  var modal=document.getElementById('ar-invite-modal');
+  if(!modal)return;
+  document.getElementById('ar-invite-code').textContent=code;
+  var list=document.getElementById('ar-invite-list');
+  if(!_friends.length){
+    list.innerHTML='<div style="color:var(--tx3);font-size:.8rem;font-style:italic;padding:6px 0">Aucun ami — ajoute des amis via 👥</div>';
+  } else {
+    list.innerHTML=_friends.map(function(f){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
+        +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(f.name||'?').charAt(0).toUpperCase()+'</div>'
+        +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(f.name)+'</div>'
+        +'<button onclick="arSendCodeNotif(\''+f.uid+'\',\''+f.name.replace(/'/g,'&#39;')+'\',\''+code+'\')" style="padding:4px 12px;border-radius:6px;border:.5px solid var(--gold);background:transparent;color:var(--gold2);font-size:.72rem;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">Envoyer</button>'
+        +'</div>';
+    }).join('');
+  }
+  modal.style.display='flex';
+}
+
+function arSendCodeNotif(toUid,toName,code){
+  if(!userId)return;
+  var myName=PN[0]||'Quelqu\'un';
+  db.collection('notifications').add({
+    type:'arena_invite',
+    title:'⚡ Invitation Arène — '+myName,
+    body:myName+' t\'invite à rejoindre sa partie d\'Arène.',
+    arenaCode:code,
+    fromUid:userId,fromName:myName,
+    targetUid:toUid,
+    createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+    readBy:[]
+  }).then(function(){
+    // Feedback visuel sur le bouton
+    event.target.textContent='✓ Envoyé';
+    event.target.style.color='var(--gr2)';
+    event.target.style.borderColor='var(--gr2)';
+    event.target.disabled=true;
+  }).catch(function(e){alert('Erreur : '+e.message);});
+}
+
+function _arJoinFromNotif(code){
+  var inp=document.getElementById('ar-room-code-in');
+  if(inp)inp.value=code;
+  goTab('arena');arPopulateSel();
+  document.getElementById('notif-panel').classList.remove('open');
+  setTimeout(function(){arJoinRoom();},200);
+}
+
 function _arGenCode(){
   var c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   var r='';for(var i=0;i<6;i++)r+=c[Math.floor(Math.random()*c.length)];
@@ -6165,7 +6240,10 @@ function arCreateRoom(){
     var s=document.getElementById('ar-room-status');
     if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
       +'<br><span style="color:var(--tx3);font-size:.7rem">En attente d\'un adversaire…</span>'
-      +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
+      +'<div style="display:flex;gap:6px;margin-top:6px">'
+      +'<button class="btn btnsm" onclick="arOpenInviteModal(\''+code+'\')" style="flex:1;font-size:.72rem">📨 Inviter un ami</button>'
+      +'<button class="btn btnsm btnp" onclick="arOpen()" style="flex:1;font-size:.72rem">▶ Lancer</button>'
+      +'</div>';
     arListenRoom();
   }).catch(function(e){
     var s=document.getElementById('ar-room-status');
