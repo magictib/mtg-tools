@@ -3253,17 +3253,35 @@ function _renderNtfBtns(){
 }
 
 function _renderGamePlayerRows(){
-  // Update names in game setup rows
-  PN.forEach(function(name,i){
+  // Build union of all extra profiles across every context (coll, deck, build, trade, game)
+  var seen={};
+  var allExtras=[];
+  Object.keys(_epSlots).forEach(function(ctx){
+    (_epSlots[ctx]||[]).forEach(function(ep){
+      if(!seen[ep.uid]){seen[ep.uid]=true;allExtras.push(ep);}
+    });
+  });
+  // Rebuild PN and profs for game context using the full union (max 2 extras → 3 total slots)
+  PN.splice(1);profs.splice(1);
+  allExtras.slice(0,2).forEach(function(ep){
+    PN.push(ep.name);
+    profs.push(_epCards[ep.uid]||null);
+  });
+  // Show/hide game setup rows based on available profiles
+  [0,1,2].forEach(function(i){
     var row=document.getElementById('gsetup-row'+i);
-    var span=row&&row.querySelector('.gp-name');
-    if(span)span.textContent=name;
-    if(row)row.style.display='';
+    if(!row)return;
+    if(i<PN.length){
+      var span=row.querySelector('.gp-name');
+      if(span)span.textContent=PN[i];
+      row.style.display='';
+    }else{
+      if(i>0)row.style.display='none';
+    }
   });
   // Update mg-winner select
   var sel=document.getElementById('mg-winner');
   if(!sel)return;
-  // Remove old profile options
   while(sel.options.length>1)sel.remove(1);
   PN.forEach(function(name,i){
     var opt=document.createElement('option');opt.value=i;opt.textContent=name;sel.appendChild(opt);
