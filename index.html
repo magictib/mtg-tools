@@ -358,6 +358,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ghist-acts button:hover{background:var(--s3);color:var(--tx)}
 .gsetup-prow{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
 .gsetup-deck{font-size:.8rem;padding:3px 6px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;max-width:130px;flex:1;min-width:80px}
+.gp-name-inp{font-size:.83rem;color:var(--tx);background:transparent;border:none;border-bottom:.5px solid var(--bd2);outline:none;padding:1px 2px;width:72px;font-family:inherit;cursor:text}.gp-name-inp:focus{border-bottom-color:var(--gold2)}
 .gcolor-btn{width:24px;height:24px;border-radius:50%;border:2.5px solid transparent;cursor:pointer;opacity:.38;transition:all .12s;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:none;padding:0}
 .gcolor-btn i.ms{font-size:1.15rem}
 .gcolor-btn.on{opacity:1;border-color:#fff;transform:scale(1.18)}
@@ -745,6 +746,7 @@ body.mana-cursor{cursor:none}
     <div class="um-name" id="um-display-name"></div>
     <div class="um-row">
       <button class="um-btn" id="um-admin-btn" onclick="openAdminPanel();toggleUserMenu()" style="display:none">⚙ Panneau admin</button>
+      <button class="um-btn" onclick="openFriendModal()">👥 Mes amis</button>
       <button class="um-btn" onclick="umShowRename()">✎ Modifier le nom</button>
       <div class="um-rename-wrap" id="um-rename-wrap">
         <input type="text" id="um-rename-input" placeholder="Nouveau prénom / pseudo" onkeydown="if(event.key==='Enter')authRenameUser()">
@@ -768,6 +770,22 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" style="background:rgba(220,50,50,.12);border-color:var(--rd2);color:var(--rd2)" onclick="confirmDeleteProfile()">Supprimer définitivement</button>
     </div>
     <div id="delete-profile-msg" style="font-size:.78rem;min-height:1.2rem;margin-top:.75rem"></div>
+  </div>
+</div>
+
+<!-- Friend modal -->
+<div id="friend-modal" style="display:none;position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.78);align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto">
+  <div style="background:var(--s2);border:.5px solid var(--bd2);border-radius:14px;padding:1.25rem;max-width:360px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.85)">
+    <div class="row" style="margin-bottom:.85rem">
+      <div class="lbl" style="margin-bottom:0">👥 Amis</div>
+      <button class="btn btnsm" onclick="closeFriendModal()">✕</button>
+    </div>
+    <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">RECHERCHER UN JOUEUR</div>
+    <input type="text" id="friend-search" placeholder="Nom du joueur…" oninput="friendSearch(this.value)"
+      style="width:100%;font-size:.82rem;padding:6px 10px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;margin-bottom:6px">
+    <div id="friend-search-results" style="margin-bottom:.75rem"></div>
+    <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">MES AMIS</div>
+    <div id="friend-list"></div>
   </div>
 </div>
 
@@ -1597,7 +1615,7 @@ body.mana-cursor{cursor:none}
       <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">JOUEURS — Deck · Couleurs · Image de fond</div>
       <!-- Profil 0 : vous -->
       <div class="gsetup-prow" id="gsetup-row0">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="0"> <span class="gp-name">—</span></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="0"> <input type="text" id="gsetup-name0" class="gp-name-inp" value="—"></label>
         <select class="gsetup-deck" id="gsetup-deck0" onchange="applyDeckColors(0,this.value)"><option value="">— Aucun deck —</option></select>
         <div style="display:flex;gap:3px" id="gsetup-colors0">
           <button class="gcolor-btn" onclick="toggleSetupColor(0,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
@@ -1615,7 +1633,7 @@ body.mana-cursor{cursor:none}
       </div>
       <!-- Profil 1 : extra -->
       <div class="gsetup-prow" id="gsetup-row1" style="display:none">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="1"> <span class="gp-name">—</span></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="1"> <input type="text" id="gsetup-name1" class="gp-name-inp" value="—"></label>
         <select class="gsetup-deck" id="gsetup-deck1" onchange="applyDeckColors(1,this.value)"><option value="">— Aucun deck —</option></select>
         <div style="display:flex;gap:3px" id="gsetup-colors1">
           <button class="gcolor-btn" onclick="toggleSetupColor(1,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
@@ -1633,7 +1651,7 @@ body.mana-cursor{cursor:none}
       </div>
       <!-- Profil 2 : extra -->
       <div class="gsetup-prow" id="gsetup-row2" style="display:none">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="2"> <span class="gp-name">—</span></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="2"> <input type="text" id="gsetup-name2" class="gp-name-inp" value="—"></label>
         <select class="gsetup-deck" id="gsetup-deck2" onchange="applyDeckColors(2,this.value)"><option value="">— Aucun deck —</option></select>
         <div style="display:flex;gap:3px" id="gsetup-colors2">
           <button class="gcolor-btn" onclick="toggleSetupColor(2,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
@@ -1649,16 +1667,34 @@ body.mana-cursor{cursor:none}
       <div id="gsetup-cmd-row2" style="display:none;padding:0 0 6px 82px">
         <input type="text" id="gsetup-cmd2" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
       </div>
-      <!-- Joueur supplémentaire -->
-      <div class="gsetup-prow" id="gsetup-row3">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="3">
-          <input type="text" id="game-extra-name" placeholder="Autre joueur..." style="flex:1;font-size:.82rem;padding:3px 6px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;max-width:90px"></label>
+      <!-- Profil 3 : extra -->
+      <div class="gsetup-prow" id="gsetup-row3" style="display:none">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="3"> <input type="text" id="gsetup-name3" class="gp-name-inp" value="—"></label>
+        <select class="gsetup-deck" id="gsetup-deck3" onchange="applyDeckColors(3,this.value)"><option value="">— Aucun deck —</option></select>
         <div style="display:flex;gap:3px" id="gsetup-colors3">
           <button class="gcolor-btn" onclick="toggleSetupColor(3,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
           <button class="gcolor-btn" onclick="toggleSetupColor(3,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
           <button class="gcolor-btn" onclick="toggleSetupColor(3,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
           <button class="gcolor-btn" onclick="toggleSetupColor(3,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
           <button class="gcolor-btn" onclick="toggleSetupColor(3,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
+        </div>
+        <button class="gimg-btn" id="gimg-btn3" onclick="pickPlayerBg(3)" title="Image de fond">🖼</button>
+        <button class="gimg-btn" id="gimg-rm3" style="display:none;color:var(--rd2)" onclick="removePlayerBg(3)" title="Supprimer l'image">✕</button>
+        <input type="file" id="gimg-file3" accept="image/*" style="display:none" onchange="handleBgFile(3,this)">
+      </div>
+      <div id="gsetup-cmd-row3" style="display:none;padding:0 0 6px 82px">
+        <input type="text" id="gsetup-cmd3" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+      </div>
+      <!-- Joueur invité (nom libre, sans profil) -->
+      <div class="gsetup-prow" id="gsetup-row4">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="4">
+          <input type="text" id="game-extra-name" placeholder="Joueur invité..." style="flex:1;font-size:.82rem;padding:3px 6px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;max-width:90px"></label>
+        <div style="display:flex;gap:3px" id="gsetup-colors4">
+          <button class="gcolor-btn" onclick="toggleSetupColor(4,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
+          <button class="gcolor-btn" onclick="toggleSetupColor(4,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
+          <button class="gcolor-btn" onclick="toggleSetupColor(4,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
+          <button class="gcolor-btn" onclick="toggleSetupColor(4,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
+          <button class="gcolor-btn" onclick="toggleSetupColor(4,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
         </div>
       </div>
     </div>
@@ -2390,7 +2426,7 @@ function _onUserRole(user,role){
     document.getElementById('um-admin-btn').style.display=role==='admin'?'block':'none';
     userId=user.uid;
     PN[0]=user.displayName||user.email;
-    loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
+    loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();loadFriends();
     fetchRules();
     initNotifications(user.uid);
     _initTradesListener(user.uid);
@@ -2590,6 +2626,175 @@ function confirmDeleteProfile(){
     });
 }
 
+// ===== AMIS =====
+var _friends=[];
+
+function loadFriends(){
+  if(!userId||userId==='default_user')return;
+  db.collection('users').doc(userId).collection('friends').get()
+    .then(function(snap){
+      _friends=[];
+      snap.forEach(function(doc){_friends.push({uid:doc.id,name:doc.data().name||doc.id});});
+      _applyFriendsToAllContexts();
+      _renderFriendList();
+    }).catch(function(){});
+}
+
+function _applyFriendsToAllContexts(){
+  if(!_friends.length)return;
+  var ctxs=['coll','deck','build','game','trade'];
+  ctxs.forEach(function(ctx){
+    var existing=_epSlots[ctx]||[];
+    _friends.forEach(function(f){
+      if(!existing.some(function(ep){return ep.uid===f.uid;})){
+        existing.push({uid:f.uid,name:f.name});
+      }
+    });
+    _epSlots[ctx]=existing;
+  });
+  _saveEpSlots();
+  _friends.forEach(function(f){
+    _loadEpCards(f.uid,function(){
+      _refreshTradeAndGame();
+      renderProfSlots('coll','prof-grid-coll');
+      renderProfSlots('deck','prof-grid-deck');
+      _renderBuildCollBtns();
+    });
+  });
+  _refreshTradeAndGame();
+  renderProfSlots('coll','prof-grid-coll');
+  renderProfSlots('deck','prof-grid-deck');
+  _renderBuildCollBtns();
+}
+
+function openFriendModal(){
+  document.getElementById('friend-modal').style.display='flex';
+  document.getElementById('user-menu-panel').classList.remove('open');
+  _renderFriendList();
+  document.getElementById('friend-search').value='';
+  document.getElementById('friend-search-results').innerHTML='';
+  if(!_allUsers){
+    db.collection('users').where('role','in',['approved','admin']).get().then(function(snap){
+      _allUsers=[];
+      snap.forEach(function(doc){if(doc.id!==userId)_allUsers.push({uid:doc.id,name:doc.data().name||doc.data().email||doc.id});});
+    }).catch(function(){});
+  }
+}
+
+function closeFriendModal(){document.getElementById('friend-modal').style.display='none';}
+
+function friendSearch(q){
+  var res=document.getElementById('friend-search-results');if(!res)return;
+  if(!q||q.length<2){res.innerHTML='';return;}
+  if(!_allUsers){res.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0">Chargement…</div>';return;}
+  var ql=q.toLowerCase();
+  var found=(_allUsers||[]).filter(function(u){return u.name.toLowerCase().indexOf(ql)>=0;});
+  if(!found.length){res.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0">Aucun résultat</div>';return;}
+  res.innerHTML=found.slice(0,8).map(function(u){
+    var isFriend=_friends.some(function(f){return f.uid===u.uid;});
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
+      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(u.name||'?').charAt(0).toUpperCase()+'</div>'
+      +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(u.name)+'</div>'
+      +(isFriend
+        ?'<span style="font-size:.7rem;color:var(--gr2)">✓ Ami</span>'
+        :'<button onclick="sendFriendRequest(\''+u.uid+'\',\''+u.name.replace(/'/g,'&#39;')+'\')" style="padding:3px 10px;border-radius:6px;border:.5px solid var(--gold);background:transparent;color:var(--gold2);font-size:.72rem;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">Ajouter</button>')
+      +'</div>';
+  }).join('');
+}
+
+function _renderFriendList(){
+  var el=document.getElementById('friend-list');if(!el)return;
+  if(!_friends.length){el.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:6px 0;font-style:italic">Aucun ami pour l\'instant</div>';return;}
+  el.innerHTML=_friends.map(function(f){
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
+      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(f.name||'?').charAt(0).toUpperCase()+'</div>'
+      +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(f.name)+'</div>'
+      +'<button onclick="removeFriend(\''+f.uid+'\')" style="padding:3px 8px;border-radius:5px;border:.5px solid rgba(220,80,80,.4);background:transparent;color:var(--rd2);font-size:.7rem;cursor:pointer">Retirer</button>'
+      +'</div>';
+  }).join('');
+}
+
+function sendFriendRequest(toUid,toName){
+  if(!userId)return;
+  var myName=PN[0]||'Inconnu';
+  db.collection('notifications')
+    .where('type','==','friend_request')
+    .where('fromUid','==',userId)
+    .where('targetUid','==',toUid)
+    .where('status','==','pending')
+    .get().then(function(snap){
+      if(!snap.empty){alert('Demande déjà envoyée à '+toName+'.');return;}
+      db.collection('notifications').add({
+        type:'friend_request',
+        title:'Demande d\'ami — '+myName,
+        body:myName+' souhaite t\'ajouter en ami.',
+        fromUid:userId,fromName:myName,
+        targetUid:toUid,
+        status:'pending',
+        createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+        readBy:[]
+      }).then(function(){
+        alert('Demande envoyée à '+toName+' !');
+        document.getElementById('friend-search').value='';
+        document.getElementById('friend-search-results').innerHTML='';
+      });
+    });
+}
+
+function acceptFriendRequest(notifId,fromUid,fromName){
+  if(!userId)return;
+  var myName=PN[0]||'Moi';
+  var batch=db.batch();
+  batch.set(db.collection('users').doc(userId).collection('friends').doc(fromUid),
+    {uid:fromUid,name:fromName,addedAt:firebase.firestore.FieldValue.serverTimestamp()});
+  batch.set(db.collection('users').doc(fromUid).collection('friends').doc(userId),
+    {uid:userId,name:myName,addedAt:firebase.firestore.FieldValue.serverTimestamp()});
+  batch.update(db.collection('notifications').doc(notifId),
+    {status:'accepted',readBy:firebase.firestore.FieldValue.arrayUnion(_currentUid)});
+  batch.commit().then(function(){
+    if(!_friends.some(function(f){return f.uid===fromUid;})){
+      _friends.push({uid:fromUid,name:fromName});
+    }
+    _applyFriendsToAllContexts();
+    _renderFriendList();
+    db.collection('notifications').add({
+      type:'friend_accepted',
+      title:'Ami ajouté !',
+      body:myName+' a accepté ta demande d\'ami.',
+      targetUid:fromUid,
+      createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+      readBy:[]
+    });
+  });
+}
+
+function declineFriendRequest(notifId){
+  db.collection('notifications').doc(notifId).update({
+    status:'declined',
+    readBy:firebase.firestore.FieldValue.arrayUnion(_currentUid)
+  });
+}
+
+function removeFriend(friendUid){
+  if(!confirm('Retirer cet ami ?'))return;
+  var batch=db.batch();
+  batch.delete(db.collection('users').doc(userId).collection('friends').doc(friendUid));
+  batch.delete(db.collection('users').doc(friendUid).collection('friends').doc(userId));
+  batch.commit().then(function(){
+    _friends=_friends.filter(function(f){return f.uid!==friendUid;});
+    _renderFriendList();
+    var ctxs=['coll','deck','build','game','trade'];
+    ctxs.forEach(function(ctx){
+      if(_epSlots[ctx])_epSlots[ctx]=_epSlots[ctx].filter(function(ep){return ep.uid!==friendUid;});
+    });
+    _saveEpSlots();
+    _refreshTradeAndGame();
+    renderProfSlots('coll','prof-grid-coll');
+    renderProfSlots('deck','prof-grid-deck');
+    _renderBuildCollBtns();
+  });
+}
+
 // ===== NOTIFICATIONS =====
 var _notifUnsub=null,_notifDocs=[],_currentUid=null;
 var _tradesUnsub=null,_firebaseTrades=[];
@@ -2641,9 +2846,17 @@ function _renderNotifPanel(){
     var ts=n.createdAt?(n.createdAt.toDate?n.createdAt.toDate():new Date(n.createdAt)):null;
     var when=ts?_notifTimeAgo(ts):'';
     var tradeLink=n.tradeId?'<span style="font-size:.66rem;color:var(--ac);margin-left:4px" onclick="event.stopPropagation();markNotifRead(\''+n.id+'\');goTab(\'trade\')" >→ Voir</span>':'';
+    var friendBtns='';
+    if(n.type==='friend_request'&&n.status==='pending'&&n.targetUid===_currentUid){
+      friendBtns='<div style="display:flex;gap:6px;margin-top:6px">'
+        +'<button onclick="event.stopPropagation();acceptFriendRequest(\''+n.id+'\',\''+_notifEsc(n.fromUid||'')+'\',\''+_notifEsc(n.fromName||'')+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gr2);background:rgba(76,175,128,.12);color:var(--gr2);font-size:.72rem;cursor:pointer">✓ Accepter</button>'
+        +'<button onclick="event.stopPropagation();declineFriendRequest(\''+n.id+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid rgba(220,80,80,.4);background:rgba(220,80,80,.08);color:var(--rd2);font-size:.72rem;cursor:pointer">✕ Refuser</button>'
+        +'</div>';
+    }
     return '<div class="notif-item'+(unread?' unread':'')+'" onclick="markNotifRead(\''+n.id+'\')">'
       +'<div class="notif-item-title">'+_notifEsc(n.title||'')+tradeLink+'</div>'
       +(n.body?'<div class="notif-item-body">'+_notifEsc(n.body)+'</div>':'')
+      +friendBtns
       +'<div class="notif-item-time">'+when+'</div>'
       +'</div>';
   }).join('');
@@ -3253,27 +3466,32 @@ function _renderNtfBtns(){
 }
 
 function _renderGamePlayerRows(){
-  // Build union of all extra profiles across every context (coll, deck, build, trade, game)
-  var seen={};
+  // Priorité aux amis, sinon union de tous les epSlots
   var allExtras=[];
-  Object.keys(_epSlots).forEach(function(ctx){
-    (_epSlots[ctx]||[]).forEach(function(ep){
-      if(!seen[ep.uid]){seen[ep.uid]=true;allExtras.push(ep);}
+  if(_friends.length){
+    _friends.slice(0,3).forEach(function(f){allExtras.push(f);});
+  } else {
+    var seen={};
+    Object.keys(_epSlots).forEach(function(ctx){
+      (_epSlots[ctx]||[]).forEach(function(ep){
+        if(!seen[ep.uid]){seen[ep.uid]=true;allExtras.push(ep);}
+      });
     });
-  });
-  // Rebuild PN and profs for game context using the full union (max 2 extras → 3 total slots)
+    allExtras=allExtras.slice(0,3);
+  }
+  // Rebuild PN and profs pour le contexte game (max 3 amis = 4 joueurs total)
   PN.splice(1);profs.splice(1);
-  allExtras.slice(0,2).forEach(function(ep){
+  allExtras.forEach(function(ep){
     PN.push(ep.name);
     profs.push(_epCards[ep.uid]||null);
   });
-  // Show/hide game setup rows based on available profiles
-  [0,1,2].forEach(function(i){
+  // Show/hide rows 0-3, update editable name inputs
+  [0,1,2,3].forEach(function(i){
     var row=document.getElementById('gsetup-row'+i);
     if(!row)return;
     if(i<PN.length){
-      var span=row.querySelector('.gp-name');
-      if(span)span.textContent=PN[i];
+      var inp=document.getElementById('gsetup-name'+i);
+      if(inp)inp.value=PN[i];
       row.style.display='';
     }else{
       if(i>0)row.style.display='none';
@@ -3286,7 +3504,7 @@ function _renderGamePlayerRows(){
   PN.forEach(function(name,i){
     var opt=document.createElement('option');opt.value=i;opt.textContent=name;sel.appendChild(opt);
   });
-  var aut=document.createElement('option');aut.value='x';aut.textContent='Autre joueur (ci-dessus)';sel.appendChild(aut);
+  var aut=document.createElement('option');aut.value='x';aut.textContent='Joueur invité (ci-dessus)';sel.appendChild(aut);
 }
 
 function loadProfs(){
@@ -6363,6 +6581,13 @@ function initSetupDecks(){
     var sel=document.getElementById('gsetup-deck'+pi);if(!sel)return;
     _buildDeckSelect(sel,pi);
   });
+  // Slot 3 peut être un profil ami — populate son deck select si visible
+  if(profs.length<4){
+    var s3=document.getElementById('gsetup-deck3');
+    if(s3&&document.getElementById('gsetup-row3')&&document.getElementById('gsetup-row3').style.display!=='none'){
+      _buildDeckSelect(s3,3);
+    }
+  }
   htPopulateSel();
 }
 
@@ -6419,21 +6644,23 @@ function startGame(){
   var players=[];
   document.querySelectorAll('.gp-chk:checked').forEach(function(chk){
     var pi=parseInt(chk.value);
-    if(pi<3){
+    if(pi<4){
+      var nameInp=document.getElementById('gsetup-name'+pi);
+      var playerName=(nameInp&&nameInp.value.trim())||PN[pi]||('Joueur '+pi);
       var deckId=(document.getElementById('gsetup-deck'+pi)||{}).value||'';
       var cmdName=deckId==='__autre__'?((document.getElementById('gsetup-cmd'+pi)||{}).value||'').trim():'';
       var deckName=deckId==='__autre__'?(cmdName||'Commandant libre'):deckId&&decks[deckId]?decks[deckId].name+(decks[deckId].owner!==pi?' ('+PN[decks[deckId].owner]+')':''):'';
       var cmdArt=(deckId&&deckId!=='__autre__'&&decks[deckId]&&decks[deckId].commander)?decks[deckId].commander.artImg:null;
-      players.push({name:PN[pi],profIdx:pi,life:startLife,poison:0,dead:false,cmdDmg:{},
+      players.push({name:playerName,profIdx:pi,life:startLife,poison:0,dead:false,cmdDmg:{},
         deckId:deckId==='__autre__'?'':deckId,deckName:deckName,cmdName:cmdName,
         colors:(setupColors[pi]||[]).slice(),
         bg:playerBgImages[pi]||cmdArt||null,
         extraCounters:[],menuOpen:false});
     } else {
-      var nm=(document.getElementById('game-extra-name').value||'').trim()||'Joueur +';
+      var nm=(document.getElementById('game-extra-name').value||'').trim()||'Joueur invité';
       players.push({name:nm,profIdx:-1,life:startLife,poison:0,dead:false,cmdDmg:{},
         deckId:'',deckName:'',
-        colors:(setupColors[3]||[]).slice(),
+        colors:(setupColors[4]||[]).slice(),
         bg:null,extraCounters:[],menuOpen:false});
     }
   });
