@@ -4086,25 +4086,21 @@ function analyzeDeck(){
   var pms=profs.map(function(_,i){return getPMap(i);});
   var hasP=pms.some(function(m){return m.size>0;});
   function mx(c){return Math.max.apply(null,pms.map(function(m){return m.get(getKey(c))||0;}));}
-  var owned=dCards.filter(function(c){return mx(c)>=c.qty;});
-  var partial=dCards.filter(function(c){var x=mx(c);return x>0&&x<c.qty;});
-  var missing=dCards.filter(function(c){return mx(c)===0;});
   var BASICS=['marais','plaine','forêt','foret','montagne','île','ile','swamp','plains','forest','mountain','island'];
   function isBasic(c){return BASICS.indexOf(c.nl)>=0;}
-  // Cartes deck : séparer terrains de base vs non-terrains
-  var totBasic=dCards.filter(isBasic).reduce(function(s,c){return s+c.qty;},0);
-  var totNonBasic=dCards.filter(function(c){return !isBasic(c);}).reduce(function(s,c){return s+c.qty;},0);
-  var tot=totBasic+totNonBasic;
-  // Complètes : copies libres du propriétaire (hors autres decks), terrains de base exclus
   var ownerPm=pms[dOwner];
   var ownerUsage=getDeckUsage(dOwner);
   var nonBasicDCards=dCards.filter(function(c){return !isBasic(c);});
-  var completes=nonBasicDCards.filter(function(c){
-    var has=ownerPm.get(getKey(c))||0;
-    var inOtherDecks=(ownerUsage.get(c.nl)||{qty:0}).qty;
-    return Math.max(0,has-inOtherDecks)>=c.qty;
-  });
-  var missingNonBasic=nonBasicDCards.filter(function(c){return (ownerPm.get(getKey(c))||0)===0;});
+  function ownerFree(c){var has=ownerPm.get(getKey(c))||0;var used=(ownerUsage.get(c.nl)||{qty:0}).qty;return Math.max(0,has-used);}
+  var owned=dCards.filter(function(c){return mx(c)>=c.qty;});
+  var partial=nonBasicDCards.filter(function(c){var f=ownerFree(c);return f>0&&f<c.qty;});
+  var missing=dCards.filter(function(c){return mx(c)===0;});
+  // Cartes deck : séparer terrains de base vs non-terrains
+  var totBasic=dCards.filter(isBasic).reduce(function(s,c){return s+c.qty;},0);
+  var totNonBasic=nonBasicDCards.reduce(function(s,c){return s+c.qty;},0);
+  var tot=totBasic+totNonBasic;
+  var completes=nonBasicDCards.filter(function(c){return ownerFree(c)>=c.qty;});
+  var missingNonBasic=nonBasicDCards.filter(function(c){return ownerFree(c)===0;});
   var pct=nonBasicDCards.length>0?Math.round(completes.length/nonBasicDCards.length*100):0;
   var dn=document.getElementById('dnamein').value.trim()||'Deck';
   document.getElementById('dreslbl').textContent=dn;
