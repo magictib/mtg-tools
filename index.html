@@ -804,6 +804,10 @@ body.mana-cursor{cursor:none}
     <input type="text" id="friend-search" placeholder="Nom du joueur…" oninput="friendSearch(this.value)"
       style="width:100%;font-size:.82rem;padding:6px 10px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;margin-bottom:6px">
     <div id="friend-search-results" style="margin-bottom:.75rem"></div>
+    <div id="friend-pending-section" style="display:none;margin-bottom:.75rem">
+      <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">DEMANDES EN ATTENTE</div>
+      <div id="friend-pending-list"></div>
+    </div>
     <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">MES AMIS</div>
     <div id="friend-list"></div>
   </div>
@@ -2649,15 +2653,33 @@ function confirmDeleteProfile(){
 
 // ===== AMIS =====
 var _friends=[];
+var _pendingOutRequests=[]; // [{uid,name}] — demandes envoyées, persistées localStorage
+
+function _savePendingOutReqs(){
+  try{localStorage.setItem('mtg_pending_out_reqs',JSON.stringify(_pendingOutRequests));}catch(e){}
+}
+function _loadPendingOutReqs(){
+  try{_pendingOutRequests=JSON.parse(localStorage.getItem('mtg_pending_out_reqs')||'[]');}catch(e){_pendingOutRequests=[];}
+}
+function _isPendingOut(uid){return _pendingOutRequests.some(function(r){return r.uid===uid;});}
+
 
 function loadFriends(){
   if(!userId||userId==='default_user')return;
+  _loadPendingOutReqs();
   db.collection('users').doc(userId).collection('friends').get()
     .then(function(snap){
       _friends=[];
       snap.forEach(function(doc){_friends.push({uid:doc.id,name:doc.data().name||doc.id});});
+      // Purge les demandes désormais acceptées (l'ami existe dans _friends)
+      var before=_pendingOutRequests.length;
+      _pendingOutRequests=_pendingOutRequests.filter(function(r){
+        return !_friends.some(function(f){return f.uid===r.uid;});
+      });
+      if(_pendingOutRequests.length!==before)_savePendingOutReqs();
       _applyFriendsToAllContexts();
       _renderFriendList();
+      _renderPendingOutRequests();
     }).catch(function(){});
 }
 
@@ -2692,6 +2714,7 @@ function openFriendModal(){
   document.getElementById('friend-modal').style.display='flex';
   document.getElementById('user-menu-panel').classList.remove('open');
   _renderFriendList();
+  _renderPendingOutRequests();
   document.getElementById('friend-search').value='';
   var res=document.getElementById('friend-search-results');
   if(_allUsers){
@@ -2714,12 +2737,19 @@ function _renderUserList(users,container){
   if(!sorted.length){container.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0;font-style:italic">Aucun utilisateur inscrit</div>';return;}
   container.innerHTML=sorted.map(function(u){
     var isFriend=_friends.some(function(f){return f.uid===u.uid;});
+    var isPending=_isPendingOut(u.uid);
+    var action;
+    if(isFriend){
+      action='<span style="font-size:.7rem;color:var(--gr2)">✓ Ami</span>';
+    } else if(isPending){
+      action='<span style="font-size:.68rem;color:var(--tx3)">⏳ En attente</span>';
+    } else {
+      action='<button onclick="sendFriendRequest(\''+u.uid+'\',\''+u.name.replace(/'/g,'&#39;')+'\')" style="padding:3px 10px;border-radius:6px;border:.5px solid var(--gold);background:transparent;color:var(--gold2);font-size:.72rem;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">Ajouter</button>';
+    }
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
-      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(u.name||'?').charAt(0).toUpperCase()+'</div>'
+      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:'+(isFriend?'var(--gold2)':'var(--tx3)')+';font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(u.name||'?').charAt(0).toUpperCase()+'</div>'
       +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(u.name)+'</div>'
-      +(isFriend
-        ?'<span style="font-size:.7rem;color:var(--gr2)">✓ Ami</span>'
-        :'<button onclick="sendFriendRequest(\''+u.uid+'\',\''+u.name.replace(/'/g,'&#39;')+'\')" style="padding:3px 10px;border-radius:6px;border:.5px solid var(--gold);background:transparent;color:var(--gold2);font-size:.72rem;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">Ajouter</button>')
+      +action
       +'</div>';
   }).join('');
 }
@@ -2746,31 +2776,60 @@ function _renderFriendList(){
   }).join('');
 }
 
+function _renderPendingOutRequests(){
+  var sect=document.getElementById('friend-pending-section');
+  var list=document.getElementById('friend-pending-list');
+  if(!sect||!list)return;
+  if(!_pendingOutRequests.length){sect.style.display='none';return;}
+  sect.style.display='block';
+  list.innerHTML=_pendingOutRequests.map(function(r){
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
+      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(r.name||'?').charAt(0).toUpperCase()+'</div>'
+      +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(r.name)+'</div>'
+      +'<span style="font-size:.68rem;color:var(--tx3);margin-right:4px">⏳ En attente</span>'
+      +'<button onclick="cancelFriendRequest(\''+r.uid+'\')" style="padding:3px 8px;border-radius:5px;border:.5px solid rgba(220,80,80,.4);background:transparent;color:var(--rd2);font-size:.7rem;cursor:pointer">Annuler</button>'
+      +'</div>';
+  }).join('');
+}
+
+function cancelFriendRequest(toUid){
+  _pendingOutRequests=_pendingOutRequests.filter(function(r){return r.uid!==toUid;});
+  _savePendingOutReqs();
+  // Mettre le statut à 'cancelled' côté Firestore (best-effort, pas de composite index)
+  db.collection('notifications').where('fromUid','==',userId).where('targetUid','==',toUid).get()
+    .then(function(snap){
+      snap.forEach(function(doc){
+        if(doc.data().type==='friend_request'&&doc.data().status==='pending')
+          doc.ref.update({status:'cancelled'});
+      });
+    }).catch(function(){});
+  _renderPendingOutRequests();
+  var res=document.getElementById('friend-search-results');
+  if(res&&_allUsers)_renderUserList(_allUsers,res);
+}
+
 function sendFriendRequest(toUid,toName){
   if(!userId)return;
+  // Vérification locale immédiate — pas de requête Firestore
+  if(_friends.some(function(f){return f.uid===toUid;})){alert(toName+' est déjà ton ami.');return;}
+  if(_isPendingOut(toUid)){alert('Demande déjà envoyée à '+toName+'.');return;}
   var myName=PN[0]||'Inconnu';
-  db.collection('notifications')
-    .where('type','==','friend_request')
-    .where('fromUid','==',userId)
-    .where('targetUid','==',toUid)
-    .where('status','==','pending')
-    .get().then(function(snap){
-      if(!snap.empty){alert('Demande déjà envoyée à '+toName+'.');return;}
-      db.collection('notifications').add({
-        type:'friend_request',
-        title:'Demande d\'ami — '+myName,
-        body:myName+' souhaite t\'ajouter en ami.',
-        fromUid:userId,fromName:myName,
-        targetUid:toUid,
-        status:'pending',
-        createdAt:firebase.firestore.FieldValue.serverTimestamp(),
-        readBy:[]
-      }).then(function(){
-        alert('Demande envoyée à '+toName+' !');
-        document.getElementById('friend-search').value='';
-        document.getElementById('friend-search-results').innerHTML='';
-      });
-    });
+  db.collection('notifications').add({
+    type:'friend_request',
+    title:'Demande d\'ami — '+myName,
+    body:myName+' souhaite t\'ajouter en ami.',
+    fromUid:userId,fromName:myName,
+    targetUid:toUid,toName:toName,
+    status:'pending',
+    createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+    readBy:[]
+  }).then(function(){
+    _pendingOutRequests.push({uid:toUid,name:toName});
+    _savePendingOutReqs();
+    _renderPendingOutRequests();
+    var res=document.getElementById('friend-search-results');
+    if(res&&_allUsers)_renderUserList(_allUsers,res);
+  }).catch(function(e){alert('Erreur : '+e.message);});
 }
 
 function acceptFriendRequest(notifId,fromUid,fromName){
