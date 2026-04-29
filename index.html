@@ -3489,18 +3489,31 @@ function _refreshTradeAndGame(){
 }
 
 function _renderNtfBtns(){
-  _syncProfsForCtx('trade');
+  // Utilise les amis comme source principale, sinon epSlots trade
+  var extras=_friends.length
+    ? _friends
+    : (_epSlots['trade']||[]).map(function(ep){return {uid:ep.uid,name:ep.name};});
+  // Rebuild PN/profs pour le contexte trade
+  PN.splice(1);profs.splice(1);
+  extras.forEach(function(f){
+    PN.push(f.name);
+    profs.push(_epCards[f.uid]||null);
+  });
   var fb=document.getElementById('ntf-from-btns');
   var tb=document.getElementById('ntf-to-btns');
   if(!fb||!tb)return;
   ntfFrom=0;
   fb.innerHTML='<span class="prof-sel active" style="cursor:default">'+esc(PN[0]||'Vous')+'</span>';
-  var tbtns=PN.map(function(n,i){
+  if(!extras.length){
+    tb.innerHTML='<span style="color:var(--tx3);font-size:.78rem;font-style:italic">Aucun ami — utilise le bouton 👥 pour en ajouter</span>';
+    return;
+  }
+  tb.innerHTML=PN.map(function(n,i){
     if(i===0)return '';
     return '<button class="prof-sel'+(ntfTo===i?' active':'')+'" onclick="ntfSetTo('+i+',this)">'+esc(n)+'</button>';
   }).join('');
-  var plus='<button onclick="openProfilePicker(\'trade\')" style="padding:2px 8px;border-radius:6px;border:.5px dashed var(--bd2);background:transparent;cursor:pointer;color:var(--tx3);font-size:.85rem;line-height:1.6" title="Ajouter un profil">＋</button>';
-  tb.innerHTML=tbtns+plus;
+  // Auto-select premier ami si rien de sélectionné
+  if(ntfTo===0&&PN.length>1)ntfSetTo(1,tb.querySelector('.prof-sel'));
 }
 
 function _renderGamePlayerRows(){
