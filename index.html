@@ -4455,10 +4455,11 @@ function renderDeck(){
   var filtered=dCards.filter(function(c){
     if(srch&&c.nl.indexOf(srch)<0)return false;
     var x=mx(c);
-    if(dFMode==='ok')return x>=c.qty;
-    if(dFMode==='pa')return x>0&&x<c.qty;
-    if(dFMode==='no')return x===0;
-    if(dFMode==='borrow')return x<c.qty&&pms.some(function(m){return m.get(getKey(c))>0;});
+    var f0=ownerFreeR(c);
+    if(dFMode==='ok')return f0>=c.qty;
+    if(dFMode==='pa')return f0>0&&f0<c.qty;
+    if(dFMode==='no')return f0===0;
+    if(dFMode==='borrow')return f0<c.qty&&pms.some(function(m){return m.get(getKey(c))>0;});
     if(dFMode==='cmd'){var still=c.qty-x;return still>0&&!pms.some(function(m){return (m.get(getKey(c))||0)>=c.qty;});}
     return true;
   });
@@ -4479,9 +4480,9 @@ function renderDeck(){
       html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
       sc.forEach(function(card){
         var k=getKey(card);
-        var x=Math.max.apply(null,pms.map(function(m){return m.get(k)||0;}));
-        var bc=x===0?'var(--rd2)':x<card.qty?'var(--am)':'var(--gr2)';
-        var statusTxt=x===0?'<span style="color:var(--rd2)">✗ Manquante</span>':x<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
+        var fi=ownerFreeR(card);
+        var bc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
+        var statusTxt=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
         var img=dImgCache[card.nl];
         var cardPrice=allPriceMap[card.nl]||0;
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
@@ -4510,7 +4511,7 @@ function renderDeck(){
         var f=ownerFreeR(card);var rc='drow'+(f===0?' rno':f<card.qty?' rpa':' rok');
         var pc=qs.map(function(q,i){
           if(pms[i].size===0)return '<div class="pc pem">—</div>';
-          var uentry=usages[i].get(card.nl)||{qty:0,decks:[]};
+          var uentry=(i===dOwner?_owUsgR:usages[i]).get(card.nl)||{qty:0,decks:[]};
           var inDeck=uentry.qty;
           var free=Math.max(0,q-inDeck);
           var tip=inDeck>0?'Dans : '+uentry.decks.join(', '):'';
