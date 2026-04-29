@@ -2693,25 +2693,26 @@ function openFriendModal(){
   document.getElementById('user-menu-panel').classList.remove('open');
   _renderFriendList();
   document.getElementById('friend-search').value='';
-  document.getElementById('friend-search-results').innerHTML='';
-  if(!_allUsers){
+  var res=document.getElementById('friend-search-results');
+  if(_allUsers){
+    _renderUserList(_allUsers,res);
+  } else {
+    res.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0">Chargement…</div>';
     db.collection('users').where('role','in',['approved','admin']).get().then(function(snap){
       _allUsers=[];
       snap.forEach(function(doc){if(doc.id!==userId)_allUsers.push({uid:doc.id,name:doc.data().name||doc.data().email||doc.id});});
-    }).catch(function(){});
+      _renderUserList(_allUsers,res);
+    }).catch(function(){res.innerHTML='';});
   }
 }
 
 function closeFriendModal(){document.getElementById('friend-modal').style.display='none';}
 
-function friendSearch(q){
-  var res=document.getElementById('friend-search-results');if(!res)return;
-  if(!q||q.length<2){res.innerHTML='';return;}
-  if(!_allUsers){res.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0">Chargement…</div>';return;}
-  var ql=q.toLowerCase();
-  var found=(_allUsers||[]).filter(function(u){return u.name.toLowerCase().indexOf(ql)>=0;});
-  if(!found.length){res.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0">Aucun résultat</div>';return;}
-  res.innerHTML=found.slice(0,8).map(function(u){
+function _renderUserList(users,container){
+  if(!container)return;
+  var sorted=users.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
+  if(!sorted.length){container.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0;font-style:italic">Aucun utilisateur inscrit</div>';return;}
+  container.innerHTML=sorted.map(function(u){
     var isFriend=_friends.some(function(f){return f.uid===u.uid;});
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
       +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(u.name||'?').charAt(0).toUpperCase()+'</div>'
@@ -2721,6 +2722,16 @@ function friendSearch(q){
         :'<button onclick="sendFriendRequest(\''+u.uid+'\',\''+u.name.replace(/'/g,'&#39;')+'\')" style="padding:3px 10px;border-radius:6px;border:.5px solid var(--gold);background:transparent;color:var(--gold2);font-size:.72rem;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">Ajouter</button>')
       +'</div>';
   }).join('');
+}
+
+function friendSearch(q){
+  var res=document.getElementById('friend-search-results');if(!res)return;
+  if(!_allUsers){return;}
+  if(!q){_renderUserList(_allUsers,res);return;}
+  var ql=q.toLowerCase();
+  var found=_allUsers.filter(function(u){return u.name.toLowerCase().indexOf(ql)>=0;});
+  if(!found.length){res.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0">Aucun résultat</div>';return;}
+  _renderUserList(found,res);
 }
 
 function _renderFriendList(){
