@@ -738,14 +738,24 @@ body.mana-cursor{cursor:none}
 .ar-mana-pip{width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:bold;color:#fff;border:1.5px solid rgba(255,255,255,.25);line-height:1;font-family:monospace;flex-shrink:0}
 .ar-mana-pip.W{background:#c8b870;color:#2a2000}.ar-mana-pip.U{background:#2050c0}.ar-mana-pip.B{background:#4a1080;color:#ddd}.ar-mana-pip.R{background:#c03010}.ar-mana-pip.G{background:#186028}.ar-mana-pip.C{background:#555;color:#ccc}
 /* Stack panel */
-#ar-stack-panel{position:absolute;left:50%;transform:translateX(-50%);bottom:215px;z-index:115;display:none;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+#ar-stack-panel{position:absolute;left:50%;transform:translateX(-50%);bottom:215px;z-index:115;display:none;flex-direction:column;align-items:center;pointer-events:none;width:190px;box-shadow:0 16px 48px rgba(0,0,0,.85)}
 #ar-stack-panel.on{display:flex;pointer-events:auto}
-.ar-stack-header{font-family:'Goudy Mediaeval',serif;font-size:.72rem;color:var(--gold2);text-align:center;letter-spacing:.08em;padding:2px 10px;background:rgba(0,0,0,.75);border-radius:5px;border:1px solid rgba(201,168,76,.25)}
-.ar-stack-item{background:rgba(8,14,30,.92);border:1px solid rgba(201,168,76,.35);border-radius:7px;padding:4px 10px;display:flex;align-items:center;gap:7px;font-size:.72rem;min-width:170px;max-width:250px;box-shadow:0 2px 10px rgba(0,0,0,.7)}
-.ar-stack-item.player{border-color:rgba(80,200,80,.55);color:#90ff90}
-.ar-stack-item.bot{border-color:rgba(80,140,255,.55);color:#90c0ff}
-.ar-stack-item.trigger{border-color:rgba(200,160,80,.55);color:#ffcc80}
-.ar-stack-actions{display:flex;gap:6px}
+.ar-stack-header{font-family:'Goudy Mediaeval',serif;font-size:.72rem;color:var(--gold2);text-align:center;letter-spacing:.08em;padding:3px 10px;background:rgba(0,0,0,.88);border:1px solid rgba(201,168,76,.4);border-radius:8px 8px 0 0;width:100%;box-sizing:border-box}
+.ar-stack-top{background:rgba(8,14,30,.97);border:1px solid rgba(201,168,76,.4);border-top:none;width:100%;display:flex;flex-direction:column;align-items:center;padding:8px 8px 6px;gap:4px;box-sizing:border-box}
+.ar-stack-top.player{border-color:rgba(80,200,80,.6)}.ar-stack-top.bot{border-color:rgba(80,140,255,.6)}.ar-stack-top.trigger{border-color:rgba(200,160,80,.6)}
+.ar-stack-top-name{font-family:'Goudy Mediaeval',serif;font-size:.8rem;color:var(--gold2);text-align:center;line-height:1.2}
+.ar-stack-top-caster{font-size:.63rem;color:var(--tx3);text-align:center}
+.ar-stack-rest{background:rgba(8,14,30,.88);border:1px solid rgba(201,168,76,.22);border-top:none;width:100%;box-sizing:border-box}
+.ar-stack-item{padding:3px 8px;font-size:.67rem;display:flex;align-items:center;gap:5px;border-bottom:.5px solid rgba(255,255,255,.05)}
+.ar-stack-item.player{color:#90ff90}.ar-stack-item.bot{color:#90c0ff}.ar-stack-item.trigger{color:#ffcc80}
+.ar-stack-actions{display:flex;width:100%;border:1px solid rgba(201,168,76,.3);border-top:none;overflow:hidden}
+.ar-stack-actions button{flex:1;padding:8px 4px;font-size:.73rem;border:none;cursor:pointer;font-family:inherit;transition:background .12s}
+.ar-stack-actions button:first-child{background:rgba(30,35,50,.97);color:var(--tx2);border-right:.5px solid rgba(255,255,255,.08)}
+.ar-stack-actions button:first-child:hover{background:rgba(60,65,85,.97);color:var(--tx)}
+.ar-stack-actions button:last-child{background:rgba(201,168,76,.12);color:var(--gold2)}
+.ar-stack-actions button:last-child:hover{background:rgba(201,168,76,.28);color:#ffe090}
+#ar-stack-timer-bar{width:100%;height:5px;background:rgba(0,0,0,.6);border:1px solid rgba(201,168,76,.18);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;display:none}
+#ar-stack-timer-fill{height:100%;background:linear-gradient(90deg,rgba(201,168,76,.7),rgba(255,210,80,.95));width:100%;transition:width linear}
 /* Priority bar */
 #ar-priority-bar{display:none;position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:120;background:rgba(0,0,0,.88);border:1px solid rgba(201,168,76,.4);border-top:none;border-radius:0 0 9px 9px;padding:4px 12px;font-size:.72rem;color:var(--gold2);white-space:nowrap;font-family:'Goudy Mediaeval',serif;gap:7px;align-items:center}
 #ar-priority-bar.on{display:flex}
@@ -2247,9 +2257,10 @@ body.mana-cursor{cursor:none}
     <div class="ar-stack-header">⚡ Pile</div>
     <div id="ar-stack-items"></div>
     <div class="ar-stack-actions">
-      <button class="ar-btn" onclick="arPassPriority()" style="padding:3px 9px;font-size:.7rem">Passer</button>
-      <button class="ar-btn ar-btn-gold" onclick="arForceResolveTop()" style="padding:3px 9px;font-size:.7rem">Résoudre ↓</button>
+      <button onclick="arPassPriority()">Passer</button>
+      <button onclick="arForceResolveTop()">Résoudre ↓</button>
     </div>
+    <div id="ar-stack-timer-bar"><div id="ar-stack-timer-fill"></div></div>
   </div>
 
   <!-- Bot result overlay -->
@@ -6309,22 +6320,19 @@ function arOpenZone(zone){
   else{
     cont.innerHTML=arr.map(function(c){
       var from=zone==='grave'?'grave':'exile';
-      return '<div style="position:relative;display:inline-block">'
-        +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'" title="'+esc(c.name)+'" style="width:80px;height:112px;border-radius:6px;cursor:pointer;object-fit:cover;display:block">'
-        +'<div class="ar-cmenu" style="display:none;position:absolute;left:0;bottom:calc(100% + 4px)">'
-        +'<button onclick="arMv(\''+c.id+'\',\''+from+'\',\'hand\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">← Retour main</button>'
-        +'<button onclick="arMv(\''+c.id+'\',\''+from+'\',\'field\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">▶ Mettre en jeu</button>'
-        +(from==='grave'?'<button onclick="arMv(\''+c.id+'\',\'grave\',\'exile\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">⬡ Exiler</button>':'')
-        +'<button onclick="arMv(\''+c.id+'\',\''+from+'\',\'lib-top\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">↑ Dessus deck</button>'
+      return '<div style="display:inline-flex;flex-direction:column;align-items:stretch;width:100px;margin:4px;vertical-align:top">'
+        +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'" title="'+esc(c.name)+'" style="width:100px;height:140px;border-radius:6px 6px 0 0;object-fit:cover;display:block">'
+        +'<div style="background:rgba(8,12,22,.98);border:1px solid rgba(201,168,76,.22);border-top:none;border-radius:0 0 8px 8px;overflow:hidden;display:flex;flex-direction:column">'
+        +'<button class="ar-cmenu-btn ar-cmenu-mv" onclick="arMv(\''+c.id+'\',\''+from+'\',\'hand\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">← Main</button>'
+        +'<button class="ar-cmenu-btn ar-cmenu-mv" onclick="arMv(\''+c.id+'\',\''+from+'\',\'field\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">▶ En jeu</button>'
+        +(from==='grave'?'<button class="ar-cmenu-btn ar-cmenu-mv" onclick="arMv(\''+c.id+'\',\'grave\',\'exile\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">⬡ Exiler</button>':'')
+        +'<button class="ar-cmenu-btn ar-cmenu-mv" onclick="arMv(\''+c.id+'\',\''+from+'\',\'lib-top\');document.getElementById(\'ar-zone-ov\').style.display=\'none\'">↑ Deck</button>'
         +'</div>'
         +'</div>';
     }).join('');
-    // Lazy load images + hover menu toggle
+    // Lazy load card images
     cont.querySelectorAll('img').forEach(function(img){
       _arLoadImg(img.dataset.name,img);
-      var parent=img.parentNode;
-      var menu=parent.querySelector('.ar-cmenu');
-      img.onclick=function(){menu.style.display=menu.style.display==='block'?'none':'block';};
     });
   }
   document.getElementById('ar-zone-ov').style.display='flex';
@@ -7064,6 +7072,7 @@ var _arBotTurnActive=false;
 var _arBotLandPlayed=false;
 var _arBlockingMode=false;
 var _arBotBlockerMap={};
+var _arStackTimerHandle=null;
 
 // ----- Card data fetch -----
 function _arFetchCardData(names,cb){
@@ -7142,6 +7151,32 @@ function _arPoolPay(cost){
   arRenderManaPool();
 }
 
+// ----- Stack timer -----
+function _arStartStackTimer(duration,cb){
+  _arCancelStackTimer();
+  var bar=document.getElementById('ar-stack-timer-bar');
+  var fill=document.getElementById('ar-stack-timer-fill');
+  if(bar&&fill){
+    bar.style.display='block';
+    fill.style.transition='none';fill.style.width='100%';
+    fill.offsetWidth; // force reflow
+    fill.style.transition='width '+duration+'ms linear';
+    fill.style.width='0%';
+  }
+  _arStackTimerHandle=setTimeout(function(){
+    _arStackTimerHandle=null;
+    if(bar)bar.style.display='none';
+    cb();
+  },duration);
+}
+function _arCancelStackTimer(){
+  if(_arStackTimerHandle){clearTimeout(_arStackTimerHandle);_arStackTimerHandle=null;}
+  var bar=document.getElementById('ar-stack-timer-bar');
+  var fill=document.getElementById('ar-stack-timer-fill');
+  if(bar)bar.style.display='none';
+  if(fill){fill.style.transition='none';fill.style.width='100%';}
+}
+
 // ----- Stack engine -----
 function _arStackPush(item){
   _arStack.push(item);_arBotPassedStack=false;_arPlayerPassedStack=false;
@@ -7164,11 +7199,12 @@ function _arSetPriority(who){
 }
 function arPassPriority(){
   if(_arPriorityHolder!=='player')return;
+  _arCancelStackTimer();
   _arPlayerPassedStack=true;
   if(_arBotPassedStack){_arResolveTop();}
   else{_arSetPriority('bot');}
 }
-function arForceResolveTop(){_arResolveTop();}
+function arForceResolveTop(){_arCancelStackTimer();_arResolveTop();}
 function _arBotRespondToStack(){
   if(_arPriorityHolder!=='bot'||!_arBot)return;
   _arBotPassedStack=true;
@@ -7191,11 +7227,28 @@ function arRenderStack(){
   if(!panel||!items)return;
   if(!_arBot||!_arStack.length){panel.classList.remove('on');return;}
   panel.classList.add('on');
-  items.innerHTML=_arStack.slice().reverse().map(function(item){
-    var cls='ar-stack-item '+(item.caster==='player'?'player':item.type==='triggered'?'trigger':'bot');
-    var icon=item.caster==='player'?'⚡':'🤖';
-    return'<div class="'+cls+'">'+icon+' <strong>'+esc(item.name)+'</strong> <span style="color:var(--tx3);font-size:.65rem">'+(item.caster==='player'?'Vous':'IA')+'</span></div>';
-  }).join('');
+  var top=_arStack[_arStack.length-1];
+  var rest=_arStack.slice(0,-1).reverse();
+  var topCls=top.caster==='player'?'player':top.type==='triggered'?'trigger':'bot';
+  var topIcon=top.caster==='player'?'⚡':'🤖';
+  var topLbl=top.caster==='player'?'Vous':'IA';
+  var imgId='_arsti_'+top.id;
+  var html='<div class="ar-stack-top '+topCls+'">'
+    +'<img id="'+imgId+'" src="'+_AR_BACK+'" style="width:88px;height:123px;border-radius:7px;object-fit:cover;display:block">'
+    +'<div class="ar-stack-top-name">'+esc(top.name)+'</div>'
+    +'<div class="ar-stack-top-caster">'+topIcon+' '+topLbl+'</div>'
+    +'</div>';
+  if(rest.length){
+    html+='<div class="ar-stack-rest">'
+      +rest.map(function(item){
+        var cls='ar-stack-item '+(item.caster==='player'?'player':item.type==='triggered'?'trigger':'bot');
+        var icon=item.caster==='player'?'⚡':'🤖';
+        return'<div class="'+cls+'">'+icon+' '+esc(item.name)+'</div>';
+      }).join('')+'</div>';
+  }
+  items.innerHTML=html;
+  var img=document.getElementById(imgId);
+  if(img)_arLoadImg(top.name,img);
 }
 
 // ----- Oracle text parsing & effect resolution -----
@@ -7669,15 +7722,13 @@ function _arBotCastCard(card,done){
   _arBotLog('Bot: Lance '+card.name);
   _arStackPush(si);
   arBotRenderOpponent();
-  // Player gets priority; if player passes, we continue bot's sequence via done callback
-  // To not deadlock, we auto-pass for player after a brief delay in bot turn
-  clearTimeout(_arBotTimer);
-  _arBotTimer=setTimeout(function(){
+  // Show a visible countdown — player can click Résoudre or Passer; timer auto-passes if idle
+  _arStartStackTimer(5000,function(){
     if(_arStack.length&&_arPriorityHolder==='player'&&_arBotTurnActive){
-      arPassPriority();// Simulate player passing during bot main phase
+      arPassPriority();
     }
     done();
-  },1200);
+  });
 }
 
 // ----- Combat (bot attacks) -----
