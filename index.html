@@ -11406,6 +11406,42 @@ function setActiveMana(type){
 var _anaData={}; // nl -> {cmc, typeLine, oracleText, colors, colorIdentity, name, isLand, tags}
 var _anaState=null;
 
+// Pool de staples MTG pre-charges au 1er Analyse (suggestions / optimizer)
+var _anaStaples=[
+  // Colorless ramp / signets
+  "Sol Ring","Arcane Signet","Mind Stone","Fellwar Stone","Commander's Sphere",
+  "Thought Vessel","Mana Vault","Chromatic Lantern","Wayfarer's Bauble",
+  "Talisman of Curiosity","Talisman of Dominance","Talisman of Hierarchy",
+  "Talisman of Indulgence","Talisman of Progress","Talisman of Resilience",
+  // Colorless draw / utility
+  "Sensei's Divining Top","Mind's Eye","Skullclamp","Solemn Simulacrum",
+  // Colorless removal
+  "Meteor Golem","Spine of Ish Sah","All Is Dust",
+  // White
+  "Swords to Plowshares","Path to Exile","Generous Gift","Wrath of God",
+  "Austere Command","Smothering Tithe","Esper Sentinel","Approach of the Second Sun",
+  "Teferi's Protection","Farewell",
+  // Blue
+  "Counterspell","Negate","Swan Song","Mana Drain","Force of Will",
+  "Cyclonic Rift","Rhystic Study","Mystic Remora","Brainstorm","Ponder",
+  "Preordain","Expropriate","Pongify","Rapid Hybridization",
+  // Black
+  "Damnation","Toxic Deluge","Phyrexian Arena","Demonic Tutor","Dark Ritual",
+  "Reanimate","Animate Dead","Vampiric Tutor","Torment of Hailfire","Bloodchief Ascension",
+  // Red
+  "Vandalblast","Chaos Warp","Lightning Bolt","Faithless Looting",
+  "Comet Storm","Wheel of Fortune",
+  // Green
+  "Cultivate","Kodama's Reach","Rampant Growth","Three Visits","Nature's Lore",
+  "Farseek","Sylvan Library","Beast Whisperer","Sylvan Tutor","Worldly Tutor",
+  "Eternal Witness","Craterhoof Behemoth","Avenger of Zendikar","Triumph of the Hordes",
+  // Multicolor staples
+  "Anguished Unmaking","Assassin's Trophy","Putrefy","Mortify","Lightning Helix",
+  "Fierce Guardianship","Dovin's Veto","Boros Charm","Izzet Charm",
+  // Wincon / artifacts
+  "Aetherflux Reservoir","Helm of the Host"
+];
+
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object')_anaData=__aP;}}catch(e){}
 function _anaSaveCache(){try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
@@ -11649,12 +11685,22 @@ function anaAnalyze(){
     if(deckNls.indexOf(cmdNl)<0)deckNls.push(cmdNl);
     fallback.push({nl:cmdNl,name:deck.commander.name});
   }
-  var toFetch=deckNls.filter(function(nl){return !_anaData[nl];});
+  // Pre-fetch staples si cache incomplet (pool pour suggestions/optimizer)
+  var allFetchNls=deckNls.slice();
+  var allFallback=fallback.slice();
+  var stapleFb=_anaStaples.map(function(n){return {nl:n.toLowerCase(),name:n};});
+  var stapleNlsToFetch=stapleFb.filter(function(s){return !_anaData[s.nl];}).map(function(s){return s.nl;});
+  if(stapleNlsToFetch.length){
+    allFetchNls=allFetchNls.concat(stapleNlsToFetch);
+    allFallback=allFallback.concat(stapleFb);
+    console.log('[Analyse] Pré-chargement de '+stapleNlsToFetch.length+' staples pour le pool de suggestions');
+  }
+  var toFetch=allFetchNls.filter(function(nl){return !_anaData[nl];});
   st.textContent=toFetch.length?'⏳ Récupération de '+toFetch.length+' carte(s) sur Scryfall…':'✓ Cache complet — analyse en cours…';
-  anaFetchMissing(deckNls,fallback,function(){
+  anaFetchMissing(allFetchNls,allFallback,function(){
     var found=deckNls.filter(function(nl){return _anaData[nl];}).length;
     var miss=deckNls.length-found;
-    st.textContent=miss?'⚠ '+found+'/'+deckNls.length+' cartes identifiées ('+miss+' introuvables — voir console F12)':'✓ '+found+'/'+deckNls.length+' cartes analysées';
+    st.textContent=miss?'⚠ '+found+'/'+deckNls.length+' cartes du deck identifiées ('+miss+' introuvables — voir console F12)':'✓ '+found+'/'+deckNls.length+' cartes du deck analysées';
     try{anaRender(deckId);}catch(e){console.error('[Analyse] Erreur de rendu',e);st.textContent='❌ Erreur : '+e.message;}
   });
 }
@@ -11870,7 +11916,7 @@ function anaRender(deckId){
     html+='</div>';
   });
   html+='</div>';
-  html+='<div class="card"><div class="lbl">🪓 Candidates à couper</div>';
+  html+='<div class="card"><div class="lbl">🪓 Cartes les moins efficaces</div>';
   if(!bottomRows.length)html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune donnée</div>';
   bottomRows.forEach(function(r,i){
     html+='<div class="ana-card-row">';
@@ -11881,9 +11927,9 @@ function anaRender(deckId){
   html+='</div></div>';
 
   // Suggestions ajout (depuis cache)
-  html+='<div class="card"><div class="lbl">💡 Suggestions d\'ajout (cartes en cache, dans l\'identité couleur)</div>';
+  html+='<div class="card"><div class="lbl">💡 Suggestions d\'ajout (staples MTG + cache, filtrés par identité couleur)</div>';
   if(!topSuggestions.length){
-    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le cache d\'analyse est vide ou ne contient aucune carte compatible. Analyse d\'autres decks pour enrichir le pool de suggestions.</div>';
+    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune suggestion compatible avec l\'identité couleur du deck. Le pool s\'enrichit à mesure que vous analysez d\'autres decks.</div>';
   } else {
     topSuggestions.forEach(function(s,i){
       var firstType=(s.meta.typeLine||'').split(' — ')[0];
