@@ -3962,15 +3962,17 @@ function renderDBar(){
   _syncProfsForCtx('deck');
   _populateDeckListFilter();
   var bar=document.getElementById('dprofs');
-  var ids=Object.keys(decks);
-  if(!ids.length){bar.innerHTML='<div style="color:var(--tx3);font-size:.82rem;font-style:italic">Aucun deck sauvegardé</div>';return;}
-  var html='';
   var fmtLabel={commander:'Commander',paupercmd:'Pauper Cdr',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',pauper:'Pauper',vintage:'Vintage'};
   var fa=_deckFilterActive||profs.map(function(_,i){return i;});
   var allActive=fa.length===profs.length;
+  var html='';
   profs.forEach(function(_,pi){
     if(fa.indexOf(pi)===-1)return;
-    var pids=ids.filter(function(id){return _deckBelongsTo(decks[id],pi);});
+    var ep=pi>0?(_epSlots.deck||[])[pi-1]:null;
+    var deckSrc=pi===0?decks:(_epDecks[ep&&ep.uid]||{});
+    var pids=pi===0
+      ?Object.keys(deckSrc).filter(function(id){return _deckBelongsTo(deckSrc[id],0);})
+      :Object.keys(deckSrc);
     if(allActive&&pi>0&&!pids.length)return;
     var open=!allActive||dbarOpen[pi]||false;
     html+='<div class="dpsec">';
@@ -3981,25 +3983,47 @@ function renderDBar(){
     }
     html+='<div class="dpdecks'+(open?' op':'')+'">';
     if(!pids.length)html+='<div style="color:var(--tx3);font-size:.78rem;font-style:italic;padding:4px">Aucun deck</div>';
-    var orderedPids=getDeckOrder(pi);
+    var orderedPids=pi===0?getDeckOrder(0):pids;
     orderedPids.forEach(function(id,rank){
-      var d=decks[id];if(!d)return;
+      var d=deckSrc[id];if(!d)return;
       var n=d.cards?d.cards.reduce(function(s,c){return s+c.qty;},0):0;
       var fmtBadge=d.format?'<span style="font-size:.62rem;background:var(--s3);border:.5px solid var(--bd2);border-radius:3px;padding:0 4px;color:var(--tx3);margin-left:4px">'+esc(fmtLabel[d.format]||d.format)+'</span>':'';
       var cmdBadge=d.commander?'<span title="'+esc(d.commander.name)+'" style="font-size:.62rem;color:var(--gold2);margin-left:3px">★</span>':'';
       var rankBadge='<span style="font-size:.58rem;color:var(--tx3);margin-right:4px;min-width:12px;display:inline-block">'+(rank+1)+'.</span>';
-      html+='<div class="ditem'+(id===actDeck?' active':'')+'" draggable="true"'
-        +' ondragstart="dkDragStart(event,\''+id+'\','+pi+')"'
-        +' ondragover="dkDragOver(event)"'
-        +' ondragleave="dkDragLeave(event)"'
-        +' ondrop="dkDrop(event,\''+id+'\','+pi+')"'
-        +' onclick="loadDeck(\''+id+'\')">'
+      var isActive=pi===0&&id===actDeck;
+      var clickFn=pi===0?'loadDeck(\''+id+'\')':'loadFriendDeck(\''+ep.uid+'\',\''+id+'\')';
+      var dragAttrs=pi===0?' draggable="true" ondragstart="dkDragStart(event,\''+id+'\',0)" ondragover="dkDragOver(event)" ondragleave="dkDragLeave(event)" ondrop="dkDrop(event,\''+id+'\',0)"':'';
+      html+='<div class="ditem'+(isActive?' active':'')+'"'+dragAttrs+' onclick="'+clickFn+'">'
         +'<div class="dn">'+rankBadge+esc(d.name)+fmtBadge+cmdBadge+'</div>'
         +'<div class="di">'+n+' cartes · '+new Date(d.updatedAt).toLocaleDateString('fr-FR')+'</div></div>';
     });
     html+='</div></div>';
   });
+  if(!html)html='<div style="color:var(--tx3);font-size:.82rem;font-style:italic">Aucun deck sauvegardé</div>';
   bar.innerHTML=html;
+}
+function loadFriendDeck(uid,deckId){
+  var d=(_epDecks[uid]||{})[deckId];if(!d)return;
+  var pi=(_epSlots.deck||[]).findIndex(function(ep){return ep.uid===uid;})+1;
+  actDeck=null;dCards=d.cards||[];_customAchat=[];renderCustomPanel();
+  document.getElementById('dnamein').value='';
+  document.getElementById('ta-name').value='';
+  document.getElementById('etitle').textContent=(PN[pi>0?pi:0]||'Ami')+' — '+esc(d.name||'Deck');
+  document.getElementById('delbtn').style.display='none';
+  document.getElementById('dcnt').textContent=dCards.length+' entrées, '+dCards.reduce(function(s,c){return s+c.qty;},0)+' cartes';
+  dFormat=d.format||'';dCommander=d.commander||null;
+  document.querySelectorAll('#dfmt-btns .dm').forEach(function(b){b.classList.remove('active');});
+  if(dFormat){document.querySelectorAll('#dfmt-btns .dm').forEach(function(b){if(b.getAttribute('onclick').indexOf("'"+dFormat+"'")>=0)b.classList.add('active');});}
+  var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
+  document.getElementById('dcmd-section').style.display=isCmd?'block':'none';
+  document.getElementById('dcolors-section').style.display=(!isCmd&&dFormat)?'block':'none';
+  if(dCommander){document.getElementById('dcmd-in').value=dCommander.name;renderDeckCmdPreview();}
+  else{deckCmdClear();}
+  setDeckColors(isCmd?(dCommander?dCommander.colors:[]):(d.colors||[]));
+  setOwner(pi>0?pi:0);
+  renderDBar();analyzeDeck();
+  document.getElementById('deckres').style.display='block';
+  document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
 }
 function toggleDSec(pi){dbarOpen[pi]=!dbarOpen[pi];renderDBar();}
 
