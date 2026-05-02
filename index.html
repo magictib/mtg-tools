@@ -929,6 +929,23 @@ body.mana-cursor{cursor:none}
         <div style="font-size:.68rem;color:var(--tx3);margin-top:5px">Télécharge all_cards.json (~900 Mo) depuis Scryfall via un parser streaming, le met en cache IndexedDB local et notifie les autres utilisateurs. Opération longue (~5-15 min selon la connexion).</div>
       </div>
     </div>
+    <!-- Import collection section -->
+    <div style="border:.5px solid var(--bd);border-radius:8px;margin-bottom:1rem;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--s2);cursor:pointer" onclick="document.getElementById('admin-import-body').classList.toggle('hidden')">
+        <span style="font-family:'Goudy Mediaeval',serif;color:var(--tx2);font-size:.76rem;letter-spacing:.06em">📦 IMPORT COLLECTION</span>
+        <span style="font-size:.7rem;color:var(--tx3)">▾</span>
+      </div>
+      <div id="admin-import-body" style="padding:10px">
+        <select id="admin-import-uid" style="width:100%;margin-bottom:8px;font-size:.8rem">
+          <option value="">— Choisir un utilisateur —</option>
+        </select>
+        <label class="btn btnsm" style="font-size:.76rem;cursor:pointer;display:inline-block;margin-bottom:6px">
+          📂 Choisir un fichier CSV
+          <input type="file" accept=".csv,.txt" style="display:none" onchange="adminImportCollection(this)">
+        </label>
+        <div id="admin-import-msg" style="font-size:.72rem;margin-top:4px;min-height:.9rem"></div>
+      </div>
+    </div>
     <!-- Users section -->
     <div style="font-family:'Goudy Mediaeval',serif;color:var(--tx2);font-size:.76rem;letter-spacing:.06em;margin-bottom:8px">👥 UTILISATEURS</div>
     <div id="admin-user-list"><div style="color:var(--tx3);font-size:.82rem">Chargement…</div></div>
@@ -3100,8 +3117,46 @@ function openAdminPanel(){
   document.getElementById('admin-overlay').style.display='flex';
   _loadAdminUsers();
   _loadAdminScryfallStatus();
+  _loadAdminImportUsers();
 }
 function closeAdminPanel(){document.getElementById('admin-overlay').style.display='none';}
+
+function _loadAdminImportUsers(){
+  var sel=document.getElementById('admin-import-uid');
+  if(!sel||sel.options.length>1)return;
+  db.collection('users').get().then(function(snap){
+    snap.docs.forEach(function(doc){
+      if(doc.id===userId)return;
+      var o=document.createElement('option');
+      o.value=doc.id;o.textContent=(doc.data().name||doc.data().email||doc.id);
+      sel.appendChild(o);
+    });
+  });
+}
+function adminImportCollection(input){
+  var file=input.files[0];if(!file)return;
+  var uid=document.getElementById('admin-import-uid').value;
+  var msg=document.getElementById('admin-import-msg');
+  if(!uid){msg.style.color='var(--rd2)';msg.textContent='Choisissez un utilisateur.';input.value='';return;}
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var res=parseCSV(e.target.result);
+    if(!res.data.length){msg.style.color='var(--rd2)';msg.textContent='Fichier vide ou format non reconnu.';return;}
+    var fmt=_detectFmt(res.hdrs);
+    var cards=res.data.map(function(r){return normalizeRow(r,fmt);});
+    msg.style.color='var(--tx3)';msg.textContent='Import en cours…';
+    db.collection('users').doc(uid).collection('profs').doc('0')
+      .set({cards:cards,updatedAt:firebase.firestore.FieldValue.serverTimestamp()})
+      .then(function(){
+        msg.style.color='var(--gr2)';
+        msg.textContent='✓ '+cards.length+' cartes importées.';
+        _epCards[uid]=cards;
+        _epDecks[uid]=_epDecks[uid]||{};
+      }).catch(function(e){msg.style.color='var(--rd2)';msg.textContent='Erreur : '+e.message;});
+  };
+  reader.readAsText(file,'UTF-8');
+  input.value='';
+}
 
 function _loadAdminUsers(){
   var list=document.getElementById('admin-user-list');
