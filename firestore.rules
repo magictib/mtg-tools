@@ -15,12 +15,12 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isAuthed();
       allow write: if isAuthed() && request.auth.uid == uid;
-    }
 
-    // Profs (sous-collection) : propriétaire uniquement
-    match /users/{uid}/profs/{doc} {
-      allow read: if isAuthed();
-      allow write: if isAuthed() && request.auth.uid == uid;
+      // Sous-collections (profs, friends, decks, games…) : propriétaire uniquement
+      match /{subcollection}/{doc} {
+        allow read: if isAuthed();
+        allow write: if isAuthed() && request.auth.uid == uid;
+      }
     }
 
     // Meta : lecture pour tous les connectés, écriture admin seulement
@@ -29,15 +29,25 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Notifications : broadcast (sans targetUid) ou ciblées
+    // Notifications
     match /notifications/{notifId} {
       allow read: if isAuthed();
-      allow create: if isAdmin() ||
-        (isAuthed() && request.resource.data.get('type', '') in ['trade', 'trade_accepted', 'trade_declined'] &&
-         request.resource.data.targetUid is string);
+      allow create: if isAuthed() && (
+        isAdmin() ||
+        (request.resource.data.get('type', '') in [
+          'trade', 'trade_accepted', 'trade_declined',
+          'friend_request', 'friend_accepted'
+        ] && request.resource.data.targetUid is string)
+      );
       allow delete: if isAdmin();
-      allow update: if isAuthed() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
+      // Marquer comme lu (readBy uniquement) : tout utilisateur connecté
+      // Accepter/refuser une demande d'ami (status + readBy) : le destinataire uniquement
+      allow update: if isAuthed() && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) ||
+        (resource.data.get('type', '') == 'friend_request' &&
+         request.auth.uid == resource.data.targetUid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'readBy']))
+      );
     }
 
     // Trades : lecture/écriture pour les participants
