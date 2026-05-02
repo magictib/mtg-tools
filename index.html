@@ -3526,7 +3526,7 @@ function removeExtraProf(ctx,uid){
 }
 
 function _loadEpCards(uid,cb){
-  if(_epCards[uid]!==undefined){if(cb)cb();return;}
+  if(_epCards[uid]!==undefined&&_epDecks[uid]!==undefined){if(cb)cb();return;}
   _epCards[uid]=null;
   var cardsDone=false,decksDone=false;
   function _done(){if(cardsDone&&decksDone&&cb)cb();}
@@ -3839,6 +3839,16 @@ function loadDecks(){
       if(!snapshot.empty){
         var d={};
         snapshot.forEach(function(doc){d[doc.id]=doc.data();});
+        // Supprimer les decks orphelins de l'ancien système 3-profils fixes
+        var orphanIds=Object.keys(d).filter(function(id){
+          var dk=d[id];return (dk.owner||0)>0&&!dk.ownerUid;
+        });
+        if(orphanIds.length){
+          var cleanBatch=db.batch();
+          var ref=db.collection('users').doc(userId).collection('decks');
+          orphanIds.forEach(function(id){cleanBatch.delete(ref.doc(id));delete d[id];});
+          cleanBatch.commit().catch(function(e){console.warn('cleanup orphan decks',e);});
+        }
         decks=d;
         try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
         renderDBar();
