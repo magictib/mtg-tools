@@ -765,6 +765,14 @@ body.mana-cursor{cursor:none}
 /* End-turn / declare buttons */
 #ar-end-turn-btn{display:none}
 #ar-declare-atk-btn{display:none}
+/* Who goes first modal */
+#ar-go-first-ov{display:none;position:absolute;inset:0;z-index:250;background:rgba(0,0,0,.82);align-items:center;justify-content:center}
+#ar-go-first-ov.on{display:flex}
+#ar-go-first-box{background:var(--s2);border:1px solid rgba(201,168,76,.4);border-radius:16px;padding:28px 32px;text-align:center;max-width:320px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.8)}
+.ar-go-first-btn{display:block;width:100%;padding:11px;border-radius:10px;margin-bottom:10px;font-family:'Goudy Mediaeval',serif;font-size:.9rem;cursor:pointer;border:1px solid rgba(201,168,76,.4);background:rgba(201,168,76,.08);color:var(--gold2);transition:background .15s}
+.ar-go-first-btn:hover{background:rgba(201,168,76,.2)}
+.ar-go-first-btn.blue{border-color:rgba(80,140,255,.5);color:#aac8ff;background:rgba(80,140,255,.08)}
+.ar-go-first-btn.blue:hover{background:rgba(80,140,255,.2)}
 #ar-bot-result{display:none;position:absolute;inset:0;z-index:200;background:rgba(0,0,0,.88);align-items:center;justify-content:center;flex-direction:column;gap:16px}
 #ar-bot-result.on{display:flex}
 #ar-op-lands.bot-on{height:60px}
@@ -2237,6 +2245,17 @@ body.mana-cursor{cursor:none}
 
   <!-- Bot log -->
   <div id="ar-bot-log"></div>
+
+  <!-- Who goes first modal -->
+  <div id="ar-go-first-ov">
+    <div id="ar-go-first-box">
+      <div style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:1.1rem;margin-bottom:6px">⚔ Qui commence ?</div>
+      <div style="font-size:.78rem;color:var(--tx3);margin-bottom:20px">En MTG, le premier joueur ne pioche pas au tour 1</div>
+      <button class="ar-go-first-btn" onclick="arChooseGoFirst('random')">🎲 Pile ou face</button>
+      <button class="ar-go-first-btn" onclick="arChooseGoFirst('player')">▶ Je commence</button>
+      <button class="ar-go-first-btn blue" onclick="arChooseGoFirst('bot')">🤖 Le bot commence</button>
+    </div>
+  </div>
 
   <!-- Scry / Surveil drag-and-drop modal -->
   <div id="ar-scry-ov" onclick="if(event.target===this)arCancelScry()">
@@ -7407,8 +7426,9 @@ function _arBotShowUI(on){
   var bf=document.getElementById('ar-bot-field');if(bf)bf.classList.toggle('on',on);
   var opLands=document.getElementById('ar-op-lands');if(opLands)opLands.classList.toggle('bot-on',on);
   var bar=document.getElementById('ar-bot-bar');if(bar)bar.style.display=on?'flex':'none';
-  var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.style.display=on?'':'none';
+  var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.style.display=on?'inline-flex':'none';
   var res=document.getElementById('ar-bot-result');if(res&&!on)res.classList.remove('on');
+  var gf=document.getElementById('ar-go-first-ov');if(gf&&!on)gf.classList.remove('on');
 }
 
 // ----- Bot AI: start -----
@@ -7448,8 +7468,28 @@ function arStartVsBot(){
     if(!_arFieldBgObs){_arFieldBgObs=new ResizeObserver(arDrawFieldBg);_arFieldBgObs.observe(document.getElementById('ar-field'));}
     _arBotShowUI(true);
     arRender();arBotRenderOpponent();arRenderStack();arRenderManaPool();
-    _arBotLog('Partie vs IA démarrée ! Difficulté : '+_arBotDifficulty);
+    // Block end-turn until first player is chosen
+    var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.disabled=true;
+    var gf=document.getElementById('ar-go-first-ov');if(gf)gf.classList.add('on');
   });
+}
+function arChooseGoFirst(who){
+  var gf=document.getElementById('ar-go-first-ov');if(gf)gf.classList.remove('on');
+  if(who==='random')who=Math.random()<0.5?'player':'bot';
+  if(who==='bot'){
+    // Bot goes first — bot turn 1 (no player draw yet)
+    _ar.turn=0; // will be incremented to 1 in _arPlayerStartTurn
+    _arBotLog('Le bot commence !');
+    var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.disabled=true;
+    var th=document.getElementById('ar-bot-thinking');if(th)th.classList.add('on');
+    setTimeout(_arBotExecuteTurn,800);
+  }else{
+    // Player goes first
+    _arBotLog('Vous commencez !');
+    var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.disabled=false;
+    // In MTG, first player skips draw on turn 1
+    _arBotLog('Tour 1 — Vous commencez (pas de pioche au tour 1)');
+  }
 }
 function arStopBot(){
   if(_arBotTimer)clearTimeout(_arBotTimer);
