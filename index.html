@@ -3197,6 +3197,7 @@ var FB={A:'ba',B:'bb',C:'bc'};
 var PN=[]; // dynamic: PN[0]=current user, PN[1..n]=extra profiles
 var _epSlots={coll:[],deck:[],build:[],game:[],trade:[]}; // extra profile UIDs per context
 var _epCards={}; // uid → cards[]
+var _epDecks={}; // uid → decks object (chargé depuis users/{uid}/decks)
 var _pickerCtx=null;
 var _allUsers=null; // cache [{uid,name}]
 // Legacy alias (will be replaced in each function)
@@ -3523,14 +3524,26 @@ function removeExtraProf(ctx,uid){
 function _loadEpCards(uid,cb){
   if(_epCards[uid]!==undefined){if(cb)cb();return;}
   _epCards[uid]=null;
+  var cardsDone=false,decksDone=false;
+  function _done(){if(cardsDone&&decksDone&&cb)cb();}
+  // Charger la collection
   db.collection('users').doc(uid).collection('profs').doc('0').get().then(function(doc){
     var fs=(doc.exists&&doc.data().cards&&doc.data().cards.length)?doc.data().cards:null;
     if(fs){_epCards[uid]=fs;}
     else{try{var ls=localStorage.getItem('mtg_ep_cards_'+uid);_epCards[uid]=ls?JSON.parse(ls):[];}catch(e){_epCards[uid]=[];}}
-    if(cb)cb();
+    cardsDone=true;_done();
   }).catch(function(){
     try{var ls=localStorage.getItem('mtg_ep_cards_'+uid);_epCards[uid]=ls?JSON.parse(ls):[];}catch(e){_epCards[uid]=[];}
-    if(cb)cb();
+    cardsDone=true;_done();
+  });
+  // Charger les decks de l'ami
+  db.collection('users').doc(uid).collection('decks').get().then(function(snap){
+    var d={};snap.forEach(function(doc){d[doc.id]=doc.data();});
+    _epDecks[uid]=d;
+    decksDone=true;_done();
+  }).catch(function(){
+    _epDecks[uid]={};
+    decksDone=true;_done();
   });
 }
 
@@ -4393,10 +4406,15 @@ function _deckBelongsTo(dk,profIdx){
 function getDeckUsage(profIdx){
   // Retourne Map<key_name, {qty, decks:[deckName]}> des cartes dans d'autres decks du profil
   var usage=new Map();
-  Object.keys(decks).forEach(function(id){
-    if(id===actDeck)return;
-    var dk=decks[id];
-    if(!_deckBelongsTo(dk,profIdx))return;
+  // Pour les amis (profIdx > 0), utiliser leurs propres decks chargés depuis Firestore
+  var ep=profIdx>0?(_epSlots.deck||[])[profIdx-1]:null;
+  var srcDecks=ep&&_epDecks[ep.uid]?_epDecks[ep.uid]:null;
+  if(profIdx>0&&!srcDecks)return usage;
+  var deckSource=profIdx===0?decks:srcDecks;
+  Object.keys(deckSource).forEach(function(id){
+    if(profIdx===0&&id===actDeck)return;
+    var dk=deckSource[id];
+    if(profIdx===0&&!_deckBelongsTo(dk,0))return;
     var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
     var cards=parseList(raw||'');
     var dname=dk.name||'Deck sans nom';
@@ -4419,6 +4437,7 @@ function getDeckOrder(pi){
 }
 function getDeckUsageByPriority(profIdx,currentDeckId){
   if(!currentDeckId)return getDeckUsage(profIdx);
+  if(profIdx>0)return getDeckUsage(profIdx); // amis : pas de notion de priorité
   var order=getDeckOrder(profIdx);
   var curPos=order.indexOf(currentDeckId);
   if(curPos<0)curPos=order.length;
