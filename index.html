@@ -2692,15 +2692,19 @@ function loadFriends(){
 }
 
 function _applyFriendsToAllContexts(){
-  if(!_friends.length)return;
   var ctxs=['coll','deck','build','game','trade'];
   ctxs.forEach(function(ctx){
     var existing=_epSlots[ctx]||[];
+    // Purger les entrées qui ne sont plus des amis
+    existing=existing.filter(function(ep){
+      return ep.uid!==userId&&_friends.some(function(f){return f.uid===ep.uid;});
+    });
+    // Mettre à jour les noms + ajouter les nouveaux amis
     _friends.forEach(function(f){
       if(f.uid===userId)return;
-      if(!existing.some(function(ep){return ep.uid===f.uid;})){
-        existing.push({uid:f.uid,name:f.name});
-      }
+      var idx=existing.findIndex(function(ep){return ep.uid===f.uid;});
+      if(idx>=0){existing[idx].name=f.name;}
+      else{existing.push({uid:f.uid,name:f.name});}
     });
     _epSlots[ctx]=existing;
   });
