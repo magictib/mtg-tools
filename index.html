@@ -851,7 +851,12 @@ body.mana-cursor{cursor:none}
         <button class="btn btnp btnsm" style="width:100%;margin-bottom:4px" onclick="authRenameUser()">Valider</button>
         <div id="um-rename-msg" style="font-size:.75rem;min-height:1rem;text-align:center"></div>
       </div>
-      <button class="um-btn danger" onclick="openDeleteProfileOv()">🗑 Supprimer le profil</button>
+      <div style="margin-top:6px;padding-top:8px;border-top:.5px solid var(--bd)">
+        <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">PRÉFÉRENCES</div>
+        <label style="display:block;font-size:.78rem;color:var(--tx2);margin-bottom:4px">🌐 Langue des cartes</label>
+        <select id="um-lang-sel" class="psel" style="width:100%;font-size:.82rem" onchange="setUserLang(this.value)"></select>
+      </div>
+      <button class="um-btn danger" onclick="openDeleteProfileOv()" style="margin-top:6px">🗑 Supprimer le profil</button>
       <button class="um-btn danger" onclick="authSignOut();toggleUserMenu()">⏻ Déconnexion</button>
     </div>
   </div>
@@ -1558,10 +1563,10 @@ body.mana-cursor{cursor:none}
     <div style="font-size:11px;color:var(--tx3);margin-bottom:10px">Sélectionne un deck pour évaluer son équilibre (mana, pioche, removal, menaces, interaction) et obtenir un score sur 100 par catégorie.</div>
     <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
       <select id="ana-deck-sel" class="psel" style="flex:1;min-width:220px"></select>
-      <select id="ana-lang-sel" class="psel" style="min-width:120px" onchange="anaSetLang(this.value)" title="Langue des images"></select>
       <button class="btn btnp" onclick="anaAnalyze()">⚡ Analyser</button>
       <button class="btn btnsm" onclick="anaClearCache()" title="Vider le cache d'analyse">🗑 Cache</button>
     </div>
+    <div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">🌐 La langue des images est définie dans <b>Mes préférences</b> (icône ✎ en haut à droite).</div>
     <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic;min-height:1em"></div>
   </div>
   <div id="ana-results" style="display:none"></div>
@@ -2783,6 +2788,7 @@ function toggleUserMenu(){
   panel.classList.toggle('open');
   if(panel.classList.contains('open')){
     document.getElementById('notif-panel').classList.remove('open');
+    if(typeof populateUserLangSel==='function')populateUserLangSel();
   }
 }
 document.addEventListener('click',function(e){
@@ -11481,10 +11487,8 @@ function anaSetView(section,mode){
   if(deckId&&_anaState)anaRender(deckId);
 }
 
-// Langue d'affichage des images
-var _anaLang='en';
-try{var __aL=localStorage.getItem('mtg_ana_lang');if(__aL)_anaLang=__aL;}catch(e){}
-var _anaLangs=[
+// Préférence GLOBALE de langue (utilisée pour les images Scryfall)
+var USER_LANGS=[
   {code:'en',label:'English'},
   {code:'fr',label:'Français'},
   {code:'es',label:'Español'},
@@ -11496,16 +11500,27 @@ var _anaLangs=[
   {code:'ru',label:'Русский'},
   {code:'zhs',label:'简体中文'}
 ];
-function anaSetLang(lang){
-  _anaLang=lang||'en';
-  try{localStorage.setItem('mtg_ana_lang',_anaLang);}catch(e){}
-  var deckId=document.getElementById('ana-deck-sel').value;
-  if(deckId&&_anaState)anaRender(deckId);
+var _userLang='en';
+try{
+  var __uL=localStorage.getItem('mtg_user_lang');
+  if(__uL)_userLang=__uL;
+  else{var __old=localStorage.getItem('mtg_ana_lang');if(__old){_userLang=__old;localStorage.setItem('mtg_user_lang',__old);localStorage.removeItem('mtg_ana_lang');}}
+}catch(e){}
+function setUserLang(lang){
+  _userLang=lang||'en';
+  try{localStorage.setItem('mtg_user_lang',_userLang);}catch(e){}
+  // Re-render Analyse si actif
+  var sel=document.getElementById('ana-deck-sel');
+  if(sel&&sel.value&&_anaState)anaRender(sel.value);
+}
+function populateUserLangSel(){
+  var sel=document.getElementById('um-lang-sel');if(!sel)return;
+  sel.innerHTML=USER_LANGS.map(function(l){return '<option value="'+l.code+'"'+(l.code===_userLang?' selected':'')+'>'+l.label+'</option>';}).join('');
 }
 function anaImageUrl(name,meta){
-  if((!_anaLang||_anaLang==='en')&&meta&&meta.imageUri)return meta.imageUri;
+  if((!_userLang||_userLang==='en')&&meta&&meta.imageUri)return meta.imageUri;
   if(!name)return (meta&&meta.imageUri)||'';
-  return 'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_anaLang||'en')+'&version=normal';
+  return 'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang||'en')+'&version=normal';
 }
 
 function anaZoom(url){
@@ -11520,12 +11535,7 @@ function anaClearCache(){
   document.getElementById('ana-results').style.display='none';
 }
 
-function anaInit(){anaPopulateDeckSel();anaPopulateLangSel();}
-
-function anaPopulateLangSel(){
-  var sel=document.getElementById('ana-lang-sel');if(!sel)return;
-  sel.innerHTML=_anaLangs.map(function(l){return '<option value="'+l.code+'"'+(l.code===_anaLang?' selected':'')+'>'+l.label+'</option>';}).join('');
-}
+function anaInit(){anaPopulateDeckSel();}
 
 function anaPopulateDeckSel(){
   var sel=document.getElementById('ana-deck-sel');if(!sel)return;
