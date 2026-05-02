@@ -11887,6 +11887,116 @@ function anaCardScore(meta){
   return (t.draw*2.5+t.removal*2.0+t.ramp*1.8+t.interaction*2.0+t.wincon*3.0)-((meta.cmc||0)*0.4);
 }
 
+/* ----- Goldfish simulation (inspired Python engine v13) ----- */
+function _anaShuffle(arr){for(var i=arr.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=arr[i];arr[i]=arr[j];arr[j]=t;}return arr;}
+
+function anaSimulate(deck,runs){
+  runs=runs||100;
+  // Construire le deck etendu (qty deplie)
+  var lib=[];
+  deck.cards.forEach(function(c){
+    var meta=_anaData[c.nl];if(!meta)return;
+    var qty=c.qty||1;
+    for(var i=0;i<qty;i++){
+      lib.push({
+        name:c.name,nl:c.nl,
+        cmc:meta.cmc||0,
+        isLand:!!(meta.tags&&meta.tags.isLand),
+        roles:anaRoles(meta),
+        score:anaCardScore(meta)
+      });
+    }
+  });
+  if(lib.length<10)return null;
+
+  var stats={mulligans:0,kept:0,manaT5:[],spellsT7:[],firstSpell:[],firstRamp:[],firstDraw:[],firstWincon:[],deadHands:0,landsT5:[]};
+
+  for(var run=0;run<runs;run++){
+    // Mulligan jusqu'a 3 fois (Paris simplifie : 2-5 terrains acceptables)
+    var hand,library,mulCount=0;
+    while(true){
+      library=lib.slice();_anaShuffle(library);
+      hand=[];
+      var handSize=7-mulCount;
+      for(var i=0;i<handSize;i++)if(library.length)hand.push(library.shift());
+      var landCount=hand.filter(function(c){return c.isLand;}).length;
+      if((landCount>=2&&landCount<=5)||mulCount>=3)break;
+      mulCount++;
+    }
+    stats.mulligans+=mulCount;
+    if(mulCount===0)stats.kept++;
+    if(hand.filter(function(c){return c.isLand;}).length<2)stats.deadHands++;
+
+    // Tours 1 a 10 (goldfish solo)
+    var battlefield=[];
+    var spellsCast=0;
+    var firstSpellT=null,firstRampT=null,firstDrawT=null,firstWinconT=null;
+    var landsInPlay=0;
+
+    for(var t=1;t<=10;t++){
+      // Phase draw (sauf T1)
+      if(t>1&&library.length)hand.push(library.shift());
+
+      // Land drop (1 par tour si possible, choix : prendre un land basique en priorite)
+      var landIdx=hand.findIndex(function(c){return c.isLand;});
+      if(landIdx>=0){
+        battlefield.push(hand.splice(landIdx,1)[0]);
+        landsInPlay++;
+      }
+
+      // Cast spells : greedy, plus haut CMC d'abord (utilise tout le mana)
+      var manaPool=landsInPlay;
+      // Prioriser : ramp > draw > wincon > others (pour realisme)
+      function priority(c){return (c.roles.ramp?100:0)+(c.roles.draw?80:0)+(c.roles.wincon?60:0)+c.cmc;}
+      var sorted=hand.filter(function(c){return !c.isLand;}).sort(function(a,b){return priority(b)-priority(a);});
+      sorted.forEach(function(c){
+        if(c.cmc<=manaPool){
+          var idx=hand.indexOf(c);
+          if(idx>=0){
+            hand.splice(idx,1);
+            battlefield.push(c);
+            manaPool-=c.cmc;
+            spellsCast++;
+            if(firstSpellT===null)firstSpellT=t;
+            if(c.roles.ramp&&firstRampT===null)firstRampT=t;
+            if(c.roles.draw&&firstDrawT===null)firstDrawT=t;
+            if(c.roles.wincon&&firstWinconT===null)firstWinconT=t;
+            // Effet ramp simplifie : +1 land virtuel
+            if(c.roles.ramp)landsInPlay+=1;
+          }
+        }
+      });
+
+      if(t===5){stats.manaT5.push(landsInPlay);stats.landsT5.push(landsInPlay);}
+      if(t===7)stats.spellsT7.push(spellsCast);
+    }
+
+    if(firstSpellT)stats.firstSpell.push(firstSpellT);
+    if(firstRampT)stats.firstRamp.push(firstRampT);
+    if(firstDrawT)stats.firstDraw.push(firstDrawT);
+    if(firstWinconT)stats.firstWincon.push(firstWinconT);
+  }
+
+  function avg(arr){return arr.length?arr.reduce(function(s,n){return s+n;},0)/arr.length:0;}
+
+  return {
+    runs:runs,
+    mulligans:stats.mulligans,
+    kept:stats.kept,
+    mulRate:stats.mulligans/runs,
+    deadHandRate:stats.deadHands/runs,
+    avgManaT5:avg(stats.manaT5),
+    avgSpellsT7:avg(stats.spellsT7),
+    avgFirstSpell:avg(stats.firstSpell),
+    avgFirstRamp:avg(stats.firstRamp),
+    avgFirstDraw:avg(stats.firstDraw),
+    avgFirstWincon:avg(stats.firstWincon),
+    rampReached:stats.firstRamp.length/runs,
+    drawReached:stats.firstDraw.length/runs,
+    winconReached:stats.firstWincon.length/runs
+  };
+}
+
 /* ----- Optimisation ----- */
 function anaOptimize(scoredRows,pool,iterations){
   iterations=iterations||5;var current=scoredRows.slice();var poolCopy=pool.slice();var swaps=[];
@@ -12203,7 +12313,47 @@ function anaRender(deckId){
   }
   html+='</div>';
 
-  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult};
+  // === Simulation Goldfish ===
+  var sim=anaSimulate(deck,200);
+  if(sim){
+    function simBox(label,value,hint,col){
+      return '<div class="ana-sub">'+
+        '<div class="ana-sub-label">'+label+'</div>'+
+        '<div class="ana-sub-score" style="color:'+col+'">'+value+'</div>'+
+        '<div class="ana-sub-meta">'+hint+'</div>'+
+      '</div>';
+    }
+    function pct(v){return Math.round(v*100)+'%';}
+    function tStr(v){return v?'T'+v.toFixed(1):'—';}
+    var mulCol=sim.mulRate>0.5?'#e07070':sim.mulRate>0.25?'#f5b95b':'#78c890';
+    var deadCol=sim.deadHandRate>0.15?'#e07070':sim.deadHandRate>0.05?'#f5b95b':'#78c890';
+
+    html+='<div class="card"><div class="lbl">🎲 Simulation goldfish (200 parties solo)</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Tirage main, mulligans (2-5 lands), pose de terrains et casting greedy par priorité (ramp > draw > wincon > rest). Indicateur de jouabilité réelle du deck.</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">';
+    html+=simBox('Mulligans',(sim.mulligans/sim.runs).toFixed(2),'Nb moyen de mulligans par partie',mulCol);
+    html+=simBox('Mains mortes',pct(sim.deadHandRate),'Mains gardées avec <2 lands',deadCol);
+    html+=simBox('1er sort',tStr(sim.avgFirstSpell),'Tour moyen du 1er sort lancé','#5b8cf5');
+    html+=simBox('Lands à T5',sim.avgManaT5.toFixed(1),'Lands en jeu au tour 5','#cdb87a');
+    html+=simBox('Sorts à T7',sim.avgSpellsT7.toFixed(1),'Sorts cumulés joués au tour 7','#5bf590');
+    if(sim.rampReached>0)html+=simBox('1er ramp',tStr(sim.avgFirstRamp)+' · '+pct(sim.rampReached),'Tour moyen + taux d\'apparition','#5bf590');
+    if(sim.drawReached>0)html+=simBox('1ère pioche',tStr(sim.avgFirstDraw)+' · '+pct(sim.drawReached),'Tour moyen + taux d\'apparition','#5b8cf5');
+    if(sim.winconReached>0)html+=simBox('1er wincon',tStr(sim.avgFirstWincon)+' · '+pct(sim.winconReached),'Tour moyen + taux d\'apparition','#c95bf5');
+    else html+=simBox('Wincon','—','Aucun wincon détecté en 10 tours','#e07070');
+    html+='</div>';
+    // Verdict
+    var verdict='',verdictCol='var(--tx2)';
+    if(sim.deadHandRate>0.15){verdict='⚠ Mana base instable — trop de mains avec <2 lands';verdictCol='#e07070';}
+    else if(sim.avgFirstSpell>3.5){verdict='⚠ Démarrage lent — premier sort tard en moyenne';verdictCol='#f5b95b';}
+    else if(sim.winconReached<0.5&&sim.winconReached>0){verdict='⚠ Wincons inconsistents — accédés dans <50% des parties';verdictCol='#f5b95b';}
+    else if(!sim.winconReached){verdict='⚠ Aucun wincon ne sort en 10 tours — dépend de la pioche tardive';verdictCol='#e07070';}
+    else if(sim.mulRate<0.2&&sim.avgFirstSpell<3&&sim.winconReached>0.7){verdict='✓ Deck rapide et fiable';verdictCol='#78c890';}
+    else verdict='✓ Comportement nominal';
+    if(verdict)html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(0,0,0,.25);border-radius:8px;font-size:11px;color:'+verdictCol+'">'+verdict+'</div>';
+    html+='</div>';
+  }
+
+  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult,sim:sim};
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
 }
