@@ -3888,7 +3888,7 @@ function renderDBar(){
   var allActive=fa.length===profs.length;
   profs.forEach(function(_,pi){
     if(fa.indexOf(pi)===-1)return;
-    var pids=ids.filter(function(id){return (decks[id].owner||0)===pi;});
+    var pids=ids.filter(function(id){return _deckBelongsTo(decks[id],pi);});
     if(allActive&&pi>0&&!pids.length)return;
     var open=!allActive||dbarOpen[pi]||false;
     html+='<div class="dpsec">';
@@ -4057,7 +4057,7 @@ function saveDeck(){
   var id=actDeck||(Date.now().toString());actDeck=id;
   var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
   var savedColors=isCmd?(dCommander?dCommander.colors:[]):dColors.slice();
-  decks[id]={name:name,rawName:rawName,cards:cards,owner:dOwner,format:dFormat||null,commander:dCommander||null,colors:savedColors,updatedAt:Date.now()};
+  decks[id]={name:name,rawName:rawName,cards:cards,owner:dOwner,ownerUid:_profUid(dOwner)||userId,format:dFormat||null,commander:dCommander||null,colors:savedColors,updatedAt:Date.now()};
   saveDecks();renderDBar();
   document.getElementById('etitle').textContent=name;
   document.getElementById('delbtn').style.display='inline-block';
@@ -4380,13 +4380,23 @@ function fetchDeckImages(){
     }).catch(function(){if(++done===batches.length)renderDeck();});
   });
 }
+function _profUid(profIdx){
+  if(profIdx===0)return userId;
+  var ep=(_epSlots.deck||[])[profIdx-1];
+  return ep?ep.uid:null;
+}
+function _deckBelongsTo(dk,profIdx){
+  if(dk.ownerUid)return dk.ownerUid===_profUid(profIdx);
+  // Ancien format sans ownerUid : seulement pour le profil courant (0)
+  return profIdx===0&&(dk.owner||0)===0;
+}
 function getDeckUsage(profIdx){
   // Retourne Map<key_name, {qty, decks:[deckName]}> des cartes dans d'autres decks du profil
   var usage=new Map();
   Object.keys(decks).forEach(function(id){
     if(id===actDeck)return;
     var dk=decks[id];
-    if(dk.owner!==profIdx)return;
+    if(!_deckBelongsTo(dk,profIdx))return;
     var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
     var cards=parseList(raw||'');
     var dname=dk.name||'Deck sans nom';
@@ -4402,7 +4412,7 @@ function getDeckUsage(profIdx){
 }
 function getDeckOrder(pi){
   var stored=_deckOrders[pi]||[];
-  var current=Object.keys(decks).filter(function(id){return(decks[id].owner||0)===pi;});
+  var current=Object.keys(decks).filter(function(id){return _deckBelongsTo(decks[id],pi);});
   var ordered=stored.filter(function(id){return current.indexOf(id)>=0;});
   current.forEach(function(id){if(ordered.indexOf(id)<0)ordered.push(id);});
   return ordered;
@@ -4415,7 +4425,7 @@ function getDeckUsageByPriority(profIdx,currentDeckId){
   var usage=new Map();
   for(var i=0;i<curPos;i++){
     var id=order[i];if(id===currentDeckId)continue;
-    var dk=decks[id];if(!dk||(dk.owner||0)!==profIdx)continue;
+    var dk=decks[id];if(!dk||!_deckBelongsTo(dk,profIdx))continue;
     var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
     var cards=parseList(raw||'');var dname=dk.name||'Deck sans nom';
     cards.forEach(function(c){
@@ -4552,7 +4562,7 @@ function renderAchatOptions(){
 function getDeckUsageForFriend(fi){
   var usage=new Map();
   Object.keys(decks).forEach(function(id){
-    var dk=decks[id];if(dk.owner!==fi)return;
+    var dk=decks[id];if(!_deckBelongsTo(dk,fi))return;
     var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
     var cards=parseList(raw||'');
     cards.forEach(function(c){usage.set(c.nl,(usage.get(c.nl)||0)+c.qty);});
@@ -5000,7 +5010,7 @@ function _buildDeckSelect(sel, ownerPi){
   var prev=sel.value;
   sel.innerHTML='<option value="">— Aucun deck —</option>';
   // Propres decks
-  var own=Object.keys(decks).filter(function(id){return decks[id].owner===ownerPi;});
+  var own=Object.keys(decks).filter(function(id){return _deckBelongsTo(decks[id],ownerPi);});
   if(own.length){
     var g=document.createElement('optgroup');g.label='Mes decks';
     own.forEach(function(id){var o=document.createElement('option');o.value=id;o.textContent=decks[id].name||'Sans nom';g.appendChild(o);});
@@ -5009,7 +5019,7 @@ function _buildDeckSelect(sel, ownerPi){
   // Decks des autres profils
   profs.forEach(function(_,opi){
     if(opi===ownerPi)return;
-    var their=Object.keys(decks).filter(function(id){return decks[id].owner===opi;});
+    var their=Object.keys(decks).filter(function(id){return _deckBelongsTo(decks[id],opi);});
     if(!their.length)return;
     var g2=document.createElement('optgroup');g2.label=PN[opi]||'Profil '+opi;
     their.forEach(function(id){var o=document.createElement('option');o.value=id;o.textContent=decks[id].name||'Sans nom';g2.appendChild(o);});
