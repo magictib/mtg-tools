@@ -1,4 +1,4 @@
-const CACHE = 'manalab-v1';
+const CACHE = 'manalab-v2';
 const STATIC = [
   './',
   './index.html',
@@ -51,6 +51,24 @@ self.addEventListener('fetch', function(e) {
   // POST / non-GET → réseau direct
   if (e.request.method !== 'GET') return;
 
+  // Network-first pour le HTML (toujours voir les mises à jour) — fallback cache si offline
+  var isHtml = url.pathname.endsWith('/') || url.pathname.endsWith('.html') || url.pathname === '';
+  if (isHtml) {
+    e.respondWith(
+      fetch(e.request).then(function(response) {
+        if (response.ok) {
+          var clone = response.clone();
+          caches.open(CACHE).then(function(c) { c.put(e.request, clone); });
+        }
+        return response;
+      }).catch(function() {
+        return caches.match(e.request).then(function(c) { return c || caches.match('./index.html'); });
+      })
+    );
+    return;
+  }
+
+  // Cache-first pour les autres assets statiques (images, fonts, manifest)
   e.respondWith(
     caches.match(e.request).then(function(cached) {
       var networkFetch = fetch(e.request).then(function(response) {
@@ -60,7 +78,6 @@ self.addEventListener('fetch', function(e) {
         }
         return response;
       });
-      // Cache-first pour les assets statiques connus, network-first sinon
       return cached || networkFetch;
     }).catch(function() {
       return caches.match('./index.html');
