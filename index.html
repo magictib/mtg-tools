@@ -11487,7 +11487,33 @@ function anaSetView(section,mode){
   if(deckId&&_anaState)anaRender(deckId);
 }
 
-// Préférence GLOBALE de langue (utilisée pour les images Scryfall)
+// Préférence GLOBALE de langue (utilisée pour les images Scryfall partout)
+// _cardImg(cardOrName, size, name) -> URL d'image localisee (lang utilisateur)
+//   - cardOrName = objet Scryfall (avec image_uris) | string nom | null
+//   - size = 'normal' | 'small' | 'large' | 'art_crop' (defaut 'normal')
+//   - name = nom optionnel pour fallback (utilise le name de cardOrName si absent)
+// En anglais : retourne directement l'URL CDN (rapide, pas de redirection).
+// Sinon : utilise le endpoint /cards/named?fuzzy=...&format=image&lang=XX qui redirige vers la version traduite.
+function _cardImg(cardOrName,size,name){
+  size=size||'normal';
+  var nm=name||(cardOrName&&cardOrName.name)||(typeof cardOrName==='string'?cardOrName:'')||'';
+  // Anglais: URL directe CDN
+  if(!_userLang||_userLang==='en'){
+    if(cardOrName&&typeof cardOrName==='object'){
+      if(cardOrName.image_uris)return cardOrName.image_uris[size]||cardOrName.image_uris.normal||cardOrName.image_uris.large||'';
+      if(cardOrName.card_faces&&cardOrName.card_faces[0]&&cardOrName.card_faces[0].image_uris){
+        var iu=cardOrName.card_faces[0].image_uris;return iu[size]||iu.normal||iu.large||'';
+      }
+    }
+    if(nm)return 'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(nm)+'&format=image&version='+size;
+    return '';
+  }
+  // Localise: redirection Scryfall vers la version traduite (fallback EN auto si pas dispo)
+  if(nm)return 'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(nm)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+size;
+  // Pas de nom -> fallback URL directe anglaise
+  if(cardOrName&&typeof cardOrName==='object'&&cardOrName.image_uris)return cardOrName.image_uris[size]||cardOrName.image_uris.normal||'';
+  return '';
+}
 var USER_LANGS=[
   {code:'en',label:'English'},
   {code:'fr',label:'Français'},
@@ -11509,10 +11535,73 @@ try{
 function setUserLang(lang){
   _userLang=lang||'en';
   try{localStorage.setItem('mtg_user_lang',_userLang);}catch(e){}
+  // Reecrire les images visibles dans tout le DOM
+  document.querySelectorAll('img').forEach(_localizeOneImg);
   // Re-render Analyse si actif
   var sel=document.getElementById('ana-deck-sel');
   if(sel&&sel.value&&_anaState)anaRender(sel.value);
 }
+
+// Reecriture transparente des src d'images de cartes Scryfall vers la langue choisie.
+// Utilise le endpoint /cards/named?fuzzy=NAME&format=image&lang=XX qui redirige vers la version traduite.
+function _localizeOneImg(img){
+  if(!img||img.tagName!=='IMG')return;
+  var src=img.getAttribute('src')||img.src||'';
+  var name=img.alt||'';
+  if(!src||!name)return;
+  if(src.indexOf('scryfall')<0)return; // non-Scryfall: ignore
+  if(img.dataset&&img.dataset.noLocalize==='1')return; // opt-out
+  if(img.dataset&&img.dataset.localizedTo===_userLang)return; // deja a jour
+  var version='normal';
+  var mv=src.match(/version=(small|normal|large|png|art_crop|border_crop)/);
+  if(mv)version=mv[1];
+  else if(src.indexOf('/small/')>=0)version='small';
+  else if(src.indexOf('/large/')>=0)version='large';
+  else if(src.indexOf('/art_crop/')>=0)version='art_crop';
+  else if(src.indexOf('/png/')>=0)version='png';
+  var newSrc;
+  if(!_userLang||_userLang==='en'){
+    if(src.indexOf('cards.scryfall.io')>=0&&src.indexOf('lang=')<0){
+      // Deja une URL CDN anglaise -> ok, on marque
+      img.dataset.localizedTo='en';return;
+    }
+    newSrc='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version='+version;
+  } else {
+    if(src.indexOf('lang='+_userLang+'&')>=0||src.indexOf('lang='+_userLang)>=0){img.dataset.localizedTo=_userLang;return;}
+    newSrc='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+version;
+  }
+  if(newSrc&&newSrc!==src){
+    img.dataset.localizedTo=_userLang||'en';
+    img.src=newSrc;
+  }
+}
+
+// MutationObserver pour traiter les nouvelles images ajoutees dynamiquement dans le DOM
+(function(){
+  if(typeof MutationObserver==='undefined')return;
+  function processNode(node){
+    if(node.nodeType!==1)return;
+    if(node.tagName==='IMG')_localizeOneImg(node);
+    var imgs=node.querySelectorAll&&node.querySelectorAll('img');
+    if(imgs)imgs.forEach(_localizeOneImg);
+  }
+  var observer=new MutationObserver(function(mutations){
+    mutations.forEach(function(m){
+      if(m.type==='childList'){m.addedNodes.forEach(processNode);}
+      else if(m.type==='attributes'&&m.target.tagName==='IMG'){
+        // src/alt change externe -> revalider
+        if(m.target.dataset)delete m.target.dataset.localizedTo;
+        _localizeOneImg(m.target);
+      }
+    });
+  });
+  function start(){
+    observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src','alt']});
+    document.querySelectorAll('img').forEach(_localizeOneImg);
+  }
+  if(document.body)start();
+  else document.addEventListener('DOMContentLoaded',start);
+})();
 function populateUserLangSel(){
   var sel=document.getElementById('um-lang-sel');if(!sel)return;
   sel.innerHTML=USER_LANGS.map(function(l){return '<option value="'+l.code+'"'+(l.code===_userLang?' selected':'')+'>'+l.label+'</option>';}).join('');
