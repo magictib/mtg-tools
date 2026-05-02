@@ -798,6 +798,21 @@ body.mana-cursor{cursor:none}
 #ar-bot-result{display:none;position:absolute;inset:0;z-index:200;background:rgba(0,0,0,.88);align-items:center;justify-content:center;flex-direction:column;gap:16px}
 #ar-bot-result.on{display:flex}
 #ar-op-lands.bot-on{height:60px}
+/* Tools dropdown */
+#ar-tools-menu{display:none;position:absolute;right:0;top:calc(100% + 5px);z-index:220;background:rgba(8,12,22,.99);border:1px solid rgba(201,168,76,.28);border-radius:11px;padding:4px 0;min-width:185px;box-shadow:0 14px 40px rgba(0,0,0,.95);backdrop-filter:blur(4px)}
+#ar-tools-menu.on{display:block}
+/* Bot mode hides normal-only controls */
+#arena-ov.bot-mode .ar-normal-only{display:none!important}
+/* Resolve choices panel */
+#ar-resolve-panel{display:none;position:absolute;inset:0;z-index:210;background:rgba(0,0,0,.72);align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+#ar-resolve-panel.on{display:flex}
+#ar-resolve-box{background:var(--s2);border:1px solid rgba(201,168,76,.4);border-radius:14px;padding:18px 16px;max-width:290px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,.9)}
+#ar-resolve-header{font-family:'Goudy Mediaeval',serif;font-size:.72rem;color:var(--gold2);text-align:center;letter-spacing:.06em;margin-bottom:10px}
+#ar-resolve-card-name{font-family:'Goudy Mediaeval',serif;font-size:.88rem;color:var(--gold2);text-align:center;margin-bottom:10px;line-height:1.3}
+.ar-resolve-choice{display:block;width:100%;text-align:left;padding:10px 14px;background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.22);border-radius:8px;color:var(--tx);font-size:.78rem;cursor:pointer;transition:background .12s,border-color .12s;line-height:1.4;margin-bottom:5px}
+.ar-resolve-choice:hover{background:rgba(201,168,76,.2);border-color:rgba(201,168,76,.55);color:var(--gold2)}
+.ar-resolve-choice.single{border-color:rgba(80,200,80,.35);color:#c8f0c8}
+.ar-resolve-choice.single:hover{background:rgba(80,200,80,.12);border-color:rgba(80,200,80,.6)}
 </style>
 </head>
 <body>
@@ -2166,7 +2181,7 @@ body.mana-cursor{cursor:none}
 <div id="arena-ov" onpointermove="arPtrMove(event)" onpointerup="arPtrUp(event)">
   <!-- Top bar -->
   <div id="ar-topbar">
-    <button class="ar-btn ar-btn-red" onclick="arClose()" title="Quitter">✕</button>
+    <button class="ar-btn ar-btn-red" onclick="arClose()" title="Quitter l'arène">✕</button>
     <div class="ar-sep"></div>
     <span id="ar-turn-lbl" style="font-family:'Goudy Mediaeval',serif;font-size:.82rem;color:var(--gold2);white-space:nowrap">Tour 1</span>
     <div class="ar-sep"></div>
@@ -2182,21 +2197,32 @@ body.mana-cursor{cursor:none}
       <button class="ar-ph-btn" id="ar-ph-4" onclick="arSetPhase(4)">Fin</button>
     </div>
     <div style="flex:1"></div>
-    <button class="ar-btn ar-btn-gold" onclick="arNextTurn()" title="Détaper tout + piocher + tour suivant">↺ Tour</button>
-    <button class="ar-btn" onclick="arMulligan()" id="ar-mul-btn">⊘ Mul (<span id="ar-mul-n">0</span>)</button>
-    <button class="ar-btn" onclick="arCreateToken()">+ Jeton</button>
-    <button class="ar-btn" onclick="arOpenDeckSearch()" title="Chercher une carte dans le deck">🔍 Deck</button>
-    <button class="ar-btn" onclick="arOpenScryDialog()" title="Regard / Surveiller">👁 Regard / Surveiller</button>
-    <button class="ar-btn" onclick="arShuffle()" title="Mélanger la bibliothèque">🔀</button>
-    <button class="ar-btn" onclick="arOpenHotkeys()" title="Raccourcis clavier">⌨</button>
+    <!-- Primary actions – hidden when bot manages turns -->
+    <button class="ar-btn ar-btn-gold ar-normal-only" onclick="arNextTurn()" title="Détaper tout + piocher + tour suivant">↺ Tour</button>
+    <button class="ar-btn ar-normal-only" onclick="arMulligan()" id="ar-mul-btn">⊘ Mul (<span id="ar-mul-n">0</span>)</button>
+    <div class="ar-sep ar-normal-only"></div>
+    <!-- Card zoom (always useful) -->
+    <button class="ar-btn" onclick="arHandZoom(-15)" title="Réduire les cartes" style="padding:4px 7px">🃏−</button>
+    <button class="ar-btn" onclick="arHandZoom(15)" title="Agrandir les cartes" style="padding:4px 7px">🃏+</button>
     <div class="ar-sep"></div>
-    <button class="ar-btn" onclick="arHandZoom(-15)" title="Réduire les cartes en main" style="padding:4px 7px">🃏−</button>
-    <button class="ar-btn" onclick="arHandZoom(15)" title="Agrandir les cartes en main" style="padding:4px 7px">🃏+</button>
-    <div class="ar-sep"></div>
-    <button class="ar-btn" onclick="arOpenDice()" title="Lancer un dé / Pile ou Face">🎲</button>
-    <button class="ar-btn" onclick="arOpenCounters()" title="Compteurs joueur (Poison, Énergie, etc.)">📊</button>
-    <div class="ar-sep"></div>
-    <button class="ar-btn" onclick="arRestart()" title="Remettre toutes les cartes dans le deck, mélanger et piocher 7" style="border-color:rgba(255,140,50,.5);color:#ff9060">↺ Restart</button>
+    <!-- Tools dropdown -->
+    <div style="position:relative" id="ar-tools-wrap">
+      <button class="ar-btn" onclick="arToggleToolsMenu()" id="ar-tools-btn" title="Outils de partie">⚙ Outils</button>
+      <div id="ar-tools-menu">
+        <div class="ar-cmenu-title" style="cursor:default">🛠 Outils de partie</div>
+        <button class="ar-cmenu-btn" onclick="arCreateToken();arCloseToolsMenu()">+ Créer un jeton</button>
+        <button class="ar-cmenu-btn" onclick="arOpenDeckSearch();arCloseToolsMenu()">🔍 Chercher dans le deck</button>
+        <button class="ar-cmenu-btn" onclick="arOpenScryDialog();arCloseToolsMenu()">👁 Regard / Surveiller</button>
+        <button class="ar-cmenu-btn" onclick="arShuffle();arCloseToolsMenu()">🔀 Mélanger la bibliothèque</button>
+        <div class="ar-cmenu-sep"></div>
+        <button class="ar-cmenu-btn" onclick="arOpenHotkeys();arCloseToolsMenu()">⌨ Raccourcis clavier</button>
+        <button class="ar-cmenu-btn" onclick="arOpenDice();arCloseToolsMenu()">🎲 Dé / Pile ou Face</button>
+        <button class="ar-cmenu-btn" onclick="arOpenCounters();arCloseToolsMenu()">📊 Compteurs joueur</button>
+        <div class="ar-cmenu-sep"></div>
+        <button class="ar-cmenu-btn ar-cmenu-danger" onclick="arRestart();arCloseToolsMenu()">↺ Recommencer</button>
+      </div>
+    </div>
+    <!-- Bot mode controls -->
     <div id="ar-bot-bar">
       <div class="ar-sep"></div>
       <div id="ar-bot-thinking"></div>
@@ -2207,8 +2233,8 @@ body.mana-cursor{cursor:none}
       <span style="font-size:.62rem;color:var(--tx3);white-space:nowrap">Pool:</span>
       <div id="ar-mana-pool"></div>
       <div class="ar-sep"></div>
-      <button class="ar-btn ar-btn-gold" id="ar-end-turn-btn" onclick="arPlayerEndTurn()" title="Terminer votre tour et passer la main au bot">Fin de tour →</button>
-      <button class="ar-btn" id="ar-declare-atk-btn" onclick="arPlayerDeclareAttackers()" title="Déclarer vos attaquants contre le bot" style="border-color:rgba(255,140,50,.5);color:#ffaa60">⚔ Attaquer</button>
+      <button class="ar-btn" id="ar-declare-atk-btn" onclick="arPlayerDeclareAttackers()" title="Déclarer vos attaquants" style="border-color:rgba(255,140,50,.5);color:#ffaa60">⚔ Attaquer</button>
+      <button class="ar-btn ar-btn-gold" id="ar-end-turn-btn" onclick="arPlayerEndTurn()" title="Terminer votre tour">Fin de tour →</button>
     </div>
   </div>
 
@@ -2261,6 +2287,17 @@ body.mana-cursor{cursor:none}
       <button onclick="arForceResolveTop()">Résoudre ↓</button>
     </div>
     <div id="ar-stack-timer-bar"><div id="ar-stack-timer-fill"></div></div>
+  </div>
+
+  <!-- Resolve choices panel -->
+  <div id="ar-resolve-panel">
+    <div id="ar-resolve-box">
+      <div id="ar-resolve-header">⚡ Résolution</div>
+      <img id="ar-resolve-card-img" src="" style="width:100px;height:140px;border-radius:8px;object-fit:cover;display:block;margin:0 auto 10px">
+      <div id="ar-resolve-card-name"></div>
+      <div id="ar-resolve-choices"></div>
+      <button class="ar-btn" onclick="_arCancelResolvePanel()" style="margin-top:10px;width:100%;font-size:.72rem">✕ Annuler</button>
+    </div>
   </div>
 
   <!-- Bot result overlay -->
@@ -7058,6 +7095,14 @@ function arPtrUp(e){
   if(dropZone&&dropZone!==fromZone){arMv(id,fromZone,dropZone);}
 }
 
+// ===== TOOLS MENU =====
+function arToggleToolsMenu(){var m=document.getElementById('ar-tools-menu');if(m)m.classList.toggle('on');}
+function arCloseToolsMenu(){var m=document.getElementById('ar-tools-menu');if(m)m.classList.remove('on');}
+document.addEventListener('click',function(e){
+  var wrap=document.getElementById('ar-tools-wrap');
+  if(wrap&&!wrap.contains(e.target))arCloseToolsMenu();
+});
+
 // ===== BOT / IA MODE =====
 var _arBot=null;
 var _arBotDifficulty='intermediate';
@@ -7177,6 +7222,129 @@ function _arCancelStackTimer(){
   if(fill){fill.style.transition='none';fill.style.width='100%';}
 }
 
+// ----- Resolve choices -----
+function _arParseEffectChoices(item){
+  var data=item&&item.cardData;if(!data)return null;
+  var oracle=data.oracle_text||'';
+  var tl=data.type_line||'';
+  var choices=[];
+  // 1. Modal: "Choose one/two —"
+  var mm=oracle.match(/Choose (?:one|two|a number)[^—\-]*[—\-]([\s\S]+)/i);
+  if(mm){
+    var bullets=mm[1].split(/\n?[•·]\s*/).filter(function(s){return s.trim().length>2;});
+    if(bullets.length>=2){
+      return bullets.map(function(b){return{label:b.trim().replace(/\n/g,' ').substring(0,100),effectText:b.trim(),mode:'text'};});
+    }
+  }
+  // 2. Adventure card (type_line or oracle contains "//")
+  if(/\/\//.test(tl)||/\n\/\/\n/.test(oracle)){
+    var parts=oracle.split(/\n?\/\/\n?/);
+    if(parts.length>=2){
+      var spellName=(tl.split('//')[1]||'Sort').trim();
+      choices.push({label:'🐲 Jouer la créature'+(parts[0].trim()?'':' (ETB)'),effectText:parts[0].trim(),mode:'creature'});
+      choices.push({label:'✨ '+spellName+' — '+parts[1].trim().replace(/\n/g,' ').substring(0,70),effectText:parts[1].trim(),mode:'spell-only'});
+      return choices;
+    }
+  }
+  // 3. Multiple ETB-style effects in oracle (separated by a newline between distinct sentences)
+  var lines=oracle.split('\n').map(function(l){return l.trim();}).filter(function(l){return l.length>5;});
+  if(lines.length>=2&&!tl.includes('Creature')){
+    // Non-creature with multiple paragraph effects: offer each separately
+    return lines.map(function(l){return{label:l.replace(/\{[^}]+\}/g,'').replace(/\n/g,' ').substring(0,100),effectText:l,mode:'text'};});
+  }
+  // 4. Creature: show what the ETB does as info, but still single resolution
+  if(tl.includes('Creature')){
+    var etb=oracle.match(/[Ww]hen[^,]* enters[^,]* battlefield[^.]*[,.]?\s*([^.]+\.)/);
+    if(etb){
+      choices.push({label:'🐲 Poser + ETB : '+etb[1].trim().replace(/\{[^}]+\}/g,'').substring(0,80),effectText:oracle,mode:'creature',single:true});
+      choices.push({label:'Poser sans déclencher l\'ETB',effectText:'',mode:'creature-no-etb',single:true});
+      return choices;
+    }
+  }
+  return null;
+}
+function _arShowResolvePanel(){
+  if(!_arStack.length)return;
+  var top=_arStack[_arStack.length-1];
+  var choices=_arParseEffectChoices(top);
+  var panel=document.getElementById('ar-resolve-panel');
+  var choicesEl=document.getElementById('ar-resolve-choices');
+  var nameEl=document.getElementById('ar-resolve-card-name');
+  var imgEl=document.getElementById('ar-resolve-card-img');
+  if(!panel||!choicesEl)return;
+  if(nameEl)nameEl.textContent=top.name;
+  if(imgEl){imgEl.src=_AR_BACK;_arLoadImg(top.name,imgEl);}
+  panel._stackItem=top;
+  if(choices&&choices.length>1){
+    panel._choices=choices;
+    choicesEl.innerHTML=choices.map(function(c,i){
+      var cls='ar-resolve-choice'+(c.single?' single':'');
+      return'<button class="'+cls+'" onclick="_arResolveWithChoice('+i+')">'+esc(c.label)+'</button>';
+    }).join('');
+  }else{
+    // No real choice — just show what will happen and confirm
+    var oracle=(top.cardData&&top.cardData.oracle_text)||'';
+    var preview=oracle.replace(/\{[^}]+\}/g,'').replace(/\n/g,' ').substring(0,130);
+    panel._choices=null;
+    choicesEl.innerHTML='<button class="ar-resolve-choice single" onclick="_arResolveWithChoice(-1)">'
+      +(preview||'Résoudre l\'effet')+'</button>';
+  }
+  panel.classList.add('on');
+}
+function _arResolveWithChoice(idx){
+  var panel=document.getElementById('ar-resolve-panel');
+  if(!panel)return;
+  panel.classList.remove('on');
+  var item=panel._stackItem;
+  var choices=panel._choices;
+  if(!item){return;}
+  // Pop item from stack
+  var si=_arStack.indexOf(item);if(si>=0)_arStack.splice(si,1);
+  _arBotPassedStack=false;_arPlayerPassedStack=false;
+  var data=item.cardData;
+  var tl=(data&&data.type_line)||'';
+  if(idx===-1||!choices){
+    // Plain resolve
+    _arResolveEffect(item);
+  }else{
+    var choice=choices[idx];
+    if(!choice){_arResolveEffect(item);}
+    else if(choice.mode==='creature'){
+      _arResolveEffect(item);
+    }else if(choice.mode==='creature-no-etb'){
+      // Place creature but skip ETB
+      var d=item.cardData;
+      var nc={id:item.sourceId||_arMakeId(),name:item.name,
+        x:item.posX||Math.random()*180+20,y:item.posY||30,
+        tapped:false,counters:0,damage:0,enteredThisTurn:true,
+        power:parseInt((d&&d.power)||0),toughness:parseInt((d&&d.toughness)||0)};
+      if((d&&d.keywords||[]).includes('Haste'))nc.enteredThisTurn=false;
+      if(item.caster==='player')_ar.field.push(nc);else if(_arBot)_arBot.field.push(nc);
+    }else if(choice.mode==='spell-only'){
+      _arTextEffects(choice.effectText,item.caster,item.targets||[]);
+      if(item.caster==='player')_ar.grave.push({id:_arMakeId(),name:item.name});
+      else if(_arBot)_arBot.grave.push({id:_arMakeId(),name:item.name});
+    }else{
+      // 'text' mode — run effect text directly
+      _arTextEffects(choice.effectText,item.caster,item.targets||[]);
+      if(!tl.includes('Creature')&&!tl.includes('Artifact')&&!tl.includes('Enchantment')){
+        if(item.caster==='player')_ar.grave.push({id:_arMakeId(),name:item.name});
+        else if(_arBot)_arBot.grave.push({id:_arMakeId(),name:item.name});
+      }
+    }
+  }
+  _arApplySBAs();
+  arRenderStack();arRender();arBotRenderOpponent();
+  var bar=document.getElementById('ar-priority-bar');
+  if(_arStack.length){_arSetPriority(_arBotTurnActive?'player':'bot');}
+  else{if(bar)bar.classList.remove('on');_arPriorityHolder=null;}
+  if(item._botDone)setTimeout(item._botDone,400);
+}
+function _arCancelResolvePanel(){
+  var panel=document.getElementById('ar-resolve-panel');
+  if(panel)panel.classList.remove('on');
+}
+
 // ----- Stack engine -----
 function _arStackPush(item){
   _arStack.push(item);_arBotPassedStack=false;_arPlayerPassedStack=false;
@@ -7204,7 +7372,7 @@ function arPassPriority(){
   if(_arBotPassedStack){_arResolveTop();}
   else{_arSetPriority('bot');}
 }
-function arForceResolveTop(){_arCancelStackTimer();_arResolveTop();}
+function arForceResolveTop(){_arCancelStackTimer();_arShowResolvePanel();}
 function _arBotRespondToStack(){
   if(_arPriorityHolder!=='bot'||!_arBot)return;
   _arBotPassedStack=true;
@@ -7220,6 +7388,7 @@ function _arResolveTop(){
   var bar=document.getElementById('ar-priority-bar');
   if(_arStack.length){_arSetPriority(_arBotTurnActive?'player':'bot');}
   else{if(bar)bar.classList.remove('on');_arPriorityHolder=null;}
+  if(item._botDone)setTimeout(item._botDone,400);
 }
 function arRenderStack(){
   var panel=document.getElementById('ar-stack-panel');
@@ -7515,13 +7684,14 @@ function _arBotShowUI(on){
     var e=document.getElementById(id);if(!e)return;
     if(on)e.classList.add('mp-on');else e.classList.remove('mp-on');
   });
+  var ao=document.getElementById('arena-ov');if(ao)ao.classList.toggle('bot-mode',on);
   var bf=document.getElementById('ar-bot-field');if(bf)bf.classList.toggle('on',on);
   var opLands=document.getElementById('ar-op-lands');if(opLands)opLands.classList.toggle('bot-on',on);
   var bar=document.getElementById('ar-bot-bar');if(bar)bar.style.display=on?'flex':'none';
   var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.style.display=on?'inline-flex':'none';
   var res=document.getElementById('ar-bot-result');if(res&&!on)res.classList.remove('on');
   var gf=document.getElementById('ar-go-first-ov');if(gf&&!on)gf.classList.remove('on');
-  if(!on)_arSetTurnIndicator(null);
+  if(!on){_arSetTurnIndicator(null);_arCancelResolvePanel();}
 }
 
 // ----- Bot AI: start -----
@@ -7718,17 +7888,11 @@ function _arBotCastCard(card,done){
   _arBot.hand=_arBot.hand.filter(function(c){return c.id!==card.id;});
   _arBotPay(d.mana_cost);
   var targets=_arBotPickTarget(d.oracle_text);
-  var si={id:_arMakeId(),type:'spell',name:card.name,caster:'bot',cardData:d,sourceId:card.id,targets:targets};
+  var si={id:_arMakeId(),type:'spell',name:card.name,caster:'bot',cardData:d,sourceId:card.id,targets:targets,_botDone:done};
   _arBotLog('Bot: Lance '+card.name);
   _arStackPush(si);
   arBotRenderOpponent();
-  // Show a visible countdown — player can click Résoudre or Passer; timer auto-passes if idle
-  _arStartStackTimer(5000,function(){
-    if(_arStack.length&&_arPriorityHolder==='player'&&_arBotTurnActive){
-      arPassPriority();
-    }
-    done();
-  });
+  // Player decides via Résoudre / Passer buttons — done() called from _arResolveTop after stack resolves
 }
 
 // ----- Combat (bot attacks) -----
