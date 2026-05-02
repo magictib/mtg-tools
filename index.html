@@ -1554,16 +1554,58 @@ body.mana-cursor{cursor:none}
 <!-- ANALYSE -->
 <div class="page" id="pg-analyse">
   <div class="card">
-    <div class="lbl">Analyse d'un deck</div>
-    <div style="font-size:11px;color:var(--tx3);margin-bottom:8px">Évalue l'efficacité du deck (pioche, removal, ramp, interaction, win conditions) et propose des optimisations à partir de votre collection.</div>
-    <div class="row" style="gap:8px;align-items:center">
-      <select id="ana-deck-sel" class="psel" style="flex:1;min-width:200px"></select>
+    <div class="lbl">📊 Analyse d'efficacité d'un deck</div>
+    <div style="font-size:11px;color:var(--tx3);margin-bottom:10px">Sélectionne un deck pour évaluer son équilibre (mana, pioche, removal, menaces, interaction) et obtenir un score sur 100 par catégorie.</div>
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="ana-deck-sel" class="psel" style="flex:1;min-width:220px"></select>
       <button class="btn btnp" onclick="anaAnalyze()">⚡ Analyser</button>
+      <button class="btn btnsm" onclick="anaClearCache()" title="Vider le cache d'analyse">🗑 Cache</button>
     </div>
-    <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic"></div>
+    <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic;min-height:1em"></div>
   </div>
   <div id="ana-results" style="display:none"></div>
 </div>
+
+<style>
+.ana-grade-badge{display:inline-flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;font-family:'Goudy Mediaeval',serif;font-size:42px;font-weight:bold;border:3px solid;flex-shrink:0;letter-spacing:-0.04em}
+.ana-sub{background:linear-gradient(140deg,var(--s2),var(--s1));border:.5px solid var(--bd2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ana-sub-label{font-size:9px;color:var(--tx3);letter-spacing:.1em;text-transform:uppercase;font-family:'Goudy Mediaeval',serif}
+.ana-sub-score{font-size:24px;font-weight:bold;line-height:1;font-variant-numeric:tabular-nums}
+.ana-sub-bar{height:5px;background:rgba(0,0,0,0.4);border-radius:3px;overflow:hidden}
+.ana-sub-bar>div{height:100%;border-radius:3px;transition:width .5s}
+.ana-sub-meta{font-size:10px;color:var(--tx2);font-variant-numeric:tabular-nums}
+.ana-card-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:.5px solid var(--bd2);font-size:12px}
+.ana-card-row:last-child{border-bottom:none}
+.ana-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.ana-grid-2{grid-template-columns:1fr}}
+.ana-curve-bar{display:flex;align-items:flex-end;gap:3px;height:90px;padding:6px 4px;background:rgba(0,0,0,.25);border-radius:6px;border:.5px solid var(--bd2)}
+.ana-curve-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px;min-width:0}
+.ana-curve-fill{width:100%;background:linear-gradient(180deg,var(--gold2),var(--ac));border-radius:3px 3px 0 0;min-height:2px;transition:height .4s}
+.ana-curve-lbl{font-size:9px;color:var(--tx3);font-variant-numeric:tabular-nums}
+.ana-curve-val{font-size:10px;color:var(--tx2);font-variant-numeric:tabular-nums;font-weight:bold}
+.ana-cat-row{display:grid;grid-template-columns:130px 50px 1fr auto;gap:8px;align-items:center;margin:4px 0;font-size:11px}
+.ana-cat-bar{height:14px;background:rgba(0,0,0,.3);border-radius:3px;overflow:hidden;border:.5px solid var(--bd2);position:relative}
+.ana-cat-bar>.fill{height:100%;border-radius:3px;transition:width .4s}
+.ana-cat-bar>.target{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--gold2);box-shadow:0 0 4px var(--gold2)}
+.ana-cat-status{font-size:10px;font-style:italic}
+.ana-mini-pip{display:inline-flex;width:18px;height:18px;border-radius:50%;justify-content:center;align-items:center;font-size:11px;font-weight:bold;margin:0 1px;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.pip-W{background:#fffaeb;color:#88735c}
+.pip-U{background:#aecadc;color:#103755}
+.pip-B{background:#332b2b;color:#bbb1a6}
+.pip-R{background:#d99182;color:#5c1d18}
+.pip-G{background:#9bcfa8;color:#1d3a25}
+.pip-C{background:#aaa;color:#333}
+.ana-types-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:11px;border-bottom:.5px solid var(--bd2)}
+.ana-types-row:last-child{border-bottom:none}
+.ana-pct-bar{display:inline-block;width:80px;height:6px;background:rgba(0,0,0,.3);border-radius:3px;margin:0 6px;vertical-align:middle;overflow:hidden}
+.ana-pct-bar>div{height:100%;background:var(--gold2);border-radius:3px}
+.ana-deck-header{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.ana-deck-info{flex:1;min-width:0}
+.ana-deck-name{font-family:'Goudy Mediaeval',serif;font-size:20px;color:var(--gold2);letter-spacing:.04em;margin-bottom:2px;line-height:1.2}
+.ana-deck-meta{font-size:11px;color:var(--tx2)}
+.ana-swap-row{padding:8px 0;border-bottom:.5px solid var(--bd2);font-size:12px}
+.ana-swap-row:last-child{border-bottom:none}
+</style>
 
 <!-- BUILDER -->
 <div class="page" id="pg-build">
@@ -11359,10 +11401,20 @@ function setActiveMana(type){
 }
 
 /* ===================================================================
-   ANALYSE TAB — efficacite & optimisation type Mythic Tools+
+   ANALYSE TAB — Mythic Tools+ style scoring (un seul deck a la fois)
    =================================================================== */
 var _anaData={}; // nl -> {cmc, typeLine, oracleText, colors, colorIdentity, name, isLand, tags}
 var _anaState=null;
+
+// Restaurer le cache au chargement
+try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object')_anaData=__aP;}}catch(e){}
+function _anaSaveCache(){try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function anaClearCache(){
+  if(!confirm('Vider le cache d\'analyse Scryfall ?'))return;
+  _anaData={};try{localStorage.removeItem('mtg_ana_cache');}catch(e){}
+  var st=document.getElementById('ana-status');if(st)st.textContent='Cache vidé.';
+  document.getElementById('ana-results').style.display='none';
+}
 
 function anaInit(){anaPopulateDeckSel();}
 
@@ -11370,13 +11422,13 @@ function anaPopulateDeckSel(){
   var sel=document.getElementById('ana-deck-sel');if(!sel)return;
   var ids=Object.keys(decks||{});
   ids.sort(function(a,b){return ((decks[a]||{}).name||'').localeCompare((decks[b]||{}).name||'');});
+  if(!ids.length){sel.innerHTML='<option value="">— Aucun deck disponible —</option>';return;}
   var html='<option value="">— Sélectionner un deck —</option>';
   ids.forEach(function(id){
     var d=decks[id]||{};var nm=esc(d.name||'Sans nom');
     var fmt=d.format?' ['+d.format+']':'';
-    var ownerLabel='';
-    if(typeof d.owner==='number'){var p=profs[d.owner];var pn=Array.isArray(p)&&p.length?(typeof p[0]==='string'?p[0]:(p[0]&&p[0].name)||''):'';if(pn)ownerLabel=' — '+esc(pn);}
-    html+='<option value="'+id+'">'+nm+fmt+ownerLabel+'</option>';
+    var n=d.cards?d.cards.reduce(function(s,c){return s+(c.qty||1);},0):0;
+    html+='<option value="'+id+'">'+nm+fmt+' · '+n+' c.</option>';
   });
   sel.innerHTML=html;
 }
@@ -11437,28 +11489,11 @@ function anaInferTags(meta){
   return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0};
 }
 
-/* ----- Scoring (port du modele Python) ----- */
-function anaCardScore(meta){
-  if(!meta||!meta.tags)return 0;
-  var t=meta.tags;if(t.isLand)return 0;
-  return (t.draw*2.5+t.removal*2.0+t.ramp*1.8+t.interaction*2.0+t.wincon*3.0)-((meta.cmc||0)*0.4);
-}
-function anaDeckScore(deckCards){
-  return deckCards.reduce(function(s,c){var m=_anaData[c.nl];if(!m)return s;return s+anaCardScore(m)*(c.qty||1);},0);
-}
-function anaConsistency(deckCards){
-  var totQty=deckCards.reduce(function(s,c){return s+(c.qty||1);},0);
-  if(!totQty)return 0;return anaDeckScore(deckCards)/totQty;
-}
-function anaMlScore(deckCards){return anaDeckScore(deckCards)*0.7+anaConsistency(deckCards)*0.3;}
-
 /* ----- Helpers ----- */
 function _anaIsBasicLandNl(nl){return ['plains','island','swamp','mountain','forest','wastes','plaine','île','ile','marais','montagne','forêt','foret','snow-covered plains','snow-covered island','snow-covered swamp','snow-covered mountain','snow-covered forest'].indexOf(nl)>=0;}
-function _anaProperName(nl){
-  for(var id in decks){var d=decks[id];if(!d||!d.cards)continue;
-    for(var i=0;i<d.cards.length;i++){if(d.cards[i].nl===nl)return d.cards[i].name;}
-  }
+function _anaProperName(nl,fallbackList){
   if(_anaData[nl]&&_anaData[nl].name)return _anaData[nl].name;
+  if(fallbackList){for(var i=0;i<fallbackList.length;i++){if(fallbackList[i].nl===nl)return fallbackList[i].name;}}
   return nl;
 }
 function _anaInColors(cardCi,deckCi){
@@ -11473,16 +11508,65 @@ function _anaDeckCi(deck){
   return null;
 }
 
+/* ----- Roles fonctionnels (booleens pour comptage) ----- */
+function anaRoles(meta){
+  if(!meta||!meta.tags)return {ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:0};
+  var t=meta.tags;
+  if(t.isLand)return {ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:1};
+  return {
+    ramp:t.ramp>=0.6?1:0,
+    draw:t.draw>=0.6?1:0,
+    removal:t.removal>=0.6?1:0,
+    interaction:t.interaction>=0.6?1:0,
+    wincon:t.wincon>=1.0?1:0,
+    land:0
+  };
+}
+
+/* ----- Format-aware targets ----- */
+function anaIsCommanderFormat(fmt){return ['commander','paupercmd','brawl','oathbreaker'].indexOf(fmt)>=0;}
+function anaTargets(fmt,totalCards){
+  if(anaIsCommanderFormat(fmt)||totalCards>=80){
+    return {land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
+  }
+  return {land:[22,25],ramp:[0,4],draw:[5,10],removal:[5,10],interaction:[6,10],wincon:[4,8]};
+}
+
+/* ----- Score 0-100 par categorie ----- */
+function anaCatScore(value,range){
+  var lo=range[0],hi=range[1];
+  if(value<=0)return lo===0?70:0;
+  if(lo===0&&value<=hi)return Math.round(Math.min(95,70+(value/Math.max(1,hi))*25));
+  if(value<lo)return Math.round((value/lo)*70);
+  if(value<=hi)return Math.round(70+((value-lo)/Math.max(1,hi-lo))*25);
+  if(value<=hi*1.5)return Math.round(95-((value-hi)/Math.max(1,hi*0.5))*5);
+  return Math.max(55,Math.round(90-(value-hi*1.5)*4));
+}
+
+/* ----- Letter grade ----- */
+function anaGrade(score){
+  if(score>=95)return {l:'S',col:'#e8c96e'};
+  if(score>=90)return {l:'A+',col:'#78c890'};
+  if(score>=85)return {l:'A',col:'#78c890'};
+  if(score>=80)return {l:'B+',col:'#aecadc'};
+  if(score>=75)return {l:'B',col:'#aecadc'};
+  if(score>=70)return {l:'C+',col:'#f5b95b'};
+  if(score>=65)return {l:'C',col:'#f5b95b'};
+  if(score>=55)return {l:'D',col:'#e07070'};
+  return {l:'F',col:'#c94848'};
+}
+
 /* ----- Scryfall fetch ----- */
-function anaFetchMissing(nls,onDone){
-  var todo=nls.filter(function(nl){return !_anaData[nl]&&nl;});
+function anaFetchMissing(nls,fallbackList,onDone){
+  var seen={};var todo=[];
+  nls.forEach(function(nl){if(!nl||_anaData[nl]||seen[nl])return;seen[nl]=1;todo.push(nl);});
   if(!todo.length){onDone();return;}
   var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
-  var done=0;
+  var done=0,nFound=0;
   batches.forEach(function(batch){
     fetch('https://api.scryfall.com/cards/collection',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({identifiers:batch.map(function(nl){return {name:_anaProperName(nl)};})})
+      body:JSON.stringify({identifiers:batch.map(function(nl){return {name:_anaProperName(nl,fallbackList)};})})
     }).then(function(r){return r.json();}).then(function(data){
       (data.data||[]).forEach(function(card){
         var nm=card.name||'';var nl=stripDFC(nm).toLowerCase();
@@ -11490,45 +11574,54 @@ function anaFetchMissing(nls,onDone){
         if(card.card_faces&&card.card_faces.length&&!card.oracle_text){
           oracle=card.card_faces.map(function(f){return f.oracle_text||'';}).join('\n');
         }else{oracle=card.oracle_text||'';}
-        _anaData[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm};
-        _anaData[nl].tags=anaInferTags(_anaData[nl]);
-        _anaData[nl].isLand=(_anaData[nl].tags||{}).isLand||0;
+        var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm};
+        meta.tags=anaInferTags(meta);
+        meta.isLand=meta.tags.isLand||0;
+        _anaData[nl]=meta;nFound++;
       });
-      if(++done===batches.length)onDone();
-    }).catch(function(){if(++done===batches.length)onDone();});
+      if(++done===batches.length){_anaSaveCache();console.log('[Analyse] Scryfall: '+nFound+'/'+todo.length+' cartes récupérées');onDone();}
+    }).catch(function(err){
+      console.warn('[Analyse] Scryfall batch failed',err);
+      if(++done===batches.length){_anaSaveCache();onDone();}
+    });
   });
 }
 
-/* ----- Main entry ----- */
+/* ----- Main entry — analyse UN SEUL deck ----- */
 function anaAnalyze(){
   var deckId=document.getElementById('ana-deck-sel').value;
   if(!deckId){alert('Sélectionne un deck à analyser');return;}
   var deck=decks[deckId];
   if(!deck||!deck.cards||!deck.cards.length){alert('Ce deck est vide');return;}
   var st=document.getElementById('ana-status');
-  st.textContent='⏳ Récupération des données Scryfall pour le deck…';
   document.getElementById('ana-results').style.display='none';
   var deckNls=deck.cards.map(function(c){return c.nl;});
-  if(deck.commander&&deck.commander.name)deckNls.push(deck.commander.name.toLowerCase());
-  anaFetchMissing(deckNls,function(){
-    st.textContent='⏳ Récupération de votre collection (pour les suggestions)…';
-    var ownerPm=getPMap(deck.owner||0);
-    var deckNlSet={};deck.cards.forEach(function(c){deckNlSet[c.nl]=1;});
-    var collNls=[];
-    ownerPm.forEach(function(qty,k){var nl=k.split('||')[0];if(!deckNlSet[nl]&&!_anaIsBasicLandNl(nl))collNls.push(nl);});
-    var toFetch=collNls.filter(function(nl){return !_anaData[nl];}).slice(0,300);
-    anaFetchMissing(toFetch,function(){
-      st.textContent='';
-      anaRender(deckId);
-    });
+  var fallback=deck.cards.slice();
+  if(deck.commander&&deck.commander.name){
+    var cmdNl=deck.commander.name.toLowerCase();
+    if(deckNls.indexOf(cmdNl)<0)deckNls.push(cmdNl);
+    fallback.push({nl:cmdNl,name:deck.commander.name});
+  }
+  var toFetch=deckNls.filter(function(nl){return !_anaData[nl];});
+  st.textContent=toFetch.length?'⏳ Récupération de '+toFetch.length+' carte(s) sur Scryfall…':'✓ Cache complet — analyse en cours…';
+  anaFetchMissing(deckNls,fallback,function(){
+    st.textContent='';
+    try{anaRender(deckId);}catch(e){console.error('[Analyse] Erreur de rendu',e);st.textContent='❌ Erreur : '+e.message;}
   });
 }
 
-/* ----- Optimization ----- */
-function anaOptimize(scoredCards,pool,iterations){
-  iterations=iterations||5;var current=scoredCards.slice();var poolCopy=pool.slice();var swaps=[];
+/* ----- Scoring (pour ranking interne) ----- */
+function anaCardScore(meta){
+  if(!meta||!meta.tags)return 0;
+  var t=meta.tags;if(t.isLand)return 0;
+  return (t.draw*2.5+t.removal*2.0+t.ramp*1.8+t.interaction*2.0+t.wincon*3.0)-((meta.cmc||0)*0.4);
+}
+
+/* ----- Optimisation ----- */
+function anaOptimize(scoredRows,pool,iterations){
+  iterations=iterations||5;var current=scoredRows.slice();var poolCopy=pool.slice();var swaps=[];
   for(var i=0;i<iterations;i++){
-    var nonLand=current.filter(function(s){return !(s.meta.tags&&s.meta.tags.isLand);});
+    var nonLand=current.filter(function(r){return !(r.meta.tags&&r.meta.tags.isLand);});
     if(!nonLand.length)break;
     var weak=nonLand.reduce(function(min,c){return c.score<min.score?c:min;});
     if(!poolCopy.length)break;
@@ -11536,143 +11629,238 @@ function anaOptimize(scoredCards,pool,iterations){
     if(bestPool.score<=weak.score)break;
     var gain=bestPool.score-weak.score;
     swaps.push({cut:weak.card,cutScore:weak.score,add:{name:bestPool.name,nl:bestPool.nl},addScore:bestPool.score,gain:gain});
-    current=current.filter(function(s){return s.card.nl!==weak.card.nl;});
+    current=current.filter(function(r){return r.card.nl!==weak.card.nl;});
     poolCopy=poolCopy.filter(function(c){return c.nl!==bestPool.nl;});
   }
   return {swaps:swaps};
 }
 
-/* ----- Render ----- */
+/* ----- Render Mythic Tools+ style ----- */
 function anaRender(deckId){
   var deck=decks[deckId];if(!deck)return;
   var cards=deck.cards.slice();
-  var scored=cards.map(function(c){var m=_anaData[c.nl]||{};return {card:c,meta:m,score:anaCardScore(m)};});
-  scored.sort(function(a,b){return b.score-a.score;});
-  var totalScore=anaDeckScore(cards);var consist=anaConsistency(cards);var ml=anaMlScore(cards);
-  var tagTotals={draw:0,removal:0,ramp:0,interaction:0,wincon:0};
-  var lands=0,nonLands=0,unanalyzed=0;
-  cards.forEach(function(c){
-    var m=_anaData[c.nl];if(!m){unanalyzed+=(c.qty||1);return;}
-    if(m.tags&&m.tags.isLand){lands+=(c.qty||1);return;}
-    nonLands+=(c.qty||1);
-    if(m.tags){tagTotals.draw+=m.tags.draw*(c.qty||1);tagTotals.removal+=m.tags.removal*(c.qty||1);tagTotals.ramp+=m.tags.ramp*(c.qty||1);tagTotals.interaction+=m.tags.interaction*(c.qty||1);tagTotals.wincon+=m.tags.wincon*(c.qty||1);}
-  });
-  var nonLandScored=scored.filter(function(s){return !(s.meta.tags&&s.meta.tags.isLand);});
-  var top5=nonLandScored.slice(0,5);
-  var bottom5=nonLandScored.slice(-5).reverse();
-
-  // Suggestions: cards from owner collection, in deck color identity, scored
-  var deckNlSet={};cards.forEach(function(c){deckNlSet[c.nl]=1;});
-  var ownerPm=getPMap(deck.owner||0);
+  var fmt=deck.format||'';
+  var totalCards=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var deckCi=_anaDeckCi(deck);
+
+  // Per-card data (UN SEUL DECK)
+  var rows=cards.map(function(c){
+    var meta=_anaData[c.nl];
+    return {card:c,meta:meta||{},roles:anaRoles(meta),score:meta?anaCardScore(meta):0,inCache:!!meta};
+  });
+
+  // Counts par categorie
+  var counts={land:0,ramp:0,draw:0,removal:0,interaction:0,wincon:0};
+  var unanalyzed=0;
+  var manaCurve=[0,0,0,0,0,0,0,0]; // 0..6, 7=7+
+  var typeCounts={'Créatures':0,'Éphémères':0,'Rituels':0,'Enchantements':0,'Artefacts':0,'Planeswalkers':0,'Terrains':0,'Autres':0};
+  rows.forEach(function(r){
+    var qty=r.card.qty||1;
+    if(!r.inCache){unanalyzed+=qty;return;}
+    var rl=r.roles,m=r.meta;
+    counts.land+=rl.land*qty;counts.ramp+=rl.ramp*qty;counts.draw+=rl.draw*qty;counts.removal+=rl.removal*qty;counts.interaction+=rl.interaction*qty;counts.wincon+=rl.wincon*qty;
+    if(!rl.land){var b=Math.min(7,Math.max(0,Math.floor(m.cmc||0)));manaCurve[b]+=qty;}
+    var tl=(m.typeLine||'').toLowerCase();
+    if(tl.indexOf('land')>=0)typeCounts['Terrains']+=qty;
+    else if(tl.indexOf('creature')>=0)typeCounts['Créatures']+=qty;
+    else if(tl.indexOf('instant')>=0)typeCounts['Éphémères']+=qty;
+    else if(tl.indexOf('sorcery')>=0)typeCounts['Rituels']+=qty;
+    else if(tl.indexOf('enchantment')>=0)typeCounts['Enchantements']+=qty;
+    else if(tl.indexOf('artifact')>=0)typeCounts['Artefacts']+=qty;
+    else if(tl.indexOf('planeswalker')>=0)typeCounts['Planeswalkers']+=qty;
+    else typeCounts['Autres']+=qty;
+  });
+
+  // Targets format-aware + sub-scores
+  var targets=anaTargets(fmt,totalCards);
+  var subScores={
+    land:anaCatScore(counts.land,targets.land),
+    ramp:anaCatScore(counts.ramp,targets.ramp),
+    draw:anaCatScore(counts.draw,targets.draw),
+    removal:anaCatScore(counts.removal,targets.removal),
+    interaction:anaCatScore(counts.interaction,targets.interaction),
+    wincon:anaCatScore(counts.wincon,targets.wincon)
+  };
+  var weights=anaIsCommanderFormat(fmt)||totalCards>=80
+    ?{land:.18,ramp:.16,draw:.18,removal:.16,interaction:.16,wincon:.16}
+    :{land:.20,ramp:.10,draw:.20,removal:.18,interaction:.16,wincon:.16};
+  var overall=0;Object.keys(weights).forEach(function(k){overall+=subScores[k]*weights[k];});
+  overall=Math.round(overall);
+  var grade=anaGrade(overall);
+
+  // Top / bottom non-land
+  var nonLandRows=rows.filter(function(r){return r.inCache && !r.roles.land;});
+  var topRows=nonLandRows.slice().sort(function(a,b){return b.score-a.score;}).slice(0,7);
+  var bottomRows=nonLandRows.slice().sort(function(a,b){return a.score-b.score;}).slice(0,7);
+
+  // Suggestions depuis CACHE (toutes cartes deja analysees, hors deck, dans CI)
+  var deckNlSet={};cards.forEach(function(c){deckNlSet[c.nl]=1;});
   var suggestions=[];
-  ownerPm.forEach(function(qty,k){
-    var nl=k.split('||')[0];
+  Object.keys(_anaData).forEach(function(nl){
     if(deckNlSet[nl]||_anaIsBasicLandNl(nl))return;
     var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
     if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
-    suggestions.push({nl:nl,name:meta.name||nl,score:anaCardScore(meta),meta:meta});
+    suggestions.push({nl:nl,name:meta.name||nl,meta:meta,score:anaCardScore(meta)});
   });
   suggestions.sort(function(a,b){return b.score-a.score;});
-  var topSuggestions=suggestions.slice(0,10);
+  var topSuggestions=suggestions.slice(0,8);
 
-  // Optimisation auto sur 5 swaps
-  var optResult=anaOptimize(scored.slice(),suggestions.slice(),5);
+  // Plan d'optimisation
+  var optResult=anaOptimize(rows.filter(function(r){return r.inCache;}),suggestions.slice(),5);
 
-  // RENDER
+  // ===== HTML =====
   var html='';
-  // Header avec scores
-  html+='<div class="card">';
-  html+='<div class="lbl">📊 Score global</div>';
-  html+='<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end">';
-  html+='<div><div style="font-size:9px;color:var(--tx3);letter-spacing:.08em">SCORE ML</div><div style="font-size:38px;font-weight:bold;color:var(--gold2);line-height:1">'+ml.toFixed(1)+'</div></div>';
-  html+='<div><div style="font-size:9px;color:var(--tx3);letter-spacing:.08em">SCORE BRUT</div><div style="font-size:24px;line-height:1.2">'+totalScore.toFixed(1)+'</div></div>';
-  html+='<div><div style="font-size:9px;color:var(--tx3);letter-spacing:.08em">COHÉRENCE</div><div style="font-size:24px;line-height:1.2">'+consist.toFixed(2)+'</div></div>';
-  html+='<div><div style="font-size:9px;color:var(--tx3);letter-spacing:.08em">CARTES</div><div style="font-size:18px;line-height:1.2">'+nonLands+' sorts + '+lands+' 🌍</div></div>';
-  if(unanalyzed>0)html+='<div style="color:#f5b95b;font-size:11px">⚠ '+unanalyzed+' carte(s) non analysée(s)</div>';
-  html+='</div>';
-  html+='<div style="margin-top:10px;font-size:10px;color:var(--tx3);font-style:italic">Score ML = (Score Brut × 0.7) + (Cohérence × 0.3). Inspiré du modèle scoring de Mythic Tools+.</div>';
-  html+='</div>';
+  var ciHtml=(deckCi||[]).map(function(c){return '<span class="ana-mini-pip pip-'+c+'">'+c+'</span>';}).join('');
+  if(!ciHtml)ciHtml='<span style="font-size:10px;color:var(--tx3)">incolore</span>';
 
-  // Repartition par categorie
-  var tagDef=[
+  // Header avec grade
+  html+='<div class="card">';
+  html+='<div class="ana-deck-header">';
+  html+='<div class="ana-grade-badge" style="color:'+grade.col+';border-color:'+grade.col+';background:rgba(0,0,0,.4)" title="'+overall+'/100">'+grade.l+'</div>';
+  html+='<div class="ana-deck-info">';
+  html+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
+  html+='<div class="ana-deck-meta">'+(fmt?fmt.toUpperCase():'Format libre')+' · '+totalCards+' cartes · '+ciHtml;
+  if(deck.commander&&deck.commander.name)html+=' · 👑 '+esc(deck.commander.name);
+  html+='</div>';
+  html+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
+  if(unanalyzed>0)html+='<div style="margin-top:4px;color:#f5b95b;font-size:10px">⚠ '+unanalyzed+' carte(s) non identifiée(s) sur Scryfall — non comptabilisées.</div>';
+  html+='</div></div></div>';
+
+  // Sub-scores cartes
+  var subDef=[
+    {k:'land',label:'Mana base',col:'#cdb87a'},
+    {k:'ramp',label:'Ramp',col:'#5bf590'},
     {k:'draw',label:'Pioche',col:'#5b8cf5'},
     {k:'removal',label:'Removal',col:'#f55b5b'},
-    {k:'ramp',label:'Ramp',col:'#5bf590'},
     {k:'interaction',label:'Interaction',col:'#f5b95b'},
-    {k:'wincon',label:'Win Conditions',col:'#c95bf5'}
+    {k:'wincon',label:'Menaces',col:'#c95bf5'}
   ];
-  var maxTag=Math.max.apply(null,tagDef.map(function(t){return tagTotals[t.k]||0;}));if(maxTag<1)maxTag=1;
-  html+='<div class="card"><div class="lbl">Répartition par catégorie (pondérée par quantité)</div>';
-  tagDef.forEach(function(t){
-    var v=tagTotals[t.k]||0;var pct=(v/maxTag)*100;
-    html+='<div style="display:flex;align-items:center;gap:10px;margin:5px 0">';
-    html+='<div style="width:130px;font-size:11px">'+t.label+'</div>';
-    html+='<div style="flex:1;background:rgba(0,0,0,0.3);border-radius:3px;height:14px;overflow:hidden;border:1px solid var(--bd2)"><div style="width:'+pct.toFixed(1)+'%;background:'+t.col+';height:100%;transition:width .4s"></div></div>';
-    html+='<div style="width:60px;text-align:right;font-size:11px;color:var(--tx2);font-variant-numeric:tabular-nums">'+v.toFixed(1)+'</div>';
+  html+='<div class="card"><div class="lbl">Score par catégorie</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px">';
+  subDef.forEach(function(s){
+    var sc=subScores[s.k]||0;var v=counts[s.k];var rg=targets[s.k];
+    html+='<div class="ana-sub">';
+    html+='<div class="ana-sub-label">'+s.label+'</div>';
+    html+='<div class="ana-sub-score" style="color:'+s.col+'">'+sc+'</div>';
+    html+='<div class="ana-sub-bar"><div style="width:'+sc+'%;background:'+s.col+'"></div></div>';
+    html+='<div class="ana-sub-meta">'+v+' carte(s) · cible '+rg[0]+'-'+rg[1]+'</div>';
+    html+='</div>';
+  });
+  html+='</div></div>';
+
+  // Courbe de mana + Types
+  html+='<div class="ana-grid-2">';
+  html+='<div class="card"><div class="lbl">Courbe de mana (sorts)</div>';
+  var maxBucket=Math.max.apply(null,manaCurve)||1;
+  html+='<div class="ana-curve-bar">';
+  manaCurve.forEach(function(n,i){
+    var h=(n/maxBucket)*70;
+    html+='<div class="ana-curve-col">';
+    html+='<div class="ana-curve-val">'+(n||'')+'</div>';
+    html+='<div class="ana-curve-fill" style="height:'+(h<2?2:h)+'px"></div>';
+    html+='<div class="ana-curve-lbl">'+(i===7?'7+':i)+'</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  var nonLandTot=manaCurve.reduce(function(s,n){return s+n;},0);
+  var avgCmc=0;if(nonLandTot){manaCurve.forEach(function(n,i){avgCmc+=n*(i===7?7.5:i);});avgCmc=avgCmc/nonLandTot;}
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div>';
+  html+='</div>';
+
+  html+='<div class="card"><div class="lbl">Répartition par type</div>';
+  var typeOrder=['Créatures','Éphémères','Rituels','Enchantements','Artefacts','Planeswalkers','Terrains','Autres'];
+  typeOrder.forEach(function(name){
+    var n=typeCounts[name]||0;if(!n)return;
+    var pct=totalCards?(n/totalCards)*100:0;
+    html+='<div class="ana-types-row">';
+    html+='<div>'+name+'</div>';
+    html+='<div><span class="ana-pct-bar"><div style="width:'+pct.toFixed(1)+'%"></div></span><b>'+n+'</b> <span style="color:var(--tx3);font-size:10px">'+pct.toFixed(0)+'%</span></div>';
+    html+='</div>';
+  });
+  html+='</div></div>';
+
+  // Categories fonctionnelles vs cibles
+  html+='<div class="card"><div class="lbl">Catégories fonctionnelles vs cibles du format</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Les marqueurs dorés indiquent la fourchette cible recommandée.</div>';
+  subDef.forEach(function(s){
+    var v=counts[s.k];var rg=targets[s.k];
+    var maxScale=Math.max(rg[1]*1.7,v*1.1,12);
+    var pct=Math.min(100,(v/maxScale)*100);
+    var loPct=(rg[0]/maxScale)*100;var hiPct=(rg[1]/maxScale)*100;
+    var statusText,statusCol;
+    if(v<rg[0]){statusText='Insuffisant';statusCol='#e07070';}
+    else if(v<=rg[1]){statusText='Optimal';statusCol='#78c890';}
+    else if(v<=rg[1]*1.5){statusText='Léger excès';statusCol='#f5b95b';}
+    else{statusText='Sur-investi';statusCol='#e07070';}
+    html+='<div class="ana-cat-row">';
+    html+='<div>'+s.label+'</div>';
+    html+='<div style="font-variant-numeric:tabular-nums"><b>'+v+'</b><span style="color:var(--tx3)"> / '+rg[0]+'-'+rg[1]+'</span></div>';
+    html+='<div class="ana-cat-bar">';
+    html+='<div class="fill" style="width:'+pct+'%;background:'+s.col+'"></div>';
+    if(rg[0]>0)html+='<div class="target" style="left:'+loPct+'%"></div>';
+    html+='<div class="target" style="left:'+hiPct+'%"></div>';
+    html+='</div>';
+    html+='<div class="ana-cat-status" style="color:'+statusCol+'">'+statusText+'</div>';
     html+='</div>';
   });
   html+='</div>';
 
   // Top / Bottom
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px" id="ana-tops">';
-  html+='<div class="card"><div class="lbl">⭐ Top 5 cartes</div>';
-  if(!top5.length)html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune carte analysée</div>';
-  top5.forEach(function(s,i){
-    html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd2)">';
-    html+='<div style="font-size:12px">'+(i+1)+'. '+esc(s.card.name)+'</div>';
-    html+='<div style="color:var(--gold2);font-size:12px;font-weight:bold;font-variant-numeric:tabular-nums">+'+s.score.toFixed(1)+'</div>';
+  function roleHints(rl){var h=[];if(rl.ramp)h.push('🌳');if(rl.draw)h.push('📚');if(rl.removal)h.push('🔥');if(rl.interaction)h.push('🛡');if(rl.wincon)h.push('💀');return h.join(' ');}
+  html+='<div class="ana-grid-2">';
+  html+='<div class="card"><div class="lbl">⭐ Cartes les plus efficaces</div>';
+  if(!topRows.length)html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune donnée</div>';
+  topRows.forEach(function(r,i){
+    html+='<div class="ana-card-row">';
+    html+='<div>'+(i+1)+'. '+esc(r.card.name)+' <span style="font-size:10px">'+roleHints(r.roles)+'</span></div>';
+    html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">'+r.score.toFixed(1)+'</div>';
     html+='</div>';
   });
   html+='</div>';
-  html+='<div class="card"><div class="lbl">🪓 5 plus faibles (à couper)</div>';
-  if(!bottom5.length)html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune carte analysée</div>';
-  bottom5.forEach(function(s,i){
-    html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd2)">';
-    html+='<div style="font-size:12px">'+(i+1)+'. '+esc(s.card.name)+'</div>';
-    html+='<div style="color:#f55b5b;font-size:12px;font-weight:bold;font-variant-numeric:tabular-nums">'+s.score.toFixed(1)+'</div>';
+  html+='<div class="card"><div class="lbl">🪓 Candidates à couper</div>';
+  if(!bottomRows.length)html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune donnée</div>';
+  bottomRows.forEach(function(r,i){
+    html+='<div class="ana-card-row">';
+    html+='<div>'+(i+1)+'. '+esc(r.card.name)+'</div>';
+    html+='<div style="color:#e07070;font-weight:bold;font-variant-numeric:tabular-nums">'+r.score.toFixed(1)+'</div>';
     html+='</div>';
   });
   html+='</div></div>';
 
-  // Suggestions ajout
-  html+='<div class="card"><div class="lbl">💡 Suggestions d\'ajouts depuis votre collection</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Cartes que vous possédez, dans l\'identité couleur du deck, classées par score.</div>';
+  // Suggestions ajout (depuis cache)
+  html+='<div class="card"><div class="lbl">💡 Suggestions d\'ajout (cartes en cache, dans l\'identité couleur)</div>';
   if(!topSuggestions.length){
-    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune suggestion. Vérifiez que la collection du profil propriétaire contient des cartes hors de ce deck.</div>';
+    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le cache d\'analyse est vide ou ne contient aucune carte compatible. Analyse d\'autres decks pour enrichir le pool de suggestions.</div>';
   } else {
     topSuggestions.forEach(function(s,i){
       var firstType=(s.meta.typeLine||'').split(' — ')[0];
-      html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bd2)">';
-      html+='<div style="font-size:12px">'+(i+1)+'. '+esc(s.name)+' <span style="color:var(--tx3);font-size:10px">('+esc(firstType)+', CMC '+(s.meta.cmc||0)+')</span></div>';
-      html+='<div style="color:var(--gold2);font-size:12px;font-weight:bold;font-variant-numeric:tabular-nums">+'+s.score.toFixed(1)+'</div>';
+      html+='<div class="ana-card-row">';
+      html+='<div>'+(i+1)+'. '+esc(s.name)+' <span style="color:var(--tx3);font-size:10px">'+esc(firstType)+' · CMC '+(s.meta.cmc||0)+' '+roleHints(anaRoles(s.meta))+'</span></div>';
+      html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">+'+s.score.toFixed(1)+'</div>';
       html+='</div>';
     });
   }
   html+='</div>';
 
   // Plan d'optimisation
-  html+='<div class="card"><div class="lbl">⚡ Plan d\'optimisation auto (5 itérations)</div>';
+  html+='<div class="card"><div class="lbl">⚡ Plan d\'optimisation auto (5 swaps max)</div>';
   if(!optResult.swaps.length){
-    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap n\'améliore le deck. Soit votre deck est déjà bien optimisé, soit la pool de suggestions est limitée.</div>';
+    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap n\'améliore le deck à partir du cache disponible.</div>';
   } else {
     var totalGain=optResult.swaps.reduce(function(s,sw){return s+sw.gain;},0);
     optResult.swaps.forEach(function(sw,i){
-      html+='<div style="padding:8px 0;border-bottom:1px solid var(--bd2)">';
-      html+='<div style="font-size:12px;line-height:1.5">';
-      html+='<span style="color:var(--tx3);font-size:10px">Étape '+(i+1)+'</span><br>';
-      html+='<span style="color:#f55b5b">– '+esc(sw.cut.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
-      html+=' <span style="color:var(--tx3)">→</span> ';
-      html+='<span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
-      html+='</div>';
+      html+='<div class="ana-swap-row">';
+      html+='<div style="color:var(--tx3);font-size:10px;margin-bottom:2px">Étape '+(i+1)+'</div>';
+      html+='<div><span style="color:#e07070">– '+esc(sw.cut.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
+      html+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span></div>';
       html+='<div style="font-size:10px;color:var(--gold2);margin-top:2px">Gain : +'+sw.gain.toFixed(2)+'</div>';
       html+='</div>';
     });
-    html+='<div style="padding-top:10px;font-size:13px;color:var(--gold2)"><b>Gain total ML estimé : +'+totalGain.toFixed(2)+'</b></div>';
+    html+='<div style="padding-top:10px;font-size:13px;color:var(--gold2)"><b>Gain total estimé : +'+totalGain.toFixed(2)+'</b></div>';
   }
   html+='</div>';
 
-  _anaState={deck:deck,scored:scored,suggestions:suggestions,optResult:optResult,ml:ml};
+  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult};
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
 }
