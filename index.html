@@ -765,6 +765,18 @@ body.mana-cursor{cursor:none}
 /* End-turn / declare buttons */
 #ar-end-turn-btn{display:none}
 #ar-declare-atk-btn{display:none}
+/* Turn indicator band */
+#ar-turn-band{display:none;height:28px;flex-shrink:0;align-items:center;justify-content:center;gap:10px;font-family:'Goudy Mediaeval',serif;font-size:.8rem;letter-spacing:.07em;transition:background .4s,border-color .4s,color .4s;border-bottom:2px solid transparent;position:relative}
+#ar-turn-band.on{display:flex}
+#ar-turn-band.player-turn{background:linear-gradient(90deg,rgba(30,120,50,.45),rgba(20,80,35,.55),rgba(30,120,50,.45));border-bottom-color:rgba(50,210,80,.5);color:#70ff90;animation:arTurnFlash .55s ease-out}
+#ar-turn-band.bot-turn{background:linear-gradient(90deg,rgba(30,60,180,.35),rgba(15,35,120,.5),rgba(30,60,180,.35));border-bottom-color:rgba(80,140,255,.5);color:#88aaff}
+@keyframes arTurnFlash{0%{background:rgba(50,200,80,.55)}100%{background:linear-gradient(90deg,rgba(30,120,50,.45),rgba(20,80,35,.55),rgba(30,120,50,.45))}}
+#ar-turn-band-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#ar-turn-band.player-turn #ar-turn-band-dot{background:#50ff70;box-shadow:0 0 8px rgba(50,220,80,.9);animation:arBotPulse .9s ease-in-out infinite}
+#ar-turn-band.bot-turn #ar-turn-band-dot{background:#6688ff;box-shadow:0 0 8px rgba(80,130,255,.7);animation:arBotPulse 1.4s ease-in-out infinite}
+/* Hand glow (player's turn) and bot-field glow (bot's turn) */
+#arena-ov.player-turn #ar-hand{border-top-color:rgba(50,210,80,.55)!important;box-shadow:inset 0 4px 18px rgba(40,200,60,.12)}
+#arena-ov.bot-turn #ar-bot-field{border-bottom-color:rgba(80,140,255,.6)!important;box-shadow:inset 0 4px 14px rgba(60,110,255,.14)}
 /* Who goes first modal */
 #ar-go-first-ov{display:none;position:absolute;inset:0;z-index:250;background:rgba(0,0,0,.82);align-items:center;justify-content:center}
 #ar-go-first-ov.on{display:flex}
@@ -2188,6 +2200,13 @@ body.mana-cursor{cursor:none}
       <button class="ar-btn ar-btn-gold" id="ar-end-turn-btn" onclick="arPlayerEndTurn()" title="Terminer votre tour et passer la main au bot">Fin de tour →</button>
       <button class="ar-btn" id="ar-declare-atk-btn" onclick="arPlayerDeclareAttackers()" title="Déclarer vos attaquants contre le bot" style="border-color:rgba(255,140,50,.5);color:#ffaa60">⚔ Attaquer</button>
     </div>
+  </div>
+
+  <!-- Turn indicator band (bot mode only) -->
+  <div id="ar-turn-band">
+    <div id="ar-turn-band-dot"></div>
+    <span id="ar-turn-band-txt">VOTRE TOUR</span>
+    <span id="ar-turn-band-sub" style="font-size:.68rem;opacity:.65"></span>
   </div>
 
   <!-- Mulligan instruction bar -->
@@ -7368,6 +7387,26 @@ function arBotRestart(){
 }
 
 // ----- Bot rendering -----
+function _arSetTurnIndicator(who){
+  var band=document.getElementById('ar-turn-band');
+  var txt=document.getElementById('ar-turn-band-txt');
+  var sub=document.getElementById('ar-turn-band-sub');
+  var ov=document.getElementById('arena-ov');
+  if(!band)return;
+  if(!_arBot){band.classList.remove('on');if(ov){ov.classList.remove('player-turn');ov.classList.remove('bot-turn');}return;}
+  band.classList.add('on');
+  if(who==='player'){
+    band.className='on player-turn';
+    if(txt)txt.textContent='VOTRE TOUR';
+    if(sub)sub.textContent='Tour '+_ar.turn;
+    if(ov){ov.classList.add('player-turn');ov.classList.remove('bot-turn');}
+  }else{
+    band.className='on bot-turn';
+    if(txt)txt.textContent='TOUR DE L\'IA';
+    if(sub)sub.textContent=(_arBot&&_arBot.deckName)||'Bot';
+    if(ov){ov.classList.add('bot-turn');ov.classList.remove('player-turn');}
+  }
+}
 function _arBotLog(msg){
   var el=document.getElementById('ar-bot-log');if(!el)return;
   el.textContent=msg;el.style.opacity='1';
@@ -7429,6 +7468,7 @@ function _arBotShowUI(on){
   var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.style.display=on?'inline-flex':'none';
   var res=document.getElementById('ar-bot-result');if(res&&!on)res.classList.remove('on');
   var gf=document.getElementById('ar-go-first-ov');if(gf&&!on)gf.classList.remove('on');
+  if(!on)_arSetTurnIndicator(null);
 }
 
 // ----- Bot AI: start -----
@@ -7477,17 +7517,15 @@ function arChooseGoFirst(who){
   var gf=document.getElementById('ar-go-first-ov');if(gf)gf.classList.remove('on');
   if(who==='random')who=Math.random()<0.5?'player':'bot';
   if(who==='bot'){
-    // Bot goes first — bot turn 1 (no player draw yet)
-    _ar.turn=0; // will be incremented to 1 in _arPlayerStartTurn
-    _arBotLog('Le bot commence !');
+    _ar.turn=0;
+    _arSetTurnIndicator('bot');
     var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.disabled=true;
     var th=document.getElementById('ar-bot-thinking');if(th)th.classList.add('on');
+    _arBotLog('Le bot commence !');
     setTimeout(_arBotExecuteTurn,800);
   }else{
-    // Player goes first
-    _arBotLog('Vous commencez !');
+    _arSetTurnIndicator('player');
     var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.disabled=false;
-    // In MTG, first player skips draw on turn 1
     _arBotLog('Tour 1 — Vous commencez (pas de pioche au tour 1)');
   }
 }
@@ -7516,6 +7554,7 @@ function arPlayerEndTurn(){
   var atk=document.getElementById('ar-declare-atk-btn');if(atk)atk.style.display='none';
   var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.disabled=true;
   var th=document.getElementById('ar-bot-thinking');if(th)th.classList.add('on');
+  _arSetTurnIndicator('bot');
   _arBotLog('Tour du bot…');
   setTimeout(_arBotExecuteTurn,600);
 }
@@ -7725,6 +7764,7 @@ function _arPlayerStartTurn(){
   else{_arBotLog('Bibliothèque vide !');}
   var etb=document.getElementById('ar-end-turn-btn');if(etb)etb.disabled=false;
   var pb=document.getElementById('ar-priority-bar');if(pb)pb.classList.remove('on');
+  _arSetTurnIndicator('player');
   arRender();arRenderManaPool();arBotRenderOpponent();arRenderStack();
   _arBotLog('Votre tour '+_ar.turn);
 }
