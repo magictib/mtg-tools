@@ -600,6 +600,14 @@ body.mana-cursor{cursor:none}
 .ar-field-card{position:absolute;width:82px;height:115px;border-radius:7px;overflow:visible;cursor:grab;border:2px solid transparent;box-shadow:0 4px 16px rgba(0,0,0,.7);touch-action:none;user-select:none;transition:border-color .1s}
 .ar-field-card:hover{border-color:rgba(255,255,255,.35);z-index:20}
 .ar-field-card.tapped{transform-origin:center center;transform:rotate(90deg)}
+.ar-opponent-card{transform:rotate(180deg)!important}.ar-opponent-card.tapped{transform:rotate(270deg)!important}
+.ar-opponent-card .ar-card-btn{display:none!important}
+#ar-divider-line{position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(201,168,76,.25);pointer-events:none;z-index:1;display:none}
+#ar-divider-line.mp-on{display:block}
+#ar-op-lands{height:80px;flex-shrink:0;background:rgba(0,0,0,.4);border-bottom:2px dashed rgba(80,140,255,.22);position:relative;overflow:hidden;display:none}
+#ar-op-lands.mp-on{display:block}
+#ar-op-lands-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:.72rem;color:rgba(255,255,255,.18);font-style:italic}
+.ar-op-land-card{position:absolute;width:64px;height:90px;border-radius:6px;overflow:hidden;transform:rotate(180deg);box-shadow:0 3px 10px rgba(0,0,0,.6)}.ar-op-land-card img{width:100%;height:100%;object-fit:cover;display:block;border-radius:5px}
 .ar-field-card .ar-fimg{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block}
 /* Global context menu (outside card transforms) */
 #ar-ctx-menu{display:none;position:absolute;z-index:88;background:rgba(8,12,22,.98);border:1px solid rgba(201,168,76,.25);border-radius:11px;min-width:178px;overflow:auto;resize:both;min-height:80px;box-shadow:0 12px 36px rgba(0,0,0,.92);padding:4px 0;backdrop-filter:blur(4px)}
@@ -2164,7 +2172,9 @@ body.mana-cursor{cursor:none}
   <div id="ar-content">
     <!-- Left: Battlefield + Lands -->
     <div id="ar-left">
+      <div id="ar-op-lands"><div id="ar-op-lands-hint">Terrains adversaires</div></div>
       <div id="ar-field" onclick="arFieldClick(event)" onpointerdown="arFieldPtrDown(event)">
+        <div id="ar-divider-line"></div>
         <canvas id="ar-field-bg"></canvas>
         <div id="ar-lasso"></div>
         <div id="ar-multi-bar"></div>
@@ -5310,7 +5320,10 @@ function arCloseAndSave(){
 
 function arCloseWithoutSave(){
   _ar.active=false;
+  // Notify opponent before unsubscribing (save id first, then unsubscribe to avoid self-trigger)
+  var closingRoomId=_arRoom?_arRoom.id:null;
   arLeaveRoom();
+  if(closingRoomId&&window.db)db.collection('arena_rooms').doc(closingRoomId).update({active:false}).catch(function(){});
   document.getElementById('arena-ov').classList.remove('ar-on');
   document.getElementById('ar-zone-ov').style.display='none';
   document.getElementById('ar-end-ov').style.display='none';
@@ -5453,7 +5466,9 @@ function arRenderField(){
     if(!_ar.field.some(function(c){return c.id===id;}))field.removeChild(existing[id]);
   });
   // Add/update cards
+  var myPN=_arRoom?_arRoom.playerNum:0;
   _ar.field.forEach(function(c){
+    var isOp=myPN>0&&c.owner>0&&c.owner!==myPN;
     var el=existing[c.id];
     if(!el){
       el=document.createElement('div');
@@ -5467,12 +5482,13 @@ function arRenderField(){
       btn.onpointerdown=function(e){e.stopPropagation();};
       btn.onclick=function(e){e.stopPropagation();arHideTip();arToggleCardMenu(el);};
       el.appendChild(btn);
-      el.onpointerdown=function(e){arPtrDown(e,el);};
+      el.onpointerdown=function(e){if(isOp)return;arPtrDown(e,el);};
       el.ondblclick=function(){arShowFullCard(c.name);};
       el.onmouseenter=function(ev){arShowTip(c.name,ev);_arHoverCard={id:c.id,zone:'field'};};
       el.onmouseleave=function(){arHideTip();_arHoverCard={id:null,zone:null};};
       field.appendChild(el);
     }
+    el.classList.toggle('ar-opponent-card',isOp);
     el.style.left=c.x+'px';el.style.top=c.y+'px';
     el.classList.toggle('tapped',!!c.tapped);
     el.classList.toggle('ar-multi-sel',(_ar.multiSel||[]).indexOf(c.id)>=0);
@@ -5518,7 +5534,7 @@ function arRenderLands(){
 
 function arTapLand(id){
   var c=(_ar.lands||[]).find(function(c){return c.id===id;});
-  if(c)c.tapped=!c.tapped;arRenderLands();
+  if(c)c.tapped=!c.tapped;arRenderLands();_arSyncToRoom();
 }
 
 function arRenderRight(){
@@ -5601,16 +5617,16 @@ function arTapAllLands(){
   var all=(_ar.lands||[]);if(!all.length)return;
   var anyUntapped=all.some(function(c){return !c.tapped;});
   all.forEach(function(c){c.tapped=anyUntapped;});
-  arRenderLands();
+  arRenderLands();_arSyncToRoom();
 }
 function arUntapAll(){
   _ar.field.forEach(function(c){c.tapped=false;});
   (_ar.lands||[]).forEach(function(c){c.tapped=false;});
-  arRenderField();arRenderLands();
+  arRenderField();arRenderLands();_arSyncToRoom();
 }
 function arDoTap(id,zone){
-  if(zone==='field'){var c=_ar.field.find(function(x){return x.id===id;});if(c){c.tapped=!c.tapped;arRenderField();}}
-  else if(zone==='lands'){var c=(_ar.lands||[]).find(function(x){return x.id===id;});if(c){c.tapped=!c.tapped;arRenderLands();}}
+  if(zone==='field'){var c=_ar.field.find(function(x){return x.id===id;});if(c){c.tapped=!c.tapped;arRenderField();_arSyncToRoom();}}
+  else if(zone==='lands'){var c=(_ar.lands||[]).find(function(x){return x.id===id;});if(c){c.tapped=!c.tapped;arRenderLands();_arSyncToRoom();}}
 }
 function arOpenHotkeys(){
   _arHkEditing=null;
@@ -5693,7 +5709,7 @@ function arPlayCard(id,x,y){
   var idx=_ar.hand.findIndex(function(c){return c.id===id;});
   if(idx<0)return;
   var card=_ar.hand.splice(idx,1)[0];
-  card.x=x;card.y=y;card.tapped=false;card.counters=0;
+  card.x=x;card.y=y;card.tapped=false;card.counters=0;card.owner=_arRoom?_arRoom.playerNum:0;
   _ar.field.push(card);
   _ar.fieldUsed=true;
   _arSyncToRoom();
@@ -5715,7 +5731,7 @@ function arMv(id,from,to){
     var r=fieldEl?fieldEl.getBoundingClientRect():{width:400,height:300};
     card.x=Math.floor(Math.random()*(Math.max(100,r.width-100)));
     card.y=Math.floor(Math.random()*(Math.max(50,r.height-130)));
-    card.counters=0;_ar.field.push(card);
+    card.counters=0;card.owner=_arRoom?_arRoom.playerNum:0;_ar.field.push(card);
   }else if(to==='lands'){
     var landsEl=document.getElementById('ar-lands');
     var rl=landsEl?landsEl.getBoundingClientRect():{width:400,height:120};
@@ -5729,19 +5745,19 @@ function arMv(id,from,to){
 
 function arTap(id){
   var c=_ar.field.find(function(c){return c.id===id;});
-  if(c)c.tapped=!c.tapped;arRenderField();
+  if(c)c.tapped=!c.tapped;arRenderField();_arSyncToRoom();
 }
 
 function arAdjCounter(id,n){
   var c=_ar.field.find(function(c){return c.id===id;});
-  if(!c)return;c.counters=(c.counters||0)+n;arRenderField();
+  if(!c)return;c.counters=(c.counters||0)+n;arRenderField();_arSyncToRoom();
 }
 
 function arCastCommander(){
   if(!_ar.cmd)return;
   var field=document.getElementById('ar-field');
   var r=field?field.getBoundingClientRect():{width:400,height:300};
-  var card={id:_arMakeId(),name:_ar.cmd.name,x:Math.max(0,r.width/2-41),y:Math.max(0,r.height/2-57),tapped:false,counters:0,isCmd:true};
+  var card={id:_arMakeId(),name:_ar.cmd.name,x:Math.max(0,r.width/2-41),y:Math.max(0,r.height/2-57),tapped:false,counters:0,isCmd:true,owner:_arRoom?_arRoom.playerNum:0};
   _ar.field.push(card);_ar.cmdCasts++;arRender();
 }
 
@@ -5784,7 +5800,7 @@ function arTokenSearch(){
           _arImgCache[card.name.toLowerCase()]=imgUrl;
           var qty=parseInt((document.getElementById('ar-token-qty')||{}).value)||1;
           for(var q=0;q<qty;q++){
-            _ar.field.push({id:_arMakeId(),name:card.name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true});
+            _ar.field.push({id:_arMakeId(),name:card.name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true,owner:_arRoom?_arRoom.playerNum:0});
           }
           arRenderField();
           document.getElementById('ar-token-ov').style.display='none';
@@ -6043,7 +6059,7 @@ function arCreateCustomToken(){
   var r=field?field.getBoundingClientRect():{width:400,height:300};
   var qty=parseInt((document.getElementById('ar-token-qty')||{}).value)||1;
   for(var q=0;q<qty;q++){
-    _ar.field.push({id:_arMakeId(),name:name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true});
+    _ar.field.push({id:_arMakeId(),name:name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true,owner:_arRoom?_arRoom.playerNum:0});
   }
   arRenderField();
   document.getElementById('ar-token-ov').style.display='none';
@@ -6270,15 +6286,15 @@ function arMultiTap(){
   var ids=(_ar.multiSel||[]).slice();
   var allTapped=ids.every(function(id){var c=_ar.field.find(function(x){return x.id===id;});return c&&c.tapped;});
   ids.forEach(function(id){var c=_ar.field.find(function(x){return x.id===id;});if(c)c.tapped=!allTapped;});
-  arRenderField();arUpdateMultiBar();
+  arRenderField();arUpdateMultiBar();_arSyncToRoom();
 }
 function arMultiUntap(){
   (_ar.multiSel||[]).forEach(function(id){var c=_ar.field.find(function(x){return x.id===id;});if(c)c.tapped=false;});
-  arRenderField();arUpdateMultiBar();
+  arRenderField();arUpdateMultiBar();_arSyncToRoom();
 }
 function arMultiCounter(n){
   (_ar.multiSel||[]).forEach(function(id){var c=_ar.field.find(function(x){return x.id===id;});if(c){c.counters=(c.counters||0)+n;if(c.counters<0)c.counters=0;}});
-  arRenderField();
+  arRenderField();_arSyncToRoom();
 }
 function arMultiAttack(){
   var ids=(_ar.multiSel||[]).slice();
@@ -6597,10 +6613,30 @@ function _arApplyRemoteState(data){
   var pn=_arRoom.playerNum,opn=pn===1?2:1;
   var op=data['p'+(opn>0?opn:'2')]||data['p2']||null;
   if(pn===2)op=data.p1||null;
+  // Opponent left: room marked inactive
+  if(data.active===false){
+    if(_ar.active){
+      // Game was running — close arena and notify
+      arLeaveRoom();
+      _ar.active=false;
+      document.getElementById('arena-ov').classList.remove('ar-on');
+      document.getElementById('ar-zone-ov').style.display='none';
+      document.getElementById('ar-end-ov').style.display='none';
+      arRenderStats();
+      var s=document.getElementById('ar-room-status');if(s)s.textContent='';
+      alert('Votre adversaire a quitté la partie. L\'arène est fermée.');
+    }else{
+      // Still in lobby — just leave the room
+      arLeaveRoom();
+      var s=document.getElementById('ar-room-status');
+      if(s)s.textContent='La partie a été annulée par l\'adversaire.';
+    }
+    return;
+  }
   // Sync shared field (only if it differs — avoid overwrite loop)
   if(!_ar.active){
     // Game not yet open: just update room status UI
-    if(pn===1&&data.p2&&!data.active){
+    if(pn===1&&data.p2&&data.active!==false){
       var s=document.getElementById('ar-room-status');
       if(s)s.innerHTML='<span style="color:var(--gr2)">'+esc(data.p2.name||'Joueur 2')+' a rejoint !</span>'
         +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
@@ -6611,6 +6647,8 @@ function _arApplyRemoteState(data){
   if(op){
     var opBar=document.getElementById('ar-opponent-bar');
     if(opBar){opBar.classList.add('mp-on');}
+    var divLine=document.getElementById('ar-divider-line');if(divLine)divLine.classList.add('mp-on');
+    var opLands=document.getElementById('ar-op-lands');if(opLands)opLands.classList.add('mp-on');
     var el=document.getElementById('ar-op-name');if(el)el.textContent=op.name||'Adversaire';
     el=document.getElementById('ar-op-life');if(el)el.textContent=op.life||'—';
     el=document.getElementById('ar-op-hand');if(el)el.textContent=op.handCount||0;
@@ -6618,6 +6656,29 @@ function _arApplyRemoteState(data){
     el=document.getElementById('ar-op-cmd');if(el)el.textContent=op.cmd?(op.cmd.name+''):' ';
     el=document.getElementById('ar-op-grave-cnt');if(el)el.textContent=(data['p'+opn+'_grave']||[]).length;
     el=document.getElementById('ar-op-exile-cnt');if(el)el.textContent=(data['p'+opn+'_exile']||[]).length;
+    // Render opponent lands
+    var opLandsEl=document.getElementById('ar-op-lands');
+    if(opLandsEl){
+      var opLandCards=data['p'+opn+'_lands']||[];
+      var hint=document.getElementById('ar-op-lands-hint');
+      if(hint)hint.style.display=opLandCards.length?'none':'flex';
+      var existingOp={};
+      opLandsEl.querySelectorAll('.ar-op-land-card').forEach(function(e){existingOp[e.dataset.id]=e;});
+      Object.keys(existingOp).forEach(function(id){if(!opLandCards.some(function(c){return c.id===id;}))opLandsEl.removeChild(existingOp[id]);});
+      opLandCards.forEach(function(c){
+        var le=existingOp[c.id];
+        if(!le){
+          le=document.createElement('div');le.className='ar-op-land-card';le.dataset.id=c.id;
+          var li=document.createElement('img');li.alt=c.name;li.src=_arImgCache[(c.name||'').toLowerCase()]||_AR_BACK;
+          le.appendChild(li);
+          le.onmouseenter=function(ev){arShowTip(c.name,ev);};le.onmouseleave=arHideTip;
+          opLandsEl.appendChild(le);
+          _arLoadImg(c.name,li);
+        }
+        le.style.left=c.x+'px';le.style.top=c.y+'px';
+        le.classList.toggle('tapped',!!c.tapped);
+      });
+    }
   }
   // Sync shared field from remote (avoid overwriting if this player just sent it)
   if(data.field)_ar.field=data.field;
@@ -6647,12 +6708,13 @@ function arLeaveRoom(){
   if(_arRoomUnsub){_arRoomUnsub();_arRoomUnsub=null;}
   _arRoom=null;
   var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.remove('mp-on');
+  var divLine=document.getElementById('ar-divider-line');if(divLine)divLine.classList.remove('mp-on');
+  var opLands=document.getElementById('ar-op-lands');if(opLands)opLands.classList.remove('mp-on');
 }
 function arCancelRoom(){
-  if(_arRoom&&window.db){
-    db.collection('arena_rooms').doc(_arRoom.id).update({active:false}).catch(function(){});
-  }
+  var cancelRoomId=_arRoom?_arRoom.id:null;
   arLeaveRoom();
+  if(cancelRoomId&&window.db)db.collection('arena_rooms').doc(cancelRoomId).update({active:false}).catch(function(){});
   var s=document.getElementById('ar-room-status');
   if(s)s.textContent='Partie annulée.';
 }
@@ -6750,7 +6812,7 @@ function arPtrUp(e){
     if(fromZone==='hand'){arPlayCard(id,x,y);arRender();}
     else if(fromZone==='field'){var fc=_ar.field.find(function(c){return c.id===id;});if(fc){fc.x=x;fc.y=y;arRenderField();}}
     else if(fromZone==='cmd'){
-      if(_ar.cmd){var card={id:_arMakeId(),name:_ar.cmd.name,x:x,y:y,tapped:false,counters:0,isCmd:true};_ar.field.push(card);_ar.cmdCasts++;arRender();}
+      if(_ar.cmd){var card={id:_arMakeId(),name:_ar.cmd.name,x:x,y:y,tapped:false,counters:0,isCmd:true,owner:_arRoom?_arRoom.playerNum:0};_ar.field.push(card);_ar.cmdCasts++;arRender();}
     }
     else{arMv(id,fromZone,'field');}
     return;
