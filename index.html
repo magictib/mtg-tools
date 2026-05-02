@@ -2844,10 +2844,9 @@ function acceptFriendRequest(notifId,fromUid,fromName){
   if(!userId)return;
   var myName=PN[0]||'Moi';
   var batch=db.batch();
+  // Chaque utilisateur n'écrit que dans sa propre sous-collection
   batch.set(db.collection('users').doc(userId).collection('friends').doc(fromUid),
     {uid:fromUid,name:fromName,addedAt:firebase.firestore.FieldValue.serverTimestamp()});
-  batch.set(db.collection('users').doc(fromUid).collection('friends').doc(userId),
-    {uid:userId,name:myName,addedAt:firebase.firestore.FieldValue.serverTimestamp()});
   batch.update(db.collection('notifications').doc(notifId),
     {status:'accepted',readBy:firebase.firestore.FieldValue.arrayUnion(_currentUid)});
   batch.commit().then(function(){
@@ -2856,16 +2855,18 @@ function acceptFriendRequest(notifId,fromUid,fromName){
     }
     _applyFriendsToAllContexts();
     _renderFriendList();
+    // Notif à l'expéditeur — fromUid inclus pour qu'il puisse s'ajouter côté requester
     db.collection('notifications').add({
       type:'friend_accepted',
       title:'👥 '+myName+' a accepté ta demande d\'ami',
       body:'Vous êtes maintenant amis ! Retrouvez-le dans vos échanges et parties.',
       targetUid:fromUid,
+      fromUid:userId,
       fromName:myName,
       createdAt:firebase.firestore.FieldValue.serverTimestamp(),
       readBy:[]
     }).catch(function(e){console.warn('friend_accepted notif',e);});
-  });
+  }).catch(function(e){alert('Erreur lors de l\'acceptation : '+e.message);});
 }
 
 function declineFriendRequest(notifId){
@@ -2906,6 +2907,20 @@ function initNotifications(uid){
   _notifUnsub=db.collection('notifications').orderBy('createdAt','desc').limit(30)
     .onSnapshot(function(snap){
       _notifDocs=snap.docs.map(function(d){return Object.assign({id:d.id},d.data());});
+      // L'expéditeur de la demande s'auto-ajoute l'ami quand sa demande est acceptée
+      _notifDocs.forEach(function(n){
+        if(n.type==='friend_accepted'&&n.targetUid===_currentUid&&n.fromUid){
+          if(!_friends.some(function(f){return f.uid===n.fromUid;})){
+            _friends.push({uid:n.fromUid,name:n.fromName||n.fromUid});
+            db.collection('users').doc(_currentUid).collection('friends').doc(n.fromUid).set({
+              uid:n.fromUid,name:n.fromName||n.fromUid,
+              addedAt:firebase.firestore.FieldValue.serverTimestamp()
+            }).catch(function(){});
+            _applyFriendsToAllContexts();
+            _renderFriendList();
+          }
+        }
+      });
       _renderNotifPanel();
       _updateNotifBadge();
     });
