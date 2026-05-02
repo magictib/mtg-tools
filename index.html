@@ -2678,7 +2678,7 @@ function loadFriends(){
   db.collection('users').doc(userId).collection('friends').get()
     .then(function(snap){
       _friends=[];
-      snap.forEach(function(doc){_friends.push({uid:doc.id,name:doc.data().name||doc.id});});
+      snap.forEach(function(doc){if(doc.id!==userId)_friends.push({uid:doc.id,name:doc.data().name||doc.id});});
       // Purge les demandes désormais acceptées (l'ami existe dans _friends)
       var before=_pendingOutRequests.length;
       _pendingOutRequests=_pendingOutRequests.filter(function(r){
@@ -2697,6 +2697,7 @@ function _applyFriendsToAllContexts(){
   ctxs.forEach(function(ctx){
     var existing=_epSlots[ctx]||[];
     _friends.forEach(function(f){
+      if(f.uid===userId)return;
       if(!existing.some(function(ep){return ep.uid===f.uid;})){
         existing.push({uid:f.uid,name:f.name});
       }
@@ -2909,7 +2910,7 @@ function initNotifications(uid){
       _notifDocs=snap.docs.map(function(d){return Object.assign({id:d.id},d.data());});
       // L'expéditeur de la demande s'auto-ajoute l'ami quand sa demande est acceptée
       _notifDocs.forEach(function(n){
-        if(n.type==='friend_accepted'&&n.targetUid===_currentUid&&n.fromUid){
+        if(n.type==='friend_accepted'&&n.targetUid===_currentUid&&n.fromUid&&n.fromUid!==_currentUid){
           if(!_friends.some(function(f){return f.uid===n.fromUid;})){
             _friends.push({uid:n.fromUid,name:n.fromName||n.fromUid});
             db.collection('users').doc(_currentUid).collection('friends').doc(n.fromUid).set({
