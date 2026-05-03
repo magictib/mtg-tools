@@ -13458,6 +13458,14 @@ function _anaAntiSynergyPenalty(cardMeta,deckThemes){
   return penalty;
 }
 
+// Multiplicateur de synergie d'une carte dans ce deck (0.1 = carte inutile, 1.0 = neutre, 1.5 = très synergique)
+function _anaSynergyWeight(cardMeta,themes){
+  if(!cardMeta||!cardMeta.oracleText)return 1.0;
+  var antiP=_anaAntiSynergyPenalty(cardMeta,themes);
+  var synP=_anaThemeSynergyScore(cardMeta,themes);
+  return Math.max(0.1,Math.min(1.5,1.0+synP*0.06+antiP*0.053));
+}
+
 // Score de synergie carte↔thèmes du commandant (utilisé dans l'optimiseur)
 function _anaThemeSynergyScore(cardMeta,themes){
   if(!cardMeta||!cardMeta.oracleText)return 0;
@@ -13620,6 +13628,15 @@ function anaRender(deckId){
     else if(tl.indexOf('artifact')>=0)typeCounts['Artefacts']+=qty;
     else if(tl.indexOf('planeswalker')>=0)typeCounts['Planeswalkers']+=qty;
     else typeCounts['Autres']+=qty;
+  });
+
+  // Comptage pondéré par synergie (pour affichage "X eff." dans le tableau)
+  var wCounts={land:0,ramp:0,draw:0,removal:0,interaction:0,wincon:0};
+  rows.forEach(function(r){
+    if(!r.inCache||!r.meta)return;
+    var qty=r.card.qty||1;var rl=r.roles;
+    var w=_anaSynergyWeight(r.meta,_anaCurrentThemes);
+    Object.keys(wCounts).forEach(function(k){wCounts[k]+=rl[k]*qty*w;});
   });
 
   // Targets format-aware + sub-scores (ajustés selon le commandant)
@@ -13831,7 +13848,9 @@ function anaRender(deckId){
     else{statusText='Sur-investi';statusCol='#e07070';}
     html+='<div class="ana-cat-row">';
     html+='<div>'+s.label+'</div>';
-    html+='<div style="font-variant-numeric:tabular-nums"><b>'+v+'</b><span style="color:var(--tx3)"> / '+rg[0]+'-'+rg[1]+'</span></div>';
+    var wv=Math.round(wCounts[s.k]);var wDiff=v>0?Math.abs(wv-v)/v:0;
+    var wStr=wDiff>0.1?'<span title="Comptage pondéré par synergie avec ce commandant" style="color:'+(wv<v?'#e07070':'#78c890')+';font-size:10px;margin-left:3px">('+wv+' eff.)</span>':'';
+    html+='<div style="font-variant-numeric:tabular-nums"><b>'+v+'</b>'+wStr+'<span style="color:var(--tx3)"> / '+rg[0]+'-'+rg[1]+'</span></div>';
     html+='<div class="ana-cat-bar">';
     html+='<div class="fill" style="width:'+pct+'%;background:'+s.col+'"></div>';
     if(rg[0]>0)html+='<div class="target" style="left:'+loPct+'%"></div>';
