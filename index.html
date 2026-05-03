@@ -856,6 +856,7 @@ body.mana-cursor{cursor:none}
         <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">PRÉFÉRENCES</div>
         <label style="display:block;font-size:.78rem;color:var(--tx2);margin-bottom:4px">🌐 Langue des cartes</label>
         <select id="um-lang-sel" class="psel" style="width:100%;font-size:.82rem" onchange="setUserLang(this.value)"></select>
+        <button class="um-btn" id="um-pwa-install-btn" onclick="pwaInstallFromMenu();toggleUserMenu()" style="display:none;margin-top:8px">📲 Installer l'app (hors-ligne)</button>
       </div>
       <button class="um-btn danger" onclick="openDeleteProfileOv()" style="margin-top:6px">🗑 Supprimer le profil</button>
       <button class="um-btn danger" onclick="authSignOut();toggleUserMenu()">⏻ Déconnexion</button>
@@ -2796,6 +2797,7 @@ function toggleUserMenu(){
   if(panel.classList.contains('open')){
     document.getElementById('notif-panel').classList.remove('open');
     if(typeof populateUserLangSel==='function')populateUserLangSel();
+    if(typeof _pwaUpdateMenuBtn==='function')_pwaUpdateMenuBtn();
   }
 }
 document.addEventListener('click',function(e){
@@ -13277,42 +13279,32 @@ function anaRender(deckId){
     <div id="scan-result" style="margin-top:8px"></div>
   </div>
 </div>
-<!-- PWA install banner -->
-<div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(0deg,#1a1008,#241808);border-top:1px solid #7a5218;padding:12px 16px;box-shadow:0 -4px 20px rgba(0,0,0,.7);display:none;align-items:center;gap:12px">
-  <img src="./icon.svg" style="width:36px;height:36px;border-radius:8px;flex-shrink:0" alt="ManaLAB">
-  <div style="flex:1;min-width:0">
-    <div style="font-family:'Goudy Mediaeval',serif;color:#e8c96e;font-size:.82rem;font-weight:600">Installer ManaLAB</div>
-    <div style="font-size:.7rem;color:#a09070">Accès rapide depuis votre écran d'accueil</div>
-  </div>
-  <button id="pwa-install-btn" style="padding:7px 14px;background:linear-gradient(180deg,#3a2010,#241508);border:1px solid #8a6018;border-radius:6px;color:#e8c96e;font-family:'Goudy Mediaeval',serif;font-size:.75rem;cursor:pointer;flex-shrink:0">Installer</button>
-  <button onclick="document.getElementById('pwa-banner').style.display='none'" style="background:none;border:none;color:#685848;font-size:1.1rem;cursor:pointer;padding:0 4px;flex-shrink:0">✕</button>
-</div>
-
 <script>
-// ===== PWA =====
+// ===== PWA install (uniquement dans le menu utilisateur, pas de banniere) =====
 var _pwaPrompt=null;
+function _pwaUpdateMenuBtn(){
+  var btn=document.getElementById('um-pwa-install-btn');
+  if(!btn)return;
+  btn.style.display=_pwaPrompt?'block':'none';
+}
 window.addEventListener('beforeinstallprompt',function(e){
   e.preventDefault();
   _pwaPrompt=e;
-  var banner=document.getElementById('pwa-banner');
-  if(banner)banner.style.display='flex';
+  _pwaUpdateMenuBtn();
 });
-var installBtn=document.getElementById('pwa-install-btn');
-if(installBtn){
-  installBtn.addEventListener('click',function(){
-    if(!_pwaPrompt)return;
-    _pwaPrompt.prompt();
-    _pwaPrompt.userChoice.then(function(){
-      _pwaPrompt=null;
-      var banner=document.getElementById('pwa-banner');
-      if(banner)banner.style.display='none';
-    });
+function pwaInstallFromMenu(){
+  if(!_pwaPrompt){alert('Installation non disponible (déjà installée ou navigateur non compatible).');return;}
+  _pwaPrompt.prompt();
+  _pwaPrompt.userChoice.then(function(){
+    _pwaPrompt=null;
+    _pwaUpdateMenuBtn();
+    var panel=document.getElementById('user-menu-panel');
+    if(panel)panel.classList.remove('open');
   });
 }
 window.addEventListener('appinstalled',function(){
-  var banner=document.getElementById('pwa-banner');
-  if(banner)banner.style.display='none';
   _pwaPrompt=null;
+  _pwaUpdateMenuBtn();
 });
 if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
