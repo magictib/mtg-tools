@@ -5067,7 +5067,21 @@ function analyzeSmartDeck(){
   if(!isCmd||!dCommander){panel.style.display='none';return;}
   panel.style.display='block';
   var slug=cmdSlug(dCommander.name);
-  if(_smartEdhCache[slug]){_renderSmartAnalysis(slug,_smartEdhCache[slug]);return;}
+  var cmdNlQ=dCommander.name.toLowerCase();
+  if(_smartEdhCache[slug]){
+    if(dCardMeta[cmdNlQ]&&dCardMeta[cmdNlQ].oracleText){_renderSmartAnalysis(slug,_smartEdhCache[slug]);return;}
+    // Oracle absent du cache → re-fetch puis render
+    fetch('https://api.scryfall.com/cards/named?exact='+encodeURIComponent(dCommander.name))
+      .then(function(r){return r.json();})
+      .then(function(card){
+        var oracle=card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'';
+        if(!dCardMeta[cmdNlQ])dCardMeta[cmdNlQ]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle};
+        else dCardMeta[cmdNlQ].oracleText=oracle;
+      })
+      .catch(function(){})
+      .then(function(){_renderSmartAnalysis(slug,_smartEdhCache[slug]);});
+    return;
+  }
   if(_smartEdhPending[slug])return;
   _smartEdhPending[slug]=true;
   document.getElementById('smart-content').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.84rem;text-align:center;padding:1.2rem">Chargement EDHREC...</div>';
@@ -5075,10 +5089,29 @@ function analyzeSmartDeck(){
   var isPDH=dFormat==='paupercmd';
   var path=(isPDH?'pages/pauper-commanders/':'pages/commanders/')+slug+'.json';
 
+  // Fetch oracle du commandant en parallèle si absent (nécessaire pour _detectCmdThemes)
+  var oracleDone=!!(dCardMeta[cmdNlQ]&&dCardMeta[cmdNlQ].oracleText);
+  var edhDone=false;
+  var edhResult=null;
+  function _maybeRender(){
+    if(oracleDone&&edhDone)_renderSmartAnalysis(slug,edhResult);
+  }
+  if(!oracleDone){
+    fetch('https://api.scryfall.com/cards/named?exact='+encodeURIComponent(dCommander.name))
+      .then(function(r){return r.json();})
+      .then(function(card){
+        var oracle=card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'';
+        if(!dCardMeta[cmdNlQ])dCardMeta[cmdNlQ]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle};
+        else dCardMeta[cmdNlQ].oracleText=oracle;
+        oracleDone=true;_maybeRender();
+      })
+      .catch(function(){oracleDone=true;_maybeRender();});
+  }
+
   function _store(cards,numDecks,source){
     _smartEdhCache[slug]={cards:cards,numDecks:numDecks,ok:cards.length>0,source:source||'edhrec'};
     delete _smartEdhPending[slug];
-    _renderSmartAnalysis(slug,_smartEdhCache[slug]);
+    edhResult=_smartEdhCache[slug];edhDone=true;_maybeRender();
   }
   function _parseEDH(d){
     var cards=edhFindCardlist(d);
@@ -5103,7 +5136,7 @@ function analyzeSmartDeck(){
       .then(function(d){var p=_parseEDH(d);if(p.cards.length>=5)_store(p.cards,p.numDecks,'edhrec');else _scryfallFallback();})
       .catch(_scryfallFallback);
   }
-  // 1. CDN direct (Cloudflare, souvent CORS OK)  2. proxy Vercel  3. Scryfall fallback
+  // 1. CDN direct  2. proxy Vercel  3. Scryfall fallback
   fetch('https://json.edhrec.com/'+path)
     .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
     .then(function(d){var p=_parseEDH(d);if(p.cards.length>=5)_store(p.cards,p.numDecks,'edhrec');else _tryProxy();})
