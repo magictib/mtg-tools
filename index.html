@@ -12145,11 +12145,18 @@ function anaAnalyze(){
   });
 }
 
-/* ----- Scoring (pour ranking interne) ----- */
+/* ----- Scoring (pour ranking interne, applique les multiplicateurs de theme du commandant) ----- */
 function anaCardScore(meta){
   if(!meta||!meta.tags)return 0;
   var t=meta.tags;if(t.isLand)return 0;
-  return (t.draw*2.5+t.removal*2.0+t.ramp*1.8+t.interaction*2.0+t.wincon*3.0)-((meta.cmc||0)*0.4);
+  var th=_anaCurrentThemes||{draw:1,removal:1,ramp:1,interaction:1,wincon:1};
+  return (
+    t.draw*2.5*(th.draw||1)+
+    t.removal*2.0*(th.removal||1)+
+    t.ramp*1.8*(th.ramp||1)+
+    t.interaction*2.0*(th.interaction||1)+
+    t.wincon*3.0*(th.wincon||1)
+  )-((meta.cmc||0)*0.4);
 }
 
 /* ----- Goldfish simulation (inspired Python engine v13) ----- */
@@ -12260,6 +12267,58 @@ function anaSimulate(deck,runs){
     drawReached:stats.firstDraw.length/runs,
     winconReached:stats.firstWincon.length/runs
   };
+}
+
+/* ----- Themes du commandant : multiplicateurs de score selon l'oracle text ----- */
+// Ex: Queza ("whenever you draw, opp loses life") -> draw devient un wincon
+var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,labels:[]};
+
+function _anaCommanderThemes(deck){
+  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,labels:[]};
+  if(!deck||!deck.commander||!deck.commander.name)return def;
+  var nl=deck.commander.name.split(' // ')[0].toLowerCase();
+  var meta=_anaData[nl];
+  if(!meta||!meta.oracleText)return def;
+  var oracle=meta.oracleText.toLowerCase();
+  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1};
+  var labels=[];
+  function bump(key,val,label){if((m[key]||1)<val)m[key]=val;if(label&&labels.indexOf(label)<0)labels.push(label);}
+  // Pioche-as-wincon : la pioche déclenche des effets
+  if(/whenever you draw/.test(oracle))bump('draw',2.5,'Pioche-trigger');
+  if(/whenever (you|target player) (would )?draws? (a|two|cards|your)/.test(oracle))bump('draw',2.0,'Pioche-trigger');
+  if(/draw step.*draw an additional/.test(oracle))bump('draw',1.6,'Card advantage');
+  // Spellslinger
+  if(/whenever you cast (an )?(instant|sorcery|noncreature)/.test(oracle))bump('draw',1.6,'Spellslinger');
+  if(/copy that (spell|instant|sorcery)/.test(oracle))bump('draw',1.4,'Spell-copy');
+  if(/prowess/.test(oracle))bump('wincon',1.3,'Prowess');
+  // Graveyard
+  if(/return.*from.*graveyard|cast.*from.*graveyard|flashback|jump-start|delve|escape|disturb/.test(oracle))bump('draw',1.5,'Graveyard');
+  if(/(mill|put.*from.*library.*graveyard|reveal.*top.*graveyard)/.test(oracle))bump('draw',1.4,'Mill');
+  // Surveil/connive/explore (pseudo-pioche)
+  if(/(surveil|connive|explore|cycling)/.test(oracle))bump('draw',1.4,'Filtration');
+  if(/whenever you discard|hellbent|madness/.test(oracle))bump('draw',1.4,'Discard');
+  // Sacrifice / aristocrats
+  if(/whenever a creature.*dies|whenever (you|a player) sacrifice|aristocrats?/.test(oracle))bump('wincon',1.4,'Sacrifice');
+  if(/each opponent loses \d+ life|deals \d+ damage to each opponent|drains?/.test(oracle))bump('wincon',1.5,'Drain');
+  // +1/+1 / counters
+  if(/\+1\/\+1 counter|proliferate/.test(oracle))bump('wincon',1.3,'+1/+1 counters');
+  if(/(gets \+\d+\/\+\d+ for each|tower|huge)/.test(oracle))bump('wincon',1.3,'Buff');
+  // Tokens
+  if(/create.*creature token|create.*\d+\/\d+/.test(oracle))bump('wincon',1.3,'Tokens');
+  // Landfall / ramp
+  if(/landfall|whenever a land enters/.test(oracle))bump('ramp',1.8,'Landfall');
+  if(/treasure token|create.*treasure/.test(oracle))bump('ramp',1.5,'Treasures');
+  if(/extra mana|adds.*additional|untap.*land/.test(oracle))bump('ramp',1.4,'Mana boost');
+  // Lifegain
+  if(/whenever you gain life|lifegain matters/.test(oracle))bump('draw',1.3,'Lifegain');
+  if(/lifelink|gain.*life equal/.test(oracle))bump('draw',1.2,'Lifegain');
+  // Counterspells matter
+  if(/(counter|counterspell).*target.*spell|whenever a spell.*countered/.test(oracle))bump('interaction',1.3,'Counters');
+  // Tutor / library
+  if(/search your library/.test(oracle))bump('draw',1.2,'Tutor');
+  // Voltron / commander damage
+  if(/double strike|trample.*equipped|equipment|aura|enchant/.test(oracle))bump('wincon',1.2,'Voltron');
+  return Object.assign(m,{labels:labels});
 }
 
 /* ----- Override manuel d'archetype par deck (persiste localStorage) ----- */
@@ -12751,6 +12810,8 @@ function anaOptimize(scoredRows,pool,iterations){
 /* ----- Render Mythic Tools+ style ----- */
 function anaRender(deckId){
   var deck=decks[deckId];if(!deck)return;
+  // Themes du commandant : applique des multiplicateurs au scoring
+  _anaCurrentThemes=_anaCommanderThemes(deck);
   var cards=deck.cards.slice();
   var fmt=deck.format||'';
   var totalCards=cards.reduce(function(s,c){return s+(c.qty||1);},0);
@@ -12896,6 +12957,13 @@ function anaRender(deckId){
     html+='<a onclick="anaSetArchetype(\''+deckId+'\',\'auto\')" style="cursor:pointer;color:var(--tx3);font-size:9px;text-decoration:none" title="Auto-détection ('+(_ARCH_LABELS[autoArch]||{label:autoArch}).label+')">↩</a>';
   }
   html+='</span>';
+  // Themes detectes (commander oracle text)
+  if(_anaCurrentThemes&&_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length){
+    var themeBadges=_anaCurrentThemes.labels.map(function(l){
+      return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)" title="Multiplicateur de score appliqué via l\'oracle text du commandant">'+esc(l)+'</span>';
+    }).join(' ');
+    html+='<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"><span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> '+themeBadges+'</div>';
+  }
   html+='</div>';
   html+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
   if(unanalyzed>0){
