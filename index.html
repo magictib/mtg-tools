@@ -4575,45 +4575,83 @@ function importMoxfieldUrl(){
     .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
     .then(function(data){
       if(data.error)throw new Error(data.error);
+      console.log('[Moxfield] payload reçu :',data);
       var deckName=data.name||'Deck Moxfield';
       var fmt=(data.format||'').toLowerCase();
       var lines=[];
       var commanderName=null;
-      // v3: data.boards.{mainboard, commanders, sideboard, ...}.cards
-      var boards=data.boards||{};
-      // v2 fallback : data.mainboard, data.commanders
+      var debugFirstCard=null,debugCount=0,debugNoName=0;
+
+      // Extraction robuste du nom et de la quantite (multiple formats Moxfield connus)
+      function _mxName(c){
+        if(!c)return'';
+        if(typeof c==='string')return c;
+        // v3 : { card: {name: "X"} } ou { card: {scryfall_card: {name:"X"}} }
+        if(c.card){
+          if(typeof c.card==='string')return c.card;
+          if(c.card.name)return c.card.name;
+          if(c.card.scryfall_card&&c.card.scryfall_card.name)return c.card.scryfall_card.name;
+          if(c.card.front_face&&c.card.front_face.name)return c.card.front_face.name;
+        }
+        // v2 / divers : direct champ name ou cardName
+        if(c.name)return c.name;
+        if(c.cardName)return c.cardName;
+        if(c.card_name)return c.card_name;
+        if(c.title)return c.title;
+        return '';
+      }
+      function _mxQty(c){
+        if(!c)return 1;
+        return c.quantity||c.qty||c.count||c.number||c.amount||1;
+      }
+
       function extractCards(boardObj,sec){
         if(!boardObj)return;
-        var cardsMap=boardObj.cards||boardObj;
-        Object.keys(cardsMap).forEach(function(k){
+        var cardsMap=boardObj.cards||boardObj.cardlist||boardObj;
+        // cardsMap peut etre : Object (map par id), Array de cartes
+        if(!cardsMap||typeof cardsMap!=='object')return;
+        var keys=Object.keys(cardsMap);
+        if(!keys.length)return;
+        var sectionAdded=false;
+        keys.forEach(function(k){
           var c=cardsMap[k];
-          if(!c)return;
-          var qty=c.quantity||c.qty||1;
-          var name=(c.card&&c.card.name)||c.name||'';
-          if(!name)return;
-          // Pour les DFC, prendre la face avant
-          name=name.split(' // ')[0];
-          if(sec){lines.push('// '+sec);sec=null;}
+          if(!c||typeof c!=='object')return;
+          if(!debugFirstCard)debugFirstCard=c;
+          debugCount++;
+          var qty=_mxQty(c);
+          var name=_mxName(c);
+          if(!name){debugNoName++;return;}
+          name=name.split(' // ')[0]; // DFC -> face avant
+          if(sec&&!sectionAdded){lines.push('// '+sec);sectionAdded=true;}
           lines.push(qty+' '+name);
         });
       }
-      // v3 boards
-      if(boards.commanders){
-        var cmCards=boards.commanders.cards||{};
-        var first=Object.keys(cmCards)[0];
-        if(first){var cm=cmCards[first];commanderName=(cm.card&&cm.card.name)||cm.name||null;if(commanderName)commanderName=commanderName.split(' // ')[0];}
-        extractCards(boards.commanders,'Commander');
-      } else if(data.commanders){
-        var first2=Object.keys(data.commanders)[0];
-        if(first2){var cm2=data.commanders[first2];commanderName=(cm2.card&&cm2.card.name)||cm2.name||null;if(commanderName)commanderName=commanderName.split(' // ')[0];}
-        extractCards(data.commanders,'Commander');
+
+      // Structure v3 : data.boards.{mainboard, commanders, sideboard, ...}
+      // Structure v2 : data.mainboard, data.commanders, data.sideboard directement
+      var boards=data.boards||{};
+      var cmCardsObj=(boards.commanders&&boards.commanders.cards)||boards.commanders||data.commanders;
+      if(cmCardsObj&&typeof cmCardsObj==='object'){
+        var firstKey=Object.keys(cmCardsObj)[0];
+        if(firstKey){var first=cmCardsObj[firstKey];var cn=_mxName(first);if(cn)commanderName=cn.split(' // ')[0];}
       }
+      if(boards.commanders||data.commanders)extractCards(boards.commanders||data.commanders,'Commander');
       if(boards.mainboard)extractCards(boards.mainboard,commanderName?'Mainboard':null);
       else if(data.mainboard)extractCards(data.mainboard,commanderName?'Mainboard':null);
       if(boards.companions)extractCards(boards.companions,'Companion');
+      else if(data.companions)extractCards(data.companions,'Companion');
       if(boards.sideboard)extractCards(boards.sideboard,'Sideboard');
       else if(data.sideboard)extractCards(data.sideboard,'Sideboard');
-      if(!lines.length)throw new Error('Deck vide ou format inattendu.');
+      if(boards.tokens)extractCards(boards.tokens,'Tokens');
+
+      console.log('[Moxfield] '+debugCount+' entrées parcourues, '+debugNoName+' sans nom. Premier objet carte :',debugFirstCard);
+      if(!lines.length){
+        if(debugFirstCard)console.error('[Moxfield] structure inattendue de la carte :',debugFirstCard);
+        throw new Error('Deck vide ou format inattendu — voir console F12');
+      }
+      if(debugNoName>debugCount/2){
+        console.warn('[Moxfield] '+debugNoName+'/'+debugCount+' cartes sans nom détecté → format Moxfield non reconnu');
+      }
       // Remplir l'editeur
       document.getElementById('dnamein').value=deckName;
       document.getElementById('ta-name').value=lines.join('\n');
