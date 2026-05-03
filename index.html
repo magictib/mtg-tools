@@ -12888,12 +12888,15 @@ var _SCRYFALL_KEYWORD_THEMES={
 };
 
 // Anti-synergies : pénalise les cartes qui nécessitent un thème absent du deck
-// (ex: Epicure of Blood dans un deck sans gain de vie)
+// requires:null = pénalité universelle (inefficacité, pas un mismatch de thème)
 var _ANTI_SYNERGY_RULES=[
-  {p:/whenever you gain life|whenever.*life.*gained|whenever.*gain.*life/i,  requires:'lifegain', label:'nécessite gain de vie'},
-  {p:/whenever.*you discard\b|whenever.*(?:a player |opponent )?discards/i,  requires:'discard',  label:'nécessite moteur de défausse'},
-  {p:/\bstorm\b/i,                                                            requires:'sorts',    label:'nécessite beaucoup de sorts'},
-  {p:/landfall/i,                                                             requires:'ramp',     label:'peu utile sans Landfall'},
+  {p:/whenever you gain life|whenever.*life.*gained|whenever.*gain.*life/i,  requires:'lifegain', penalty:-15, label:'nécessite gain de vie'},
+  {p:/whenever.*you discard\b|whenever.*(?:a player |opponent )?discards/i,  requires:'discard',  penalty:-15, label:'nécessite moteur de défausse'},
+  {p:/\bstorm\b/i,                                                            requires:'sorts',    penalty:-15, label:'nécessite beaucoup de sorts'},
+  {p:/landfall/i,                                                             requires:'ramp',     penalty:-15, label:'peu utile sans Landfall'},
+  // Ramp à coût d'activation élevé : coût effectif castcost+activation, land engagé
+  // ex: Wayfarer's Bauble (1+2=3), Armillary Sphere (2+2=4)
+  {p:/\{[2-9]\}[^:]*sacrifice[^:]*:.*search.*library.*basic land/i,          requires:null,       penalty:-6,  label:'ramp lent (coût activation élevé)'},
 ];
 
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
@@ -13417,15 +13420,59 @@ function anaFullOptimize(scoredRows,pool,maxIter){
 }
 
 /* ----- Optimisation orientée score global (cible le /100, pas le score individuel) ----- */
-// Pénalise les cartes dont les prérequis ne sont pas dans le deck (ex: Epicure of Blood sans lifegain)
+// Pénalise les cartes dont les prérequis sont absents ou qui sont intrinsèquement inefficaces
 function _anaAntiSynergyPenalty(cardMeta,deckThemes){
   if(!cardMeta||!cardMeta.oracleText)return 0;
   var o=cardMeta.oracleText.toLowerCase();
   var penalty=0;
+  var th=deckThemes||{};
   _ANTI_SYNERGY_RULES.forEach(function(rule){
-    if(rule.p.test(o)&&!(deckThemes[rule.requires]>1)){penalty-=4;}
+    if(!rule.p.test(o))return;
+    var applies=rule.requires===null||!(th[rule.requires]>1);
+    if(applies)penalty+=rule.penalty;
   });
   return penalty;
+}
+
+// Score de synergie carte↔thèmes du commandant (utilisé dans l'optimiseur)
+function _anaThemeSynergyScore(cardMeta,themes){
+  if(!cardMeta||!cardMeta.oracleText)return 0;
+  var o=cardMeta.oracleText.toLowerCase();
+  var t=(cardMeta.typeLine||'').toLowerCase();
+  var s=0;var th=themes||{};
+  // Défausse
+  if((th.discard||1)>1){
+    if(/madness/.test(o))s+=4;
+    if(/flashback|jump-start/.test(o))s+=3;
+    if(/dredge|unearth|cycling/.test(o))s+=2;
+    if(/when.*you discard|whenever.*discard/.test(o))s+=3;
+    if(/\bdiscard\b/.test(o))s+=1;
+  }
+  // Compteurs +1/+1
+  if((th.counters||1)>1){
+    if(/\+1\/\+1 counter|put.*counter|proliferate/.test(o))s+=3;
+    if(/for each counter/.test(o))s+=2;
+    if(/distribut.*counter|doubl.*counter/.test(o))s+=2;
+  }
+  // Gain de vie
+  if((th.lifegain||1)>1){
+    if(/whenever.*gain.*life/.test(o))s+=3;
+    if(/gain.*life|lifelink/.test(o))s+=2;
+  }
+  // Draw-as-wincon (Queza, Nekusar…)
+  if((th.draw||1)>1.5){
+    if(/draw (?:two|three|[2-9])|draw that many/.test(o))s+=2;
+  }
+  // Landfall
+  if((th.ramp||1)>1.5){
+    if(/landfall|whenever.*land enters/.test(o))s+=3;
+  }
+  // Sacrifice/aristocrats
+  if((th.wincon||1)>1.3){
+    if(/whenever.*creature.*dies|sacrifice a creature/.test(o))s+=2;
+    if(/create.*token/.test(o))s+=1;
+  }
+  return s;
 }
 
 function anaScoreOptimize(rows,pool,weights,targets,maxIter){
@@ -13462,7 +13509,10 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
           interaction:cnt.interaction-cr.interaction*q+ar.interaction,
           wincon:cnt.wincon-cr.wincon*q+ar.wincon
         };
-        var gain=score(sim)-curScore+_anaAntiSynergyPenalty(addCard.meta,_anaCurrentThemes);
+        // gain = amélioration catégories + synergie ajout - synergie coupe + pénalités
+        var synergyAdd=_anaThemeSynergyScore(addCard.meta,_anaCurrentThemes);
+        var synergyCut=_anaThemeSynergyScore(cutRow.meta,_anaCurrentThemes);
+        var gain=score(sim)-curScore+(synergyAdd-synergyCut)*0.4+_anaAntiSynergyPenalty(addCard.meta,_anaCurrentThemes);
         if(gain>bestGain){bestGain=gain;bestSwap={cut:cutRow,add:addCard,sim:sim,gain:gain};}
       });
     });
