@@ -1471,6 +1471,11 @@ body.mana-cursor{cursor:none}
       <div id="dcmd-preview"></div>
     </div>
     <input type="text" id="dnamein" placeholder="Nom du deck..." style="margin-bottom:8px">
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="moxfield-url-in" placeholder="📋 Coller un lien Moxfield (https://www.moxfield.com/decks/...)" style="flex:1;min-width:200px;font-size:.78rem">
+      <button class="btn btnsm" onclick="importMoxfieldUrl()" style="font-size:.78rem;white-space:nowrap">⬇ Importer Moxfield</button>
+    </div>
+    <div id="moxfield-msg" style="font-size:.75rem;min-height:.9rem;margin-bottom:6px;color:var(--tx3);font-style:italic"></div>
     <div id="ta-name-wrap">
       <textarea class="dia" id="ta-name" placeholder="Collez votre liste par nom...&#10;&#10;• 4 Lightning Bolt&#10;• 1 Black Lotus&#10;• // Lands  (sections)"></textarea>
     </div>
@@ -4549,6 +4554,90 @@ function deleteDeck(){
 function clearDeckEditor(){
   document.getElementById('ta-name').value='';
   document.getElementById('dcnt').textContent='';
+  var mm=document.getElementById('moxfield-msg');if(mm)mm.textContent='';
+  var mu=document.getElementById('moxfield-url-in');if(mu)mu.value='';
+}
+
+/* ===== IMPORT MOXFIELD ===== */
+function importMoxfieldUrl(){
+  var inp=document.getElementById('moxfield-url-in');
+  var msg=document.getElementById('moxfield-msg');
+  var url=(inp.value||'').trim();
+  if(!url){msg.style.color='var(--rd2)';msg.textContent='Colle un lien Moxfield d\'abord.';return;}
+  var m=url.match(/decks\/(?:personal\/)?([a-zA-Z0-9_-]{4,64})/);
+  if(!m){msg.style.color='var(--rd2)';msg.textContent='URL invalide. Format attendu : https://www.moxfield.com/decks/XXXXXXX';return;}
+  var deckId=m[1];
+  msg.style.color='var(--tx3)';msg.textContent='⏳ Récupération du deck Moxfield…';
+  fetch('/api/moxfield?id='+encodeURIComponent(deckId))
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(function(data){
+      if(data.error)throw new Error(data.error);
+      var deckName=data.name||'Deck Moxfield';
+      var fmt=(data.format||'').toLowerCase();
+      var lines=[];
+      var commanderName=null;
+      // v3: data.boards.{mainboard, commanders, sideboard, ...}.cards
+      var boards=data.boards||{};
+      // v2 fallback : data.mainboard, data.commanders
+      function extractCards(boardObj,sec){
+        if(!boardObj)return;
+        var cardsMap=boardObj.cards||boardObj;
+        Object.keys(cardsMap).forEach(function(k){
+          var c=cardsMap[k];
+          if(!c)return;
+          var qty=c.quantity||c.qty||1;
+          var name=(c.card&&c.card.name)||c.name||'';
+          if(!name)return;
+          // Pour les DFC, prendre la face avant
+          name=name.split(' // ')[0];
+          if(sec){lines.push('// '+sec);sec=null;}
+          lines.push(qty+' '+name);
+        });
+      }
+      // v3 boards
+      if(boards.commanders){
+        var cmCards=boards.commanders.cards||{};
+        var first=Object.keys(cmCards)[0];
+        if(first){var cm=cmCards[first];commanderName=(cm.card&&cm.card.name)||cm.name||null;if(commanderName)commanderName=commanderName.split(' // ')[0];}
+        extractCards(boards.commanders,'Commander');
+      } else if(data.commanders){
+        var first2=Object.keys(data.commanders)[0];
+        if(first2){var cm2=data.commanders[first2];commanderName=(cm2.card&&cm2.card.name)||cm2.name||null;if(commanderName)commanderName=commanderName.split(' // ')[0];}
+        extractCards(data.commanders,'Commander');
+      }
+      if(boards.mainboard)extractCards(boards.mainboard,commanderName?'Mainboard':null);
+      else if(data.mainboard)extractCards(data.mainboard,commanderName?'Mainboard':null);
+      if(boards.companions)extractCards(boards.companions,'Companion');
+      if(boards.sideboard)extractCards(boards.sideboard,'Sideboard');
+      else if(data.sideboard)extractCards(data.sideboard,'Sideboard');
+      if(!lines.length)throw new Error('Deck vide ou format inattendu.');
+      // Remplir l'editeur
+      document.getElementById('dnamein').value=deckName;
+      document.getElementById('ta-name').value=lines.join('\n');
+      // Format auto-detect
+      if(fmt&&document.querySelector('[onclick="setDeckFmt(\''+fmt+'\',this)"]')){
+        document.querySelector('[onclick="setDeckFmt(\''+fmt+'\',this)"]').click();
+      }
+      // Si c'est commander, fixer le commandant
+      if(commanderName&&typeof deckCmdFetch==='function'){
+        var cmInput=document.getElementById('dcmd-in');
+        if(cmInput){cmInput.value=commanderName;}
+        deckCmdFetch(commanderName);
+      }
+      // Reparse
+      dCards=parseList(lines.join('\n'));
+      var totalQty=dCards.reduce(function(s,c){return s+c.qty;},0);
+      document.getElementById('dcnt').textContent=dCards.length+' entrées, '+totalQty+' cartes';
+      msg.style.color='var(--gr2)';
+      msg.textContent='✓ '+dCards.length+' entrées importées ('+totalQty+' cartes)'+(commanderName?' · 👑 '+commanderName:'')+'. N\'oublie pas de Sauvegarder.';
+      // Lance l'analyse pour récupérer prix/images (avec fuzzy fallback)
+      if(dCards.length>0)setTimeout(function(){analyzeDeck();document.getElementById('deckres').style.display='block';},100);
+    })
+    .catch(function(e){
+      msg.style.color='var(--rd2)';
+      msg.textContent='❌ Erreur : '+e.message+' (le deck est-il public ?)';
+      console.error('[Moxfield import]',e);
+    });
 }
 
 function analyzeCurrent(){
@@ -4722,19 +4811,51 @@ function fetchMissingPrices(){
   });
   if(!todo.length){renderDeckStats();return;}
   var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
-  var done=0;
+  var done=0;var notFound=[];
+  function ingestCard(card){
+    var nl=stripDFC(card.name).toLowerCase();
+    if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+    return nl;
+  }
+  function fuzzyFallback(){
+    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+    console.log('[Deck] Fallback fuzzy pour '+notFound.length+' carte(s) non trouvée(s) en exact :',notFound.map(function(x){return x.name;}).join(', '));
+    var i=0;
+    function next(){
+      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+      var item=notFound[i++];
+      fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(item.name))
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(card){
+          if(card&&card.name&&card.object==='card'){
+            ingestCard(card);
+            // Aussi sauvegarder sous le nl original (alias) pour que l'app le retrouve
+            if(!allPriceMap[item.nl]&&card.prices&&card.prices.eur)allPriceMap[item.nl]=parseFloat(card.prices.eur)||0;
+            if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+          }
+          setTimeout(next,90);
+        })
+        .catch(function(){setTimeout(next,90);});
+    }
+    next();
+  }
   batches.forEach(function(batch){
     fetch('https://api.scryfall.com/cards/collection',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
     }).then(function(r){return r.json();}).then(function(data){
-      (data.data||[]).forEach(function(card){
-        var nl=stripDFC(card.name).toLowerCase();
-        if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
-        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+      var foundNls={};
+      (data.data||[]).forEach(function(card){foundNls[ingestCard(card)]=1;});
+      // Detecter cartes du batch absentes du resultat
+      batch.forEach(function(item){
+        if(!foundNls[item.nl]&&!dCardMeta[item.nl])notFound.push(item);
       });
-      if(++done===batches.length){renderPriceEstimate();renderDeckStats();renderDeck();}
-    }).catch(function(){if(++done===batches.length)renderDeckStats();});
+      if(++done===batches.length)fuzzyFallback();
+    }).catch(function(){
+      batch.forEach(function(item){if(!dCardMeta[item.nl])notFound.push(item);});
+      if(++done===batches.length)fuzzyFallback();
+    });
   });
 }
 function setDSort(mode,btn){
@@ -4837,21 +4958,45 @@ function fetchDeckImages(){
   var todo=Object.keys(unique).map(function(k){return {nl:k,name:unique[k]};});
   if(!todo.length){renderDeck();return;}
   var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
-  var done=0;
+  var done=0;var notFound=[];
+  function ingest(card,aliasNl){
+    var nl=stripDFC(card.name).toLowerCase();
+    var img=card.image_uris?card.image_uris.normal:(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris?card.card_faces[0].image_uris.normal:null);
+    if(img)dImgCache[nl]=img;
+    if(aliasNl&&aliasNl!==nl&&img)dImgCache[aliasNl]=img;
+    if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
+    if(aliasNl&&aliasNl!==nl&&!allPriceMap[aliasNl]&&card.prices&&card.prices.eur)allPriceMap[aliasNl]=parseFloat(card.prices.eur)||0;
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+    return nl;
+  }
+  function fuzzyFallback(){
+    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+    console.log('[Deck img] Fallback fuzzy pour '+notFound.length+' carte(s) :',notFound.map(function(x){return x.name;}).join(', '));
+    var i=0;
+    function next(){
+      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+      var item=notFound[i++];
+      fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(item.name))
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(card){if(card&&card.name&&card.object==='card')ingest(card,item.nl);setTimeout(next,90);})
+        .catch(function(){setTimeout(next,90);});
+    }
+    next();
+  }
   batches.forEach(function(batch){
     fetch('https://api.scryfall.com/cards/collection',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
     }).then(function(r){return r.json();}).then(function(data){
-      (data.data||[]).forEach(function(card){
-        var nl=stripDFC(card.name).toLowerCase();
-        var img=card.image_uris?card.image_uris.normal:(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris?card.card_faces[0].image_uris.normal:null);
-        if(img)dImgCache[nl]=img;
-        if(!allPriceMap[nl]&&card.prices&&card.prices.eur)allPriceMap[nl]=parseFloat(card.prices.eur)||0;
-        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
-      });
-      if(++done===batches.length){renderPriceEstimate();renderDeckStats();renderDeck();}
-    }).catch(function(){if(++done===batches.length)renderDeck();});
+      var foundNls={};
+      (data.data||[]).forEach(function(card){foundNls[ingest(card)]=1;});
+      batch.forEach(function(item){if(!foundNls[item.nl]&&!dImgCache[item.nl])notFound.push(item);});
+      if(++done===batches.length)fuzzyFallback();
+    }).catch(function(){
+      batch.forEach(function(item){if(!dImgCache[item.nl])notFound.push(item);});
+      if(++done===batches.length)fuzzyFallback();
+    });
   });
 }
 function _profUid(profIdx){
