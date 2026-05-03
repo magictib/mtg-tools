@@ -4721,13 +4721,38 @@ function parseList(raw){
   var lines=(raw||'').trim().split(/\r?\n/);var sec='Deck';var cards=[];
   lines.forEach(function(line){
     line=line.trim();if(!line)return;
-    if(line.startsWith('//')||line.startsWith('##')){var s=line.replace(/^\/\/|^##/,'').trim();if(s)sec=s;return;}
-    // Accepte: "1 Name", "1 Name (SET)", "1 Name (SET) 123", "1 Name (SET) #123",
-    //          "1 Name (SET) ABC-123" (Moxfield "The List" / collector ref), avec tag optionnel *...*
-    // Le collecteur doit contenir au moins un chiffre — sinon le 2e mot du nom serait pris a tort.
-    var m=line.match(/^(\d+)[xX]?\s+(.+?)(?:\s+\(([^)]+)\))?(?:\s+(#?[A-Za-z]*\d[\w.-]*))?(?:\s+\*[^*]+\*)?\s*$/);
-    if(m){var qty=parseInt(m[1]),name=stripDFC(m[2]),setc=(m[3]||'').toLowerCase().trim(),num=(m[4]||'').replace(/^#/,'').trim();
-      if(qty>0&&name)cards.push({qty:qty,name:name,nl:name.toLowerCase(),setc:setc,num:num,sec:sec});}
+    if(line.startsWith('//')||line.startsWith('##')){var s=line.replace(/^\/\/|^##/,'').trim();if(s){sec=s;return;}return;}
+    // Skip section headers communes sans qte: SIDEBOARD, COMMANDER, etc.
+    if(/^(sideboard|commander|commandant|companion|maybeboard|deck|mainboard|tokens?|considering)\s*:?\s*$/i.test(line)){
+      sec=line.replace(/[:]\s*$/,'').replace(/^\w/,function(c){return c.toUpperCase();});
+      return;
+    }
+    // Pre-nettoyage : enlever annotations courantes [tag], $price, < >
+    var clean=line
+      .replace(/\[[^\]]*\]/g,'')        // [tappedout-style]
+      .replace(/<[^>]*>/g,'')            // <html>
+      .replace(/\$\s*\d+(?:[.,]\d+)?/g,'') // $1.50 prix
+      .replace(/\s{2,}/g,' ')
+      .trim();
+    if(!clean)return;
+    // Regex stricte : qty + name + (SET)? + collector(avec chiffre)? + *tag*?
+    var m=clean.match(/^(\d+)[xX]?\s+(.+?)(?:\s+\(([^)]+)\))?(?:\s+(#?[A-Za-z]*\d[\w.-]*))?(?:\s+\*[^*]+\*)?\s*$/);
+    if(m){
+      var qty=parseInt(m[1]),name=stripDFC(m[2]),setc=(m[3]||'').toLowerCase().trim(),num=(m[4]||'').replace(/^#/,'').trim();
+      if(qty>0&&name){cards.push({qty:qty,name:name,nl:name.toLowerCase(),setc:setc,num:num,sec:sec});return;}
+    }
+    // Fallback permissif : qty + tout le reste comme nom (strip annotations connues)
+    var fb=clean.match(/^(\d+)[xX]?\s+(.+)$/);
+    if(fb){
+      var qty2=parseInt(fb[1]);
+      var name2=fb[2]
+        .replace(/\s+\*[^*]+\*\s*$/,'')                       // *F* / *foil*
+        .replace(/\s+\([^)]+\)(?:\s+[^()\s]+)*\s*$/,'')        // (SET) anything
+        .trim();
+      name2=stripDFC(name2);
+      if(qty2>0&&name2){cards.push({qty:qty2,name:name2,nl:name2.toLowerCase(),setc:'',num:'',sec:sec});return;}
+    }
+    console.warn('[parseList] ligne non reconnue :',line);
   });return cards;
 }
 function getKey(card){return card.nl;}
@@ -11913,16 +11938,12 @@ function _localizeOneImg(img){
   }
   var observer=new MutationObserver(function(mutations){
     mutations.forEach(function(m){
-      if(m.type==='childList'){m.addedNodes.forEach(processNode);}
-      else if(m.type==='attributes'&&m.target.tagName==='IMG'){
-        // src/alt change externe -> revalider
-        if(m.target.dataset)delete m.target.dataset.localizedTo;
-        _localizeOneImg(m.target);
-      }
+      if(m.type==='childList')m.addedNodes.forEach(processNode);
+      // PAS d'observation attributs — provoquait une boucle infinie quand onerror revertait src
     });
   });
   function start(){
-    observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src','alt']});
+    observer.observe(document.body,{childList:true,subtree:true});
     document.querySelectorAll('img').forEach(_localizeOneImg);
   }
   if(document.body)start();
