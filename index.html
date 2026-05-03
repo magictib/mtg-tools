@@ -12474,13 +12474,19 @@ function anaFetchMissing(nls,fallbackList,onDone){
   var done=0;var notFound=[];
   function statusUpdate(msg){var st=document.getElementById('ana-status');if(st)st.textContent=msg;}
   batches.forEach(function(batch){
+    // Map nom_scryfall_lc -> nl_deck pour retrouver le hint apres le fetch
+    var nameToNl={};
+    batch.forEach(function(nl){var pn=(_anaProperName(nl,fallbackList)||nl).split(' // ')[0].toLowerCase();nameToNl[pn]=nl;});
     fetch('https://api.scryfall.com/cards/collection',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({identifiers:batch.map(function(nl){return {name:_anaProperName(nl,fallbackList)};})})
     }).then(function(r){return r.json();}).then(function(data){
-      (data.data||[]).forEach(function(card){_anaIngestCard(card);});
+      (data.data||[]).forEach(function(card){
+        var hint=nameToNl[stripDFC(card.name).toLowerCase()]||null;
+        _anaIngestCard(card,hint);
+      });
       // Detecter les nl du batch toujours absents -> fallback fuzzy
-      batch.forEach(function(nl){if(!_anaData[nl])notFound.push(nl);});
+      batch.forEach(function(nl){var alt=stripDFC(_anaProperName(nl,fallbackList)||'').toLowerCase();if(!_anaData[nl]&&!_anaData[alt])notFound.push(nl);});
       if(++done===batches.length){
         console.log('[Analyse] Phase 1 (exact): '+(todo.length-notFound.length)+'/'+todo.length+' trouvees');
         if(notFound.length){
@@ -12517,13 +12523,20 @@ function anaFuzzyFetch(nls,fallbackList,onDone){
     var st=document.getElementById('ana-status');
     if(st)st.textContent='⏳ Recherche '+(i+1)+'/'+nls.length+' : '+properName;
     fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(properName))
-      .then(function(r){return r.ok?r.json():null;})
+      .then(function(r){
+        if(r.status===429){return {__rateLimited:true};}
+        return r.ok?r.json():null;
+      })
       .then(function(card){
+        if(card&&card.__rateLimited){
+          // Rate limit : on reessaie cette carte apres 600ms
+          setTimeout(function(){next(i);},600);return;
+        }
         if(card&&card.name&&card.object==='card'){_anaIngestCard(card,nl);found++;}
         else{failed.push(properName);}
-        setTimeout(function(){next(i+1);},90);
+        setTimeout(function(){next(i+1);},110);
       })
-      .catch(function(){failed.push(properName);setTimeout(function(){next(i+1);},90);});
+      .catch(function(){failed.push(properName);setTimeout(function(){next(i+1);},110);});
   }
   next(0);
 }
@@ -12536,10 +12549,10 @@ function anaAnalyze(){
   if(!deck||!deck.cards||!deck.cards.length){alert('Ce deck est vide');return;}
   var st=document.getElementById('ana-status');
   document.getElementById('ana-results').style.display='none';
-  var deckNls=deck.cards.map(function(c){return c.nl;});
-  var fallback=deck.cards.slice();
+  var deckNls=deck.cards.map(function(c){return c.nl||stripDFC(c.name||'').toLowerCase()||null;});
+  var fallback=deck.cards.map(function(c){var nl=c.nl||stripDFC(c.name||'').toLowerCase()||null;return {nl:nl,name:c.name||nl||'',qty:c.qty||1,sec:c.sec||''};});
   if(deck.commander&&deck.commander.name){
-    var cmdNl=deck.commander.name.toLowerCase();
+    var cmdNl=stripDFC(deck.commander.name).toLowerCase();
     if(deckNls.indexOf(cmdNl)<0)deckNls.push(cmdNl);
     fallback.push({nl:cmdNl,name:deck.commander.name});
   }
@@ -13269,7 +13282,7 @@ function anaRender(deckId){
 
   // Per-card data (UN SEUL DECK)
   var rows=cards.map(function(c){
-    var meta=_anaData[c.nl];
+    var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
     return {card:c,meta:meta||{},roles:anaRoles(meta),score:meta?anaCardScore(meta):0,inCache:!!meta};
   });
 
