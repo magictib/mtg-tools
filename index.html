@@ -12119,11 +12119,27 @@ function anaAnalyze(){
   }
   var toFetch=allFetchNls.filter(function(nl){return !_anaData[nl];});
   st.textContent=toFetch.length?'⏳ Récupération de '+toFetch.length+' carte(s) sur Scryfall…':'✓ Cache complet — analyse en cours…';
+  // Reset EDHREC pour cette analyse (sera re-rempli en async ci-dessous)
+  _anaCurrentEDHREC=null;
   anaFetchMissing(allFetchNls,allFallback,function(){
     var found=deckNls.filter(function(nl){return _anaData[nl];}).length;
     var miss=deckNls.length-found;
     st.textContent=miss?'⚠ '+found+'/'+deckNls.length+' cartes du deck identifiées ('+miss+' introuvables — voir console F12)':'✓ '+found+'/'+deckNls.length+' cartes du deck analysées';
     try{anaRender(deckId);}catch(e){console.error('[Analyse] Erreur de rendu',e);st.textContent='❌ Erreur : '+e.message;}
+    // Enrichissement EDHREC async pour les decks Commander
+    if(deck.commander&&deck.commander.name&&anaIsCommanderFormat(deck.format)){
+      var preStatus=st.textContent;
+      st.textContent=preStatus+' · ⏳ EDHREC…';
+      anaFetchEDHRECCommander(deck.commander.name,function(edhrecFreq){
+        if(edhrecFreq){
+          _anaCurrentEDHREC=edhrecFreq;
+          st.textContent=preStatus+' · ✓ EDHREC ('+Object.keys(edhrecFreq).length+' cartes)';
+          try{anaRender(deckId);}catch(e){console.error('[Analyse] Re-render EDHREC',e);}
+        } else {
+          st.textContent=preStatus+' · ⚠ EDHREC indispo';
+        }
+      });
+    }
   });
 }
 
@@ -12302,12 +12318,81 @@ function _anaComputeFreqMatrix(){
 }
 
 /* ----- Score d'une carte avec bonus de synergie selon archetype ----- */
-function _anaSynergyValue(nl,meta,archetype,freqMatrix){
+function _anaSynergyValue(nl,meta,archetype,freqMatrix,edhrecFreq){
   var base=anaCardScore(meta);
-  if(!freqMatrix||!freqMatrix.freq||!nl)return {score:base,synergy:0};
+  // Priorite : EDHREC (si dispo pour ce commandant) > matrice locale
+  if(edhrecFreq&&edhrecFreq[nl]){
+    var frE=edhrecFreq[nl].freq||0;
+    var syn=edhrecFreq[nl].synergy||0;
+    // Bonus jusqu'a +90% si la carte est dans 100% des decks EDHREC du commandant + bonus de synergy EDHREC
+    return {score:base*(1+frE*0.8+Math.max(0,syn)*0.3),synergy:frE,edhrecSyn:syn,source:'edhrec'};
+  }
+  if(!freqMatrix||!freqMatrix.freq||!nl)return {score:base,synergy:0,source:null};
   var fr=(freqMatrix.freq[nl]||{})[archetype]||0;
-  // Bonus multiplicatif jusqu'a +60% si la carte est presente dans tous les decks de cet archetype
-  return {score:base*(1+fr*0.6),synergy:fr};
+  return {score:base*(1+fr*0.6),synergy:fr,source:fr>0?'local':null};
+}
+
+/* ----- EDHREC : cache + fetch + extraction matrice de frequence ----- */
+var _anaEDHRECCache={};
+try{var __eR=localStorage.getItem('mtg_edhrec_cache');if(__eR){var __eP=JSON.parse(__eR);if(__eP&&typeof __eP==='object')_anaEDHRECCache=__eP;}}catch(e){}
+function _anaSaveEDHRECCache(){try{localStorage.setItem('mtg_edhrec_cache',JSON.stringify(_anaEDHRECCache));}catch(e){}}
+var _anaCurrentEDHREC=null; // Matrice EDHREC active pour le rendu en cours
+
+function _anaCommanderSlug(name){
+  if(!name)return null;
+  // Pour les commandants partenaires "Akiri // Halana" -> "akiri" (face avant)
+  var n=name.split(' // ')[0];
+  return n.toLowerCase()
+    .replace(/[',]/g,'')
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'');
+}
+
+function _extractEDHRECFreqMap(data){
+  var cards={};
+  function walk(obj){
+    if(!obj||typeof obj!=='object')return;
+    if(Array.isArray(obj)){obj.forEach(walk);return;}
+    if(obj.cardviews&&Array.isArray(obj.cardviews)){
+      obj.cardviews.forEach(function(c){
+        if(!c.name)return;
+        var nl=c.name.split(' // ')[0].toLowerCase();
+        var freq=0;
+        if(c.num_decks&&c.num_decks>0)freq=Math.min(1,(c.inclusion||0)/c.num_decks);
+        if(!freq&&typeof c.potential_decks==='number'&&c.potential_decks>0)freq=Math.min(1,(c.inclusion||0)/c.potential_decks);
+        if(!cards[nl]||cards[nl].freq<freq){
+          cards[nl]={freq:freq,synergy:c.synergy||0,inclusion:c.inclusion||0,num_decks:c.num_decks||0};
+        }
+      });
+    }
+    Object.keys(obj).forEach(function(k){if(typeof obj[k]==='object')walk(obj[k]);});
+  }
+  walk(data);
+  return cards;
+}
+
+function anaFetchEDHRECCommander(commanderName,callback){
+  if(!commanderName){callback(null);return;}
+  var slug=_anaCommanderSlug(commanderName);
+  if(!slug){callback(null);return;}
+  var cached=_anaEDHRECCache[slug];
+  if(cached&&Date.now()-cached.timestamp<24*3600*1000){
+    console.log('[EDHREC] cache hit pour',slug,'('+Object.keys(cached.freqMap||{}).length+' cartes)');
+    callback(cached.freqMap);return;
+  }
+  console.log('[EDHREC] fetch pour',slug);
+  fetch('/api/edhrec?path='+encodeURIComponent('pages/commanders/'+slug+'.json'))
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(data){
+      if(!data||data.error){console.warn('[EDHREC] aucune donnée pour',slug,data&&data.error);callback(null);return;}
+      var freqMap=_extractEDHRECFreqMap(data);
+      var n=Object.keys(freqMap).length;
+      _anaEDHRECCache[slug]={timestamp:Date.now(),freqMap:freqMap};
+      _anaSaveEDHRECCache();
+      console.log('[EDHREC] '+n+' cartes extraites pour '+slug);
+      callback(n>0?freqMap:null);
+    })
+    .catch(function(e){console.warn('[EDHREC] fetch fail',e);callback(null);});
 }
 
 /* ----- Labels des archetypes (humanisation) ----- */
@@ -12699,22 +12784,44 @@ function anaRender(deckId){
   var topRows=nonLandRows.slice().sort(function(a,b){return b.score-a.score;}).slice(0,7);
   var bottomRows=nonLandRows.slice().sort(function(a,b){return a.score-b.score;}).slice(0,7);
 
-  // Detection archetype + matrice de frequence (EDHREC-like)
+  // Detection archetype + matrice de frequence (EDHREC-like) + EDHREC reel si dispo
   var detectedArch=_anaDetectArchetype(deck);
   var freqMatrix=_anaComputeFreqMatrix();
+  var edhrecFreq=_anaCurrentEDHREC; // null tant que la requete EDHREC n'a pas abouti
 
-  // Suggestions depuis CACHE (toutes cartes deja analysees, hors deck, dans CI) avec synergie
+  // Suggestions : cache global + cartes EDHREC pas encore analysees (on va les ajouter comme placeholders)
   var deckNlSet={};cards.forEach(function(c){deckNlSet[c.nl]=1;});
   var suggestions=[];
   Object.keys(_anaData).forEach(function(nl){
     if(deckNlSet[nl]||_anaIsBasicLandNl(nl))return;
     var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
     if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
-    var sv=_anaSynergyValue(nl,meta,detectedArch,freqMatrix);
-    suggestions.push({nl:nl,name:meta.name||nl,meta:meta,score:sv.score,synergy:sv.synergy});
+    var sv=_anaSynergyValue(nl,meta,detectedArch,freqMatrix,edhrecFreq);
+    suggestions.push({nl:nl,name:meta.name||nl,meta:meta,score:sv.score,synergy:sv.synergy,source:sv.source,edhrecSyn:sv.edhrecSyn||0});
   });
+  // Si EDHREC dispo, ajouter aussi les top cartes EDHREC pas encore en cache (placeholders, fetch async pour les images)
+  if(edhrecFreq){
+    var pending=[];
+    Object.keys(edhrecFreq).slice(0,80).forEach(function(nl){
+      if(deckNlSet[nl]||_anaIsBasicLandNl(nl)||_anaData[nl])return;
+      var info=edhrecFreq[nl];
+      if(info.freq<0.05)return; // seuil de pertinence
+      // Score estime base sur freq + synergy
+      var estScore=2.0+(info.freq*4)+(Math.max(0,info.synergy)*1.5);
+      suggestions.push({nl:nl,name:nl.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();}),meta:{cmc:0,typeLine:'',colorIdentity:[]},score:estScore,synergy:info.freq,edhrecSyn:info.synergy,source:'edhrec',pending:true});
+      pending.push(nl);
+    });
+    // Fetch async les meta des cartes EDHREC nouvelles (sans bloquer le render)
+    if(pending.length){
+      var fb=pending.map(function(nl){return {nl:nl,name:nl.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();})};});
+      anaFetchMissing(pending,fb,function(){
+        // Re-render quand les meta arrivent
+        if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){console.error(e);}
+      });
+    }
+  }
   suggestions.sort(function(a,b){return b.score-a.score;});
-  var topSuggestions=suggestions.slice(0,8);
+  var topSuggestions=suggestions.slice(0,10);
 
   // Plan d'optimisation
   var optResult=anaOptimize(rows.filter(function(r){return r.inCache;}),suggestions.slice(),5);
@@ -12893,12 +13000,17 @@ function anaRender(deckId){
 
   // === Suggestions ===
   html+='<div class="card"><div class="ana-section-head"><div class="lbl">💡 Suggestions d\'ajout</div>'+viewToggle('sugg')+'</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Staples MTG + cache, filtrés par identité couleur · score boosté par la synergie EDHREC-like avec l\'archétype détecté ('+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+')</div>';
-  function synergyBadge(syn){
-    if(!syn||syn<0.05)return '';
+  var sourceLbl=edhrecFreq?'EDHREC ('+(deck.commander&&deck.commander.name?esc(deck.commander.name):'commandant')+')':'matrice locale ('+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+')';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Score boosté par la synergie · source : '+sourceLbl+(edhrecFreq?' 🔗':'')+'</div>';
+  function synergyBadge(s){
+    var syn=s.synergy||0;
+    if(syn<0.05)return '';
     var pct=Math.round(syn*100);
+    var isEd=s.source==='edhrec';
     var col=syn>=0.5?'#78c890':syn>=0.25?'#5b8cf5':'#aaa';
-    return ' <span style="font-size:9px;color:'+col+';background:rgba(0,0,0,.3);padding:1px 5px;border-radius:8px;border:.5px solid '+col+'" title="Synergie : présent dans '+pct+'% des decks '+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+'">⚡'+pct+'%</span>';
+    var ico=isEd?'🔗':'⚡';
+    var hint=isEd?'EDHREC : présent dans '+pct+'% des decks de ce commandant'+(s.edhrecSyn?' (synergy '+(s.edhrecSyn>0?'+':'')+s.edhrecSyn.toFixed(2)+')':''):'Synergie locale : '+pct+'% des decks '+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label;
+    return ' <span style="font-size:9px;color:'+col+';background:rgba(0,0,0,.3);padding:1px 5px;border-radius:8px;border:.5px solid '+col+'" title="'+hint+'">'+ico+pct+'%</span>';
   }
   if(!topSuggestions.length){
     html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune suggestion compatible avec l\'identité couleur du deck.</div>';
@@ -12906,7 +13018,8 @@ function anaRender(deckId){
     html+='<div class="ana-img-grid">';
     topSuggestions.forEach(function(s){
       var pct=Math.round((s.synergy||0)*100);
-      var ov='<div class="ana-img-roles">'+roleHints(anaRoles(s.meta))+(pct>=5?' <span style="color:#78c890">⚡'+pct+'%</span>':'')+'</div>';
+      var ico=s.source==='edhrec'?'🔗':'⚡';
+      var ov='<div class="ana-img-roles">'+roleHints(anaRoles(s.meta))+(pct>=5?' <span style="color:#78c890">'+ico+pct+'%</span>':'')+'</div>';
       html+=imgCard(s.name,s.meta,'+'+s.score.toFixed(1),'var(--gold2)',ov);
     });
     html+='</div>';
@@ -12914,7 +13027,7 @@ function anaRender(deckId){
     topSuggestions.forEach(function(s,i){
       var firstType=(s.meta.typeLine||'').split(' — ')[0];
       html+='<div class="ana-card-row">';
-      html+='<div>'+(i+1)+'. '+esc(s.name)+synergyBadge(s.synergy)+' <span style="color:var(--tx3);font-size:10px">'+esc(firstType)+' · CMC '+(s.meta.cmc||0)+' '+roleHints(anaRoles(s.meta))+'</span></div>';
+      html+='<div>'+(i+1)+'. '+esc(s.name)+synergyBadge(s)+' <span style="color:var(--tx3);font-size:10px">'+(firstType?esc(firstType)+' · ':'')+'CMC '+(s.meta.cmc||0)+' '+roleHints(anaRoles(s.meta))+(s.pending?' · ⏳':'')+'</span></div>';
       html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">+'+s.score.toFixed(1)+'</div>';
       html+='</div>';
     });
