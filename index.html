@@ -13252,6 +13252,57 @@ function anaFullOptimize(scoredRows,pool,maxIter){
   return {swaps:swaps,finalRows:current};
 }
 
+/* ----- Optimisation orientée score global (cible le /100, pas le score individuel) ----- */
+function anaScoreOptimize(rows,pool,weights,targets,maxIter){
+  maxIter=maxIter||40;
+  var current=rows.slice();
+  // Exclure les cartes en attente de fetch et les terrains du pool
+  var poolCopy=pool.filter(function(s){return !s.pending&&s.meta&&s.meta.tags&&!s.meta.tags.isLand;});
+  var swaps=[];var addedNls={};
+  // Compte catégories incrémental
+  var cnt={land:0,ramp:0,draw:0,removal:0,interaction:0,wincon:0};
+  current.forEach(function(r){
+    if(!r.meta||!r.meta.tags)return;
+    var rl=anaRoles(r.meta);var q=r.card.qty||1;
+    cnt.land+=rl.land*q;cnt.ramp+=rl.ramp*q;cnt.draw+=rl.draw*q;
+    cnt.removal+=rl.removal*q;cnt.interaction+=rl.interaction*q;cnt.wincon+=rl.wincon*q;
+  });
+  function score(c){
+    var s=0;
+    ['land','ramp','draw','removal','interaction','wincon'].forEach(function(k){s+=anaCatScore(c[k],targets[k])*(weights[k]||0);});
+    return s;
+  }
+  for(var i=0;i<maxIter;i++){
+    var nonLand=current.filter(function(r){return r.meta&&r.meta.tags&&!r.meta.tags.isLand&&!addedNls[r.card.nl];});
+    if(!nonLand.length||!poolCopy.length)break;
+    var curScore=score(cnt);
+    var bestGain=0;var bestSwap=null;
+    nonLand.forEach(function(cutRow){
+      var cr=anaRoles(cutRow.meta);var q=cutRow.card.qty||1;
+      poolCopy.forEach(function(addCard){
+        var ar=anaRoles(addCard.meta);
+        var sim={
+          land:cnt.land-cr.land*q+ar.land, ramp:cnt.ramp-cr.ramp*q+ar.ramp,
+          draw:cnt.draw-cr.draw*q+ar.draw, removal:cnt.removal-cr.removal*q+ar.removal,
+          interaction:cnt.interaction-cr.interaction*q+ar.interaction,
+          wincon:cnt.wincon-cr.wincon*q+ar.wincon
+        };
+        var gain=score(sim)-curScore;
+        if(gain>bestGain){bestGain=gain;bestSwap={cut:cutRow,add:addCard,sim:sim,gain:gain};}
+      });
+    });
+    if(!bestSwap)break;
+    var sw=bestSwap;
+    swaps.push({cut:sw.cut.card,cutScore:sw.cut.score,add:{name:sw.add.name,nl:sw.add.nl,meta:sw.add.meta},addScore:sw.add.score,gain:Math.round(sw.gain*10)/10});
+    cnt=sw.sim;
+    current=current.filter(function(r){return r.card.nl!==sw.cut.card.nl;});
+    poolCopy=poolCopy.filter(function(c){return c.nl!==sw.add.nl;});
+    current.push({card:{name:sw.add.name,nl:sw.add.nl,qty:1},meta:sw.add.meta,score:sw.add.score});
+    addedNls[sw.add.nl]=1;
+  }
+  return {swaps:swaps,finalRows:current};
+}
+
 /* ----- Optimisation ----- */
 function anaOptimize(scoredRows,pool,iterations){
   iterations=iterations||5;var current=scoredRows.slice();var poolCopy=pool.slice();var swaps=[];
@@ -13713,7 +13764,7 @@ function anaRender(deckId){
   }
 
   // === Proposition deck 100% ===
-  var fullOpt=anaFullOptimize(rows.filter(function(r){return r.inCache;}),suggestions.slice(),40);
+  var fullOpt=anaScoreOptimize(rows.filter(function(r){return r.inCache;}),suggestions.slice(),weights,targets,40);
   html+='<div class="card"><div class="lbl">🏆 Proposition de deck à 100%</div>';
   html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Optimisation itérative jusqu\'à plus aucun gain possible (max 40 swaps).</div>';
   if(!fullOpt.swaps.length){
@@ -13751,7 +13802,7 @@ function anaRender(deckId){
       html+='<span style="color:var(--tx3);font-size:10px">#'+(i+1)+'</span> ';
       html+='<span style="color:#e07070">– '+esc(sw.cut.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
       html+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
-      html+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(2)+'</span>';
+      html+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(1)+' pts</span>';
       html+='</div></div>';
     });
     html+='</details>';
