@@ -12024,7 +12024,7 @@ function _anaIngestCard(card,nlHint){
   var imageUri='';
   if(card.image_uris)imageUri=card.image_uris.normal||card.image_uris.large||card.image_uris.small||'';
   else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)imageUri=card.card_faces[0].image_uris.normal||card.card_faces[0].image_uris.large||card.card_faces[0].image_uris.small||'';
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri};
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||''};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -12261,6 +12261,26 @@ function anaSimulate(deck,runs){
     winconReached:stats.firstWincon.length/runs
   };
 }
+
+/* ----- Override manuel d'archetype par deck (persiste localStorage) ----- */
+var _anaUserArchetypes={};
+try{var __aA=localStorage.getItem('mtg_user_archetypes');if(__aA){var __aAP=JSON.parse(__aA);if(__aAP&&typeof __aAP==='object')_anaUserArchetypes=__aAP;}}catch(e){}
+function _anaSaveUserArchetypes(){try{localStorage.setItem('mtg_user_archetypes',JSON.stringify(_anaUserArchetypes));}catch(e){}}
+function anaSetArchetype(deckId,arch){
+  if(!deckId)return;
+  if(!arch||arch==='auto')delete _anaUserArchetypes[deckId];
+  else _anaUserArchetypes[deckId]=arch;
+  _anaSaveUserArchetypes();
+  if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){console.error(e);}
+}
+function _anaResolveArchetype(deck,deckId){
+  if(deckId&&_anaUserArchetypes[deckId]&&_ARCH_LABELS[_anaUserArchetypes[deckId]])return _anaUserArchetypes[deckId];
+  return _anaDetectArchetype(deck);
+}
+
+/* ----- Pauper helpers ----- */
+function _anaIsPauperFormat(fmt){var f=(fmt||'').toLowerCase();return f==='pauper'||f==='paupercmd';}
+function _anaCommanderUncommonAllowed(fmt){return (fmt||'').toLowerCase()==='paupercmd';}
 
 /* ----- Detection d'archetype du deck (port Python v16) ----- */
 function _anaDetectArchetype(deck){
@@ -12787,39 +12807,61 @@ function anaRender(deckId){
   var bottomRows=nonLandRows.slice().sort(function(a,b){return a.score-b.score;}).slice(0,7);
 
   // Detection archetype + matrice de frequence (EDHREC-like) + EDHREC reel si dispo
-  var detectedArch=_anaDetectArchetype(deck);
+  var detectedArch=_anaResolveArchetype(deck,deckId);
+  var autoArch=_anaDetectArchetype(deck);
+  var isArchOverride=!!_anaUserArchetypes[deckId];
   var freqMatrix=_anaComputeFreqMatrix();
   var edhrecFreq=_anaCurrentEDHREC; // null tant que la requete EDHREC n'a pas abouti
+  var isPauper=_anaIsPauperFormat(fmt);
+  function _passPauper(meta){
+    if(!isPauper)return true;
+    if(!meta||!meta.rarity)return false; // rarete inconnue -> exclue (cache obsolete a rafraichir)
+    return meta.rarity==='common';
+  }
 
-  // Suggestions : cache global + cartes EDHREC pas encore analysees (on va les ajouter comme placeholders)
+  // Suggestions : cache global + cartes EDHREC pas encore analysees (placeholders)
   var deckNlSet={};cards.forEach(function(c){deckNlSet[c.nl]=1;});
   var suggestions=[];
   Object.keys(_anaData).forEach(function(nl){
     if(deckNlSet[nl]||_anaIsBasicLandNl(nl))return;
     var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
+    if(!_passPauper(meta))return;
     if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
     var sv=_anaSynergyValue(nl,meta,detectedArch,freqMatrix,edhrecFreq);
     suggestions.push({nl:nl,name:meta.name||nl,meta:meta,score:sv.score,synergy:sv.synergy,source:sv.source,edhrecSyn:sv.edhrecSyn||0});
   });
-  // Si EDHREC dispo, ajouter aussi les top cartes EDHREC pas encore en cache (placeholders, fetch async pour les images)
+  // EDHREC : ajouter top cartes pas encore en cache (placeholders, fetch async)
   if(edhrecFreq){
     var pending=[];
     Object.keys(edhrecFreq).slice(0,80).forEach(function(nl){
       if(deckNlSet[nl]||_anaIsBasicLandNl(nl)||_anaData[nl])return;
       var info=edhrecFreq[nl];
-      if(info.freq<0.05)return; // seuil de pertinence
-      // Score estime base sur freq + synergy
+      if(info.freq<0.05)return;
+      // En Pauper on ne peut pas filtrer la rarete sans la meta -> on les laisse en pending,
+      // _passPauper les exclura apres le re-render quand la meta arrivera
+      if(isPauper)return;
       var estScore=2.0+(info.freq*4)+(Math.max(0,info.synergy)*1.5);
       suggestions.push({nl:nl,name:nl.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();}),meta:{cmc:0,typeLine:'',colorIdentity:[]},score:estScore,synergy:info.freq,edhrecSyn:info.synergy,source:'edhrec',pending:true});
       pending.push(nl);
     });
-    // Fetch async les meta des cartes EDHREC nouvelles (sans bloquer le render)
     if(pending.length){
       var fb=pending.map(function(nl){return {nl:nl,name:nl.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();})};});
       anaFetchMissing(pending,fb,function(){
-        // Re-render quand les meta arrivent
         if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){console.error(e);}
       });
+    }
+    // En Pauper on fetch quand meme les top EDHREC pour avoir leur rarete et les inclure si common
+    if(isPauper){
+      var pendingP=[];
+      Object.keys(edhrecFreq).slice(0,120).forEach(function(nl){
+        if(deckNlSet[nl]||_anaIsBasicLandNl(nl)||_anaData[nl])return;
+        if(edhrecFreq[nl].freq<0.05)return;
+        pendingP.push(nl);
+      });
+      if(pendingP.length){
+        var fbP=pendingP.map(function(nl){return {nl:nl,name:nl.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();})};});
+        anaFetchMissing(pendingP,fbP,function(){if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){console.error(e);}});
+      }
     }
   }
   suggestions.sort(function(a,b){return b.score-a.score;});
@@ -12841,9 +12883,19 @@ function anaRender(deckId){
   html+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
   html+='<div class="ana-deck-meta">'+(fmt?fmt.toUpperCase():'Format libre')+' · '+totalCards+' cartes · '+ciHtml;
   if(deck.commander&&deck.commander.name)html+=' · 👑 '+esc(deck.commander.name);
-  // Badge archetype detecte
+  // Badge archetype editable (manuel + auto-detection)
   var archDef=_ARCH_LABELS[detectedArch]||_ARCH_LABELS.midrange;
-  html+=' · <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(201,168,76,.12);border:.5px solid var(--gold);border-radius:10px;font-size:10px;color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.04em" title="'+archDef.hint+'">'+archDef.ico+' '+archDef.label.toUpperCase()+'</span>';
+  html+=' · <span class="ana-arch-wrap" style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:rgba(201,168,76,.12);border:.5px solid var(--gold);border-radius:10px;font-size:10px;color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.04em" title="'+archDef.hint+(isArchOverride?' — défini manuellement':'')+'">';
+  html+='<select onchange="anaSetArchetype(\''+deckId+'\',this.value)" style="background:transparent;border:none;color:var(--gold2);font-family:inherit;font-size:10px;letter-spacing:inherit;cursor:pointer;outline:none;padding:0">';
+  Object.keys(_ARCH_LABELS).forEach(function(k){
+    var d=_ARCH_LABELS[k];
+    html+='<option value="'+k+'"'+(k===detectedArch?' selected':'')+' style="background:var(--s2);color:var(--tx)">'+d.ico+' '+d.label.toUpperCase()+'</option>';
+  });
+  html+='</select>';
+  if(isArchOverride){
+    html+='<a onclick="anaSetArchetype(\''+deckId+'\',\'auto\')" style="cursor:pointer;color:var(--tx3);font-size:9px;text-decoration:none" title="Auto-détection ('+(_ARCH_LABELS[autoArch]||{label:autoArch}).label+')">↩</a>';
+  }
+  html+='</span>';
   html+='</div>';
   html+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
   if(unanalyzed>0){
@@ -13003,7 +13055,7 @@ function anaRender(deckId){
   // === Suggestions ===
   html+='<div class="card"><div class="ana-section-head"><div class="lbl">💡 Suggestions d\'ajout</div>'+viewToggle('sugg')+'</div>';
   var sourceLbl=edhrecFreq?'EDHREC ('+(deck.commander&&deck.commander.name?esc(deck.commander.name):'commandant')+')':'matrice locale ('+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+')';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Score boosté par la synergie · source : '+sourceLbl+(edhrecFreq?' 🔗':'')+'</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Score boosté par la synergie · source : '+sourceLbl+(edhrecFreq?' 🔗':'')+(isPauper?' · 🔒 Filtre Pauper actif (commons uniquement)':'')+'</div>';
   function synergyBadge(s){
     var syn=s.synergy||0;
     if(syn<0.05)return '';
