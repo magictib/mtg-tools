@@ -12424,11 +12424,31 @@ function anaRoles(meta){
 
 /* ----- Format-aware targets ----- */
 function anaIsCommanderFormat(fmt){return ['commander','paupercmd','brawl','oathbreaker'].indexOf(fmt)>=0;}
-function anaTargets(fmt,totalCards){
+function anaTargets(fmt,totalCards,themes){
+  var th=themes||{};
+  var drawMult=th.draw||1;var rampMult=th.ramp||1;var winconMult=th.wincon||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
-    return {land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
+    var base={land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
+    // Ajustements selon le profil du commandant
+    if(drawMult>=2.0){base.draw=[15,20];base.wincon=[2,4];}       // Draw-as-wincon : Queza, Nekusar…
+    else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[3,6];}  // Spellslinger / draw matters
+    if(rampMult>=1.5&&base.ramp[0]<12)base.ramp=[12,16];          // Landfall / treasures
+    if(winconMult>=1.4&&base.wincon[0]>=5)base.wincon=[7,12];     // Sacrifice / drain / tokens
+    return base;
   }
   return {land:[22,25],ramp:[0,4],draw:[5,10],removal:[5,10],interaction:[6,10],wincon:[4,8]};
+}
+
+function anaWeights(fmt,totalCards,themes){
+  var th=themes||{};
+  var drawMult=th.draw||1;var winconMult=th.wincon||1;
+  if(anaIsCommanderFormat(fmt)||totalCards>=80){
+    if(drawMult>=2.0)return{land:.15,ramp:.14,draw:.30,removal:.15,interaction:.15,wincon:.11};
+    if(drawMult>=1.5)return{land:.16,ramp:.15,draw:.24,removal:.16,interaction:.15,wincon:.14};
+    if(winconMult>=1.4)return{land:.16,ramp:.14,draw:.16,removal:.18,interaction:.16,wincon:.20};
+    return{land:.18,ramp:.16,draw:.18,removal:.16,interaction:.16,wincon:.16};
+  }
+  return{land:.20,ramp:.10,draw:.20,removal:.18,interaction:.16,wincon:.16};
 }
 
 /* ----- Score 0-100 par categorie ----- */
@@ -13367,8 +13387,8 @@ function anaRender(deckId){
     else typeCounts['Autres']+=qty;
   });
 
-  // Targets format-aware + sub-scores
-  var targets=anaTargets(fmt,totalCards);
+  // Targets format-aware + sub-scores (ajustés selon le commandant)
+  var targets=anaTargets(fmt,totalCards,_anaCurrentThemes);
   var subScores={
     land:anaCatScore(counts.land,targets.land),
     ramp:anaCatScore(counts.ramp,targets.ramp),
@@ -13377,9 +13397,7 @@ function anaRender(deckId){
     interaction:anaCatScore(counts.interaction,targets.interaction),
     wincon:anaCatScore(counts.wincon,targets.wincon)
   };
-  var weights=anaIsCommanderFormat(fmt)||totalCards>=80
-    ?{land:.18,ramp:.16,draw:.18,removal:.16,interaction:.16,wincon:.16}
-    :{land:.20,ramp:.10,draw:.20,removal:.18,interaction:.16,wincon:.16};
+  var weights=anaWeights(fmt,totalCards,_anaCurrentThemes);
   var overall=0;Object.keys(weights).forEach(function(k){overall+=subScores[k]*weights[k];});
   overall=Math.round(overall);
   var grade=anaGrade(overall);
@@ -13559,8 +13577,10 @@ function anaRender(deckId){
   html+='</div></div>';
 
   // Categories fonctionnelles vs cibles
+  var _thLbls=(_anaCurrentThemes&&_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length)?_anaCurrentThemes.labels:null;
   html+='<div class="card"><div class="lbl">Catégories fonctionnelles vs cibles du format</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Les marqueurs dorés indiquent la fourchette cible recommandée.</div>';
+  if(_thLbls)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">⚡ Cibles ajustées pour ce commandant ('+_thLbls.join(', ')+') — marqueurs dorés = fourchette cible.</div>';
+  else html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Les marqueurs dorés indiquent la fourchette cible recommandée.</div>';
   subDef.forEach(function(s){
     var v=counts[s.k];var rg=targets[s.k];
     var maxScale=Math.max(rg[1]*1.7,v*1.1,12);
