@@ -1560,6 +1560,16 @@ body.mana-cursor{cursor:none}
     </div>
   </div>
   </div>
+  <!-- Analyse intelligente (Commander) -->
+  <div id="smart-deck-panel" style="display:none;margin-top:12px">
+    <div class="card">
+      <div class="row" style="margin-bottom:.75rem">
+        <div class="lbl" style="margin-bottom:0">Analyse intelligente</div>
+        <div id="smart-status" style="font-size:.74rem;color:var(--tx3);margin-left:auto"></div>
+      </div>
+      <div id="smart-content"></div>
+    </div>
+  </div>
   </div>
 </div>
 </div>
@@ -4502,6 +4512,8 @@ function setOwner(i){
 function newDeck(){
   actDeck=null;dCards=[];dImgCache={};dViewMode='list';dFormat='';dCommander=null;dColors=[];_customAchat=[];dSortMode='sec';renderCustomPanel();
   var sp=document.getElementById('deck-stats-panel');if(sp)sp.style.display='none';
+  var sdp=document.getElementById('smart-deck-panel');if(sdp)sdp.style.display='none';
+  _smartEdhCache={};_smartEdhPending={};
   document.querySelectorAll('#deck-stats-panel .dm').forEach(function(b){b.classList.remove('active');});
   var sb=document.getElementById('dsort-sec');if(sb)sb.classList.add('active');
   var btn=document.getElementById('dbtn-view');if(btn)btn.textContent='🖼 Images';
@@ -4862,6 +4874,7 @@ function analyzeDeck(){
   document.querySelectorAll('.fc').forEach(function(el){el.classList.remove('active');});
   var first=document.querySelector('.fc');if(first)first.classList.add('active');
   renderDeck();
+  analyzeSmartDeck();
 }
 function renderPriceEstimate(){
   var pms=profs.map(function(_,i){return getPMap(i);});
@@ -4912,15 +4925,15 @@ function fetchMissingPrices(){
   function ingestCard(card){
     var nl=stripDFC(card.name).toLowerCase();
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
     return nl;
   }
   function fuzzyFallback(){
-    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();return;}
     console.log('[Deck] Fallback fuzzy pour '+notFound.length+' carte(s) non trouvée(s) en exact :',notFound.map(function(x){return x.name;}).join(', '));
     var i=0;
     function next(){
-      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();return;}
       var item=notFound[i++];
       fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(item.name))
         .then(function(r){return r.ok?r.json():null;})
@@ -4929,7 +4942,7 @@ function fetchMissingPrices(){
             ingestCard(card);
             // Aussi sauvegarder sous le nl original (alias) pour que l'app le retrouve
             if(!allPriceMap[item.nl]&&card.prices){var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pa>0)allPriceMap[item.nl]=_pa;}
-            if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+            if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
           }
           setTimeout(next,90);
         })
@@ -4944,7 +4957,6 @@ function fetchMissingPrices(){
     }).then(function(r){return r.json();}).then(function(data){
       var foundNls={};
       (data.data||[]).forEach(function(card){foundNls[ingestCard(card)]=1;});
-      // Detecter cartes du batch absentes du resultat
       batch.forEach(function(item){
         if(!foundNls[item.nl]&&!dCardMeta[item.nl])notFound.push(item);
       });
@@ -5034,6 +5046,158 @@ function renderDeckStats(){
   });
   document.getElementById('dtypes').innerHTML=typesHtml;
 }
+
+// ===== ANALYSE SMART DECK =====
+var _smartEdhCache={};
+var _smartEdhPending={};
+
+function analyzeSmartDeck(){
+  var panel=document.getElementById('smart-deck-panel');if(!panel)return;
+  var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
+  if(!isCmd||!dCommander){panel.style.display='none';return;}
+  panel.style.display='block';
+  var slug=cmdSlug(dCommander.name);
+  if(_smartEdhCache[slug]){_renderSmartAnalysis(slug,_smartEdhCache[slug]);return;}
+  if(_smartEdhPending[slug])return; // fetch already in progress
+  _smartEdhPending[slug]=true;
+  document.getElementById('smart-content').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.84rem;text-align:center;padding:1.2rem">Chargement EDHREC...</div>';
+  document.getElementById('smart-status').textContent='';
+  var isPDH=dFormat==='paupercmd';
+  var path=(isPDH?'pages/pauper-commanders/':'pages/commanders/')+slug+'.json';
+  fetch('/api/edhrec?path='+encodeURIComponent(path))
+    .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+    .then(function(d){
+      var jd=d.container&&d.container.json_dict||{};
+      var numDecks=jd.num_decks||d.num_decks||0;
+      var cards=edhFindCardlist(d);
+      _smartEdhCache[slug]={cards:cards,numDecks:numDecks,ok:cards.length>0};
+      delete _smartEdhPending[slug];
+      _renderSmartAnalysis(slug,_smartEdhCache[slug]);
+    })
+    .catch(function(){
+      _smartEdhCache[slug]={cards:[],numDecks:0,ok:false};
+      delete _smartEdhPending[slug];
+      _renderSmartAnalysis(slug,_smartEdhCache[slug]);
+    });
+}
+
+function _renderSmartAnalysis(slug,edhData){
+  var content=document.getElementById('smart-content');
+  var statusEl=document.getElementById('smart-status');
+  if(!content)return;
+  var edhCards=edhData.cards||[];
+  var hasEDH=edhData.ok&&edhCards.length>0;
+
+  var edhMap={};
+  edhCards.forEach(function(c){
+    var n=((c.name||c.label||c.sanitized||'')).toLowerCase().trim();
+    if(n)edhMap[n]={synergy:parseFloat(c.synergy)||0,num_decks:c.num_decks||0};
+  });
+
+  var BASICS=['plains','island','swamp','mountain','forest','wastes',
+    'snow-covered plains','snow-covered island','snow-covered swamp',
+    'snow-covered mountain','snow-covered forest'];
+
+  var scored=[];var matched=0;
+  dCards.forEach(function(c){
+    if(BASICS.indexOf(c.nl)>=0)return;
+    var e=edhMap[c.nl]||edhMap[stripDFC(c.nl)];
+    var synergy=e!==undefined?e.synergy:null;
+    if(e!==undefined)matched++;
+    var meta=dCardMeta[c.nl]||{};
+    var roles=_smartDetectRoles(meta.typeLine||'',meta.oracleText||'');
+    scored.push({card:c,synergy:synergy,numDecks:e?e.num_decks:0,roles:roles});
+  });
+
+  if(hasEDH){
+    statusEl.textContent='✓ '+matched+'/'+scored.length+' cartes du deck analysées';
+    statusEl.style.color='var(--gr2)';
+  } else {
+    statusEl.textContent='⚠ EDHREC indispo — analyse locale uniquement';
+    statusEl.style.color='var(--am)';
+  }
+
+  var roles={ramp:0,draw:0,removal:0,interaction:0};
+  scored.forEach(function(x){x.roles.forEach(function(r){if(roles[r]!==undefined)roles[r]++;});});
+
+  var pillars=scored.filter(function(x){return x.synergy!==null&&x.synergy>=0.25;}).sort(function(a,b){return b.synergy-a.synergy;});
+  var solids=scored.filter(function(x){return x.synergy!==null&&x.synergy>=0.05&&x.synergy<0.25;}).sort(function(a,b){return b.synergy-a.synergy;});
+  var neutrals=scored.filter(function(x){return x.synergy!==null&&x.synergy>-0.05&&x.synergy<0.05;}).sort(function(a,b){return b.synergy-a.synergy;});
+  var toEval=scored.filter(function(x){return x.synergy===null||x.synergy<=-0.05;}).sort(function(a,b){return (a.synergy||0)-(b.synergy||0);});
+
+  var deckNl={};dCards.forEach(function(c){deckNl[c.nl]=1;});
+  var suggestions=edhCards.filter(function(c){
+    var n=((c.name||c.label||'')).toLowerCase();
+    return n&&!deckNl[n]&&BASICS.indexOf(n)<0;
+  }).sort(function(a,b){return (parseFloat(b.synergy)||0)-(parseFloat(a.synergy)||0);}).slice(0,8);
+
+  var html='';
+
+  html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:6px">RÔLES DÉTECTÉS</div>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';
+  [{k:'ramp',l:'Ramp',c:'var(--gr2)',min:7},{k:'draw',l:'Pioche',c:'#5ba3dc',min:10},{k:'removal',l:'Removal',c:'var(--rd2)',min:6},{k:'interaction',l:'Interaction',c:'var(--am)',min:5}].forEach(function(r){
+    var cnt=roles[r.k];var ok=cnt>=r.min;
+    html+='<div style="background:var(--s3);border-radius:7px;padding:4px 10px;border:.5px solid '+(ok?r.c:'var(--bd2)')+'">'
+      +'<span style="font-size:.7rem;color:var(--tx3)">'+r.l+'</span>'
+      +'<span style="font-size:.88rem;font-weight:700;color:'+(ok?r.c:'var(--tx3)')+';margin-left:6px">'+cnt+'</span>'
+      +(ok?'':'<span style="font-size:.65rem;color:var(--am);margin-left:3px">min '+r.min+'</span>')
+      +'</div>';
+  });
+  html+='</div>';
+
+  function cardRow(x){
+    var syn=x.synergy!==null?Math.round(x.synergy*100):null;
+    var col=syn===null?'var(--tx3)':syn>=25?'var(--gr2)':syn>=5?'var(--tx2)':syn<=-5?'var(--rd2)':'var(--tx3)';
+    return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
+      +'<div style="font-size:.82rem;color:var(--tx);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.card.name)+'</div>'
+      +(syn!==null?'<div style="font-size:.72rem;color:'+col+';font-weight:600;flex-shrink:0">'+(syn>0?'+':'')+syn+'%</div>':'<div style="font-size:.72rem;color:var(--tx3);flex-shrink:0">hors EDHREC</div>')
+      +'</div>';
+  }
+
+  if(!hasEDH){
+    html+='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:.5rem 0">Données EDHREC indisponibles pour ce commandant — seule l\'analyse des rôles est affichée.</div>';
+  } else {
+    if(pillars.length){
+      html+='<div style="font-size:9px;color:var(--gr2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:4px">PILIERS — Synergie ≥ 25%</div>';
+      html+=pillars.map(cardRow).join('');
+    }
+    if(solids.length){
+      html+='<div style="font-size:9px;color:var(--tx2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">SOLIDES — 5 à 25%</div>';
+      html+=solids.map(cardRow).join('');
+    }
+    if(neutrals.length){
+      html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">NEUTRES — −5% à 5%</div>';
+      html+=neutrals.map(cardRow).join('');
+    }
+    if(toEval.length){
+      html+='<div style="font-size:9px;color:var(--am);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">À ÉVALUER — Faible synergie ou absent d\'EDHREC</div>';
+      html+=toEval.map(cardRow).join('');
+    }
+    if(suggestions.length){
+      html+='<div style="font-size:9px;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:14px">SUGGESTIONS EDHREC — Absentes du deck</div>';
+      suggestions.forEach(function(s){
+        var n=s.name||s.label||'';var syn=Math.round((parseFloat(s.synergy)||0)*100);
+        html+='<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
+          +'<div style="font-size:.82rem;color:var(--gold2);flex:1">'+esc(n)+'</div>'
+          +'<div style="font-size:.72rem;color:var(--gold2);font-weight:600">+'+(syn>0?syn:0)+'%</div>'
+          +'</div>';
+      });
+    }
+  }
+
+  content.innerHTML=html||'<div style="color:var(--tx3);font-style:italic">Aucune donnée</div>';
+}
+
+function _smartDetectRoles(typeLine,oracle){
+  var roles=[];
+  var t=(typeLine||'').toLowerCase();var o=(oracle||'').toLowerCase();
+  if(/add \{[wubrgc2]/.test(o)||o.indexOf('mana of any color')>=0||(o.indexOf('search your library')>=0&&o.indexOf('land')>=0)||o.indexOf('treasure')>=0)roles.push('ramp');
+  if(o.indexOf('draw')>=0&&(o.indexOf('card')>=0||o.indexOf('cards')>=0))roles.push('draw');
+  if(o.indexOf('destroy target')>=0||o.indexOf('exile target')>=0||/deals \d+ damage to/.test(o))roles.push('removal');
+  if(o.indexOf('counter target')>=0||(o.indexOf('return target')>=0&&o.indexOf('to its owner')>=0)||o.indexOf('protection from')>=0)roles.push('interaction');
+  return roles;
+}
+
 function dFlt(f,btn){
   dFMode=f;
   document.querySelectorAll('.fc').forEach(function(el){el.classList.remove('active');});
@@ -5063,16 +5227,16 @@ function fetchDeckImages(){
     if(aliasNl&&aliasNl!==nl&&img)dImgCache[aliasNl]=img;
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
     if(aliasNl&&aliasNl!==nl&&!allPriceMap[aliasNl]&&card.prices){var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pa>0)allPriceMap[aliasNl]=_pa;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||''};
-    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||''};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
+    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
     return nl;
   }
   function fuzzyFallback(){
-    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();return;}
     console.log('[Deck img] Fallback fuzzy pour '+notFound.length+' carte(s) :',notFound.map(function(x){return x.name;}).join(', '));
     var i=0;
     function next(){
-      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();return;}
+      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();return;}
       var item=notFound[i++];
       fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(item.name))
         .then(function(r){return r.ok?r.json():null;})
