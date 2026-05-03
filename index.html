@@ -4261,15 +4261,27 @@ function scState(s,msg){
 // ===== DECK =====
 function loadDeckOrders(){try{var s=localStorage.getItem('mtg_deck_orders');if(s)_deckOrders=JSON.parse(s);}catch(e){_deckOrders={};}}
 function saveDeckOrders(){try{localStorage.setItem('mtg_deck_orders',JSON.stringify(_deckOrders));}catch(e){}}
+function _migrateReparseDecks(dict){
+  // Re-parse tous les decks depuis rawName (auto-repare les noms tronques par d'anciens parsers)
+  if(!dict)return dict;
+  Object.keys(dict).forEach(function(id){
+    var dk=dict[id];if(!dk||!dk.rawName)return;
+    var fresh=parseList(dk.rawName);
+    if(fresh&&fresh.length)dk.cards=fresh;
+  });
+  return dict;
+}
 function loadDecks(){
   loadDeckOrders();
   try{var s=localStorage.getItem('mtg_decks');if(s)decks=JSON.parse(s);}catch(e){decks={};}
+  _migrateReparseDecks(decks);
   renderDBar();
   db.collection('users').doc(userId).collection('decks').get()
     .then(function(snapshot){
       if(!snapshot.empty){
         var d={};
         snapshot.forEach(function(doc){d[doc.id]=doc.data();});
+        _migrateReparseDecks(d);
         // Supprimer les decks orphelins de l'ancien système 3-profils fixes
         var orphanIds=Object.keys(d).filter(function(id){
           var dk=d[id];return (dk.owner||0)>0&&!dk.ownerUid;
@@ -4509,7 +4521,11 @@ function newDeck(){
 }
 function loadDeck(id){
   var d=decks[id];if(!d)return;
-  actDeck=id;dCards=d.cards||[];_customAchat=[];renderCustomPanel();
+  actDeck=id;
+  // Toujours re-parser depuis rawName si dispo : auto-repare les decks sauvegardes avec d'anciens parsers (truncation)
+  var freshCards=d.rawName?parseList(d.rawName):null;
+  dCards=(freshCards&&freshCards.length)?freshCards:(d.cards||[]);
+  _customAchat=[];renderCustomPanel();
   document.getElementById('dnamein').value=d.name;
   document.getElementById('ta-name').value=d.rawName||d.raw||'';
   document.getElementById('etitle').textContent=d.name;
