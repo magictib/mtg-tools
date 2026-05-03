@@ -12137,9 +12137,15 @@ var _anaStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration: invalider les entrees sans imageUri pour les re-fetch
-  Object.keys(__aP).forEach(function(k){if(!__aP[k]||!__aP[k].imageUri)delete __aP[k];});
-  _anaData=__aP;
+  // Migration v2: correction regex "draws X cards" — forcer re-fetch pour recalculer les tags
+  if((__aP.__version||0)<2){
+    _anaData={__version:2};
+    try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
+  } else {
+    // Migration classique: invalider les entrees sans imageUri
+    Object.keys(__aP).forEach(function(k){if(k==='__version')return;if(!__aP[k]||!__aP[k].imageUri)delete __aP[k];});
+    _anaData=__aP;
+  }
 }}}catch(e){}
 function _anaSaveCache(){try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
@@ -12324,9 +12330,9 @@ function anaInferTags(meta){
   var cmc=meta.cmc||0;
   var draw=0,removal=0,ramp=0,interaction=0,wincon=0;
   var nMap={a:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7};
-  // Pioche
-  var dm=oracle.match(/draw \w+ cards?/g)||[];
-  dm.forEach(function(m){var w=m.replace(/draw /,'').replace(/ cards?/,'').trim();draw+=(nMap[w]||1);});
+  // Pioche — "draw/draws X card(s)" (singulier ou 3e personne)
+  var dm=oracle.match(/draws? \w+ cards?/g)||[];
+  dm.forEach(function(m){var w=m.replace(/draws? /,'').replace(/ cards?/,'').trim();draw+=(nMap[w]||1);});
   if(/scry \d+/.test(oracle))draw+=0.3;
   if(oracle.indexOf('surveil')>=0)draw+=0.3;
   if(/look at the top/.test(oracle))draw+=0.2;
