@@ -12243,6 +12243,84 @@ function anaSimulate(deck,runs){
   };
 }
 
+/* ----- Detection d'archetype du deck (port Python v16) ----- */
+function _anaDetectArchetype(deck){
+  if(!deck||!deck.cards)return 'midrange';
+  var counts={ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:0,creature:0};
+  var nonLandCount=0,totalCmc=0;
+  deck.cards.forEach(function(c){
+    var meta=_anaData[c.nl];if(!meta||!meta.tags)return;
+    var roles=anaRoles(meta);
+    var qty=c.qty||1;
+    if(roles.land){counts.land+=qty;return;}
+    nonLandCount+=qty;
+    totalCmc+=(meta.cmc||0)*qty;
+    if(roles.ramp)counts.ramp+=qty;
+    if(roles.draw)counts.draw+=qty;
+    if(roles.removal)counts.removal+=qty;
+    if(roles.interaction)counts.interaction+=qty;
+    if(roles.wincon)counts.wincon+=qty;
+    if(roles.creature)counts.creature+=qty;
+  });
+  var avgCmc=nonLandCount?totalCmc/nonLandCount:0;
+  if(counts.ramp>=10&&avgCmc>=3.5)return 'bigmana';
+  if(counts.removal+counts.interaction>=12&&counts.wincon<=6)return 'control';
+  if(avgCmc<=2.2&&counts.creature>=14)return 'aggro';
+  if(counts.draw>=10&&counts.wincon<=4)return 'combo';
+  if(counts.creature>=10&&counts.interaction>=6&&avgCmc<=2.5)return 'tempo';
+  if(counts.draw>=4&&counts.removal>=4&&counts.interaction>=4&&counts.wincon>=4)return 'toolbox';
+  return 'midrange';
+}
+
+/* ----- Matrice de frequence carte x archetype (EDHREC-like) ----- */
+// freqMatrix[nl][archetype] = % de decks de cet archetype contenant cette carte (0..1)
+function _anaComputeFreqMatrix(){
+  var rawFreq={};   // rawFreq[nl][arch] = nb decks
+  var archCount={}; // archCount[arch] = nb decks total de cet archetype
+  if(!decks)return {freq:{},archCount:{}};
+  Object.keys(decks).forEach(function(deckId){
+    var deck=decks[deckId];if(!deck||!deck.cards||!deck.cards.length)return;
+    var arch=_anaDetectArchetype(deck);
+    archCount[arch]=(archCount[arch]||0)+1;
+    var seen={};
+    deck.cards.forEach(function(c){
+      if(seen[c.nl])return;
+      seen[c.nl]=1;
+      if(!rawFreq[c.nl])rawFreq[c.nl]={};
+      rawFreq[c.nl][arch]=(rawFreq[c.nl][arch]||0)+1;
+    });
+  });
+  var freqNorm={};
+  Object.keys(rawFreq).forEach(function(nl){
+    freqNorm[nl]={};
+    Object.keys(rawFreq[nl]).forEach(function(arch){
+      freqNorm[nl][arch]=rawFreq[nl][arch]/(archCount[arch]||1);
+    });
+  });
+  return {freq:freqNorm,archCount:archCount};
+}
+
+/* ----- Score d'une carte avec bonus de synergie selon archetype ----- */
+function _anaSynergyValue(nl,meta,archetype,freqMatrix){
+  var base=anaCardScore(meta);
+  if(!freqMatrix||!freqMatrix.freq||!nl)return {score:base,synergy:0};
+  var fr=(freqMatrix.freq[nl]||{})[archetype]||0;
+  // Bonus multiplicatif jusqu'a +60% si la carte est presente dans tous les decks de cet archetype
+  return {score:base*(1+fr*0.6),synergy:fr};
+}
+
+/* ----- Labels des archetypes (humanisation) ----- */
+var _ARCH_LABELS={
+  aggro:{ico:'🔥',label:'Aggro',hint:'Bas de courbe, pression rapide'},
+  midrange:{ico:'🌳',label:'Midrange',hint:'Threats équilibrés + answers'},
+  control:{ico:'💧',label:'Contrôle',hint:'Removal/counters + finishers'},
+  combo:{ico:'💥',label:'Combo',hint:'Pioche + finisher explosif'},
+  tempo:{ico:'⚡',label:'Tempo',hint:'Évasion + interaction'},
+  bigmana:{ico:'🌋',label:'Big Mana',hint:'Ramp massif + grosses menaces'},
+  toolbox:{ico:'🧰',label:'Toolbox',hint:'Réponses versatiles'},
+  prison:{ico:'⛓',label:'Prison',hint:'Taxes + verrou'}
+};
+
 /* ----- Construction format simulation pour un deck ----- */
 function _anaBuildSimLib(deck){
   var lib=[];
@@ -12620,14 +12698,19 @@ function anaRender(deckId){
   var topRows=nonLandRows.slice().sort(function(a,b){return b.score-a.score;}).slice(0,7);
   var bottomRows=nonLandRows.slice().sort(function(a,b){return a.score-b.score;}).slice(0,7);
 
-  // Suggestions depuis CACHE (toutes cartes deja analysees, hors deck, dans CI)
+  // Detection archetype + matrice de frequence (EDHREC-like)
+  var detectedArch=_anaDetectArchetype(deck);
+  var freqMatrix=_anaComputeFreqMatrix();
+
+  // Suggestions depuis CACHE (toutes cartes deja analysees, hors deck, dans CI) avec synergie
   var deckNlSet={};cards.forEach(function(c){deckNlSet[c.nl]=1;});
   var suggestions=[];
   Object.keys(_anaData).forEach(function(nl){
     if(deckNlSet[nl]||_anaIsBasicLandNl(nl))return;
     var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
     if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
-    suggestions.push({nl:nl,name:meta.name||nl,meta:meta,score:anaCardScore(meta)});
+    var sv=_anaSynergyValue(nl,meta,detectedArch,freqMatrix);
+    suggestions.push({nl:nl,name:meta.name||nl,meta:meta,score:sv.score,synergy:sv.synergy});
   });
   suggestions.sort(function(a,b){return b.score-a.score;});
   var topSuggestions=suggestions.slice(0,8);
@@ -12648,6 +12731,9 @@ function anaRender(deckId){
   html+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
   html+='<div class="ana-deck-meta">'+(fmt?fmt.toUpperCase():'Format libre')+' · '+totalCards+' cartes · '+ciHtml;
   if(deck.commander&&deck.commander.name)html+=' · 👑 '+esc(deck.commander.name);
+  // Badge archetype detecte
+  var archDef=_ARCH_LABELS[detectedArch]||_ARCH_LABELS.midrange;
+  html+=' · <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:rgba(201,168,76,.12);border:.5px solid var(--gold);border-radius:10px;font-size:10px;color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.04em" title="'+archDef.hint+'">'+archDef.ico+' '+archDef.label.toUpperCase()+'</span>';
   html+='</div>';
   html+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
   if(unanalyzed>0){
@@ -12806,13 +12892,20 @@ function anaRender(deckId){
 
   // === Suggestions ===
   html+='<div class="card"><div class="ana-section-head"><div class="lbl">💡 Suggestions d\'ajout</div>'+viewToggle('sugg')+'</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Staples MTG + cache, filtrés par identité couleur</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Staples MTG + cache, filtrés par identité couleur · score boosté par la synergie EDHREC-like avec l\'archétype détecté ('+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+')</div>';
+  function synergyBadge(syn){
+    if(!syn||syn<0.05)return '';
+    var pct=Math.round(syn*100);
+    var col=syn>=0.5?'#78c890':syn>=0.25?'#5b8cf5':'#aaa';
+    return ' <span style="font-size:9px;color:'+col+';background:rgba(0,0,0,.3);padding:1px 5px;border-radius:8px;border:.5px solid '+col+'" title="Synergie : présent dans '+pct+'% des decks '+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+'">⚡'+pct+'%</span>';
+  }
   if(!topSuggestions.length){
     html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune suggestion compatible avec l\'identité couleur du deck.</div>';
   } else if(_anaViewMode.sugg==='image'){
     html+='<div class="ana-img-grid">';
     topSuggestions.forEach(function(s){
-      var ov='<div class="ana-img-roles">'+roleHints(anaRoles(s.meta))+'</div>';
+      var pct=Math.round((s.synergy||0)*100);
+      var ov='<div class="ana-img-roles">'+roleHints(anaRoles(s.meta))+(pct>=5?' <span style="color:#78c890">⚡'+pct+'%</span>':'')+'</div>';
       html+=imgCard(s.name,s.meta,'+'+s.score.toFixed(1),'var(--gold2)',ov);
     });
     html+='</div>';
@@ -12820,7 +12913,7 @@ function anaRender(deckId){
     topSuggestions.forEach(function(s,i){
       var firstType=(s.meta.typeLine||'').split(' — ')[0];
       html+='<div class="ana-card-row">';
-      html+='<div>'+(i+1)+'. '+esc(s.name)+' <span style="color:var(--tx3);font-size:10px">'+esc(firstType)+' · CMC '+(s.meta.cmc||0)+' '+roleHints(anaRoles(s.meta))+'</span></div>';
+      html+='<div>'+(i+1)+'. '+esc(s.name)+synergyBadge(s.synergy)+' <span style="color:var(--tx3);font-size:10px">'+esc(firstType)+' · CMC '+(s.meta.cmc||0)+' '+roleHints(anaRoles(s.meta))+'</span></div>';
       html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">+'+s.score.toFixed(1)+'</div>';
       html+='</div>';
     });
