@@ -12274,11 +12274,22 @@ function anaSimulate(deck,runs){
 var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,labels:[]};
 
 function _anaCommanderThemes(deck){
-  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,labels:[]};
-  if(!deck||!deck.commander||!deck.commander.name)return def;
-  var nl=deck.commander.name.split(' // ')[0].toLowerCase();
+  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,labels:[],_debug:'no-deck'};
+  if(!deck)return def;
+  // Recuperation du nom du commandant (champ explicite OU fallback sur section "Commander/Commandant")
+  var cmdName=(deck.commander&&deck.commander.name)||null;
+  if(!cmdName&&deck.cards){
+    for(var i=0;i<deck.cards.length;i++){
+      var sec=(deck.cards[i].sec||'').toLowerCase();
+      if(/^commander|^commandant/.test(sec)){cmdName=deck.cards[i].name;break;}
+    }
+  }
+  if(!cmdName){def._debug='no-commander';return def;}
+  var nl=cmdName.split(' // ')[0].toLowerCase();
   var meta=_anaData[nl];
-  if(!meta||!meta.oracleText)return def;
+  if(!meta){def._debug='commander-not-cached:'+nl;console.warn('[Themes] commander pas en cache:',nl);return def;}
+  if(!meta.oracleText){def._debug='no-oracle:'+nl;console.warn('[Themes] oracle vide pour:',nl);return def;}
+  console.log('[Themes] oracle de '+nl+':',meta.oracleText);
   var oracle=meta.oracleText.toLowerCase();
   var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1};
   var labels=[];
@@ -12318,7 +12329,8 @@ function _anaCommanderThemes(deck){
   if(/search your library/.test(oracle))bump('draw',1.2,'Tutor');
   // Voltron / commander damage
   if(/double strike|trample.*equipped|equipment|aura|enchant/.test(oracle))bump('wincon',1.2,'Voltron');
-  return Object.assign(m,{labels:labels});
+  console.log('[Themes] détectés:',labels,'multiplicateurs:',m);
+  return Object.assign(m,{labels:labels,_debug:'ok:'+labels.join(',')});
 }
 
 /* ----- Override manuel d'archetype par deck (persiste localStorage) ----- */
@@ -12957,12 +12969,22 @@ function anaRender(deckId){
     html+='<a onclick="anaSetArchetype(\''+deckId+'\',\'auto\')" style="cursor:pointer;color:var(--tx3);font-size:9px;text-decoration:none" title="Auto-détection ('+(_ARCH_LABELS[autoArch]||{label:autoArch}).label+')">↩</a>';
   }
   html+='</span>';
-  // Themes detectes (commander oracle text)
-  if(_anaCurrentThemes&&_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length){
-    var themeBadges=_anaCurrentThemes.labels.map(function(l){
-      return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)" title="Multiplicateur de score appliqué via l\'oracle text du commandant">'+esc(l)+'</span>';
-    }).join(' ');
-    html+='<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"><span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> '+themeBadges+'</div>';
+  // Themes detectes (commander oracle text) — toujours afficher pour visibilite/debug
+  if(_anaCurrentThemes){
+    var themeContent='';
+    var dbg=_anaCurrentThemes._debug||'';
+    if(_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length){
+      themeContent=_anaCurrentThemes.labels.map(function(l){
+        return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)" title="Multiplicateur de score appliqué via l\'oracle text du commandant">'+esc(l)+'</span>';
+      }).join(' ');
+    } else if(dbg.indexOf('no-commander')>=0){
+      themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Commandant non défini — sélectionne-le dans l\'éditeur du deck pour activer le scoring contextuel</span>';
+    } else if(dbg.indexOf('not-cached')>=0||dbg.indexOf('no-oracle')>=0){
+      themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Oracle text du commandant manquant — clique 🗑 Cache puis relance</span>';
+    } else {
+      themeContent='<span style="font-size:10px;color:var(--tx3);font-style:italic">aucun thème spécial détecté (scoring neutre)</span>';
+    }
+    html+='<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"><span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> '+themeContent+'</div>';
   }
   html+='</div>';
   html+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
