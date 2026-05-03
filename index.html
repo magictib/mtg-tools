@@ -5312,7 +5312,7 @@ function _detectCmdThemes(oracle){
   if(/(whenever|each time).*(gain|lose).*life/.test(o))themes.push('vie');
   if(/create.*\d.*token|put.*\d.*token/.test(o))themes.push('jetons');
   if(/whenever.*deals? (combat )?damage to (a player|an opponent)|whenever.*attacks? and/.test(o))themes.push('attaque');
-  if(/whenever.*(you |a player )?discard/.test(o))themes.push('défausse');
+  if(/whenever.*(you |a player )?discard|\bdiscard (a|an|a creature|a nonland)[^.]*:/.test(o))themes.push('défausse');
   if(/from (your |a )?graveyard|return.*from.*graveyard|whenever.*graveyard/.test(o))themes.push('cimetière');
   return themes;
 }
@@ -5341,6 +5341,8 @@ function _localThemeScore(typeLine,oracle,roles,cmdThemes){
     }
     if(th==='compteurs'){
       if(/\+1\/\+1 counter|put.*counter|proliferate/.test(o))score+=3;
+      if(/for each counter|equal to (the number of counters|its power|its toughness)/.test(o))score+=2;
+      if(/distribut.*counter|doubl.*counter|move.*counter/.test(o))score+=2;
     }
     if(th==='vie'){
       if(/gain.*life|lose.*life|lifelink/.test(o))score+=2;
@@ -5352,7 +5354,11 @@ function _localThemeScore(typeLine,oracle,roles,cmdThemes){
       if(/whenever.*attack|when.*deal.*damage/.test(o))score+=3;
     }
     if(th==='défausse'){
-      if(/discard|madness/.test(o))score+=3;
+      if(/madness/.test(o))score+=4;               // carte idéale à défausser : rejouabilité instantanée
+      if(/flashback|jump-start/.test(o))score+=3;  // rejouabilité depuis le cimetière
+      if(/dredge|unearth|cycling/.test(o))score+=2; // défausse contrôlée ou recyclage
+      if(/when.*you discard|whenever.*discard/.test(o))score+=3; // déclencheurs de défausse
+      if(/discard/.test(o))score+=1;               // synergie générale
     }
     if(th==='cimetière'){
       if(/graveyard|flashback|escape|unearth|embalm/.test(o))score+=2;
@@ -12471,7 +12477,7 @@ function anaRoles(meta){
 function anaIsCommanderFormat(fmt){return ['commander','paupercmd','brawl','oathbreaker'].indexOf(fmt)>=0;}
 function anaTargets(fmt,totalCards,themes){
   var th=themes||{};
-  var drawMult=th.draw||1;var rampMult=th.ramp||1;var winconMult=th.wincon||1;
+  var drawMult=th.draw||1;var rampMult=th.ramp||1;var winconMult=th.wincon||1;var discardMult=th.discard||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
     var base={land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
     // Ajustements selon le profil du commandant
@@ -12479,6 +12485,8 @@ function anaTargets(fmt,totalCards,themes){
     else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[3,6];}  // Spellslinger / draw matters
     if(rampMult>=1.5&&base.ramp[0]<12)base.ramp=[12,16];          // Landfall / treasures
     if(winconMult>=1.4&&base.wincon[0]>=5)base.wincon=[7,12];     // Sacrifice / drain / tokens
+    // Défausse-moteur : moins de draw classique, plus de créatures avec madness/rejouabilité
+    if(discardMult>=1.5){base.draw=[6,10];base.wincon=[6,11];base.interaction=[10,15];}
     return base;
   }
   return {land:[22,25],ramp:[0,4],draw:[5,10],removal:[5,10],interaction:[6,10],wincon:[4,8]};
@@ -12486,10 +12494,12 @@ function anaTargets(fmt,totalCards,themes){
 
 function anaWeights(fmt,totalCards,themes){
   var th=themes||{};
-  var drawMult=th.draw||1;var winconMult=th.wincon||1;
+  var drawMult=th.draw||1;var winconMult=th.wincon||1;var discardMult=th.discard||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
     if(drawMult>=2.0)return{land:.15,ramp:.14,draw:.30,removal:.15,interaction:.15,wincon:.11};
     if(drawMult>=1.5)return{land:.16,ramp:.15,draw:.24,removal:.16,interaction:.15,wincon:.14};
+    // Défausse-moteur+compteurs : wincon et interaction importants, draw moins critique
+    if(discardMult>=1.5)return{land:.17,ramp:.14,draw:.13,removal:.17,interaction:.19,wincon:.20};
     if(winconMult>=1.4)return{land:.16,ramp:.14,draw:.16,removal:.18,interaction:.16,wincon:.20};
     return{land:.18,ramp:.16,draw:.18,removal:.16,interaction:.16,wincon:.16};
   }
@@ -12800,10 +12810,10 @@ function anaSimulate(deck,runs){
 
 /* ----- Themes du commandant : multiplicateurs de score selon l'oracle text ----- */
 // Ex: Queza ("whenever you draw, opp loses life") -> draw devient un wincon
-var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,labels:[]};
+var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,labels:[]};
 
 function _anaCommanderThemes(deck){
-  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,labels:[],_debug:'no-deck'};
+  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,labels:[],_debug:'no-deck'};
   if(!deck)return def;
   // Recuperation du nom du commandant (champ explicite OU fallback sur section "Commander/Commandant")
   var cmdName=(deck.commander&&deck.commander.name)||null;
@@ -12820,7 +12830,7 @@ function _anaCommanderThemes(deck){
   if(!meta.oracleText){def._debug='no-oracle:'+nl;console.warn('[Themes] oracle vide pour:',nl);return def;}
   console.log('[Themes] oracle de '+nl+':',meta.oracleText);
   var oracle=meta.oracleText.toLowerCase();
-  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1};
+  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1};
   var labels=[];
   function bump(key,val,label){if((m[key]||1)<val)m[key]=val;if(label&&labels.indexOf(label)<0)labels.push(label);}
   // Pioche-as-wincon : la pioche déclenche des effets
@@ -12837,6 +12847,10 @@ function _anaCommanderThemes(deck){
   // Surveil/connive/explore (pseudo-pioche)
   if(/(surveil|connive|explore|cycling)/.test(oracle))bump('draw',1.4,'Filtration');
   if(/whenever you discard|hellbent|madness/.test(oracle))bump('draw',1.4,'Discard');
+  // Défausse comme coût d'activation (Lotleth Troll, Skirge Familiar…)
+  if(/\bdiscard (a|an|a creature|a nonland|a card)\b[^.]*:/.test(oracle)){bump('draw',1.6,'Défausse-moteur');m.discard=1.5;}
+  // Synergie défausse→+1/+1 (Lotleth Troll : "Discard a creature card: Put a +1/+1 counter")
+  if(/discard.*\+1\/\+1 counter|\+1\/\+1 counter.*discard/.test(oracle)){bump('wincon',1.5,'Défausse-compteurs');m.discard=1.6;}
   // Sacrifice / aristocrats
   if(/whenever a creature.*dies|whenever (you|a player) sacrifice|aristocrats?/.test(oracle))bump('wincon',1.4,'Sacrifice');
   if(/each opponent loses \d+ life|deals \d+ damage to each opponent|drains?/.test(oracle))bump('wincon',1.5,'Drain');
