@@ -12189,8 +12189,8 @@ var _anaPauperStaples=[
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
   // Migration v4: normalisation apostrophes bouclees -> droites dans les cles nl
-  if((__aP.__version||0)<4){
-    _anaData={__version:4};
+  if((__aP.__version||0)<5){
+    _anaData={__version:5};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -12541,7 +12541,7 @@ function _anaIngestCard(card,nlHint){
   var imageUri='';
   if(card.image_uris)imageUri=card.image_uris.normal||card.image_uris.large||card.image_uris.small||'';
   else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)imageUri=card.card_faces[0].image_uris.normal||card.card_faces[0].image_uris.large||card.card_faces[0].image_uris.small||'';
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||''};
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||'',keywords:card.keywords||[]};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -12808,14 +12808,100 @@ function anaSimulate(deck,runs){
   };
 }
 
-/* ----- Themes du commandant : multiplicateurs de score selon l'oracle text ----- */
-// Ex: Queza ("whenever you draw, opp loses life") -> draw devient un wincon
-var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,labels:[]};
+/* ===== THEME ENGINE — DATA-DRIVEN ===== */
+// Règles oracle text → multiplicateurs de thème. Ajouter une règle ici = couverture automatique.
+var _COMMANDER_THEME_RULES=[
+  // Pioche / draw
+  {p:/whenever you draw/i,                                     m:{draw:2.5},              label:'Pioche-trigger'},
+  {p:/whenever.*(you|target player).*draws? (a|two|card)/i,    m:{draw:2.0},              label:'Pioche-trigger'},
+  {p:/draw step.*draw an additional/i,                         m:{draw:1.6},              label:'Card advantage'},
+  // Spellslinger
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)/i, m:{draw:1.6},              label:'Spellslinger'},
+  {p:/copy that (spell|instant|sorcery)/i,                     m:{draw:1.4},              label:'Spell-copy'},
+  {p:/prowess/i,                                               m:{wincon:1.3},            label:'Prowess'},
+  // Cimetière
+  {p:/return.*from.*graveyard|cast.*from.*graveyard|flashback|jump-start|delve|escape|disturb/i, m:{draw:1.5}, label:'Graveyard'},
+  {p:/mill|put.*(?:from )?(?:your )?library.*graveyard/i,      m:{draw:1.4},              label:'Mill'},
+  // Filtration / pseudo-pioche
+  {p:/surveil|connive|explore|cycling/i,                       m:{draw:1.4},              label:'Filtration'},
+  // Défausse — triggers (Nekusar, Syr Konrad…)
+  {p:/whenever you discard|hellbent|madness/i,                 m:{draw:1.4,discard:1.4},  label:'Discard'},
+  // Défausse — coût d'activation (Lotleth Troll, Skirge Familiar…)
+  {p:/\bdiscard (a|an|a creature|a nonland|a card)\b[^.]*:/i,  m:{draw:1.6,discard:1.5},  label:'Défausse-moteur'},
+  // Défausse → +1/+1 (Lotleth Troll spécifiquement)
+  {p:/discard.*\+1\/\+1 counter|\+1\/\+1 counter.*discard/i,   m:{wincon:1.5,discard:1.6},label:'Défausse-compteurs'},
+  // Sacrifice / aristocrats
+  {p:/whenever a creature.*dies|whenever (you|a player) sacrifice/i, m:{wincon:1.4},      label:'Sacrifice'},
+  {p:/each opponent loses \d+ life|deals \d+ damage to each opponent|drain/i, m:{wincon:1.5}, label:'Drain'},
+  // +1/+1 / compteurs
+  {p:/\+1\/\+1 counter|proliferate/i,                          m:{wincon:1.3,counters:1.3}, label:'+1/+1 counters'},
+  {p:/for each (counter|\+1\/\+1)/i,                           m:{wincon:1.4,counters:1.4}, label:'Counter-payoff'},
+  {p:/gets? \+\d+\/\+\d+ for each/i,                          m:{wincon:1.3},            label:'Buff'},
+  // Jetons
+  {p:/create.*creature token|create.*\d+\/\d+/i,               m:{wincon:1.3},            label:'Tokens'},
+  // Ramp
+  {p:/landfall|whenever a land enters/i,                        m:{ramp:1.8},              label:'Landfall'},
+  {p:/treasure token|create.*treasure/i,                        m:{ramp:1.5},              label:'Treasures'},
+  {p:/extra mana|adds.*additional mana|untap.*land/i,           m:{ramp:1.4},              label:'Mana boost'},
+  // Gain de vie
+  {p:/whenever you gain life|lifegain matters/i,                m:{draw:1.4,lifegain:1.4}, label:'Lifegain-trigger'},
+  {p:/lifelink|gain.*life equal/i,                              m:{lifegain:1.2},          label:'Lifegain'},
+  // Contrespells
+  {p:/counter target spell|whenever a spell.*countered/i,       m:{interaction:1.3},       label:'Counterspells'},
+  // Tutor
+  {p:/search your library/i,                                    m:{draw:1.2},              label:'Tutor'},
+  // Voltron / combat damage
+  {p:/double strike|trample.*equipped/i,                        m:{wincon:1.2},            label:'Voltron'},
+  {p:/equipment|aura.*enchant/i,                                m:{wincon:1.2},            label:'Aura-equip'},
+  {p:/whenever.*deals? (combat )?damage to (a player|an opponent)/i, m:{wincon:1.2},      label:'Combat-damage'},
+  // ETB
+  {p:/whenever.*enters the battlefield/i,                       m:{},                      label:'ETB'},
+];
+
+// Mapping keywords officiels Scryfall (card.keywords[]) → thèmes
+var _SCRYFALL_KEYWORD_THEMES={
+  'Madness':    {m:{discard:1.5},            label:'Madness'},
+  'Cycling':    {m:{discard:1.3},            label:'Cycling'},
+  'Dredge':     {m:{discard:1.2},            label:'Dredge'},
+  'Flashback':  {m:{draw:1.4},              label:'Flashback'},
+  'Jump-start': {m:{draw:1.3,discard:1.2},  label:'Jump-start'},
+  'Escape':     {m:{draw:1.3},              label:'Escape'},
+  'Delve':      {m:{draw:1.3},              label:'Delve'},
+  'Disturb':    {m:{draw:1.2},              label:'Disturb'},
+  'Embalm':     {m:{},                      label:'Embalm'},
+  'Eternalize': {m:{},                      label:'Eternalize'},
+  'Unearth':    {m:{},                      label:'Unearth'},
+  'Proliferate':{m:{wincon:1.4,counters:1.4}, label:'Proliferate'},
+  'Landfall':   {m:{ramp:1.8},              label:'Landfall'},
+  'Lifelink':   {m:{lifegain:1.2},          label:'Lifegain'},
+  'Extort':     {m:{wincon:1.3},            label:'Extort'},
+  'Surveil':    {m:{draw:1.3},              label:'Surveil'},
+  'Connive':    {m:{draw:1.3},              label:'Connive'},
+  'Explore':    {m:{draw:1.2},              label:'Explore'},
+  'Prowess':    {m:{wincon:1.3},            label:'Prowess'},
+  'Populate':   {m:{wincon:1.3},            label:'Populate'},
+  'Investigate':{m:{draw:1.2},              label:'Investigate'},
+  'Foretell':   {m:{draw:1.2},              label:'Foretell'},
+  'Learn':      {m:{draw:1.3},              label:'Learn'},
+  'Connive':    {m:{draw:1.3},              label:'Connive'},
+  'Venture':    {m:{wincon:1.2},            label:'Venture'},
+};
+
+// Anti-synergies : pénalise les cartes qui nécessitent un thème absent du deck
+// (ex: Epicure of Blood dans un deck sans gain de vie)
+var _ANTI_SYNERGY_RULES=[
+  {p:/whenever you gain life|whenever.*life.*gained|whenever.*gain.*life/i,  requires:'lifegain', label:'nécessite gain de vie'},
+  {p:/whenever.*you discard\b|whenever.*(?:a player |opponent )?discards/i,  requires:'discard',  label:'nécessite moteur de défausse'},
+  {p:/\bstorm\b/i,                                                            requires:'sorts',    label:'nécessite beaucoup de sorts'},
+  {p:/landfall/i,                                                             requires:'ramp',     label:'peu utile sans Landfall'},
+];
+
+/* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
+var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,labels:[]};
 
 function _anaCommanderThemes(deck){
-  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,labels:[],_debug:'no-deck'};
+  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,labels:[],_debug:'no-deck'};
   if(!deck)return def;
-  // Recuperation du nom du commandant (champ explicite OU fallback sur section "Commander/Commandant")
   var cmdName=(deck.commander&&deck.commander.name)||null;
   if(!cmdName&&deck.cards){
     for(var i=0;i<deck.cards.length;i++){
@@ -12827,52 +12913,27 @@ function _anaCommanderThemes(deck){
   var nl=cmdName.split(' // ')[0].toLowerCase();
   var meta=_anaData[nl];
   if(!meta){def._debug='commander-not-cached:'+nl;console.warn('[Themes] commander pas en cache:',nl);return def;}
-  if(!meta.oracleText){def._debug='no-oracle:'+nl;console.warn('[Themes] oracle vide pour:',nl);return def;}
-  console.log('[Themes] oracle de '+nl+':',meta.oracleText);
-  var oracle=meta.oracleText.toLowerCase();
-  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1};
+  if(!meta.oracleText&&!(meta.keywords&&meta.keywords.length)){def._debug='no-oracle:'+nl;return def;}
+  var oracle=(meta.oracleText||'').toLowerCase();
+  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1};
   var labels=[];
-  function bump(key,val,label){if((m[key]||1)<val)m[key]=val;if(label&&labels.indexOf(label)<0)labels.push(label);}
-  // Pioche-as-wincon : la pioche déclenche des effets
-  if(/whenever you draw/.test(oracle))bump('draw',2.5,'Pioche-trigger');
-  if(/whenever (you|target player) (would )?draws? (a|two|cards|your)/.test(oracle))bump('draw',2.0,'Pioche-trigger');
-  if(/draw step.*draw an additional/.test(oracle))bump('draw',1.6,'Card advantage');
-  // Spellslinger
-  if(/whenever you cast (an )?(instant|sorcery|noncreature)/.test(oracle))bump('draw',1.6,'Spellslinger');
-  if(/copy that (spell|instant|sorcery)/.test(oracle))bump('draw',1.4,'Spell-copy');
-  if(/prowess/.test(oracle))bump('wincon',1.3,'Prowess');
-  // Graveyard
-  if(/return.*from.*graveyard|cast.*from.*graveyard|flashback|jump-start|delve|escape|disturb/.test(oracle))bump('draw',1.5,'Graveyard');
-  if(/(mill|put.*from.*library.*graveyard|reveal.*top.*graveyard)/.test(oracle))bump('draw',1.4,'Mill');
-  // Surveil/connive/explore (pseudo-pioche)
-  if(/(surveil|connive|explore|cycling)/.test(oracle))bump('draw',1.4,'Filtration');
-  if(/whenever you discard|hellbent|madness/.test(oracle))bump('draw',1.4,'Discard');
-  // Défausse comme coût d'activation (Lotleth Troll, Skirge Familiar…)
-  if(/\bdiscard (a|an|a creature|a nonland|a card)\b[^.]*:/.test(oracle)){bump('draw',1.6,'Défausse-moteur');m.discard=1.5;}
-  // Synergie défausse→+1/+1 (Lotleth Troll : "Discard a creature card: Put a +1/+1 counter")
-  if(/discard.*\+1\/\+1 counter|\+1\/\+1 counter.*discard/.test(oracle)){bump('wincon',1.5,'Défausse-compteurs');m.discard=1.6;}
-  // Sacrifice / aristocrats
-  if(/whenever a creature.*dies|whenever (you|a player) sacrifice|aristocrats?/.test(oracle))bump('wincon',1.4,'Sacrifice');
-  if(/each opponent loses \d+ life|deals \d+ damage to each opponent|drains?/.test(oracle))bump('wincon',1.5,'Drain');
-  // +1/+1 / counters
-  if(/\+1\/\+1 counter|proliferate/.test(oracle))bump('wincon',1.3,'+1/+1 counters');
-  if(/(gets \+\d+\/\+\d+ for each|tower|huge)/.test(oracle))bump('wincon',1.3,'Buff');
-  // Tokens
-  if(/create.*creature token|create.*\d+\/\d+/.test(oracle))bump('wincon',1.3,'Tokens');
-  // Landfall / ramp
-  if(/landfall|whenever a land enters/.test(oracle))bump('ramp',1.8,'Landfall');
-  if(/treasure token|create.*treasure/.test(oracle))bump('ramp',1.5,'Treasures');
-  if(/extra mana|adds.*additional|untap.*land/.test(oracle))bump('ramp',1.4,'Mana boost');
-  // Lifegain
-  if(/whenever you gain life|lifegain matters/.test(oracle))bump('draw',1.3,'Lifegain');
-  if(/lifelink|gain.*life equal/.test(oracle))bump('draw',1.2,'Lifegain');
-  // Counterspells matter
-  if(/(counter|counterspell).*target.*spell|whenever a spell.*countered/.test(oracle))bump('interaction',1.3,'Counters');
-  // Tutor / library
-  if(/search your library/.test(oracle))bump('draw',1.2,'Tutor');
-  // Voltron / commander damage
-  if(/double strike|trample.*equipped|equipment|aura|enchant/.test(oracle))bump('wincon',1.2,'Voltron');
-  console.log('[Themes] détectés:',labels,'multiplicateurs:',m);
+  function bump(key,val){if((m[key]||1)<val)m[key]=val;}
+  // 1. Règles sur l'oracle text
+  _COMMANDER_THEME_RULES.forEach(function(rule){
+    if(rule.p.test(oracle)){
+      Object.keys(rule.m).forEach(function(k){bump(k,rule.m[k]);});
+      if(rule.label&&labels.indexOf(rule.label)<0)labels.push(rule.label);
+    }
+  });
+  // 2. Keywords officiels Scryfall (structurés, pas besoin de regex)
+  (meta.keywords||[]).forEach(function(kw){
+    var kd=_SCRYFALL_KEYWORD_THEMES[kw];
+    if(kd){
+      Object.keys(kd.m).forEach(function(k){bump(k,kd.m[k]);});
+      if(kd.label&&labels.indexOf(kd.label)<0)labels.push(kd.label);
+    }
+  });
+  console.log('[Themes] '+nl+' — labels:',labels,'mult:',m);
   return Object.assign(m,{labels:labels,_debug:'ok:'+labels.join(',')});
 }
 
@@ -13356,6 +13417,17 @@ function anaFullOptimize(scoredRows,pool,maxIter){
 }
 
 /* ----- Optimisation orientée score global (cible le /100, pas le score individuel) ----- */
+// Pénalise les cartes dont les prérequis ne sont pas dans le deck (ex: Epicure of Blood sans lifegain)
+function _anaAntiSynergyPenalty(cardMeta,deckThemes){
+  if(!cardMeta||!cardMeta.oracleText)return 0;
+  var o=cardMeta.oracleText.toLowerCase();
+  var penalty=0;
+  _ANTI_SYNERGY_RULES.forEach(function(rule){
+    if(rule.p.test(o)&&!(deckThemes[rule.requires]>1)){penalty-=4;}
+  });
+  return penalty;
+}
+
 function anaScoreOptimize(rows,pool,weights,targets,maxIter){
   maxIter=maxIter||40;
   var current=rows.slice();
@@ -13390,7 +13462,7 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
           interaction:cnt.interaction-cr.interaction*q+ar.interaction,
           wincon:cnt.wincon-cr.wincon*q+ar.wincon
         };
-        var gain=score(sim)-curScore;
+        var gain=score(sim)-curScore+_anaAntiSynergyPenalty(addCard.meta,_anaCurrentThemes);
         if(gain>bestGain){bestGain=gain;bestSwap={cut:cutRow,add:addCard,sim:sim,gain:gain};}
       });
     });
