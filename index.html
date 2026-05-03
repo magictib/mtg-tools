@@ -4539,7 +4539,18 @@ function loadDeck(id){
   var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
   document.getElementById('dcmd-section').style.display=isCmd?'block':'none';
   document.getElementById('dcolors-section').style.display=(!isCmd&&dFormat)?'block':'none';
-  if(dCommander){document.getElementById('dcmd-in').value=dCommander.name;renderDeckCmdPreview();}
+  if(dCommander){
+    // Auto-repair : si le nom du commandant a ete tronque par un ancien parser, le re-fetch depuis la section "Commander" des cartes
+    var cmdSec=(dCards||[]).filter(function(c){return /^commander|^commandant/i.test(c.sec||'');});
+    var realCmdName=cmdSec.length?cmdSec[0].name:null;
+    if(realCmdName&&realCmdName!==dCommander.name&&realCmdName.length>(dCommander.name||'').length){
+      console.log('[Deck] auto-repair commandant :',dCommander.name,'->',realCmdName);
+      document.getElementById('dcmd-in').value=realCmdName;
+      deckCmdFetch(realCmdName);
+    } else {
+      document.getElementById('dcmd-in').value=dCommander.name;renderDeckCmdPreview();
+    }
+  }
   else{deckCmdClear();}
   // Restore colors
   var storedColors=isCmd?(dCommander?dCommander.colors:[]):(d.colors||[]);
@@ -11845,15 +11856,16 @@ function setUserLang(lang){
 }
 
 // Reecriture transparente des src d'images de cartes Scryfall vers la langue choisie.
-// Utilise le endpoint /cards/named?fuzzy=NAME&format=image&lang=XX qui redirige vers la version traduite.
+// Utilise exact= (pas fuzzy) pour eviter de matcher la mauvaise carte.
+// Fallback automatique vers l'URL originale si exact echoue (404 / pas de print dans la langue).
 function _localizeOneImg(img){
   if(!img||img.tagName!=='IMG')return;
   var src=img.getAttribute('src')||img.src||'';
   var name=img.alt||'';
-  if(!src||!name)return;
-  if(src.indexOf('scryfall')<0)return; // non-Scryfall: ignore
-  if(img.dataset&&img.dataset.noLocalize==='1')return; // opt-out
-  if(img.dataset&&img.dataset.localizedTo===_userLang)return; // deja a jour
+  if(!src||!name||name.length<3)return;
+  if(src.indexOf('scryfall')<0)return;
+  if(img.dataset&&img.dataset.noLocalize==='1')return;
+  if(img.dataset&&img.dataset.localizedTo===_userLang)return;
   var version='normal';
   var mv=src.match(/version=(small|normal|large|png|art_crop|border_crop)/);
   if(mv)version=mv[1];
@@ -11861,19 +11873,31 @@ function _localizeOneImg(img){
   else if(src.indexOf('/large/')>=0)version='large';
   else if(src.indexOf('/art_crop/')>=0)version='art_crop';
   else if(src.indexOf('/png/')>=0)version='png';
+  // Conserver l'URL originale (CDN direct) pour fallback
+  if(!img.dataset.originalSrc&&src.indexOf('cards.scryfall.io')>=0)img.dataset.originalSrc=src;
   var newSrc;
   if(!_userLang||_userLang==='en'){
-    if(src.indexOf('cards.scryfall.io')>=0&&src.indexOf('lang=')<0){
-      // Deja une URL CDN anglaise -> ok, on marque
-      img.dataset.localizedTo='en';return;
-    }
-    newSrc='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version='+version;
+    // Restaurer l'URL originale CDN si on l'a
+    if(img.dataset.originalSrc){newSrc=img.dataset.originalSrc;}
+    else if(src.indexOf('cards.scryfall.io')>=0&&src.indexOf('lang=')<0){img.dataset.localizedTo='en';return;}
+    else {newSrc='https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&version='+version;}
   } else {
     if(src.indexOf('lang='+_userLang+'&')>=0||src.indexOf('lang='+_userLang)>=0){img.dataset.localizedTo=_userLang;return;}
-    newSrc='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+version;
+    newSrc='https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+version;
   }
   if(newSrc&&newSrc!==src){
     img.dataset.localizedTo=_userLang||'en';
+    // En cas d'erreur (404 ou autre), revenir a l'URL originale CDN — ne JAMAIS afficher une mauvaise carte
+    var origSrc=img.dataset.originalSrc;
+    if(origSrc&&origSrc!==newSrc){
+      img.onerror=function(){
+        var self=this;
+        if(self.dataset.localizedTo!=='fallback'){
+          self.dataset.localizedTo='fallback';
+          self.src=origSrc;
+        }
+      };
+    }
     img.src=newSrc;
   }
 }
