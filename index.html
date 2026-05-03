@@ -12543,21 +12543,12 @@ function anaAnalyze(){
     if(deckNls.indexOf(cmdNl)<0)deckNls.push(cmdNl);
     fallback.push({nl:cmdNl,name:deck.commander.name});
   }
-  // Pre-fetch staples si cache incomplet (pool pour suggestions/optimizer)
-  var allFetchNls=deckNls.slice();
-  var allFallback=fallback.slice();
-  var stapleFb=_anaStaples.map(function(n){return {nl:n.toLowerCase(),name:n};});
-  var stapleNlsToFetch=stapleFb.filter(function(s){return !_anaData[s.nl];}).map(function(s){return s.nl;});
-  if(stapleNlsToFetch.length){
-    allFetchNls=allFetchNls.concat(stapleNlsToFetch);
-    allFallback=allFallback.concat(stapleFb);
-    console.log('[Analyse] Pré-chargement de '+stapleNlsToFetch.length+' staples pour le pool de suggestions');
-  }
-  var toFetch=allFetchNls.filter(function(nl){return !_anaData[nl];});
+  // Chemin critique : uniquement les cartes du deck
+  var toFetch=deckNls.filter(function(nl){return !_anaData[nl];});
   st.textContent=toFetch.length?'⏳ Récupération de '+toFetch.length+' carte(s) sur Scryfall…':'✓ Cache complet — analyse en cours…';
   // Reset EDHREC pour cette analyse (sera re-rempli en async ci-dessous)
   _anaCurrentEDHREC=null;
-  anaFetchMissing(allFetchNls,allFallback,function(){
+  anaFetchMissing(deckNls,fallback,function(){
     var found=deckNls.filter(function(nl){return _anaData[nl];}).length;
     var miss=deckNls.length-found;
     st.textContent=miss?'⚠ '+found+'/'+deckNls.length+' cartes du deck identifiées ('+miss+' introuvables — voir console F12)':'✓ '+found+'/'+deckNls.length+' cartes du deck analysées';
@@ -12574,6 +12565,14 @@ function anaAnalyze(){
         } else {
           st.textContent=preStatus+' · ⚠ EDHREC indispo';
         }
+      });
+    }
+    // Staples en arrière-plan (pool suggestions/optimizer) — ne bloque pas le rendu
+    var stapleFb=_anaStaples.map(function(n){return {nl:n.toLowerCase(),name:n};});
+    var stapleNls=stapleFb.filter(function(s){return !_anaData[s.nl];}).map(function(s){return s.nl;});
+    if(stapleNls.length){
+      anaFetchMissing(stapleNls,stapleFb,function(){
+        if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){}
       });
     }
   });
