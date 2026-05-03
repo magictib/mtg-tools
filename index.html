@@ -12135,6 +12135,33 @@ var _anaStaples=[
   "Aetherflux Reservoir","Helm of the Host"
 ];
 
+// Pool de staples Pauper Commander (commons uniquement)
+var _anaPauperStaples=[
+  // Pioche (W/U/B)
+  "Ponder","Preordain","Brainstorm","Opt","Serum Visions",
+  "Sign in Blood","Night's Whisper","Read the Bones","Blood Pact","Deep Analysis",
+  "Think Twice","Divination","Counsel of the Soratami","Compulsive Research",
+  "Mulldrifter","Tolarian Winds","Looter il-Kor","Thought Courier","Cephalid Broker",
+  "Accumulated Knowledge","Frantic Search","Ghostly Flicker","Peregrine Drake",
+  "Faerie Miscreant","Dusk Legion Zealot","Phyrexian Rager",
+  // Mana / ramp (commons)
+  "Dimir Signet","Orzhov Signet","Azorius Signet","Izzet Signet",
+  "Prismatic Lens","Prophetic Prism","Wayfarer's Bauble","Armillary Sphere",
+  "Sky Diamond","Marble Diamond","Charcoal Diamond","Pilgrim's Eye",
+  // Removal (commons)
+  "Doom Blade","Victim of Night","Tragic Slip","Chainer's Edict","Crypt Rats",
+  "Journey to Nowhere","Unmake","Pillory of the Sleepless","Castigate",
+  "Tendrils of Corruption","Sunlance","Snap","Echoing Decay",
+  // Counterspells / interaction (commons)
+  "Counterspell","Arcane Denial","Negate","Mana Leak","Memory Lapse",
+  "Essence Scatter","Remove Soul","Rewind","Unwind","Condescend",
+  "Prohibit","Dream Fracture","Deprive","You Find the Villains' Lair",
+  // Lifegain / Queza synergy (commons)
+  "Soul's Attendant","Soul Warden","Suture Priest","Essence Warden",
+  "Epicure of Blood","Gray Merchant of Asphodel","Lone Missionary",
+  "Ajani's Pridemate","Custodi Squire","Man-o'-War"
+];
+
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
   // Migration v3: ajout patterns draw variables (draw cards equal to, draw that many cards…)
@@ -12598,7 +12625,7 @@ function anaAnalyze(){
     if(deck.commander&&deck.commander.name&&anaIsCommanderFormat(deck.format)){
       var preStatus=st.textContent;
       st.textContent=preStatus+' · ⏳ EDHREC…';
-      anaFetchEDHRECCommander(deck.commander.name,function(edhrecFreq){
+      anaFetchEDHRECCommander(deck.commander.name,deck.format,function(edhrecFreq){
         if(edhrecFreq){
           _anaCurrentEDHREC=edhrecFreq;
           st.textContent=preStatus+' · ✓ EDHREC ('+Object.keys(edhrecFreq).length+' cartes)';
@@ -12615,6 +12642,16 @@ function anaAnalyze(){
       anaFetchMissing(stapleNls,stapleFb,function(){
         if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){}
       });
+    }
+    // Pauper staples en arrière-plan (commons uniquement)
+    if(_anaIsPauperFormat(deck.format)){
+      var pauperFb=_anaPauperStaples.map(function(n){return {nl:n.toLowerCase(),name:n};});
+      var pauperNls=pauperFb.filter(function(s){return !_anaData[s.nl];}).map(function(s){return s.nl;});
+      if(pauperNls.length){
+        anaFetchMissing(pauperNls,pauperFb,function(){
+          if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){}
+        });
+      }
     }
   });
 }
@@ -12938,20 +12975,23 @@ function _extractEDHRECFreqMap(data){
   return cards;
 }
 
-function anaFetchEDHRECCommander(commanderName,callback){
+function anaFetchEDHRECCommander(commanderName,fmt,callback){
+  if(typeof fmt==='function'){callback=fmt;fmt='';}// rétrocompat
   if(!commanderName){callback(null);return;}
   var slug=_anaCommanderSlug(commanderName);
   if(!slug){callback(null);return;}
-  var cached=_anaEDHRECCache[slug];
+  var isPauperCmd=(fmt||'').toLowerCase()==='paupercmd';
+  var cacheKey=isPauperCmd?'pauper:'+slug:slug;
+  var cached=_anaEDHRECCache[cacheKey];
   if(cached&&Date.now()-cached.timestamp<24*3600*1000){
     callback(cached.freqMap);return;
   }
-  var path='pages/commanders/'+slug+'.json';
+  var path=(isPauperCmd?'pages/pauper-commanders/':'pages/commanders/')+slug+'.json';
   function _gotData(data){
     if(!data||data.error){callback(null);return;}
     var freqMap=_extractEDHRECFreqMap(data);
     var n=Object.keys(freqMap).length;
-    if(n>0){_anaEDHRECCache[slug]={timestamp:Date.now(),freqMap:freqMap};_anaSaveEDHRECCache();}
+    if(n>0){_anaEDHRECCache[cacheKey]={timestamp:Date.now(),freqMap:freqMap};_anaSaveEDHRECCache();}
     callback(n>0?freqMap:null);
   }
   function _tryProxy(){
