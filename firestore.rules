@@ -41,10 +41,12 @@ service cloud.firestore {
         ] && request.resource.data.targetUid is string)
       );
       allow delete: if isAdmin();
-      // Marquer comme lu (readBy uniquement) : tout utilisateur connecté
+      // Marquer comme lu (readBy uniquement) ou supprimer pour soi (dismissedBy) : tout utilisateur connecté
       // Accepter/refuser une demande d'ami (status + readBy) : le destinataire uniquement
       allow update: if isAuthed() && (
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dismissedBy']) ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy','dismissedBy']) ||
         (resource.data.get('type', '') == 'friend_request' &&
          request.auth.uid == resource.data.targetUid &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'readBy']))

@@ -834,8 +834,9 @@ body.mana-cursor{cursor:none}
         <button class="btn btnsm" onclick="markAllNotifsRead()" id="notif-mark-all" style="font-size:.65rem;padding:2px 7px">Tout lire</button>
       </div>
       <div class="notif-list" id="notif-list"><div class="notif-empty">Aucune notification</div></div>
-      <div class="notif-foot" id="notif-foot" style="display:none">
-        <button class="btn btnsm" onclick="markAllNotifsRead()" style="font-size:.7rem">✓ Tout marquer comme lu</button>
+      <div class="notif-foot" id="notif-foot" style="display:none;text-align:right;display:flex;gap:6px;justify-content:flex-end">
+        <button class="btn btnsm" onclick="markAllNotifsRead()" style="font-size:.7rem">✓ Tout lire</button>
+        <button class="btn btnsm" onclick="deleteAllNotifs()" style="font-size:.7rem;color:var(--rd2);border-color:rgba(220,80,80,.4)">🗑 Tout supprimer</button>
       </div>
     </div>
   </div>
@@ -3239,8 +3240,27 @@ function initNotifications(uid){
 
 function _visibleNotifs(){
   return _notifDocs.filter(function(n){
-    return !n.targetUid||n.targetUid===_currentUid;
+    if(n.targetUid&&n.targetUid!==_currentUid)return false;
+    if(n.dismissedBy&&n.dismissedBy.indexOf(_currentUid)>=0)return false;
+    return true;
   });
+}
+function deleteNotif(id){
+  if(!_currentUid||!id)return;
+  db.collection('notifications').doc(id).update({
+    dismissedBy:firebase.firestore.FieldValue.arrayUnion(_currentUid)
+  }).catch(function(){});
+}
+function deleteAllNotifs(){
+  if(!_currentUid)return;
+  if(!confirm('Supprimer toutes les notifications visibles ?'))return;
+  var batch=db.batch();
+  _visibleNotifs().forEach(function(n){
+    batch.update(db.collection('notifications').doc(n.id),{
+      dismissedBy:firebase.firestore.FieldValue.arrayUnion(_currentUid)
+    });
+  });
+  batch.commit().catch(function(e){console.warn('deleteAllNotifs',e);});
 }
 function _updateNotifBadge(){
   if(!_currentUid)return;
@@ -3291,8 +3311,9 @@ function _renderNotifPanel(){
         +'<button onclick="event.stopPropagation();_arJoinFromNotif(\''+_notifEsc(n.arenaCode)+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);font-size:.72rem;cursor:pointer">⚡ Rejoindre</button>'
         +'</div>';
     }
-    return '<div class="notif-item'+(unread?' unread':'')+'" onclick="markNotifRead(\''+n.id+'\')">'
-      +'<div class="notif-item-title">'+_notifEsc(n.title||'')+tradeLink+'</div>'
+    return '<div class="notif-item'+(unread?' unread':'')+'" style="position:relative" onclick="markNotifRead(\''+n.id+'\')">'
+      +'<button onclick="event.stopPropagation();deleteNotif(\''+n.id+'\')" title="Supprimer cette notification" style="position:absolute;top:6px;right:8px;background:none;border:none;color:var(--tx3);font-size:14px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:4px;transition:.12s" onmouseover="this.style.color=\'var(--rd2)\';this.style.background=\'rgba(220,80,80,.08)\'" onmouseout="this.style.color=\'var(--tx3)\';this.style.background=\'none\'">✕</button>'
+      +'<div class="notif-item-title" style="padding-right:24px">'+_notifEsc(n.title||'')+tradeLink+'</div>'
       +(n.body?'<div class="notif-item-body">'+_notifEsc(n.body)+'</div>':'')
       +friendBtns
       +'<div class="notif-item-time">'+when+'</div>'
@@ -3471,6 +3492,7 @@ function _loadAdminUsers(){
           ?'<div style="display:flex;gap:4px;flex-wrap:wrap">'
             +(u.role==='approved'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--gold2);border-color:var(--gold2)" onclick="adminSetRole(\''+uid+'\',\'admin\',this)">⭐ Admin</button>':'')
             +(u.role==='admin'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--tx2)" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">↩ Utilisateur</button>':'')
+            +'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--tx2)" title="Supprimer demandes friend/arena en cours" data-uid="'+uid+'" data-name="'+esc(u.name||'')+'" onclick="adminCleanupPending(this.dataset.uid,this.dataset.name,this)">🧹 Nettoyer</button>'
             +(u.role!=='banned'&&u.role!=='admin'?'<button class="btn btnsm btnrd" style="font-size:.7rem;padding:2px 8px" onclick="adminSetRole(\''+uid+'\',\'banned\',this)">✕ Bannir</button>':'')
             +(u.role==='banned'?'<button class="btn btnsm" style="font-size:.7rem;padding:2px 8px;color:var(--gr2);border-color:var(--gr2)" onclick="adminSetRole(\''+uid+'\',\'approved\',this)">↩ Restaurer</button>':'')
             +'</div>'
@@ -3487,6 +3509,63 @@ function adminSetRole(uid,role,btn){
   db.collection('users').doc(uid).update({role:role}).then(function(){
     _loadAdminUsers();
   }).catch(function(e){btn.disabled=false;alert('Erreur: '+e.message);});
+}
+
+// Nettoyer toutes les demandes en cours pour un utilisateur (friend requests + arena invites + arena rooms orphelines)
+function adminCleanupPending(uid,name,btn){
+  if(_userRole!=='admin')return;
+  if(!confirm('Supprimer toutes les demandes en cours (friend requests, arena invites, arena rooms) pour '+(name||uid)+' ?'))return;
+  btn.disabled=true;var origText=btn.textContent;btn.textContent='⏳';
+  var totalDeleted=0,totalUpdated=0,errors=[];
+  // 1. Notifications: friend_request status=pending OR arena_invite, ou la personne est emetteur/cible
+  db.collection('notifications')
+    .where('targetUid','==',uid).get()
+    .then(function(snap){
+      var batch=db.batch();
+      snap.docs.forEach(function(doc){
+        var n=doc.data();
+        if(n.type==='friend_request'||n.type==='arena_invite'){
+          batch.delete(doc.ref);totalDeleted++;
+        }
+      });
+      return batch.commit();
+    })
+    .then(function(){
+      // Notifications ou l'utilisateur est emetteur (fromUid)
+      return db.collection('notifications').where('fromUid','==',uid).get();
+    })
+    .then(function(snap){
+      var batch=db.batch();
+      snap.docs.forEach(function(doc){
+        var n=doc.data();
+        if(n.type==='friend_request'||n.type==='arena_invite'){
+          batch.delete(doc.ref);totalDeleted++;
+        }
+      });
+      return batch.commit();
+    })
+    .then(function(){
+      // Arena rooms ou l'utilisateur est p1 ou p2
+      return db.collection('arena_rooms').get();
+    })
+    .then(function(snap){
+      var batch=db.batch();
+      snap.docs.forEach(function(doc){
+        var r=doc.data();
+        if((r.p1&&r.p1.uid===uid)||(r.p2&&r.p2.uid===uid)){
+          batch.update(doc.ref,{active:false});totalUpdated++;
+        }
+      });
+      return batch.commit();
+    })
+    .then(function(){
+      alert('✓ '+totalDeleted+' notification(s) supprimée(s), '+totalUpdated+' arena room(s) fermée(s).');
+      btn.disabled=false;btn.textContent=origText;
+    })
+    .catch(function(e){
+      console.error(e);alert('Erreur: '+e.message);
+      btn.disabled=false;btn.textContent=origText;
+    });
 }
 
 // ===== MAPPINGS =====
@@ -6929,6 +7008,9 @@ function arJoinRoom(){
 function arListenRoom(){
   if(!_arRoom||!window.db)return;
   if(_arRoomUnsub)_arRoomUnsub();
+  _arRoom._firstSnapshot=true;
+  _arRoom._wasActive=false;
+  _arRoom._hadOpponent=false;
   _arRoomUnsub=db.collection('arena_rooms').doc(_arRoom.id).onSnapshot(function(doc){
     if(!doc.exists)return;
     _arApplyRemoteState(doc.data());
@@ -6939,8 +7021,11 @@ function _arApplyRemoteState(data){
   var pn=_arRoom.playerNum,opn=pn===1?2:1;
   var op=data['p'+(opn>0?opn:'2')]||data['p2']||null;
   if(pn===2)op=data.p1||null;
-  // Opponent left: room marked inactive
-  if(data.active===false){
+  // Etat initial : on ignore tant qu'aucune partie n'a ete lancee ni aucun adversaire connu
+  var isFirst=_arRoom._firstSnapshot;
+  _arRoom._firstSnapshot=false;
+  // Opponent left: room marked inactive — uniquement si on avait deja un game actif OU un adversaire
+  if(data.active===false&&(_arRoom._wasActive||_arRoom._hadOpponent)&&!isFirst){
     if(_ar.active){
       // Game was running — close arena and notify
       arLeaveRoom();
@@ -6959,6 +7044,9 @@ function _arApplyRemoteState(data){
     }
     return;
   }
+  // Marquer les transitions d'etat pour la detection de cancel
+  if(data.active===true)_arRoom._wasActive=true;
+  if(op||data.p2)_arRoom._hadOpponent=true;
   // Sync shared field (only if it differs — avoid overwrite loop)
   if(!_ar.active){
     // Game not yet open: just update room status UI
@@ -6966,6 +7054,13 @@ function _arApplyRemoteState(data){
       var s=document.getElementById('ar-room-status');
       if(s)s.innerHTML='<span style="color:var(--gr2)">'+esc(data.p2.name||'Joueur 2')+' a rejoint !</span>'
         +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
+    } else if(pn===1&&data.p2){
+      // p2 a rejoint mais active est false : meme afficher l'invitation a lancer
+      var s=document.getElementById('ar-room-status');
+      if(s&&s.textContent.indexOf(data.p2.name)<0){
+        s.innerHTML='<span style="color:var(--gr2)">'+esc(data.p2.name||'Joueur 2')+' a rejoint !</span>'
+          +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
+      }
     }
     return;
   }
