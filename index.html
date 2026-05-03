@@ -12898,22 +12898,27 @@ function anaFetchEDHRECCommander(commanderName,callback){
   if(!slug){callback(null);return;}
   var cached=_anaEDHRECCache[slug];
   if(cached&&Date.now()-cached.timestamp<24*3600*1000){
-    console.log('[EDHREC] cache hit pour',slug,'('+Object.keys(cached.freqMap||{}).length+' cartes)');
     callback(cached.freqMap);return;
   }
-  console.log('[EDHREC] fetch pour',slug);
-  fetch('/api/edhrec?path='+encodeURIComponent('pages/commanders/'+slug+'.json'))
-    .then(function(r){return r.ok?r.json():null;})
-    .then(function(data){
-      if(!data||data.error){console.warn('[EDHREC] aucune donnée pour',slug,data&&data.error);callback(null);return;}
-      var freqMap=_extractEDHRECFreqMap(data);
-      var n=Object.keys(freqMap).length;
-      _anaEDHRECCache[slug]={timestamp:Date.now(),freqMap:freqMap};
-      _anaSaveEDHRECCache();
-      console.log('[EDHREC] '+n+' cartes extraites pour '+slug);
-      callback(n>0?freqMap:null);
-    })
-    .catch(function(e){console.warn('[EDHREC] fetch fail',e);callback(null);});
+  var path='pages/commanders/'+slug+'.json';
+  function _gotData(data){
+    if(!data||data.error){callback(null);return;}
+    var freqMap=_extractEDHRECFreqMap(data);
+    var n=Object.keys(freqMap).length;
+    if(n>0){_anaEDHRECCache[slug]={timestamp:Date.now(),freqMap:freqMap};_anaSaveEDHRECCache();}
+    callback(n>0?freqMap:null);
+  }
+  function _tryProxy(){
+    fetch('/api/edhrec?path='+encodeURIComponent(path))
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){_gotData(d);})
+      .catch(function(){callback(null);});
+  }
+  // CDN direct d'abord, proxy Vercel en fallback
+  fetch('https://json.edhrec.com/'+path)
+    .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+    .then(function(d){_gotData(d);})
+    .catch(_tryProxy);
 }
 
 /* ----- Labels des archetypes (humanisation) ----- */
