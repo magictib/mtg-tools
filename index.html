@@ -12137,9 +12137,9 @@ var _anaStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v2: correction regex "draws X cards" — forcer re-fetch pour recalculer les tags
-  if((__aP.__version||0)<2){
-    _anaData={__version:2};
+  // Migration v3: ajout patterns draw variables (draw cards equal to, draw that many cards…)
+  if((__aP.__version||0)<3){
+    _anaData={__version:3};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -12333,6 +12333,14 @@ function anaInferTags(meta){
   // Pioche — "draw/draws X card(s)" (singulier ou 3e personne)
   var dm=oracle.match(/draws? \w+ cards?/g)||[];
   dm.forEach(function(m){var w=m.replace(/draws? /,'').replace(/ cards?/,'').trim();draw+=(nMap[w]||1);});
+  // Pioche à quantité variable (patterns sans nombre fixe entre draw et cards)
+  if(/draws? cards equal to/i.test(oracle))draw+=3;       // Tolarian Winds, Whirlpool Rider
+  if(/draws? that many cards/i.test(oracle))draw+=2;      // looting/cycling variables
+  if(/draws? cards for each/i.test(oracle))draw+=2;       // triggers par compteur
+  if(/draws? cards until/i.test(oracle))draw+=3;          // Windfall-like
+  var upTo=oracle.match(/draws? up to (\w+) cards?/);     // "draw up to two cards"
+  if(upTo)draw+=(nMap[upTo[1]]||2);
+  if(/draws? cards/i.test(oracle)&&!dm.length&&draw<1)draw+=1; // fallback générique
   if(/scry \d+/.test(oracle))draw+=0.3;
   if(oracle.indexOf('surveil')>=0)draw+=0.3;
   if(/look at the top/.test(oracle))draw+=0.2;
