@@ -12820,8 +12820,8 @@ var _COMMANDER_THEME_RULES=[
   {p:/copy that (spell|instant|sorcery)/i,                     m:{draw:1.4},              label:'Spell-copy'},
   {p:/prowess/i,                                               m:{wincon:1.3},            label:'Prowess'},
   // Cimetière
-  {p:/return.*from.*graveyard|cast.*from.*graveyard|flashback|jump-start|delve|escape|disturb/i, m:{draw:1.5}, label:'Graveyard'},
-  {p:/mill|put.*(?:from )?(?:your )?library.*graveyard/i,      m:{draw:1.4},              label:'Mill'},
+  {p:/return.*from.*graveyard|cast.*from.*graveyard|flashback|jump-start|delve|escape|disturb/i, m:{draw:1.5,graveyard:1.5}, label:'Graveyard'},
+  {p:/mill|put.*(?:from )?(?:your )?library.*graveyard/i,      m:{draw:1.4,graveyard:1.4}, label:'Mill'},
   // Filtration / pseudo-pioche
   {p:/surveil|connive|explore|cycling/i,                       m:{draw:1.4},              label:'Filtration'},
   // Défausse — triggers (Nekusar, Syr Konrad…)
@@ -12856,6 +12856,12 @@ var _COMMANDER_THEME_RULES=[
   {p:/whenever.*deals? (combat )?damage to (a player|an opponent)/i, m:{wincon:1.2},      label:'Combat-damage'},
   // ETB
   {p:/whenever.*enters the battlefield/i,                       m:{},                      label:'ETB'},
+  // Enchantements / constellation / enchantress
+  {p:/constellation|whenever.*enchantment.*enters.*battlefield/i, m:{enchantment:1.5,wincon:1.3}, label:'Constellation'},
+  {p:/enchantress|whenever.*you cast.*enchantment/i,            m:{enchantment:1.4,draw:1.3},    label:'Enchantress'},
+  // Artefacts matters
+  {p:/metalcraft|whenever.*artifact.*enters.*battlefield/i,     m:{artifact:1.3,wincon:1.2},     label:'Artifact-matters'},
+  {p:/whenever.*you cast.*artifact/i,                           m:{artifact:1.3,draw:1.2},       label:'Artifact-cast'},
 ];
 
 // Mapping keywords officiels Scryfall (card.keywords[]) → thèmes
@@ -12863,14 +12869,14 @@ var _SCRYFALL_KEYWORD_THEMES={
   'Madness':    {m:{discard:1.5},            label:'Madness'},
   'Cycling':    {m:{discard:1.3},            label:'Cycling'},
   'Dredge':     {m:{discard:1.2},            label:'Dredge'},
-  'Flashback':  {m:{draw:1.4},              label:'Flashback'},
-  'Jump-start': {m:{draw:1.3,discard:1.2},  label:'Jump-start'},
-  'Escape':     {m:{draw:1.3},              label:'Escape'},
-  'Delve':      {m:{draw:1.3},              label:'Delve'},
-  'Disturb':    {m:{draw:1.2},              label:'Disturb'},
-  'Embalm':     {m:{},                      label:'Embalm'},
-  'Eternalize': {m:{},                      label:'Eternalize'},
-  'Unearth':    {m:{},                      label:'Unearth'},
+  'Flashback':  {m:{draw:1.4,graveyard:1.4}, label:'Flashback'},
+  'Jump-start': {m:{draw:1.3,discard:1.2,graveyard:1.2}, label:'Jump-start'},
+  'Escape':     {m:{draw:1.3,graveyard:1.4}, label:'Escape'},
+  'Delve':      {m:{draw:1.3,graveyard:1.3}, label:'Delve'},
+  'Disturb':    {m:{draw:1.2,graveyard:1.2}, label:'Disturb'},
+  'Embalm':     {m:{graveyard:1.2},          label:'Embalm'},
+  'Eternalize': {m:{graveyard:1.2},          label:'Eternalize'},
+  'Unearth':    {m:{graveyard:1.2},          label:'Unearth'},
   'Proliferate':{m:{wincon:1.4,counters:1.4}, label:'Proliferate'},
   'Landfall':   {m:{ramp:1.8},              label:'Landfall'},
   'Lifelink':   {m:{lifegain:1.2},          label:'Lifegain'},
@@ -12887,23 +12893,35 @@ var _SCRYFALL_KEYWORD_THEMES={
   'Venture':    {m:{wincon:1.2},            label:'Venture'},
 };
 
-// Anti-synergies : pénalise les cartes qui nécessitent un thème absent du deck
-// requires:null = pénalité universelle (inefficacité, pas un mismatch de thème)
+// Anti-synergies : pénalise les cartes dont les prérequis sont absents du deck
+// requires:null = pénalité universelle d'efficacité (indépendante du thème)
+// requiresMin : seuil minimum du thème (défaut 1, ie thème doit être > 1)
+// antiTheme:true : penalise quand le deck A le thème (ex: haine du cimetière dans un deck GY)
 var _ANTI_SYNERGY_RULES=[
-  {p:/whenever you gain life|whenever.*life.*gained|whenever.*gain.*life/i,  requires:'lifegain', penalty:-15, label:'nécessite gain de vie'},
-  {p:/whenever.*you discard\b|whenever.*(?:a player |opponent )?discards/i,  requires:'discard',  penalty:-15, label:'nécessite moteur de défausse'},
-  {p:/\bstorm\b/i,                                                            requires:'sorts',    penalty:-15, label:'nécessite beaucoup de sorts'},
-  {p:/landfall/i,                                                             requires:'ramp',     penalty:-15, label:'peu utile sans Landfall'},
-  // Ramp à coût d'activation élevé : coût effectif castcost+activation, land engagé
-  // ex: Wayfarer's Bauble (1+2=3), Armillary Sphere (2+2=4)
-  {p:/\{[2-9]\}[^:]*sacrifice[^:]*:.*search.*library.*basic land/i,          requires:null,       penalty:-6,  label:'ramp lent (coût activation élevé)'},
+  // Prérequis thématiques stricts
+  {p:/whenever you gain life|whenever.*life.*gained|whenever.*gain.*life/i,           requires:'lifegain',   penalty:-15, label:'nécessite gain de vie'},
+  {p:/whenever.*you discard\b|whenever.*(?:a player |opponent )?discards/i,           requires:'discard',    penalty:-15, label:'nécessite moteur de défausse'},
+  {p:/\bstorm\b/i,                                                                    requires:'sorts',      penalty:-15, label:'nécessite beaucoup de sorts'},
+  {p:/landfall/i,                                                                     requires:'ramp',       penalty:-12, label:'peu utile sans Landfall'},
+  // Main illimitée — utile seulement si on pioche souvent > 7 (Queza, Voracious, Nekusar…)
+  {p:/no maximum hand size|whenever.*would draw.*hand.*full/i,                        requires:'draw', requiresMin:1.3, penalty:-12, label:'main rarement pleine sans deck pioche'},
+  // Win par pioche vide (Lab Maniac, Thassa's Oracle) — inutile sans moteur massif
+  {p:/(?:win the game|wins the game).*(?:draw|no cards)|would draw.*no cards.*win/i,  requires:'draw', requiresMin:1.5, penalty:-15, label:'nécessite moteur de pioche massif'},
+  // Haine du cimetière dans un deck cimetière (antiTheme = pénalise SI le thème est présent)
+  {p:/exile (?:all|each) (?:cards? in (?:all |each |)?)?graveyards?/i,               requires:'graveyard',  penalty:-15, antiTheme:true, label:'contre-productif en deck cimetière'},
+  // Constellation/enchantress sans enchantements
+  {p:/constellation|whenever.*enchantment.*enters.*battlefield.*you control/i,        requires:'enchantment', penalty:-10, label:'nécessite beaucoup d\'enchantements'},
+  // Metalcraft sans artefacts
+  {p:/metalcraft/i,                                                                   requires:'artifact',   penalty:-8,  label:'nécessite 3+ artefacts en jeu'},
+  // Ramp à coût d'activation élevé (Wayfarer's Bauble: 1+2=3, Armillary Sphere: 2+2=4)
+  {p:/\{[2-9]\}[^:]*sacrifice[^:]*:.*search.*library.*basic land/i,                  requires:null,         penalty:-6,  label:'ramp lent (coût activation élevé)'},
 ];
 
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
-var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,labels:[]};
+var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,labels:[]};
 
 function _anaCommanderThemes(deck){
-  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,labels:[],_debug:'no-deck'};
+  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,labels:[],_debug:'no-deck'};
   if(!deck)return def;
   var cmdName=(deck.commander&&deck.commander.name)||null;
   if(!cmdName&&deck.cards){
@@ -12918,7 +12936,7 @@ function _anaCommanderThemes(deck){
   if(!meta){def._debug='commander-not-cached:'+nl;console.warn('[Themes] commander pas en cache:',nl);return def;}
   if(!meta.oracleText&&!(meta.keywords&&meta.keywords.length)){def._debug='no-oracle:'+nl;return def;}
   var oracle=(meta.oracleText||'').toLowerCase();
-  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1};
+  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1};
   var labels=[];
   function bump(key,val){if((m[key]||1)<val)m[key]=val;}
   // 1. Règles sur l'oracle text
@@ -13420,15 +13438,21 @@ function anaFullOptimize(scoredRows,pool,maxIter){
 }
 
 /* ----- Optimisation orientée score global (cible le /100, pas le score individuel) ----- */
-// Pénalise les cartes dont les prérequis sont absents ou qui sont intrinsèquement inefficaces
+// Pénalise les cartes dont les prérequis sont absents ou intrinsèquement inefficaces
 function _anaAntiSynergyPenalty(cardMeta,deckThemes){
   if(!cardMeta||!cardMeta.oracleText)return 0;
   var o=cardMeta.oracleText.toLowerCase();
-  var penalty=0;
-  var th=deckThemes||{};
+  var penalty=0;var th=deckThemes||{};
   _ANTI_SYNERGY_RULES.forEach(function(rule){
     if(!rule.p.test(o))return;
-    var applies=rule.requires===null||!(th[rule.requires]>1);
+    var applies;
+    if(rule.requires===null){
+      applies=true;                                                   // pénalité universelle
+    } else if(rule.antiTheme){
+      applies=(th[rule.requires]||1)>(rule.requiresMin||1);          // pénalise quand le deck A le thème
+    } else {
+      applies=!((th[rule.requires]||1)>(rule.requiresMin||1));       // pénalise quand le thème est absent
+    }
     if(applies)penalty+=rule.penalty;
   });
   return penalty;
@@ -13471,6 +13495,20 @@ function _anaThemeSynergyScore(cardMeta,themes){
   if((th.wincon||1)>1.3){
     if(/whenever.*creature.*dies|sacrifice a creature/.test(o))s+=2;
     if(/create.*token/.test(o))s+=1;
+  }
+  // Cimetière
+  if((th.graveyard||1)>1){
+    if(/flashback|escape|unearth|embalm|eternalize/.test(o))s+=3;
+    if(/from.*graveyard|return.*graveyard/.test(o))s+=2;
+    if(/graveyard/.test(o))s+=1;
+  }
+  // Enchantements
+  if((th.enchantment||1)>1){
+    if(/enchantment|constellation/.test(o))s+=2;
+  }
+  // Artefacts
+  if((th.artifact||1)>1){
+    if(/artifact|metalcraft/.test(o))s+=2;
   }
   return s;
 }
