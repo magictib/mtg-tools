@@ -5068,27 +5068,46 @@ function analyzeSmartDeck(){
   panel.style.display='block';
   var slug=cmdSlug(dCommander.name);
   if(_smartEdhCache[slug]){_renderSmartAnalysis(slug,_smartEdhCache[slug]);return;}
-  if(_smartEdhPending[slug])return; // fetch already in progress
+  if(_smartEdhPending[slug])return;
   _smartEdhPending[slug]=true;
   document.getElementById('smart-content').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.84rem;text-align:center;padding:1.2rem">Chargement EDHREC...</div>';
   document.getElementById('smart-status').textContent='';
   var isPDH=dFormat==='paupercmd';
   var path=(isPDH?'pages/pauper-commanders/':'pages/commanders/')+slug+'.json';
-  fetch('/api/edhrec?path='+encodeURIComponent(path))
+
+  function _store(cards,numDecks,source){
+    _smartEdhCache[slug]={cards:cards,numDecks:numDecks,ok:cards.length>0,source:source||'edhrec'};
+    delete _smartEdhPending[slug];
+    _renderSmartAnalysis(slug,_smartEdhCache[slug]);
+  }
+  function _parseEDH(d){
+    var cards=edhFindCardlist(d);
+    var numDecks=(d.container&&d.container.json_dict&&d.container.json_dict.num_decks)||d.num_decks||0;
+    return {cards:cards,numDecks:numDecks};
+  }
+  function _scryfallFallback(){
+    var ci=(dCommander.colors||[]).join('').toLowerCase()||'c';
+    var fmt=(['commander','paupercmd','brawl'].indexOf(dFormat)>=0)?dFormat:'commander';
+    var q='legal:'+fmt+' ci<='+ci+' -type:basic';
+    fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&order=edhrec&unique=cards')
+      .then(function(r){return r.json();})
+      .then(function(d){
+        var cards=(d.data||[]).map(function(c){return {name:c.name,synergy:0,num_decks:c.edhrec_rank||0};});
+        _store(cards,0,'scryfall');
+      })
+      .catch(function(){_store([],0,'none');});
+  }
+  function _tryProxy(){
+    fetch('/api/edhrec?path='+encodeURIComponent(path))
+      .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+      .then(function(d){var p=_parseEDH(d);if(p.cards.length>=5)_store(p.cards,p.numDecks,'edhrec');else _scryfallFallback();})
+      .catch(_scryfallFallback);
+  }
+  // 1. CDN direct (Cloudflare, souvent CORS OK)  2. proxy Vercel  3. Scryfall fallback
+  fetch('https://json.edhrec.com/'+path)
     .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
-    .then(function(d){
-      var jd=d.container&&d.container.json_dict||{};
-      var numDecks=jd.num_decks||d.num_decks||0;
-      var cards=edhFindCardlist(d);
-      _smartEdhCache[slug]={cards:cards,numDecks:numDecks,ok:cards.length>0};
-      delete _smartEdhPending[slug];
-      _renderSmartAnalysis(slug,_smartEdhCache[slug]);
-    })
-    .catch(function(){
-      _smartEdhCache[slug]={cards:[],numDecks:0,ok:false};
-      delete _smartEdhPending[slug];
-      _renderSmartAnalysis(slug,_smartEdhCache[slug]);
-    });
+    .then(function(d){var p=_parseEDH(d);if(p.cards.length>=5)_store(p.cards,p.numDecks,'edhrec');else _tryProxy();})
+    .catch(_tryProxy);
 }
 
 function _renderSmartAnalysis(slug,edhData){
@@ -5097,6 +5116,7 @@ function _renderSmartAnalysis(slug,edhData){
   if(!content)return;
   var edhCards=edhData.cards||[];
   var hasEDH=edhData.ok&&edhCards.length>0;
+  var isScryfallFallback=edhData.source==='scryfall';
 
   var edhMap={};
   edhCards.forEach(function(c){
@@ -5119,11 +5139,14 @@ function _renderSmartAnalysis(slug,edhData){
     scored.push({card:c,synergy:synergy,numDecks:e?e.num_decks:0,roles:roles});
   });
 
-  if(hasEDH){
-    statusEl.textContent='✓ '+matched+'/'+scored.length+' cartes du deck analysées';
+  if(hasEDH&&!isScryfallFallback){
+    statusEl.textContent='✓ '+matched+'/'+scored.length+' cartes analysées (EDHREC)';
     statusEl.style.color='var(--gr2)';
+  } else if(hasEDH&&isScryfallFallback){
+    statusEl.textContent='⚠ EDHREC indispo — classement Scryfall (sans synergie)';
+    statusEl.style.color='var(--am)';
   } else {
-    statusEl.textContent='⚠ EDHREC indispo — analyse locale uniquement';
+    statusEl.textContent='⚠ Données indisponibles — analyse des rôles uniquement';
     statusEl.style.color='var(--am)';
   }
 
@@ -5164,8 +5187,22 @@ function _renderSmartAnalysis(slug,edhData){
       +'</div>';
   }
 
-  if(!hasEDH){
-    html+='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:.5rem 0">Données EDHREC indisponibles pour ce commandant — seule l\'analyse des rôles est affichée.</div>';
+  if(!hasEDH||isScryfallFallback){
+    html+='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:.5rem 0">'
+      +(isScryfallFallback
+        ?'Synergie EDHREC indisponible pour ce commandant — seule l\'analyse des rôles est affichée. Les suggestions ci-dessous sont triées par popularité globale (Scryfall), pas par synergie.'
+        :'Données EDHREC indisponibles pour ce commandant — seule l\'analyse des rôles est affichée.')
+      +'</div>';
+    if(isScryfallFallback&&suggestions.length){
+      html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:14px">CARTES POPULAIRES ABSENTES DU DECK</div>';
+      suggestions.forEach(function(s){
+        var n=s.name||s.label||'';
+        html+='<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
+          +'<div style="font-size:.82rem;color:var(--tx2);flex:1">'+esc(n)+'</div>'
+          +'<div style="font-size:.72rem;color:var(--tx3)">populaire</div>'
+          +'</div>';
+      });
+    }
   } else {
     if(pillars.length){
       html+='<div style="font-size:9px;color:var(--gr2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:4px">PILIERS — Synergie ≥ 25%</div>';
@@ -9791,32 +9828,25 @@ function selectCmd(name,slug){
 
   panel.scrollIntoView({behavior:'smooth'});
 
-  // Fetch EDHREC page principale, fallback Scryfall si 0 cartes
-  fetch('/api/edhrec?path='+encodeURIComponent(edhPath+slug+'.json'))
+  // Fetch EDHREC : CDN direct d'abord (CORS OK sur Cloudflare), puis proxy Vercel, puis Scryfall
+  var _edhFullPath=edhPath+slug+'.json';
+  function _parseAndRender(d){
+    var jd=d.container&&d.container.json_dict||{};
+    var numDecks=jd.num_decks||d.num_decks||0;
+    var cards=edhFindCardlist(d);
+    if(cards.length>=5){renderEDHREC({_merged:cards,_numDecks:numDecks});}
+    else{edhFallbackScryfall(slug,numDecks);}
+  }
+  function _tryEdhProxy(){
+    fetch('/api/edhrec?path='+encodeURIComponent(_edhFullPath))
+      .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+      .then(_parseAndRender)
+      .catch(function(){edhFallbackScryfall(slug,0);});
+  }
+  fetch('https://json.edhrec.com/'+_edhFullPath)
     .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
-    .then(function(d){
-      var jd=d.container&&d.container.json_dict||{};
-      var numDecks=jd.num_decks||d.num_decks||0;
-      // Debug structure
-      console.log('EDHREC jd keys:',Object.keys(jd).join(', '));
-      Object.keys(jd).forEach(function(k){
-        var v=jd[k];
-        if(Array.isArray(v))console.log('  [array]',k,'len='+v.length,(v[0]&&typeof v[0]==='object'?'firstKeys:'+Object.keys(v[0]).join(','):''));
-        else if(v&&typeof v==='object')console.log('  [obj]  ',k,'keys:'+Object.keys(v).join(','));
-        else console.log('  [val]  ',k+'='+v);
-      });
-      var cards=edhFindCardlist(d);
-      console.log('EDHREC cards found:',cards.length);
-      if(cards.length>=5){
-        renderEDHREC({_merged:cards,_numDecks:numDecks});
-      } else {
-        edhFallbackScryfall(slug,numDecks);
-      }
-    })
-    .catch(function(e){
-      console.warn('EDHREC failed:',e,'; fallback Scryfall');
-      edhFallbackScryfall(slug,0);
-    });
+    .then(_parseAndRender)
+    .catch(_tryEdhProxy);
 }
 
 function edhFallbackScryfall(slug,numDecks){
