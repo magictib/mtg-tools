@@ -9514,19 +9514,27 @@ function searchCmd(){
   document.getElementById('cmdres').innerHTML='';
   document.getElementById('cmdedrec').style.display='none';
 
+  console.log('[searchCmd] query:',q);
   fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&order=edhrec&unique=cards')
-    .then(function(r){return r.json();})
+    .then(function(r){
+      if(!r.ok)return r.json().then(function(j){throw new Error('Scryfall '+r.status+': '+(j&&j.details||r.statusText));},function(){throw new Error('Scryfall '+r.status);});
+      return r.json();
+    })
     .then(function(d){
       document.getElementById('cmdload').style.display='none';
+      if(d&&d.object==='error'){throw new Error(d.details||'erreur API');}
       if(!d.data||!d.data.length){
-        document.getElementById('cmdres').innerHTML='<div class="card" style="text-align:center;color:var(--tx3);font-style:italic;padding:1.5rem">Aucun résultat</div>';
+        document.getElementById('cmdres').innerHTML='<div class="card" style="text-align:center;color:var(--tx3);font-style:italic;padding:1.5rem">Aucun résultat pour cette requête</div>';
         return;
       }
-      renderCmdResults(d.data,d.total_cards);
+      try{renderCmdResults(d.data,d.total_cards);}
+      catch(e){console.error('[renderCmdResults] erreur:',e);throw e;}
     })
-    .catch(function(){
+    .catch(function(e){
+      console.error('[searchCmd] erreur:',e);
       document.getElementById('cmdload').style.display='none';
-      document.getElementById('cmdres').innerHTML='<div class="card" style="color:var(--rd2)">⚠ Erreur de recherche</div>';
+      var msg=e&&e.message?e.message:'inconnue';
+      document.getElementById('cmdres').innerHTML='<div class="card" style="color:var(--rd2)">⚠ Erreur : '+esc(msg)+'<br><span style="font-size:.7rem;color:var(--tx3)">Requête : '+esc(q)+'</span></div>';
     });
 }
 
