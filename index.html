@@ -2987,6 +2987,8 @@ function confirmDeleteProfile(){
 // ===== AMIS =====
 var _friends=[];
 var _pendingOutRequests=[]; // [{uid,name}] — demandes envoyées, persistées localStorage
+var _removedFriendUids=new Set();
+try{var __rf=localStorage.getItem('mtg_removed_friends');if(__rf)JSON.parse(__rf).forEach(function(uid){_removedFriendUids.add(uid);});}catch(e){}
 
 function _savePendingOutReqs(){
   try{localStorage.setItem('mtg_pending_out_reqs',JSON.stringify(_pendingOutRequests));}catch(e){}
@@ -3180,6 +3182,8 @@ function acceptFriendRequest(notifId,fromUid,fromName){
   batch.update(db.collection('notifications').doc(notifId),
     {status:'accepted',readBy:firebase.firestore.FieldValue.arrayUnion(_currentUid)});
   batch.commit().then(function(){
+    _removedFriendUids.delete(fromUid);
+    try{localStorage.setItem('mtg_removed_friends',JSON.stringify([..._removedFriendUids]));}catch(e){}
     if(!_friends.some(function(f){return f.uid===fromUid;})){
       _friends.push({uid:fromUid,name:fromName});
     }
@@ -3219,6 +3223,8 @@ function removeFriend(friendUid){
       if(_epSlots[ctx])_epSlots[ctx]=_epSlots[ctx].filter(function(ep){return ep.uid!==friendUid;});
     });
     _saveEpSlots();
+    _removedFriendUids.add(friendUid);
+    try{localStorage.setItem('mtg_removed_friends',JSON.stringify([..._removedFriendUids]));}catch(e){}
     _refreshTradeAndGame();
     renderProfSlots('coll','prof-grid-coll');
     renderProfSlots('deck','prof-grid-deck');
@@ -3240,7 +3246,7 @@ function initNotifications(uid){
       // L'expéditeur de la demande s'auto-ajoute l'ami quand sa demande est acceptée
       _notifDocs.forEach(function(n){
         if(n.type==='friend_accepted'&&n.targetUid===_currentUid&&n.fromUid&&n.fromUid!==_currentUid){
-          if(!_friends.some(function(f){return f.uid===n.fromUid;})){
+          if(!_friends.some(function(f){return f.uid===n.fromUid;})&&!_removedFriendUids.has(n.fromUid)){
             _friends.push({uid:n.fromUid,name:n.fromName||n.fromUid});
             db.collection('users').doc(_currentUid).collection('friends').doc(n.fromUid).set({
               uid:n.fromUid,name:n.fromName||n.fromUid,
@@ -4218,7 +4224,11 @@ function showCard(card){
   if(card.image_uris)scFlips=[card.image_uris.normal||card.image_uris.large];
   else if(card.card_faces)card.card_faces.forEach(function(f){if(f.image_uris)scFlips.push(f.image_uris.normal||f.image_uris.large);});
   scFlipN=0;
-  document.getElementById('scimg').src=scFlips[0]||'';
+  var _scEl=document.getElementById('scimg');
+  _scEl.alt=card.name;
+  delete _scEl.dataset.localizedTo;
+  _scEl.src=scFlips[0]||'';
+  if(scFlips[0])_localizeOneImg(_scEl);
   document.getElementById('flipbtn').style.display=scFlips.length>1?'block':'none';
   var oracle='',flavor='';
   if(card.card_faces&&!card.image_uris){oracle=card.card_faces.map(function(f){return (f.name?f.name+'\n':'')+(f.oracle_text||'');}).join('\n\n---\n\n');flavor=card.card_faces.map(function(f){return f.flavor_text||'';}).filter(Boolean).join(' / ');}
@@ -4258,7 +4268,7 @@ function showCard(card){
   lbl.style.display=hasAny||profs.some(function(_,i){return getProfCards(i).length>0;})?'block':'none';
   cont.innerHTML=profHtml;
 }
-function flipCard(){scFlipN=(scFlipN+1)%scFlips.length;document.getElementById('scimg').src=scFlips[scFlipN];}
+function flipCard(){scFlipN=(scFlipN+1)%scFlips.length;var _fEl=document.getElementById('scimg');delete _fEl.dataset.localizedTo;_fEl.src=scFlips[scFlipN];_localizeOneImg(_fEl);}
 function scState(s,msg){
   document.getElementById('scload').style.display=s==='load'?'block':'none';
   document.getElementById('scerr').style.display=s==='err'?'block':'none';
@@ -4491,7 +4501,7 @@ function renderDeckCmdPreview(){
   var colorSyms=dCommander.colors.map(function(c){return '<i class="ms ms-'+c.toLowerCase()+' ms-cost ms-shadow"></i>';}).join('');
   if(!colorSyms)colorSyms='<i class="ms ms-c ms-cost ms-shadow"></i>';
   prev.innerHTML='<div class="dcmd-preview">'
-    +(dCommander.img?'<img src="'+esc(dCommander.img)+'" alt="commandant">':'')
+    +(dCommander.img?'<img src="'+esc(dCommander.img)+'" alt="'+esc(dCommander.name)+'">':'')
     +'<div style="flex:1"><div style="font-weight:600;font-size:.88rem;margin-bottom:3px">'+esc(dCommander.name)+'</div>'
     +'<div class="dcmd-colors">'+colorSyms+'</div>'
     +'<button class="btn btnsm btnrd" style="margin-top:6px;font-size:.7rem" onclick="deckCmdClear()">✕ Retirer</button></div></div>';
@@ -10771,7 +10781,7 @@ function toggleScryfallOffline(){
 // ===== COLLECTION DETAIL =====
 function _buildDetailHTML(displayName,dat,loanOpts){
   return '<div style="display:flex;gap:10px;align-items:flex-start">'
-    +(dat.img?'<img src="'+dat.img+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
+    +(dat.img?'<img src="'+dat.img+'" alt="'+esc(displayName)+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
     +'<div style="flex:1;min-width:0">'
     +'<div style="font-family:\'Goudy Mediaeval\',serif;font-size:.82rem;color:var(--gold2);margin-bottom:2px">'+esc(displayName)+'</div>'
     +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(dat.type||'')+(dat.rar?' · '+dat.rar:'')+(dat.pt?' · '+dat.pt:'')+'</div>'
