@@ -11718,16 +11718,18 @@ function _anaDeckCi(deck){
 
 /* ----- Roles fonctionnels (booleens pour comptage) ----- */
 function anaRoles(meta){
-  if(!meta||!meta.tags)return {ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:0};
+  if(!meta||!meta.tags)return {ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:0,creature:0};
   var t=meta.tags;
-  if(t.isLand)return {ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:1};
+  if(t.isLand)return {ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:1,creature:0};
+  var tl=(meta.typeLine||'').toLowerCase();
   return {
     ramp:t.ramp>=0.6?1:0,
     draw:t.draw>=0.6?1:0,
     removal:t.removal>=0.6?1:0,
     interaction:t.interaction>=0.6?1:0,
     wincon:t.wincon>=1.0?1:0,
-    land:0
+    land:0,
+    creature:tl.indexOf('creature')>=0?1:0
   };
 }
 
@@ -11995,6 +11997,235 @@ function anaSimulate(deck,runs){
     drawReached:stats.firstDraw.length/runs,
     winconReached:stats.firstWincon.length/runs
   };
+}
+
+/* ----- Construction format simulation pour un deck ----- */
+function _anaBuildSimLib(deck){
+  var lib=[];
+  if(!deck||!deck.cards)return lib;
+  deck.cards.forEach(function(c){
+    var meta=_anaData[c.nl];if(!meta)return;
+    var roles=anaRoles(meta);
+    var power=roles.creature?Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2)):0;
+    var qty=c.qty||1;
+    for(var i=0;i<qty;i++){
+      lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power});
+    }
+  });
+  return lib;
+}
+
+/* ----- Decks-archetypes synthetiques ----- */
+function _archetypeDeck(kind){
+  var deck=[];
+  function add(n,builder){for(var i=0;i<n;i++)deck.push(builder());}
+  if(kind==='aggro'){
+    add(22,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
+    add(20,function(){var cmc=1+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{creature:1,wincon:cmc>=3?1:0},power:cmc+1};});
+    add(10,function(){return {cmc:1,isLand:false,roles:{removal:1,interaction:1},power:0,faceDmg:3};});
+    add(4,function(){return {cmc:3,isLand:false,roles:{creature:1,wincon:1},power:5};});
+    add(4,function(){return {cmc:2,isLand:false,roles:{creature:1},power:3,anthem:1};});
+  } else if(kind==='midrange'){
+    add(24,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
+    add(8,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{ramp:1},power:0};});
+    add(14,function(){var cmc=2+Math.floor(Math.random()*3);return {cmc:cmc,isLand:false,roles:{creature:1,wincon:cmc>=4?1:0},power:Math.floor(cmc*0.9)+1};});
+    add(10,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{removal:1,interaction:1},power:0};});
+    add(4,function(){return {cmc:5,isLand:false,roles:{creature:1,wincon:1},power:6};});
+  } else { // control
+    add(26,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
+    add(12,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{interaction:1,counter:1},power:0};});
+    add(8,function(){var cmc=2+Math.floor(Math.random()*3);return {cmc:cmc,isLand:false,roles:{removal:1,interaction:1},power:0};});
+    add(4,function(){return {cmc:4,isLand:false,roles:{removal:1,wrath:1,interaction:1},power:0};});
+    add(6,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{draw:1},power:0};});
+    add(4,function(){return {cmc:6,isLand:false,roles:{creature:1,wincon:1},power:7};});
+  }
+  return deck;
+}
+
+/* ----- Moteur de match head-to-head ----- */
+function _matchPlayer(lib){return {life:20,lib:_anaShuffle(lib.slice()),hand:[],bf:[],lastCast:null};}
+function _matchDraw(p,n){n=n||1;for(var i=0;i<n;i++)if(p.lib.length)p.hand.push(p.lib.shift());}
+function _castPriority(c,opp,turn){
+  var oppHasCreature=opp.bf.some(function(x){return x.roles&&x.roles.creature;});
+  var oppHasWincon=opp.bf.some(function(x){return x.roles&&x.roles.wincon;});
+  if(c.roles.wrath&&opp.bf.filter(function(x){return x.roles.creature;}).length>=2)return 200;
+  if(c.roles.removal&&oppHasWincon)return 180;
+  if(c.roles.removal&&oppHasCreature)return 130;
+  if(c.roles.ramp&&turn<=4)return 110;
+  if(c.roles.draw&&turn<=5)return 95;
+  if(c.roles.wincon)return 80;
+  if(c.roles.creature)return 60;
+  if(c.roles.interaction&&!c.roles.counter)return 50;
+  if(c.roles.counter)return 40; // garde du mana, pas casté pro-actively
+  return 30;
+}
+function _applySpell(c,self,opp){
+  // Counterspell : si l'adversaire a juste casté un sort, on le contre (lastCast retiré du board s'il y est)
+  if(c.roles.counter&&opp.lastCast){
+    var idx=opp.bf.indexOf(opp.lastCast);
+    if(idx>=0)opp.bf.splice(idx,1);
+    opp.lastCast=null;
+    return;
+  }
+  // Wrath : kill toutes les creatures de l'adversaire
+  if(c.roles.wrath){
+    opp.bf=opp.bf.filter(function(x){return !(x.roles&&x.roles.creature);});
+    self.bf=self.bf.filter(function(x){return !(x.roles&&x.roles.creature);});
+    return;
+  }
+  // Removal : kill la plus grosse menace adverse
+  if(c.roles.removal){
+    var threats=opp.bf.filter(function(x){return x.roles.creature||x.roles.wincon;});
+    if(threats.length){
+      var best=threats.reduce(function(mx,x){return (x.power||0)+(x.roles.wincon?5:0)>(mx.power||0)+(mx.roles.wincon?5:0)?x:mx;});
+      var i=opp.bf.indexOf(best);if(i>=0)opp.bf.splice(i,1);
+    } else if(c.faceDmg){opp.life-=c.faceDmg;}
+    return;
+  }
+  // Ramp
+  if(c.roles.ramp){self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});return;}
+  // Draw
+  if(c.roles.draw){_matchDraw(self,2);return;}
+  // Creature/wincon : reste sur le bf
+  if(c.roles.creature||c.roles.wincon){self.bf.push(c);self.lastCast=c;return;}
+  // Burn direct
+  if(c.faceDmg){opp.life-=c.faceDmg;return;}
+}
+function _matchTurn(self,opp,turn,onPlay){
+  // Untap, draw (sauf T1 OTP)
+  if(!(turn===1&&onPlay))_matchDraw(self,1);
+  // Land drop
+  var li=-1;for(var i=0;i<self.hand.length;i++)if(self.hand[i].isLand){li=i;break;}
+  if(li>=0)self.bf.push(self.hand.splice(li,1)[0]);
+  // Mana
+  var mana=self.bf.filter(function(c){return c.isLand;}).length;
+  // Cast spells avec priorite (laisser un peu de mana pour les counter si on en a)
+  var hasCounter=self.hand.some(function(c){return c.roles&&c.roles.counter;});
+  var castable=self.hand.filter(function(c){return !c.isLand&&c.cmc<=mana;}).slice();
+  castable.sort(function(a,b){return _castPriority(b,opp,turn)-_castPriority(a,opp,turn);});
+  var manaLeft=mana;
+  // Reserver 2 mana si on a un counter en main et que c'est faisable
+  var reserve=hasCounter&&mana>=4?2:0;
+  castable.forEach(function(c){
+    if(c.cmc>manaLeft-reserve)return;
+    if(c.roles.counter&&turn<=2)return; // garde le counter
+    var idx=self.hand.indexOf(c);if(idx<0)return;
+    self.hand.splice(idx,1);manaLeft-=c.cmc;
+    _applySpell(c,self,opp);
+  });
+  // Combat : attaque avec creatures (pas le tour 1 sur le play, summoning sickness simplifie)
+  if(turn>=2){
+    var attackers=self.bf.filter(function(c){return c.roles.creature&&!c.justCast;});
+    if(attackers.length){
+      var totalPower=attackers.reduce(function(s,c){return s+(c.power||0);},0);
+      var blockers=opp.bf.filter(function(c){return c.roles.creature;});
+      // Blocking simplifie : adversaire bloque au mieux
+      blockers.sort(function(a,b){return (b.power||0)-(a.power||0);});
+      attackers.sort(function(a,b){return (b.power||0)-(a.power||0);});
+      var blocked=0;
+      for(var k=0;k<Math.min(blockers.length,attackers.length);k++){
+        blocked+=Math.min(blockers[k].power||0,attackers[k].power||0);
+      }
+      var faceDmg=Math.max(0,totalPower-blocked);
+      // Buff anthem : +1 par anthem en jeu
+      var anthemBonus=self.bf.filter(function(c){return c.anthem;}).length*attackers.length;
+      faceDmg+=anthemBonus;
+      opp.life-=faceDmg;
+    }
+  }
+  // Marquer summoning sickness off pour prochain tour
+  self.bf.forEach(function(c){c.justCast=false;});
+  return opp.life<=0;
+}
+function _matchSimulate(libA,libB,maxTurns){
+  maxTurns=maxTurns||12;
+  // Mulligan jusqu'a 1 fois (paris simplifie)
+  function startHand(lib){
+    for(var attempt=0;attempt<2;attempt++){
+      var p=_matchPlayer(lib);_matchDraw(p,7);
+      var lands=p.hand.filter(function(c){return c.isLand;}).length;
+      if(lands>=2&&lands<=5)return p;
+    }
+    var p=_matchPlayer(lib);_matchDraw(p,6);return p;
+  }
+  var a=startHand(libA);var b=startHand(libB);
+  // Coin flip
+  var aOnPlay=Math.random()<0.5;
+  for(var t=1;t<=maxTurns;t++){
+    if(aOnPlay){
+      if(_matchTurn(a,b,t,t===1))return 'A';
+      if(_matchTurn(b,a,t,false))return 'B';
+    } else {
+      if(_matchTurn(b,a,t,t===1))return 'B';
+      if(_matchTurn(a,b,t,false))return 'A';
+    }
+  }
+  if(a.life>b.life)return 'A';
+  if(b.life>a.life)return 'B';
+  return Math.random()<0.5?'A':'B';
+}
+function anaWinRate(libA,libBOrFn,runs){
+  runs=runs||50;var wins=0;
+  for(var i=0;i<runs;i++){
+    var libB=typeof libBOrFn==='function'?libBOrFn():libBOrFn;
+    if(_matchSimulate(libA,libB)==='A')wins++;
+  }
+  return wins/runs;
+}
+
+/* ----- Simulation contre un deck specifique (fetch + match) ----- */
+function anaRunVsDeck(myDeckId){
+  var sel=document.getElementById('ana-vs-deck');var res=document.getElementById('ana-vs-result');
+  if(!sel||!res)return;
+  var oppId=sel.value;
+  var oppDeck=decks[oppId];if(!oppDeck||!oppDeck.cards){res.textContent='❌ Deck adverse introuvable';return;}
+  var myDeck=decks[myDeckId];if(!myDeck){res.textContent='❌ Deck source introuvable';return;}
+  res.style.color='var(--tx3)';res.innerHTML='⏳ Récupération des données du deck adverse…';
+  var oppNls=oppDeck.cards.map(function(c){return c.nl;});
+  var fb=oppDeck.cards.slice();
+  if(oppDeck.commander&&oppDeck.commander.name){oppNls.push(oppDeck.commander.name.toLowerCase());fb.push({nl:oppDeck.commander.name.toLowerCase(),name:oppDeck.commander.name});}
+  anaFetchMissing(oppNls,fb,function(){
+    var libA=_anaBuildSimLib(myDeck);
+    var libB=_anaBuildSimLib(oppDeck);
+    if(libA.length<20||libB.length<20){
+      res.style.color='#e07070';
+      res.textContent='⚠ Pas assez de cartes en cache pour simuler ('+libA.length+' vs '+libB.length+' identifiées).';
+      return;
+    }
+    res.innerHTML='⏳ Simulation 50 parties…';
+    setTimeout(function(){
+      var wr=anaWinRate(libA,libB,50);
+      var pctV=Math.round(wr*100);
+      var col=pctV>=60?'#78c890':pctV>=45?'#5b8cf5':pctV>=30?'#f5b95b':'#e07070';
+      var verdict=pctV>=60?'Matchup favorable':pctV>=45?'Matchup équilibré':pctV>=30?'Matchup défavorable':'Matchup très défavorable';
+      res.style.color=col;
+      res.innerHTML='<b style="font-size:18px">'+pctV+'%</b> de victoires sur 50 parties — <i>'+verdict+'</i><br><span style="font-size:10px;color:var(--tx3)">vs '+esc(oppDeck.name||'Deck')+' ('+libB.length+' cartes simulées)</span>';
+    },50);
+  });
+}
+
+/* ----- Optimisation complete (jusqu'a plus de gain) ----- */
+function anaFullOptimize(scoredRows,pool,maxIter){
+  maxIter=maxIter||40;
+  var current=scoredRows.slice();
+  var poolCopy=pool.slice();
+  var swaps=[];
+  var addedNls={};
+  for(var i=0;i<maxIter;i++){
+    var nonLand=current.filter(function(r){return !(r.meta.tags&&r.meta.tags.isLand)&&!addedNls[r.card.nl];});
+    if(!nonLand.length)break;
+    var weak=nonLand.reduce(function(min,c){return c.score<min.score?c:min;});
+    if(!poolCopy.length)break;
+    var best=poolCopy.reduce(function(max,c){return c.score>max.score?c:max;});
+    if(best.score<=weak.score+0.05)break;
+    var gain=best.score-weak.score;
+    swaps.push({cut:weak.card,cutScore:weak.score,add:{name:best.name,nl:best.nl,meta:best.meta},addScore:best.score,gain:gain});
+    current=current.filter(function(r){return r.card.nl!==weak.card.nl;});
+    poolCopy=poolCopy.filter(function(c){return c.nl!==best.nl;});
+    current.push({card:{name:best.name,nl:best.nl,qty:1},meta:best.meta,score:best.score});
+    addedNls[best.nl]=1;
+  }
+  return {swaps:swaps,finalRows:current};
 }
 
 /* ----- Optimisation ----- */
@@ -12353,7 +12584,101 @@ function anaRender(deckId){
     html+='</div>';
   }
 
-  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult,sim:sim};
+  // === Proposition deck 100% ===
+  var fullOpt=anaFullOptimize(rows.filter(function(r){return r.inCache;}),suggestions.slice(),40);
+  html+='<div class="card"><div class="lbl">🏆 Proposition de deck à 100%</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Optimisation itérative jusqu\'à plus aucun gain possible (max 40 swaps).</div>';
+  if(!fullOpt.swaps.length){
+    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le deck est déjà optimal vis-à-vis du pool de suggestions disponible.</div>';
+  } else {
+    var totalGain100=fullOpt.swaps.reduce(function(s,sw){return s+sw.gain;},0);
+    // Recalculer le score ML simule
+    var newCounts={land:counts.land,ramp:counts.ramp,draw:counts.draw,removal:counts.removal,interaction:counts.interaction,wincon:counts.wincon};
+    fullOpt.swaps.forEach(function(sw){
+      var cutMeta=_anaData[sw.cut.nl];var addMeta=sw.add.meta;
+      if(cutMeta){var cr=anaRoles(cutMeta);newCounts.ramp-=cr.ramp;newCounts.draw-=cr.draw;newCounts.removal-=cr.removal;newCounts.interaction-=cr.interaction;newCounts.wincon-=cr.wincon;}
+      if(addMeta){var ar=anaRoles(addMeta);newCounts.ramp+=ar.ramp;newCounts.draw+=ar.draw;newCounts.removal+=ar.removal;newCounts.interaction+=ar.interaction;newCounts.wincon+=ar.wincon;}
+    });
+    var newSubScores={
+      land:anaCatScore(newCounts.land,targets.land),
+      ramp:anaCatScore(newCounts.ramp,targets.ramp),
+      draw:anaCatScore(newCounts.draw,targets.draw),
+      removal:anaCatScore(newCounts.removal,targets.removal),
+      interaction:anaCatScore(newCounts.interaction,targets.interaction),
+      wincon:anaCatScore(newCounts.wincon,targets.wincon)
+    };
+    var newOverall=0;Object.keys(weights).forEach(function(k){newOverall+=newSubScores[k]*weights[k];});
+    newOverall=Math.round(newOverall);
+    var newGrade=anaGrade(newOverall);
+    html+='<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+    html+='<div style="text-align:center"><div style="font-size:9px;color:var(--tx3)">ACTUEL</div><div style="font-size:28px;color:'+grade.col+';font-weight:bold;line-height:1">'+overall+'</div><div style="font-size:11px;color:var(--tx3)">'+grade.l+'</div></div>';
+    html+='<div style="font-size:24px;color:var(--gold2)">→</div>';
+    html+='<div style="text-align:center"><div style="font-size:9px;color:var(--tx3)">100% OPTIMISÉ</div><div style="font-size:32px;color:'+newGrade.col+';font-weight:bold;line-height:1">'+newOverall+'</div><div style="font-size:11px;color:var(--tx3)">'+newGrade.l+'</div></div>';
+    html+='<div style="margin-left:auto;text-align:right"><div style="font-size:9px;color:var(--tx3)">SWAPS APPLIQUÉS</div><div style="font-size:24px;color:var(--gold2);font-weight:bold;line-height:1">'+fullOpt.swaps.length+'</div></div>';
+    html+='</div>';
+    html+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">Voir les '+fullOpt.swaps.length+' swaps recommandés ▾</summary>';
+    fullOpt.swaps.forEach(function(sw,i){
+      html+='<div class="ana-swap-row">';
+      html+='<div style="font-size:11px;line-height:1.5">';
+      html+='<span style="color:var(--tx3);font-size:10px">#'+(i+1)+'</span> ';
+      html+='<span style="color:#e07070">– '+esc(sw.cut.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
+      html+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
+      html+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(2)+'</span>';
+      html+='</div></div>';
+    });
+    html+='</details>';
+  }
+  html+='</div>';
+
+  // === Win rate vs archetypes ===
+  var libUser=_anaBuildSimLib(deck);
+  if(libUser.length>=20){
+    function wrBox(label,wr,col){
+      var pctV=Math.round(wr*100);
+      var realCol=col||(pctV>=60?'#78c890':pctV>=45?'#5b8cf5':pctV>=30?'#f5b95b':'#e07070');
+      return '<div class="ana-sub">'+
+        '<div class="ana-sub-label">'+label+'</div>'+
+        '<div class="ana-sub-score" style="color:'+realCol+'">'+pctV+'%</div>'+
+        '<div class="ana-sub-bar"><div style="width:'+pctV+'%;background:'+realCol+'"></div></div>'+
+        '<div class="ana-sub-meta">50 simulations</div>'+
+      '</div>';
+    }
+    var wrAggro=anaWinRate(libUser,function(){return _archetypeDeck('aggro');},50);
+    var wrMid=anaWinRate(libUser,function(){return _archetypeDeck('midrange');},50);
+    var wrCtrl=anaWinRate(libUser,function(){return _archetypeDeck('control');},50);
+    html+='<div class="card"><div class="lbl">⚔️ Win rate estimé vs archétypes</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Match head-to-head avec moteur de jeu simplifié (mulligan, mana, casting prio, combat, removal/wrath/counter, vie 20). 50 parties par matchup.</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">';
+    html+=wrBox('vs Aggro 🔥',wrAggro);
+    html+=wrBox('vs Midrange 🌳',wrMid);
+    html+=wrBox('vs Contrôle 💧',wrCtrl);
+    html+='</div></div>';
+  }
+
+  // === Win rate vs deck selectionne ===
+  html+='<div class="card"><div class="lbl">🆚 Win rate vs un deck spécifique</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Sélectionne un de tes decks ou d\'un ami, puis lance la simulation (les cartes du deck adverse doivent être dans le cache d\'analyse).</div>';
+  // Build options
+  var otherIds=Object.keys(decks||{}).filter(function(id){return id!==deckId&&decks[id]&&decks[id].cards&&decks[id].cards.length;});
+  if(!otherIds.length){
+    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun autre deck disponible.</div>';
+  } else {
+    otherIds.sort(function(a,b){return ((decks[a]||{}).name||'').localeCompare((decks[b]||{}).name||'');});
+    html+='<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">';
+    html+='<select id="ana-vs-deck" class="psel" style="flex:1;min-width:200px">';
+    otherIds.forEach(function(id){
+      var d=decks[id];var nm=esc(d.name||'Sans nom');
+      var fmt=d.format?' ['+d.format+']':'';
+      html+='<option value="'+id+'">'+nm+fmt+'</option>';
+    });
+    html+='</select>';
+    html+='<button class="btn btnp btnsm" onclick="anaRunVsDeck(\''+deckId+'\')">⚔ Simuler 50 parties</button>';
+    html+='</div>';
+    html+='<div id="ana-vs-result" style="margin-top:10px;font-size:12px;color:var(--tx3);font-style:italic">— Pas encore simulé —</div>';
+  }
+  html+='</div>';
+
+  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser};
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
 }
