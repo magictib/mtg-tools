@@ -5117,16 +5117,21 @@ function _renderSmartAnalysis(slug,edhData){
   var edhCards=edhData.cards||[];
   var hasEDH=edhData.ok&&edhCards.length>0;
   var isScryfallFallback=edhData.source==='scryfall';
+  var useEdhSynergy=hasEDH&&!isScryfallFallback;
 
   var edhMap={};
   edhCards.forEach(function(c){
-    var n=((c.name||c.label||c.sanitized||'')).toLowerCase().trim();
+    var n=(c.name||c.label||c.sanitized||'').toLowerCase().trim();
     if(n)edhMap[n]={synergy:parseFloat(c.synergy)||0,num_decks:c.num_decks||0};
   });
 
   var BASICS=['plains','island','swamp','mountain','forest','wastes',
     'snow-covered plains','snow-covered island','snow-covered swamp',
     'snow-covered mountain','snow-covered forest'];
+
+  // Thèmes du commandant à partir de son oracle text
+  var cmdNl=dCommander?dCommander.name.toLowerCase():'';
+  var cmdThemes=_detectCmdThemes((dCardMeta[cmdNl]||{}).oracleText);
 
   var scored=[];var matched=0;
   dCards.forEach(function(c){
@@ -5136,40 +5141,52 @@ function _renderSmartAnalysis(slug,edhData){
     if(e!==undefined)matched++;
     var meta=dCardMeta[c.nl]||{};
     var roles=_smartDetectRoles(meta.typeLine||'',meta.oracleText||'');
-    scored.push({card:c,synergy:synergy,numDecks:e?e.num_decks:0,roles:roles});
+    var ls=_localThemeScore(meta.typeLine||'',meta.oracleText||'',roles,cmdThemes);
+    // Score combiné : EDHREC (commandant-spécifique) + bonus local thème
+    var combScore;
+    if(useEdhSynergy&&synergy!==null){
+      combScore=synergy+ls*0.025; // EDHREC primaire, local = léger correctif
+    } else if(ls>0){
+      combScore=Math.min(0.4,ls*0.08); // local uniquement → échelle synergy
+    } else {
+      combScore=0; // neutre par défaut sans données
+    }
+    scored.push({card:c,synergy:synergy,combScore:combScore,numDecks:e?e.num_decks:0,roles:roles,localScore:ls});
   });
 
-  if(hasEDH&&!isScryfallFallback){
-    statusEl.textContent='✓ '+matched+'/'+scored.length+' cartes analysées (EDHREC)';
+  // Statut
+  if(useEdhSynergy){
+    statusEl.textContent='✓ '+matched+'/'+scored.length+' cartes analysées · EDHREC';
     statusEl.style.color='var(--gr2)';
-  } else if(hasEDH&&isScryfallFallback){
-    statusEl.textContent='⚠ EDHREC indispo — classement Scryfall (sans synergie)';
+  } else if(cmdThemes.length){
+    statusEl.textContent='Analyse locale · thèmes : '+cmdThemes.join(', ')+(isScryfallFallback?' (EDHREC indispo)':'');
     statusEl.style.color='var(--am)';
   } else {
     statusEl.textContent='⚠ Données indisponibles — analyse des rôles uniquement';
     statusEl.style.color='var(--am)';
   }
 
-  var roles={ramp:0,draw:0,removal:0,interaction:0};
-  scored.forEach(function(x){x.roles.forEach(function(r){if(roles[r]!==undefined)roles[r]++;});});
+  var roleCnts={ramp:0,draw:0,removal:0,interaction:0};
+  scored.forEach(function(x){x.roles.forEach(function(r){if(roleCnts[r]!==undefined)roleCnts[r]++;});});
 
-  var pillars=scored.filter(function(x){return x.synergy!==null&&x.synergy>=0.25;}).sort(function(a,b){return b.synergy-a.synergy;});
-  var solids=scored.filter(function(x){return x.synergy!==null&&x.synergy>=0.05&&x.synergy<0.25;}).sort(function(a,b){return b.synergy-a.synergy;});
-  var neutrals=scored.filter(function(x){return x.synergy!==null&&x.synergy>-0.05&&x.synergy<0.05;}).sort(function(a,b){return b.synergy-a.synergy;});
-  var toEval=scored.filter(function(x){return x.synergy===null||x.synergy<=-0.05;}).sort(function(a,b){return (a.synergy||0)-(b.synergy||0);});
+  var pillars=scored.filter(function(x){return x.combScore>=0.25;}).sort(function(a,b){return b.combScore-a.combScore;});
+  var solids=scored.filter(function(x){return x.combScore>=0.05&&x.combScore<0.25;}).sort(function(a,b){return b.combScore-a.combScore;});
+  var neutrals=scored.filter(function(x){return x.combScore>-0.05&&x.combScore<0.05;}).sort(function(a,b){return b.combScore-a.combScore;});
+  var toEval=scored.filter(function(x){return x.combScore<=-0.05;}).sort(function(a,b){return a.combScore-b.combScore;});
 
   var deckNl={};dCards.forEach(function(c){deckNl[c.nl]=1;});
   var suggestions=edhCards.filter(function(c){
-    var n=((c.name||c.label||'')).toLowerCase();
+    var n=(c.name||c.label||'').toLowerCase();
     return n&&!deckNl[n]&&BASICS.indexOf(n)<0;
   }).sort(function(a,b){return (parseFloat(b.synergy)||0)-(parseFloat(a.synergy)||0);}).slice(0,8);
 
   var html='';
 
+  // Badges rôles
   html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:6px">RÔLES DÉTECTÉS</div>';
-  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
   [{k:'ramp',l:'Ramp',c:'var(--gr2)',min:7},{k:'draw',l:'Pioche',c:'#5ba3dc',min:10},{k:'removal',l:'Removal',c:'var(--rd2)',min:6},{k:'interaction',l:'Interaction',c:'var(--am)',min:5}].forEach(function(r){
-    var cnt=roles[r.k];var ok=cnt>=r.min;
+    var cnt=roleCnts[r.k];var ok=cnt>=r.min;
     html+='<div style="background:var(--s3);border-radius:7px;padding:4px 10px;border:.5px solid '+(ok?r.c:'var(--bd2)')+'">'
       +'<span style="font-size:.7rem;color:var(--tx3)">'+r.l+'</span>'
       +'<span style="font-size:.88rem;font-weight:700;color:'+(ok?r.c:'var(--tx3)')+';margin-left:6px">'+cnt+'</span>'
@@ -5178,58 +5195,62 @@ function _renderSmartAnalysis(slug,edhData){
   });
   html+='</div>';
 
-  function cardRow(x){
-    var syn=x.synergy!==null?Math.round(x.synergy*100):null;
-    var col=syn===null?'var(--tx3)':syn>=25?'var(--gr2)':syn>=5?'var(--tx2)':syn<=-5?'var(--rd2)':'var(--tx3)';
-    return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
-      +'<div style="font-size:.82rem;color:var(--tx);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.card.name)+'</div>'
-      +(syn!==null?'<div style="font-size:.72rem;color:'+col+';font-weight:600;flex-shrink:0">'+(syn>0?'+':'')+syn+'%</div>':'<div style="font-size:.72rem;color:var(--tx3);flex-shrink:0">hors EDHREC</div>')
-      +'</div>';
+  // Thèmes commandant détectés
+  if(cmdThemes.length){
+    html+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:12px;padding:3px 8px;background:var(--s3);border-radius:6px;border-left:2px solid var(--gold2)">'
+      +'Thèmes : <span style="color:var(--gold2)">'+cmdThemes.join(', ')+'</span></div>';
   }
 
-  if(!hasEDH||isScryfallFallback){
-    html+='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:.5rem 0">'
-      +(isScryfallFallback
-        ?'Synergie EDHREC indisponible pour ce commandant — seule l\'analyse des rôles est affichée. Les suggestions ci-dessous sont triées par popularité globale (Scryfall), pas par synergie.'
-        :'Données EDHREC indisponibles pour ce commandant — seule l\'analyse des rôles est affichée.')
-      +'</div>';
-    if(isScryfallFallback&&suggestions.length){
-      html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:14px">CARTES POPULAIRES ABSENTES DU DECK</div>';
-      suggestions.forEach(function(s){
-        var n=s.name||s.label||'';
-        html+='<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
-          +'<div style="font-size:.82rem;color:var(--tx2);flex:1">'+esc(n)+'</div>'
-          +'<div style="font-size:.72rem;color:var(--tx3)">populaire</div>'
-          +'</div>';
-      });
+  function cardRow(x){
+    var cs=x.combScore;
+    var col=cs>=0.25?'var(--gr2)':cs>=0.05?'var(--tx2)':cs<=-0.05?'var(--rd2)':'var(--tx3)';
+    var scoreHtml;
+    if(useEdhSynergy&&x.synergy!==null){
+      var pct=Math.round(x.synergy*100);
+      scoreHtml='<div style="font-size:.72rem;color:'+col+';font-weight:600;flex-shrink:0">'+(pct>0?'+':'')+pct+'%</div>';
+    } else if(x.localScore>0){
+      var stars=x.localScore>=4?'★★★':x.localScore>=2?'★★':'★';
+      scoreHtml='<div style="font-size:.72rem;color:'+col+';font-weight:600;flex-shrink:0;letter-spacing:1px" title="Score local : '+x.localScore+'">'+stars+'</div>';
+    } else {
+      scoreHtml='<div style="font-size:.72rem;color:var(--tx3);flex-shrink:0">—</div>';
     }
-  } else {
-    if(pillars.length){
-      html+='<div style="font-size:9px;color:var(--gr2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:4px">PILIERS — Synergie ≥ 25%</div>';
-      html+=pillars.map(cardRow).join('');
-    }
-    if(solids.length){
-      html+='<div style="font-size:9px;color:var(--tx2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">SOLIDES — 5 à 25%</div>';
-      html+=solids.map(cardRow).join('');
-    }
-    if(neutrals.length){
-      html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">NEUTRES — −5% à 5%</div>';
-      html+=neutrals.map(cardRow).join('');
-    }
-    if(toEval.length){
-      html+='<div style="font-size:9px;color:var(--am);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">À ÉVALUER — Faible synergie ou absent d\'EDHREC</div>';
-      html+=toEval.map(cardRow).join('');
-    }
-    if(suggestions.length){
-      html+='<div style="font-size:9px;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:14px">SUGGESTIONS EDHREC — Absentes du deck</div>';
-      suggestions.forEach(function(s){
-        var n=s.name||s.label||'';var syn=Math.round((parseFloat(s.synergy)||0)*100);
-        html+='<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
-          +'<div style="font-size:.82rem;color:var(--gold2);flex:1">'+esc(n)+'</div>'
-          +'<div style="font-size:.72rem;color:var(--gold2);font-weight:600">+'+(syn>0?syn:0)+'%</div>'
-          +'</div>';
-      });
-    }
+    return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
+      +'<div style="font-size:.82rem;color:var(--tx);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.card.name)+'</div>'
+      +scoreHtml+'</div>';
+  }
+
+  var lPillar=useEdhSynergy?'PILIERS — Synergie ≥ 25%':'PILIERS — Fort thème commandant';
+  var lSolid=useEdhSynergy?'SOLIDES — 5 à 25%':'SOLIDES — Thème commandant';
+  var lNeutral='NEUTRES'+(useEdhSynergy?' — −5% à 5%':'');
+  var lEval=useEdhSynergy?'À ÉVALUER — Synergie négative':'À ÉVALUER';
+
+  if(pillars.length){
+    html+='<div style="font-size:9px;color:var(--gr2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:4px">'+lPillar+'</div>';
+    html+=pillars.map(cardRow).join('');
+  }
+  if(solids.length){
+    html+='<div style="font-size:9px;color:var(--tx2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">'+lSolid+'</div>';
+    html+=solids.map(cardRow).join('');
+  }
+  if(neutrals.length){
+    html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">'+lNeutral+'</div>';
+    html+=neutrals.map(cardRow).join('');
+  }
+  if(toEval.length){
+    html+='<div style="font-size:9px;color:var(--am);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:10px">'+lEval+'</div>';
+    html+=toEval.map(cardRow).join('');
+  }
+  if(hasEDH&&suggestions.length){
+    var lSug=useEdhSynergy?'SUGGESTIONS EDHREC — Absentes du deck':'CARTES POPULAIRES — Absentes du deck';
+    html+='<div style="font-size:9px;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:5px;margin-top:14px">'+lSug+'</div>';
+    suggestions.forEach(function(s){
+      var n=s.name||s.label||'';
+      var syn=useEdhSynergy?Math.round((parseFloat(s.synergy)||0)*100):0;
+      html+='<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.3px solid var(--bd)">'
+        +'<div style="font-size:.82rem;color:var(--gold2);flex:1">'+esc(n)+'</div>'
+        +(syn>0?'<div style="font-size:.72rem;color:var(--gold2);font-weight:600">+'+syn+'%</div>':'<div style="font-size:.72rem;color:var(--tx3)">populaire</div>')
+        +'</div>';
+    });
   }
 
   content.innerHTML=html||'<div style="color:var(--tx3);font-style:italic">Aucune donnée</div>';
@@ -5243,6 +5264,67 @@ function _smartDetectRoles(typeLine,oracle){
   if(o.indexOf('destroy target')>=0||o.indexOf('exile target')>=0||/deals \d+ damage to/.test(o))roles.push('removal');
   if(o.indexOf('counter target')>=0||(o.indexOf('return target')>=0&&o.indexOf('to its owner')>=0)||o.indexOf('protection from')>=0)roles.push('interaction');
   return roles;
+}
+
+// Détecte les thèmes mécaniques du commandant depuis son oracle text
+function _detectCmdThemes(oracle){
+  var o=(oracle||'').toLowerCase();
+  var themes=[];
+  if(/(whenever|each time) you draw/.test(o))themes.push('draw');
+  if(/whenever.*(creature|permanent).*(dies|is put into a graveyard)|sacrifice a (creature|permanent)/.test(o))themes.push('sacrifice');
+  if(/whenever.*(creature|permanent).*enters the battlefield|enters the battlefield.*trigger/.test(o))themes.push('etb');
+  if(/whenever you cast|whenever.*cast a (instant|sorcery|spell|noncreature)/.test(o))themes.push('sorts');
+  if(/\+1\/\+1 counter|proliferate|put.*counter.*on (target|each|a)/.test(o))themes.push('compteurs');
+  if(/(whenever|each time).*(gain|lose).*life/.test(o))themes.push('vie');
+  if(/create.*\d.*token|put.*\d.*token/.test(o))themes.push('jetons');
+  if(/whenever.*deals? (combat )?damage to (a player|an opponent)|whenever.*attacks? and/.test(o))themes.push('attaque');
+  if(/whenever.*(you |a player )?discard/.test(o))themes.push('défausse');
+  if(/from (your |a )?graveyard|return.*from.*graveyard|whenever.*graveyard/.test(o))themes.push('cimetière');
+  return themes;
+}
+
+// Score local d'une carte par rapport aux thèmes du commandant
+function _localThemeScore(typeLine,oracle,roles,cmdThemes){
+  if(!cmdThemes||!cmdThemes.length)return 0;
+  var o=(oracle||'').toLowerCase();
+  var t=(typeLine||'').toLowerCase();
+  var score=0;
+  cmdThemes.forEach(function(th){
+    if(th==='draw'){
+      if(roles.indexOf('draw')>=0)score+=3;
+      if(/draw (?:two|three|four|five|[2-9])|draw that many|draw.*cards/.test(o))score+=1;
+    }
+    if(th==='sacrifice'){
+      if(/sacrifice a|when.*dies|death trigger/.test(o))score+=3;
+      if(/create.*token/.test(o))score+=1; // jetons = carburant pour sacrifice
+    }
+    if(th==='etb'){
+      if(/enters the battlefield|when.*comes into play/.test(o))score+=3;
+    }
+    if(th==='sorts'){
+      if(t.indexOf('instant')>=0||t.indexOf('sorcery')>=0)score+=2;
+      if(/copy.*spell|copy.*instant|copy.*sorcery/.test(o))score+=2;
+    }
+    if(th==='compteurs'){
+      if(/\+1\/\+1 counter|put.*counter|proliferate/.test(o))score+=3;
+    }
+    if(th==='vie'){
+      if(/gain.*life|lose.*life|lifelink/.test(o))score+=2;
+    }
+    if(th==='jetons'){
+      if(/create.*token|put.*token/.test(o))score+=3;
+    }
+    if(th==='attaque'){
+      if(/whenever.*attack|when.*deal.*damage/.test(o))score+=3;
+    }
+    if(th==='défausse'){
+      if(/discard|madness/.test(o))score+=3;
+    }
+    if(th==='cimetière'){
+      if(/graveyard|flashback|escape|unearth|embalm/.test(o))score+=2;
+    }
+  });
+  return score;
 }
 
 function dFlt(f,btn){
