@@ -12210,9 +12210,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v8: ajout toughness dans les metas de simulation
-  if((__aP.__version||0)<8){
-    _anaData={__version:8};
+  // Migration v9: ajout mill/reanimate dans les tags + toughness
+  if((__aP.__version||0)<9){
+    _anaData={__version:9};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -12220,7 +12220,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=8;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=9;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -12431,7 +12431,7 @@ function anaInferTags(meta){
   var type=(meta.typeLine||'').toLowerCase();
   if(type.indexOf('land')>=0){return {draw:0,removal:0,ramp:0,interaction:0,wincon:0,isLand:1};}
   var cmc=meta.cmc||0;
-  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0;
+  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0,mill=0,reanimate=0;
   var nMap={a:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7};
   // Pioche — "draw/draws X card(s)" (singulier ou 3e personne)
   var dm=oracle.match(/draws? \w+ cards?/g)||[];
@@ -12501,9 +12501,16 @@ function anaInferTags(meta){
   if(/double|infinite/.test(oracle))wincon+=0.7;
   if(/\+1\/\+1.*creatures you control/.test(oracle))wincon+=0.5;
   if(/commander deals/.test(oracle))wincon+=0.5;
+  // Mill
+  var millPat=oracle.match(/mills? (\w+) cards?/g)||[];
+  millPat.forEach(function(m){var w=m.replace(/mills? /,'').replace(/ cards?/,'').trim();mill+=(nMap[w]||5);});
+  if(/put the top (\w+) cards? of (target|each|any|an opponent)/.test(oracle)){var mm=oracle.match(/put the top (\w+) cards?/);if(mm)mill+=(nMap[mm[1]]||5);}
+  if(/traumatize|mill half|top half/.test(oracle))mill+=20;
+  // Réanimation : retourne une créature du cimetière sur le champ de bataille
+  if(/return target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard to the battlefield|put target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard onto the battlefield/.test(oracle))reanimate=1;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate};
 }
 
 /* ----- Helpers ----- */
@@ -12539,6 +12546,8 @@ function anaRoles(meta){
     wincon:t.wincon>=1.0?1:0,
     wrath:t.wrath>=1?1:0,
     counter:t.counter>=1?1:0,
+    mill:t.mill>=3?1:0,
+    reanimate:t.reanimate>=1?1:0,
     land:0,
     creature:tl.indexOf('creature')>=0?1:0
   };
@@ -13259,9 +13268,10 @@ function _anaBuildSimLib(deck){
     var roles=anaRoles(meta);
     var power=roles.creature?(meta.power!=null?meta.power:Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2))):0;
     var toughness=roles.creature?(meta.toughness!=null?meta.toughness:Math.max(1,power+1)):0;
+    var millAmt=(roles.mill&&meta.tags)?meta.tags.millAmt||8:0;
     var qty=c.qty||1;
     for(var i=0;i<qty;i++){
-      lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power,toughness:toughness});
+      lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power,toughness:toughness,millAmt:millAmt});
     }
   });
   return lib;
@@ -13297,10 +13307,11 @@ function _archetypeDeck(kind,targetSize){
       add(12,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{interaction:1,counter:1},power:0};});
       add(12,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{removal:1,interaction:1},power:0};});
       add(5,function(){return {cmc:4,isLand:false,roles:{removal:1,wrath:1,interaction:1},power:0};});
-      add(8,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0};});
+      add(5,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0};});
       add(5,function(){return {cmc:2,isLand:false,roles:{ramp:1},power:0};});
-      add(6,function(){return {cmc:6,isLand:false,roles:{creature:1,wincon:1},power:7};});
-      add(14,function(){var c=3+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{interaction:1},power:0};});
+      add(5,function(){return {cmc:5,isLand:false,roles:{creature:1,wincon:1},power:5,toughness:5};});
+      add(5,function(){return {cmc:4,isLand:false,roles:{creature:1,wincon:1},power:4,toughness:4};});
+      add(13,function(){var c=3+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{interaction:1},power:0};});
     } else if(kind==='combo'){
       add(37,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
       add(16,function(){var c=1+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0};});
@@ -13443,11 +13454,12 @@ function _wrCell(wr){
 
 /* ----- Moteur de match head-to-head ----- */
 function _matchPlayer(lib,startLife){return {life:startLife||20,lib:_anaShuffle(lib.slice()),hand:[],bf:[],lastCast:null,cmd:null,cmdTax:0};}
-function _matchDraw(p,n){n=n||1;for(var i=0;i<n;i++)if(p.lib.length)p.hand.push(p.lib.shift());}
+function _matchDraw(p,n){n=n||1;for(var i=0;i<n;i++){if(p.lib.length)p.hand.push(p.lib.shift());else p.milledOut=true;}}
 function _castPriority(c,opp,turn,self){
   var oppHasCreature=opp.bf.some(function(x){return x.roles&&x.roles.creature;});
   var oppHasWincon=opp.bf.some(function(x){return x.roles&&x.roles.wincon;});
   if(c.roles.wrath&&oppHasCreature)return 200;
+  if(c.roles.mill&&opp.lib&&opp.lib.length<25)return 190;
   if(c.roles.removal&&oppHasWincon)return 180;
   if(c.roles.removal&&oppHasCreature)return 130;
   if(c.roles.ramp&&turn<=4)return 110;
@@ -13457,6 +13469,8 @@ function _castPriority(c,opp,turn,self){
   if(c.roles.draw&&turn<=5)return 95;
   if(c.roles.wincon)return 80;
   if(c.roles.creature)return 60;
+  if(c.roles.reanimate)return 72;
+  if(c.roles.mill)return 65;
   if(c.roles.interaction&&!c.roles.counter)return 50;
   if(c.roles.draw)return 55; // late game : draw reste utile (was 30)
   if(c.roles.counter)return 40;
@@ -13491,6 +13505,16 @@ function _applySpell(c,self,opp){
     return;
   }
   if(c.roles.ramp){self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});return;}
+  if(c.roles.mill){
+    var mn=Math.min(c.millAmt||8,opp.lib.length);
+    opp.lib.splice(0,mn);
+    return;
+  }
+  if(c.roles.reanimate){
+    // Simule la réanimation : pose une grosse créature depuis le cimetière
+    self.bf.push({cmc:5,isLand:false,roles:{creature:1,wincon:1},power:5,toughness:5,reanimated:true});
+    return;
+  }
   if(c.roles.draw){
     var draws=2;
     _matchDraw(self,draws);
@@ -13600,10 +13624,14 @@ function _matchSimulate(libA,libB,maxTurns,opts){
   for(var t=1;t<=maxTurns;t++){
     if(aOnPlay){
       if(_matchTurn(a,b,t,t===1))return 'A';
+      if(b.milledOut)return 'A';
       if(_matchTurn(b,a,t,false))return 'B';
+      if(a.milledOut)return 'B';
     } else {
       if(_matchTurn(b,a,t,t===1))return 'B';
+      if(a.milledOut)return 'B';
       if(_matchTurn(a,b,t,false))return 'A';
+      if(b.milledOut)return 'A';
     }
   }
   if(a.life>b.life)return 'A';
