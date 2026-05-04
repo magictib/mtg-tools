@@ -297,7 +297,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .syn-neu{background:rgba(100,100,120,.1);color:var(--tx3);border:.5px solid var(--bd)}
 .edhrec-decks{font-size:.7rem;color:var(--tx3);min-width:60px;text-align:right}
 .edh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:.5rem}
-.edh-card{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color .15s;-webkit-tap-highlight-color:transparent;contain:content}
+.edh-card{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color .15s;-webkit-tap-highlight-color:transparent;contain:content;position:relative}
+.bld-maxed{opacity:.42;filter:grayscale(60%)}
+.bld-max-badge{position:absolute;top:4px;left:4px;background:rgba(180,40,40,.88);color:#fff;font-size:.52rem;padding:1px 5px;border-radius:3px;font-family:'Goudy Mediaeval',serif;letter-spacing:.07em;pointer-events:none;z-index:2}
 .edh-card:hover{border-color:var(--ac)}
 .edh-card.edh-sel{opacity:.45;border-color:var(--gr2)!important;transform:none!important}
 #edh-zoom{position:fixed;z-index:9999;pointer-events:none;display:none;width:260px;border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.8);transition:opacity .1s}
@@ -11998,6 +12000,30 @@ function renderBldDecks(){
   }
   el=document.getElementById('bld-sideblist');if(el)el.innerHTML=bldSide.map(function(c){return row(c,'sideb');}).join('');
   el=document.getElementById('bld-avoirlist');if(el)el.innerHTML=bldAvoir.map(function(c){return row(c,'avoir');}).join('');
+  bldUpdateResMaxed();
+}
+function bldMaxCopies(c){
+  if(c&&c.type&&c.type.indexOf('Basic')>=0)return 999;
+  var fmt=bldFormat;
+  if(fmt==='commander'||fmt==='paupercmd')return 1;
+  return 4;
+}
+function bldUpdateResMaxed(){
+  function applyMaxed(el,name){
+    var d=bldData[(name||'').toLowerCase()];
+    if(!d)return;
+    var max=bldMaxCopies(d);
+    var cnt=0;var idx=bldFindIn(bldMain,d.name||name);if(idx>=0)cnt=bldMain[idx].qty;
+    var maxed=cnt>=max;
+    el.classList.toggle('bld-maxed',maxed);
+    var badge=el.querySelector('.bld-max-badge');
+    if(maxed&&!badge){var b=document.createElement('div');b.className='bld-max-badge';b.textContent='MAX';el.insertBefore(b,el.firstChild);}
+    else if(!maxed&&badge)badge.remove();
+  }
+  ['bld-resgrid','bld-opt-grid'].forEach(function(gid){
+    var g=document.getElementById(gid);if(!g)return;
+    g.querySelectorAll('.edh-card[data-cardname]').forEach(function(el){applyMaxed(el,el.dataset.cardname);});
+  });
 }
 function renderBldStats(){
   var sc=document.getElementById('bld-statscard');
@@ -12075,7 +12101,7 @@ function bldOptimize(){
         var zm=dobj.img?' data-zoom="'+dobj.img.replace(/"/g,'&quot;')+'" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()"':'';
         var banStatus=bldGetBanStatus(dobj);
         var banClass=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
-        return '<div class="edh-card'+banClass+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\'search\')" style="touch-action:none;user-select:none;cursor:grab"'+zm+'>'
+        return '<div class="edh-card'+banClass+'" data-cardname="'+esc(dobj.name.toLowerCase())+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\'search\')" style="touch-action:none;user-select:none;cursor:grab"'+zm+'>'
           +(dobj.img?'<img src="'+dobj.img+'" alt="'+esc(dobj.name)+'" loading="lazy">'
                     :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(dobj.name)+'</div>')
           +'<div class="edh-meta"><div class="edh-nm">'+esc(dobj.name)+'</div>'
@@ -15275,21 +15301,34 @@ function metaParseGoldfish(html){
 function metaFetchEdhrec(fmt,label){
   var url=META_EDHREC_URLS[fmt];
   function parseEdhrec(data){
-    // Support multiple response shapes
     var cardViews=[];
-    if(Array.isArray(data)){cardViews=data;}
-    else{
-      var c=data.container||data;
-      var jd=c.json_dict||c;
-      cardViews=jd.cardviews||jd.commanders||jd.top||[];
-      if(!cardViews.length&&data.container)cardViews=((data.container.json_dict||{}).cardviews)||[];
+    function tryObj(obj){
+      if(!obj||typeof obj!=='object')return;
+      if(Array.isArray(obj)){if(obj.length&&obj[0]&&(obj[0].name||obj[0].sanitized)){cardViews=obj;return;}}
+      var direct=obj.cardviews||obj.commanders||obj.top||obj.paupercards||obj.cards||obj.data||[];
+      if(direct.length&&direct[0]&&(direct[0].name||direct[0].sanitized)){cardViews=direct;return;}
+      if(obj.cardlists&&Array.isArray(obj.cardlists)){
+        for(var i=0;i<obj.cardlists.length;i++){var v=obj.cardlists[i].cardviews||obj.cardlists[i].commanders||[];if(v.length){cardViews=v;return;}}
+      }
+      if(obj.json_dict){tryObj(obj.json_dict);if(cardViews.length)return;}
+      if(obj.container){tryObj(obj.container);if(cardViews.length)return;}
+    }
+    tryObj(data);
+    if(!cardViews.length){
+      // Deep scan: first array > 2 items whose entries have a .name field
+      function deepScan(o,d){
+        if(d>6||!o||typeof o!=='object')return;
+        if(Array.isArray(o)){if(o.length>2&&o[0]&&o[0].name){cardViews=o;return;}o.forEach(function(item){if(!cardViews.length)deepScan(item,d+1);});}
+        else{Object.keys(o).forEach(function(k){if(!cardViews.length)deepScan(o[k],d+1);});}
+      }
+      deepScan(data,0);
     }
     var decks=[];
     cardViews.slice(0,80).forEach(function(cv){
       var name=cv.name||cv.sanitized_wo_braces||cv.sanitized||'';
       if(!name)return;
-      var numDecks=cv.num_decks||cv.count||0;
-      var colors=(cv.color_identity||[]).map(function(c){return(c+'').toUpperCase();});
+      var numDecks=cv.num_decks||cv.count||cv.deck_count||0;
+      var colors=(cv.color_identity||cv.colorIdentity||[]).map(function(c){return(c+'').toUpperCase();});
       var u=cv.url?'https://edhrec.com'+cv.url:'';
       decks.push({name:name,colors:colors,playRate:numDecks,winRate:null,source:'EDHREC',url:u});
     });
@@ -15305,7 +15344,10 @@ function metaFetchEdhrec(fmt,label){
   }
   function handleData(data){
     var decks=parseEdhrec(data);
-    if(!decks.length){metaSetStatus('Aucune donnée EDHREC pour '+label+'. Format de réponse inattendu.','var(--rd2)');return;}
+    if(!decks.length){
+      var keys=data&&typeof data==='object'?Object.keys(data).join(', '):'(non-objet)';
+      metaSetStatus('EDHREC '+label+' : 0 commandant. Clés JSON reçues : '+keys,'var(--rd2)');return;
+    }
     _metaPending[fmt]=decks;
     metaSetStatus(decks.length+' commandants récupérés pour '+label+'. Ajustez les tiers puis sauvegardez.','var(--gr2)');
     metaShowAdminPreview(fmt);
