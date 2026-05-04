@@ -13133,10 +13133,21 @@ var _ARCH_LABELS={
 };
 
 /* ----- Construction format simulation pour un deck ----- */
+function _anaExtractCmd(deck){
+  if(!deck||!deck.commander)return null;
+  var nl=_normNl(deck.commander.name||'');
+  var meta=_anaData[nl]||_anaData[deck.commander.nl||''];
+  if(!meta)return null;
+  var roles=anaRoles(meta);
+  var power=roles.creature?Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2)):0;
+  return {name:deck.commander.name,nl:nl,cmc:meta.cmc||0,isLand:false,roles:roles,power:power,isCommander:true};
+}
 function _anaBuildSimLib(deck){
   var lib=[];
   if(!deck||!deck.cards)return lib;
+  var cmdNl=deck.commander?_normNl(deck.commander.name||''):null;
   deck.cards.forEach(function(c){
+    if(cmdNl&&c.nl===cmdNl)return; // commandant géré séparément via command zone
     var meta=_anaData[c.nl];if(!meta)return;
     var roles=anaRoles(meta);
     var power=roles.creature?Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2)):0;
@@ -13249,7 +13260,7 @@ function _wrCell(wr){
 }
 
 /* ----- Moteur de match head-to-head ----- */
-function _matchPlayer(lib,startLife){return {life:startLife||20,lib:_anaShuffle(lib.slice()),hand:[],bf:[],lastCast:null};}
+function _matchPlayer(lib,startLife){return {life:startLife||20,lib:_anaShuffle(lib.slice()),hand:[],bf:[],lastCast:null,cmd:null,cmdTax:0};}
 function _matchDraw(p,n){n=n||1;for(var i=0;i<n;i++)if(p.lib.length)p.hand.push(p.lib.shift());}
 function _castPriority(c,opp,turn){
   var oppHasCreature=opp.bf.some(function(x){return x.roles&&x.roles.creature;});
@@ -13262,70 +13273,76 @@ function _castPriority(c,opp,turn){
   if(c.roles.wincon)return 80;
   if(c.roles.creature)return 60;
   if(c.roles.interaction&&!c.roles.counter)return 50;
-  if(c.roles.counter)return 40; // garde du mana, pas casté pro-actively
+  if(c.roles.counter)return 40;
   return 30;
 }
 function _applySpell(c,self,opp){
-  // Counterspell : si l'adversaire a juste casté un sort, on le contre (lastCast retiré du board s'il y est)
+  // Counterspell : contre le dernier sort casté — si c'est le commandant, taxe++
   if(c.roles.counter&&opp.lastCast){
-    var idx=opp.bf.indexOf(opp.lastCast);
+    var lc=opp.lastCast;
+    var idx=opp.bf.indexOf(lc);
     if(idx>=0)opp.bf.splice(idx,1);
+    if(lc.isCommander)opp.cmdTax++; // retour en command zone, taxe +2 au prochain lancer
     opp.lastCast=null;
     return;
   }
-  // Wrath : kill toutes les creatures de l'adversaire
+  // Wrath : kill toutes les créatures — le commandant retourne en command zone avec taxe
   if(c.roles.wrath){
+    if(opp.cmd&&opp.bf.some(function(x){return x===opp.cmd;}))opp.cmdTax++;
+    if(self.cmd&&self.bf.some(function(x){return x===self.cmd;}))self.cmdTax++;
     opp.bf=opp.bf.filter(function(x){return !(x.roles&&x.roles.creature);});
     self.bf=self.bf.filter(function(x){return !(x.roles&&x.roles.creature);});
     return;
   }
-  // Removal : kill la plus grosse menace adverse
+  // Removal : kill la plus grosse menace — si c'est le commandant, taxe++
   if(c.roles.removal){
     var threats=opp.bf.filter(function(x){return x.roles.creature||x.roles.wincon;});
     if(threats.length){
       var best=threats.reduce(function(mx,x){return (x.power||0)+(x.roles.wincon?5:0)>(mx.power||0)+(mx.roles.wincon?5:0)?x:mx;});
-      var i=opp.bf.indexOf(best);if(i>=0)opp.bf.splice(i,1);
+      var i=opp.bf.indexOf(best);
+      if(i>=0){opp.bf.splice(i,1);if(best.isCommander)opp.cmdTax++;}
     } else if(c.faceDmg){opp.life-=c.faceDmg;}
     return;
   }
-  // Ramp
   if(c.roles.ramp){self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});return;}
-  // Draw
   if(c.roles.draw){_matchDraw(self,2);return;}
-  // Creature/wincon : reste sur le bf
   if(c.roles.creature||c.roles.wincon){self.bf.push(c);self.lastCast=c;return;}
-  // Burn direct
   if(c.faceDmg){opp.life-=c.faceDmg;return;}
 }
 function _matchTurn(self,opp,turn,onPlay){
-  // Untap, draw (sauf T1 OTP)
   if(!(turn===1&&onPlay))_matchDraw(self,1);
   // Land drop
   var li=-1;for(var i=0;i<self.hand.length;i++)if(self.hand[i].isLand){li=i;break;}
   if(li>=0)self.bf.push(self.hand.splice(li,1)[0]);
-  // Mana
+  // Mana disponible
   var mana=self.bf.filter(function(c){return c.isLand;}).length;
-  // Cast spells avec priorite (laisser un peu de mana pour les counter si on en a)
   var hasCounter=self.hand.some(function(c){return c.roles&&c.roles.counter;});
   var castable=self.hand.filter(function(c){return !c.isLand&&c.cmc<=mana;}).slice();
   castable.sort(function(a,b){return _castPriority(b,opp,turn)-_castPriority(a,opp,turn);});
   var manaLeft=mana;
-  // Reserver 2 mana si on a un counter en main et que c'est faisable
   var reserve=hasCounter&&mana>=4?2:0;
   castable.forEach(function(c){
     if(c.cmc>manaLeft-reserve)return;
-    if(c.roles.counter&&turn<=2)return; // garde le counter
+    if(c.roles.counter&&turn<=2)return;
     var idx=self.hand.indexOf(c);if(idx<0)return;
     self.hand.splice(idx,1);manaLeft-=c.cmc;
     _applySpell(c,self,opp);
   });
-  // Combat : attaque avec creatures (pas le tour 1 sur le play, summoning sickness simplifie)
+  // Lancer le commandant depuis la command zone si affordable et pas déjà sur le champ
+  if(self.cmd&&!self.bf.some(function(x){return x===self.cmd;})){
+    var cmdCost=self.cmd.cmc+(self.cmdTax||0)*2;
+    if(manaLeft-reserve>=cmdCost){
+      manaLeft-=cmdCost;
+      _applySpell(self.cmd,self,opp);
+      self.lastCast=self.cmd;
+    }
+  }
+  // Combat
   if(turn>=2){
     var attackers=self.bf.filter(function(c){return c.roles.creature&&!c.justCast;});
     if(attackers.length){
       var totalPower=attackers.reduce(function(s,c){return s+(c.power||0);},0);
       var blockers=opp.bf.filter(function(c){return c.roles.creature;});
-      // Blocking simplifie : adversaire bloque au mieux
       blockers.sort(function(a,b){return (b.power||0)-(a.power||0);});
       attackers.sort(function(a,b){return (b.power||0)-(a.power||0);});
       var blocked=0;
@@ -13333,13 +13350,11 @@ function _matchTurn(self,opp,turn,onPlay){
         blocked+=Math.min(blockers[k].power||0,attackers[k].power||0);
       }
       var faceDmg=Math.max(0,totalPower-blocked);
-      // Buff anthem : +1 par anthem en jeu
       var anthemBonus=self.bf.filter(function(c){return c.anthem;}).length*attackers.length;
       faceDmg+=anthemBonus;
       opp.life-=faceDmg;
     }
   }
-  // Marquer summoning sickness off pour prochain tour
   self.bf.forEach(function(c){c.justCast=false;});
   return opp.life<=0;
 }
@@ -13347,7 +13362,6 @@ function _matchSimulate(libA,libB,maxTurns,opts){
   opts=opts||{};
   var startLife=opts.startLife||20;
   maxTurns=maxTurns||(opts.maxTurns||12);
-  // Mulligan jusqu'a 1 fois (paris simplifie)
   function startHand(lib){
     for(var attempt=0;attempt<2;attempt++){
       var p=_matchPlayer(lib,startLife);_matchDraw(p,7);
@@ -13357,6 +13371,9 @@ function _matchSimulate(libA,libB,maxTurns,opts){
     var p=_matchPlayer(lib,startLife);_matchDraw(p,6);return p;
   }
   var a=startHand(libA);var b=startHand(libB);
+  // Assigner les commandants (command zone) si fournis
+  if(opts.cmdA){a.cmd=opts.cmdA;a.cmdTax=0;}
+  if(opts.cmdB){b.cmd=opts.cmdB;b.cmdTax=0;}
   // Coin flip
   var aOnPlay=Math.random()<0.5;
   for(var t=1;t<=maxTurns;t++){
@@ -13401,7 +13418,9 @@ function anaRunVsDeck(myDeckId){
       return;
     }
     var _vsFmt=myDeck.format||'';
-    var _vsOpts=anaIsCommanderFormat(_vsFmt)?(_anaSimMode==='duel'?{startLife:20,maxTurns:14}:{startLife:40,maxTurns:20}):{startLife:20,maxTurns:12};
+    var _vsBase=anaIsCommanderFormat(_vsFmt)?(_anaSimMode==='duel'?{startLife:20,maxTurns:14}:{startLife:40,maxTurns:20}):{startLife:20,maxTurns:12};
+    var _vsCmd=_anaExtractCmd(myDeck);var _vsOppCmd=_anaExtractCmd(oppDeck);
+    var _vsOpts=Object.assign({},_vsBase,_vsCmd?{cmdA:_vsCmd}:{},_vsOppCmd?{cmdB:_vsOppCmd}:{});
     res.innerHTML='⏳ Simulation 50 parties…';
     setTimeout(function(){
       var wr=anaWinRate(libA,libB,50,_vsOpts);
@@ -13605,6 +13624,7 @@ function anaRefreshMatrix(){
   if(!wrap||!_anaState)return;
   var libUser=_anaState.libUser;
   var fullOpt=_anaState.fullOpt;
+  var cmdUser=_anaState.cmdUser||null;
   var fmt=(_anaState.deck&&_anaState.deck.format)||'';
   var overall=_anaState.overall;
   var grade=anaGrade(overall);
@@ -13623,7 +13643,8 @@ function anaRefreshMatrix(){
     ];
     var _isCmd=anaIsCommanderFormat(fmt);
     var _isDuel=_anaSimMode==='duel';
-    var _simOpts=_isCmd?(_isDuel?{startLife:20,maxTurns:14}:{startLife:40,maxTurns:20}):(_isDuel?{startLife:20,maxTurns:12}:{startLife:20,maxTurns:12});
+    var _base=_isCmd?(_isDuel?{startLife:20,maxTurns:14}:{startLife:40,maxTurns:20}):{startLife:20,maxTurns:12};
+    var _simOpts=cmdUser?Object.assign({},_base,{cmdA:cmdUser}):_base;
     var _arcSz=_isCmd?libUser.length:40;
     var _simRuns=80;
     var libOpt=fullOpt&&fullOpt.swaps&&fullOpt.swaps.length?_anaApplyOptToLib(libUser,fullOpt.swaps):null;
@@ -14192,6 +14213,7 @@ function anaRender(deckId){
 
   // === Matrice de matchups (style metagame) ===
   var libUser=_anaBuildSimLib(deck);
+  var cmdUser=_anaExtractCmd(deck);
   if(libUser.length>=20){
     var _isCmd=anaIsCommanderFormat(fmt);
     html+='<div class="card" id="ana-matrix-card">';
@@ -14231,7 +14253,7 @@ function anaRender(deckId){
   }
   html+='</div>';
 
-  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt};
+  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
