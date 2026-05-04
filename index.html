@@ -419,12 +419,17 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   #cmd-right{position:static;flex:1 1 auto;max-height:none;overflow-y:visible}
 }
 #bld-cols{display:flex;gap:10px;align-items:start}
-#bld-left{flex:1 1 0;min-width:0}
-#bld-right{flex:0 0 260px;min-width:0;position:sticky;top:16px;max-height:calc(100vh - 48px);overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
+#bld-left{flex:1 1 0;min-width:0;position:sticky;top:56px;max-height:calc(100vh - 70px);overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
+#bld-right{flex:1 1 0;min-width:0}
 #bld-left>.card,#bld-right>.card{margin-bottom:8px}
-@media(max-width:560px){
+#bld-drag-overlay{position:fixed;bottom:0;left:0;right:0;z-index:9900;display:none;justify-content:center;align-items:center;padding:12px 20px 24px;background:linear-gradient(0deg,rgba(8,5,2,.96) 60%,transparent 100%);pointer-events:none}
+#bld-drag-overlay.active{display:flex;pointer-events:all}
+.bld-drop-btn{flex:0 0 120px;min-height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:12px;border:2px solid rgba(255,255,255,.2);background:rgba(22,14,6,.9);color:var(--tx2);font-size:.72rem;font-family:'Goudy Mediaeval',serif;letter-spacing:.04em;cursor:pointer;transition:background .12s,border-color .12s;pointer-events:all}
+.bld-drop-btn.dragover{background:rgba(180,140,50,.22);border-color:var(--gold2);color:var(--gold2)}
+.bld-drop-btn .dbi{font-size:1.3rem;line-height:1}
+@media(max-width:760px){
   #bld-cols{flex-direction:column}
-  #bld-right{position:static;flex:1 1 auto;max-height:none;overflow-y:visible}
+  #bld-left{position:static;flex:1 1 auto;max-height:none;overflow-y:visible}
 }
 @media(max-width:700px){
   #deck-res-cols{flex-direction:column}
@@ -1718,6 +1723,84 @@ body.mana-cursor{cursor:none}
 <div class="page" id="pg-build">
 <div id="bld-cols">
 <div id="bld-left">
+  <!-- Setup : format + charger deck -->
+  <div class="card" style="margin-bottom:8px">
+    <div class="lbl" style="margin-bottom:6px">Format & Deck</div>
+    <select id="bld-fmt-sel" onchange="bldSetFormat(this.value)" style="width:100%;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;margin-bottom:8px">
+      <option value="">— Format (ban list) —</option>
+      <option value="commander">Commander</option>
+      <option value="paupercmd">Pauper EDH</option>
+      <option value="pauper">Pauper</option>
+      <option value="standard">Standard</option>
+      <option value="pioneer">Pioneer</option>
+      <option value="modern">Modern</option>
+      <option value="legacy">Legacy</option>
+      <option value="vintage">Vintage</option>
+    </select>
+    <div style="display:flex;gap:6px">
+      <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+        <option value="">— Charger un deck existant —</option>
+      </select>
+      <button class="btn btnsm btnp" onclick="bldLoadSelectedDeck()">Charger</button>
+    </div>
+  </div>
+  <!-- Deck list with 4 sections -->
+  <div class="card" id="bld-deckcard" style="display:none">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem;flex-wrap:wrap">
+      <div class="lbl" style="margin-bottom:0">Deck — <span id="bld-main-n">0</span></div>
+      <div style="display:flex;gap:3px;margin-left:auto">
+        <button class="dm active" id="bld-sort-type" onclick="setBldSort('type',this)">Type</button>
+        <button class="dm" id="bld-sort-cmc" onclick="setBldSort('cmc',this)">CMC</button>
+        <button class="dm" id="bld-sort-name" onclick="setBldSort('name',this)">Nom</button>
+      </div>
+    </div>
+    <div id="bld-mainlist" class="bld-drop-zone" style="margin-bottom:1rem"
+         ondragover="bldDragOver(event,'main')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'main')"></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem">
+      <div class="lbl" style="margin-bottom:0;color:#4a9eff">Sideboard — <span id="bld-sideb-n">0</span></div>
+    </div>
+    <div id="bld-sideblist" class="bld-drop-zone" style="margin-bottom:1rem"
+         ondragover="bldDragOver(event,'sideb')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'sideb')"></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem">
+      <div class="lbl" style="margin-bottom:0;color:var(--am)">À voir — <span id="bld-avoir-n">0</span></div>
+      <span style="font-size:.68rem;color:var(--tx3);font-style:italic;margin-left:auto">glisser pour déplacer</span>
+    </div>
+    <div id="bld-avoirlist" class="bld-drop-zone" style="margin-bottom:1rem"
+         ondragover="bldDragOver(event,'avoir')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'avoir')"></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem">
+      <div class="lbl" style="margin-bottom:0;color:var(--tx3)">Oublié — <span id="bld-oublie-n">0</span></div>
+    </div>
+    <div id="bld-oublielist" class="bld-drop-zone" style="margin-bottom:.5rem"
+         ondragover="bldDragOver(event,'oublie')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'oublie')"></div>
+    <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btnsm btnp" onclick="bldSaveDeck()">💾 Sauvegarder</button>
+      <button class="btn btnsm" onclick="bldClear()">🗑 Vider</button>
+    </div>
+  </div>
+</div><!-- /bld-left -->
+<div id="bld-right">
+  <!-- Stats sticky -->
+  <div class="bld-sticky-stats" id="bld-statscard" style="display:none">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between">
+      <div style="display:flex;gap:10px" id="bld-cntrs"></div>
+      <div id="bld-curve" style="display:flex;align-items:flex-end;gap:2px;height:32px"></div>
+    </div>
+    <div id="bld-colorbar" style="margin-top:6px;display:flex;gap:3px;flex-wrap:wrap"></div>
+    <div id="bld-types" style="display:none"></div>
+    <div style="margin-top:8px">
+      <button class="btn btnsm" onclick="bldOptimize()" style="width:100%;font-size:.75rem">✨ Plan d'optimisation</button>
+    </div>
+  </div>
+  <!-- Optimization results -->
+  <div class="card" id="bld-optcard" style="display:none;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+      <div class="lbl" style="margin-bottom:0">✨ Suggestions</div>
+      <span id="bld-opt-needed" style="font-size:.7rem;color:var(--am)"></span>
+      <button class="btn btnsm" style="margin-left:auto" onclick="document.getElementById('bld-optcard').style.display='none'">✕</button>
+    </div>
+    <div class="edh-grid" id="bld-opt-grid"></div>
+  </div>
+  <!-- Search -->
   <div class="card">
     <div class="lbl">Recherche de cartes</div>
     <div style="margin-bottom:8px">
@@ -1809,63 +1892,25 @@ body.mana-cursor{cursor:none}
     <div class="edh-grid" id="bld-resgrid"></div>
     <button class="btn btnsm" id="bld-morebtn" style="width:100%;margin-top:8px;display:none" onclick="bldLoadMore()">Charger plus</button>
   </div>
-</div><!-- /bld-left -->
-<div id="bld-right">
-  <!-- Setup : format + charger deck -->
-  <div class="card" style="margin-bottom:8px">
-    <div class="lbl" style="margin-bottom:6px">Format & Deck</div>
-    <select id="bld-fmt-sel" onchange="bldSetFormat(this.value)" style="width:100%;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;margin-bottom:8px">
-      <option value="">— Format (ban list) —</option>
-      <option value="commander">Commander</option>
-      <option value="paupercmd">Pauper EDH</option>
-      <option value="pauper">Pauper</option>
-      <option value="standard">Standard</option>
-      <option value="pioneer">Pioneer</option>
-      <option value="modern">Modern</option>
-      <option value="legacy">Legacy</option>
-      <option value="vintage">Vintage</option>
-    </select>
-    <div style="display:flex;gap:6px">
-      <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-        <option value="">— Charger un deck existant —</option>
-      </select>
-      <button class="btn btnsm btnp" onclick="bldLoadSelectedDeck()">Charger</button>
-    </div>
-  </div>
-  <!-- Stats sticky -->
-  <div class="bld-sticky-stats" id="bld-statscard" style="display:none">
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between">
-      <div style="display:flex;gap:10px" id="bld-cntrs"></div>
-      <div id="bld-curve" style="display:flex;align-items:flex-end;gap:2px;height:32px"></div>
-    </div>
-    <div id="bld-colorbar" style="margin-top:6px;display:flex;gap:3px;flex-wrap:wrap"></div>
-    <div id="bld-types" style="display:none"></div>
-  </div>
-  <!-- Deck list -->
-  <div class="card" id="bld-deckcard" style="display:none">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem;flex-wrap:wrap">
-      <div class="lbl" style="margin-bottom:0">Deck — <span id="bld-main-n">0</span></div>
-      <div style="display:flex;gap:3px;margin-left:auto">
-        <button class="dm active" id="bld-sort-type" onclick="setBldSort('type',this)">Type</button>
-        <button class="dm" id="bld-sort-cmc" onclick="setBldSort('cmc',this)">CMC</button>
-        <button class="dm" id="bld-sort-name" onclick="setBldSort('name',this)">Nom</button>
-      </div>
-    </div>
-    <div id="bld-mainlist" class="bld-drop-zone" style="margin-bottom:1rem"
-         ondragover="bldDragOver(event,'main')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'main')"></div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem">
-      <div class="lbl" style="margin-bottom:0;color:var(--am)">À voir — <span id="bld-side-n">0</span></div>
-      <span style="font-size:.68rem;color:var(--tx3);font-style:italic;margin-left:auto">glisser ou cliquer pour déplacer</span>
-    </div>
-    <div id="bld-sidelist" class="bld-drop-zone"
-         ondragover="bldDragOver(event,'side')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'side')"></div>
-    <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-      <button class="btn btnsm btnp" onclick="bldSaveDeck()">💾 Sauvegarder</button>
-      <button class="btn btnsm" onclick="bldClear()">🗑 Vider</button>
-    </div>
-  </div>
 </div><!-- /bld-right -->
 </div><!-- /bld-cols -->
+<!-- Drag overlay -->
+<div id="bld-drag-overlay">
+  <div style="display:flex;gap:10px;padding:12px 16px;background:rgba(12,8,3,.93);border-radius:14px;border:1px solid rgba(201,168,76,.35);box-shadow:0 8px 40px rgba(0,0,0,.85)">
+    <div class="bld-drop-btn" id="bld-ov-main" ondragover="bldOvOver(event,'main')" ondragleave="bldOvLeave('main')" ondrop="bldOvDrop(event,'main')">
+      <span class="dbi">🃏</span>Deck
+    </div>
+    <div class="bld-drop-btn" id="bld-ov-sideb" ondragover="bldOvOver(event,'sideb')" ondragleave="bldOvLeave('sideb')" ondrop="bldOvDrop(event,'sideb')">
+      <span class="dbi">↕</span>Side
+    </div>
+    <div class="bld-drop-btn" id="bld-ov-avoir" ondragover="bldOvOver(event,'avoir')" ondragleave="bldOvLeave('avoir')" ondrop="bldOvDrop(event,'avoir')">
+      <span class="dbi">👁</span>À voir
+    </div>
+    <div class="bld-drop-btn" id="bld-ov-oublie" ondragover="bldOvOver(event,'oublie')" ondragleave="bldOvLeave('oublie')" ondrop="bldOvDrop(event,'oublie')">
+      <span class="dbi">🚫</span>Oublié
+    </div>
+  </div>
+</div>
 </div>
 
 <!-- PARTIES -->
@@ -11507,7 +11552,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 // ===== BUILDER =====
-var bldMain=[],bldSide=[],bldSrchColors=new Set(),bldSrchRarity='',bldSrchKeywords=new Set(),bldNextPage=null,bldData={};
+var bldMain=[],bldSide=[],bldAvoir=[],bldOublie=[],bldSrchColors=new Set(),bldSrchRarity='',bldSrchKeywords=new Set(),bldNextPage=null,bldData={};
 var bldCollFilter=new Set();
 var bldFormat='',bldSortMode='type',_bldDragSrc=null,_bldDragSection=null;
 var BLD_FMT_SCRYFALL={commander:'commander',paupercmd:'paupercommander',pauper:'pauper',standard:'standard',pioneer:'pioneer',modern:'modern',legacy:'legacy',vintage:'vintage'};
@@ -11556,7 +11601,7 @@ function bldInitDeckSel(){
 function bldLoadSelectedDeck(){
   var sel=document.getElementById('bld-deck-sel');if(!sel||!sel.value)return;
   var id=sel.value;var dk=decks[id];if(!dk)return;
-  bldMain=[];bldSide=[];
+  bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
   var fmtSel=document.getElementById('bld-fmt-sel');
   if(dk.format){bldFormat=dk.format;if(fmtSel)fmtSel.value=dk.format;}
   var raw=dk.rawName||'';
@@ -11588,20 +11633,61 @@ function bldSaveDeck(){
   if(!bldMain.length){alert('Deck vide');return;}
   var name=prompt('Nom du deck :','Nouveau deck');if(!name)return;
   var lines=bldMain.map(function(c){return c.qty+'x '+c.name;});
-  if(bldSide.length)lines.push('// Considérées'),bldSide.forEach(function(c){lines.push(c.qty+'x '+c.name);});
+  if(bldSide.length){lines.push('// Sideboard');bldSide.forEach(function(c){lines.push(c.qty+'x '+c.name);});}
   var raw=lines.join('\n');
   var id=Date.now().toString();
   decks[id]={name:name,rawName:raw,cards:bldMain,owner:dOwner||0,ownerUid:_profUid(dOwner||0)||userId,format:bldFormat||null,commander:null,colors:[],updatedAt:Date.now()};
   saveDecks();alert('Deck "'+name+'" sauvegardé !');bldInitDeckSel();
 }
-function bldClear(){if(!confirm('Vider le deck ?'))return;bldMain=[];bldSide=[];renderBldDecks();renderBldStats();}
+function bldClear(){if(!confirm('Vider le deck ?'))return;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];renderBldDecks();renderBldStats();}
 // Drag & drop
 function bldDragStart(e,name,section){
   _bldDragSrc=name;_bldDragSection=section;
   e.dataTransfer.effectAllowed='move';
-  setTimeout(function(){if(e.target)e.target.style.opacity='.4';},0);
+  setTimeout(function(){if(e.target)e.target.style.opacity='.4';bldShowDragOverlay();},0);
 }
-function bldDragEnd(e){if(e.target)e.target.style.opacity='';_bldDragSrc=null;_bldDragSection=null;}
+function bldSrchDragStart(e,name){
+  _bldDragSrc=name;_bldDragSection='search';
+  e.dataTransfer.effectAllowed='copy';
+  setTimeout(function(){if(e.target)e.target.style.opacity='.4';bldShowDragOverlay();},0);
+}
+function bldDragEnd(e){
+  if(e.target)e.target.style.opacity='';
+  _bldDragSrc=null;_bldDragSection=null;
+  bldHideDragOverlay();
+}
+function bldShowDragOverlay(){var ov=document.getElementById('bld-drag-overlay');if(ov)ov.classList.add('active');}
+function bldHideDragOverlay(){
+  var ov=document.getElementById('bld-drag-overlay');if(ov)ov.classList.remove('active');
+  ['main','sideb','avoir','oublie'].forEach(function(z){var b=document.getElementById('bld-ov-'+z);if(b)b.classList.remove('dragover');});
+}
+function bldOvOver(e,zone){e.preventDefault();e.dataTransfer.dropEffect='move';var btn=document.getElementById('bld-ov-'+zone);if(btn)btn.classList.add('dragover');}
+function bldOvLeave(zone){var btn=document.getElementById('bld-ov-'+zone);if(btn)btn.classList.remove('dragover');}
+function bldOvDrop(e,zone){
+  e.preventDefault();e.stopPropagation();
+  bldHideDragOverlay();
+  if(!_bldDragSrc)return;
+  if(_bldDragSection==='search')bldAdd(_bldDragSrc,zone);
+  else bldMoveCard(_bldDragSrc,_bldDragSection,zone);
+  _bldDragSrc=null;_bldDragSection=null;
+}
+function bldMoveCard(name,from,to){
+  if(from===to)return;
+  var fromArr=from==='main'?bldMain:from==='sideb'?bldSide:from==='avoir'?bldAvoir:bldOublie;
+  var toArr=to==='main'?bldMain:to==='sideb'?bldSide:to==='avoir'?bldAvoir:bldOublie;
+  var idx=bldFindIn(fromArr,name);if(idx<0)return;
+  var d=Object.assign({},fromArr[idx]);
+  if(from==='main'&&fromArr[idx].qty>1)fromArr[idx].qty--;else fromArr.splice(idx,1);
+  var ti=bldFindIn(toArr,name);
+  if(ti>=0)toArr[ti].qty++;else toArr.push(Object.assign({},d,{qty:1}));
+  renderBldDecks();if(from==='main'||to==='main')renderBldStats();
+}
+function bldRemFrom(name,section){
+  var arr=section==='main'?bldMain:section==='sideb'?bldSide:section==='avoir'?bldAvoir:bldOublie;
+  var idx=bldFindIn(arr,name);if(idx<0)return;
+  if(section==='main'&&arr[idx].qty>1)arr[idx].qty--;else arr.splice(idx,1);
+  renderBldDecks();if(section==='main')renderBldStats();
+}
 function bldDragOver(e,zone){
   e.preventDefault();e.dataTransfer.dropEffect='move';
   var el=document.getElementById('bld-'+zone+'list');if(el)el.classList.add('bld-dz-active');
@@ -11613,17 +11699,9 @@ function bldDrop(e,zone){
   e.preventDefault();
   var el=document.getElementById('bld-'+zone+'list');if(el)el.classList.remove('bld-dz-active');
   if(!_bldDragSrc)return;
-  var src=_bldDragSection;var dst=zone;
-  if(src===dst)return;
-  if(src==='main'&&dst==='side'){
-    var idx=bldFindIn(bldMain,_bldDragSrc);if(idx<0)return;
-    var d=Object.assign({},bldMain[idx]);
-    if(bldMain[idx].qty>1)bldMain[idx].qty--;else bldMain.splice(idx,1);
-    var si=bldFindIn(bldSide,_bldDragSrc);if(si>=0)bldSide[si].qty+=d.qty;else bldSide.push(Object.assign({},d,{qty:1}));
-  } else if(src==='side'&&dst==='main'){
-    bldSideToMain(_bldDragSrc);return;
-  }
-  renderBldDecks();renderBldStats();
+  if(_bldDragSection==='search')bldAdd(_bldDragSrc,zone);
+  else bldMoveCard(_bldDragSrc,_bldDragSection,zone);
+  _bldDragSrc=null;_bldDragSection=null;
 }
 function bldToggleColl(pi,btn){
   if(bldCollFilter.has(pi))bldCollFilter.delete(pi);else bldCollFilter.add(pi);
@@ -11743,7 +11821,7 @@ function bldRenderRes(data,append){
     var banStatus=bldGetBanStatus(d);
     var banClass=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
     var banBadge=banStatus==='banned'?'<div style="font-size:.6rem;color:var(--rd2);text-align:center;padding:1px 0;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em">⛔ BANNI</div>':'';
-    return '<div class="edh-card'+banClass+'" data-cardname="'+esc(d.name.toLowerCase())+'"'+zm+'>'
+    return '<div class="edh-card'+banClass+'" data-cardname="'+esc(d.name.toLowerCase())+'" draggable="true" ondragstart="bldSrchDragStart(event,\''+nm+'\')" ondragend="bldDragEnd(event)"'+zm+'>'
       +(d.img?'<img src="'+d.img+'" alt="'+esc(d.name)+'" loading="lazy">'
              :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(d.name)+'</div>')
       +banBadge
@@ -11751,7 +11829,7 @@ function bldRenderRes(data,append){
       +'<div class="edh-tp" style="color:'+(rc[d.rarity]||'var(--tx3)')+'">'+esc(d.type)+(d.cmc!=null?' · '+d.cmc:'')+'</div>'
       +'<div style="display:flex;gap:3px;margin-top:3px">'
       +'<button onclick="bldAdd(\''+nm+'\',\'main\')" style="flex:1;background:rgba(180,140,50,.2);border:.5px solid var(--ac);border-radius:4px;color:var(--ac2);font-size:.65rem;cursor:pointer;padding:2px 0">+ Deck</button>'
-      +'<button onclick="bldAdd(\''+nm+'\',\'side\')" style="flex:1;background:rgba(232,168,76,.1);border:.5px solid rgba(232,168,76,.4);border-radius:4px;color:var(--am);font-size:.65rem;cursor:pointer;padding:2px 0">+ Voir</button>'
+      +'<button onclick="bldAdd(\''+nm+'\',\'avoir\')" style="flex:1;background:rgba(232,168,76,.1);border:.5px solid rgba(232,168,76,.4);border-radius:4px;color:var(--am);font-size:.65rem;cursor:pointer;padding:2px 0">+ Voir</button>'
       +'</div></div></div>';
   }).join('');
   if(append)grid.innerHTML+=html;else grid.innerHTML=html;
@@ -11762,7 +11840,7 @@ function bldRenderRes(data,append){
 function bldFindIn(arr,name){var nl=name.toLowerCase();for(var i=0;i<arr.length;i++)if(arr[i].name.toLowerCase()===nl)return i;return -1;}
 function bldAdd(name,dest){
   var d=bldData[name.toLowerCase()];if(!d)return;
-  var arr=dest==='main'?bldMain:bldSide;
+  var arr=dest==='main'?bldMain:dest==='sideb'?bldSide:dest==='avoir'?bldAvoir:bldOublie;
   var idx=bldFindIn(arr,name);
   if(idx>=0)arr[idx].qty++;else arr.push(Object.assign({},d,{qty:1}));
   renderBldDecks();if(dest==='main')renderBldStats();
@@ -11785,28 +11863,32 @@ function bldSideToMain(name){
 }
 function renderBldDecks(){
   var total=bldMain.reduce(function(s,c){return s+c.qty;},0);
-  document.getElementById('bld-main-n').textContent=total;
-  document.getElementById('bld-side-n').textContent=bldSide.reduce(function(s,c){return s+c.qty;},0);
-  document.getElementById('bld-deckcard').style.display=(bldMain.length||bldSide.length)?'block':'none';
+  var el;
+  el=document.getElementById('bld-main-n');if(el)el.textContent=total;
+  el=document.getElementById('bld-sideb-n');if(el)el.textContent=bldSide.reduce(function(s,c){return s+c.qty;},0);
+  el=document.getElementById('bld-avoir-n');if(el)el.textContent=bldAvoir.reduce(function(s,c){return s+c.qty;},0);
+  el=document.getElementById('bld-oublie-n');if(el)el.textContent=bldOublie.length;
+  var dc=document.getElementById('bld-deckcard');
+  if(dc)dc.style.display=(bldMain.length||bldSide.length||bldAvoir.length||bldOublie.length)?'block':'none';
   var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
-  function row(c,isMain){
+  function row(c,section){
     var nm=c.name.replace(/'/g,"&#39;");
     var banStatus=bldGetBanStatus(c);
     var banCls=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
     var banBadge=banStatus==='banned'?'<span class="bld-ban-badge">BANNI</span>':'';
     return '<div class="bld-row'+banCls+'" draggable="true"'
-      +' ondragstart="bldDragStart(event,\''+nm+'\',\''+(isMain?'main':'side')+'\')"'
+      +' ondragstart="bldDragStart(event,\''+nm+'\',\''+section+'\')"'
       +' ondragend="bldDragEnd(event)"'
-      +' onclick="'+(isMain?'bldRemMain':'bldSideToMain')+'(\''+nm+'\')">'
+      +' onclick="bldRemFrom(\''+nm+'\',\''+section+'\')">'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+c.qty+'</span>'
       +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx);font-size:.82rem">'+esc(c.name)+'</span>'
       +banBadge
       +(c.rarity?'<span style="font-size:.6rem;padding:1px 4px;border-radius:999px;background:rgba(100,100,120,.1);color:'+(rc[c.rarity]||'var(--tx3)')+';border:.5px solid var(--bd)">'+({common:'C',uncommon:'U',rare:'R',mythic:'M'}[c.rarity]||'?')+'</span>':'')
       +(c.cmc!=null&&c.type&&c.type.indexOf('Land')<0?'<span style="font-size:.66rem;color:var(--tx3);min-width:14px;text-align:right">'+c.cmc+'</span>':'')
-      +'<span onclick="event.stopPropagation();'+(isMain?'bldRemMain':'bldRemSide')+'(\''+nm+'\')" style="font-size:.7rem;color:var(--rd2);cursor:pointer;padding:0 4px;line-height:1;opacity:.6">✕</span>'
+      +'<span onclick="event.stopPropagation();bldRemFrom(\''+nm+'\',\''+section+'\')" style="font-size:.7rem;color:var(--rd2);cursor:pointer;padding:0 4px;line-height:1;opacity:.6">✕</span>'
       +'</div>';
   }
-  // Tri + groupement pour le deck principal
+  // Main deck : tri + groupement
   var sorted=bldMain.slice();
   if(bldSortMode==='type'){
     sorted.sort(function(a,b){
@@ -11820,17 +11902,19 @@ function renderBldDecks(){
       if(!groups[k].length)return;
       var cnt=groups[k].reduce(function(s,c){return s+c.qty;},0);
       html+='<div class="bld-grp-hdr" style="color:'+BLD_TYPE_COLORS[k]+'">'+BLD_TYPE_LABELS[k]+'<span class="bld-grp-cnt">('+cnt+')</span></div>';
-      html+=groups[k].map(function(c){return row(c,true);}).join('');
+      html+=groups[k].map(function(c){return row(c,'main');}).join('');
     });
-    document.getElementById('bld-mainlist').innerHTML=html||'';
+    el=document.getElementById('bld-mainlist');if(el)el.innerHTML=html||'';
   } else if(bldSortMode==='cmc'){
     sorted.sort(function(a,b){return(a.cmc||0)-(b.cmc||0)||a.name.localeCompare(b.name);});
-    document.getElementById('bld-mainlist').innerHTML=sorted.map(function(c){return row(c,true);}).join('');
+    el=document.getElementById('bld-mainlist');if(el)el.innerHTML=sorted.map(function(c){return row(c,'main');}).join('');
   } else {
     sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
-    document.getElementById('bld-mainlist').innerHTML=sorted.map(function(c){return row(c,true);}).join('');
+    el=document.getElementById('bld-mainlist');if(el)el.innerHTML=sorted.map(function(c){return row(c,'main');}).join('');
   }
-  document.getElementById('bld-sidelist').innerHTML=bldSide.map(function(c){return row(c,false);}).join('');
+  el=document.getElementById('bld-sideblist');if(el)el.innerHTML=bldSide.map(function(c){return row(c,'sideb');}).join('');
+  el=document.getElementById('bld-avoirlist');if(el)el.innerHTML=bldAvoir.map(function(c){return row(c,'avoir');}).join('');
+  el=document.getElementById('bld-oublielist');if(el)el.innerHTML=bldOublie.map(function(c){return row(c,'oublie');}).join('');
 }
 function renderBldStats(){
   var sc=document.getElementById('bld-statscard');
@@ -11879,9 +11963,52 @@ function renderBldStats(){
   });
   document.getElementById('bld-curve').innerHTML=cv;
 }
+function bldOptimize(){
+  var optcard=document.getElementById('bld-optcard');
+  var optgrid=document.getElementById('bld-opt-grid');
+  var needed=document.getElementById('bld-opt-needed');
+  if(!optcard||!optgrid)return;
+  optcard.style.display='block';
+  optgrid.innerHTML='<div style="text-align:center;color:var(--tx2);padding:1rem;font-style:italic">Chargement des suggestions...</div>';
+  var totalCards=bldMain.reduce(function(s,c){return s+c.qty;},0);
+  var target=(bldFormat==='commander'||bldFormat==='paupercmd')?100:60;
+  var missing=Math.max(0,target-totalCards);
+  if(needed)needed.textContent='Objectif : '+target+' cartes · '+totalCards+' dans le deck · '+missing+' à trouver';
+  var colors=new Set();bldMain.forEach(function(c){(c.colors||[]).forEach(function(cl){colors.add(cl);});});
+  var inDeck=new Set();
+  [bldMain,bldSide,bldAvoir].forEach(function(arr){arr.forEach(function(c){inDeck.add(c.name.toLowerCase());});});
+  var q='';
+  if(bldFormat){var fk=BLD_FMT_SCRYFALL[bldFormat];if(fk)q+='legal:'+fk+' ';}
+  if(colors.size>0&&colors.size<=3)q+='c<='+Array.from(colors).join('')+' ';
+  q+='-type:basic';
+  fetch('https://api.scryfall.com/cards/search?order=edhrec&q='+encodeURIComponent(q.trim()))
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!d.data||!d.data.length){optgrid.innerHTML='<div style="text-align:center;color:var(--tx3);padding:1rem;font-style:italic">Aucune suggestion trouvée</div>';return;}
+      var sugs=d.data.filter(function(c){return !inDeck.has(stripDFC(c.name||'').toLowerCase());}).slice(0,30);
+      var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
+      optgrid.innerHTML=sugs.map(function(c){
+        var dobj=bldCardObj(c);bldData[dobj.name.toLowerCase()]=dobj;
+        var nm=dobj.name.replace(/'/g,"&#39;");
+        var zm=dobj.img?' data-zoom="'+dobj.img.replace(/"/g,'&quot;')+'" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()"':'';
+        var banStatus=bldGetBanStatus(dobj);
+        var banClass=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
+        return '<div class="edh-card'+banClass+'" draggable="true" ondragstart="bldSrchDragStart(event,\''+nm+'\')" ondragend="bldDragEnd(event)"'+zm+'>'
+          +(dobj.img?'<img src="'+dobj.img+'" alt="'+esc(dobj.name)+'" loading="lazy">'
+                    :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(dobj.name)+'</div>')
+          +'<div class="edh-meta"><div class="edh-nm">'+esc(dobj.name)+'</div>'
+          +'<div class="edh-tp" style="color:'+(rc[dobj.rarity]||'var(--tx3)')+'">'+esc(dobj.type)+(dobj.cmc!=null?' · '+dobj.cmc:'')+'</div>'
+          +'<div style="display:flex;gap:3px;margin-top:3px">'
+          +'<button onclick="bldAdd(\''+nm+'\',\'main\')" style="flex:1;background:rgba(180,140,50,.2);border:.5px solid var(--ac);border-radius:4px;color:var(--ac2);font-size:.65rem;cursor:pointer;padding:2px 0">+ Deck</button>'
+          +'<button onclick="bldAdd(\''+nm+'\',\'avoir\')" style="flex:1;background:rgba(232,168,76,.1);border:.5px solid rgba(232,168,76,.4);border-radius:4px;color:var(--am);font-size:.65rem;cursor:pointer;padding:2px 0">+ Voir</button>'
+          +'</div></div></div>';
+      }).join('');
+    })
+    .catch(function(){optgrid.innerHTML='<div style="text-align:center;color:var(--rd2);padding:1rem">Erreur lors du chargement</div>';});
+}
 function importPrelistToBld(){
   if(!cmdPreList.length)return;
-  bldSide=[];renderBldDecks();
+  bldAvoir=[];renderBldDecks();
   goTab('build');
   var names=[...cmdPreList];
   for(var i=0;i<names.length;i+=75){
@@ -11893,7 +12020,7 @@ function importPrelistToBld(){
         (data.data||[]).forEach(function(c){
           var d=bldCardObj(c);
           bldData[d.name.toLowerCase()]=d;
-          if(bldFindIn(bldSide,d.name)<0)bldSide.push(d);
+          if(bldFindIn(bldAvoir,d.name)<0)bldAvoir.push(d);
         });
         renderBldDecks();
       }).catch(function(){});
