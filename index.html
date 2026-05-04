@@ -1442,7 +1442,9 @@ body.mana-cursor{cursor:none}
     <div class="lbl" style="margin-bottom:4px;margin-top:6px">Format</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px" id="dfmt-btns">
       <button class="dm" onclick="setDeckFmt('commander',this)">Commander</button>
+      <button class="dm" onclick="setDeckFmt('commanderduel',this)">Cdr Duel</button>
       <button class="dm" onclick="setDeckFmt('paupercmd',this)">Pauper Cdr</button>
+      <button class="dm" onclick="setDeckFmt('paupercmdduel',this)">PDH Duel</button>
       <button class="dm" onclick="setDeckFmt('brawl',this)">Brawl</button>
       <button class="dm" onclick="setDeckFmt('oathbreaker',this)">Oathbreaker</button>
       <button class="dm" onclick="setDeckFmt('standard',this)">Standard</button>
@@ -3665,7 +3667,7 @@ var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0, allPriceMap={};
 var _deckOrders={}, _dkDragId=null, _dkDragPi=null;
 var dFormat='', dCommander=null, dColors=[];
 var dCardMeta={}, dSortMode='sec';
-var COMMANDER_FMTS=['commander','paupercmd','brawl','oathbreaker'];
+var COMMANDER_FMTS=['commander','commanderduel','paupercmd','paupercmdduel','brawl','oathbreaker'];
 var dbarOpen=[false]; // dynamic length
 var _deckFilterActive=null; // null = not init; array of active profile indices
 var collP=0;
@@ -4371,7 +4373,7 @@ function renderDBar(){
   _syncProfsForCtx('deck');
   _populateDeckListFilter();
   var bar=document.getElementById('dprofs');
-  var fmtLabel={commander:'Commander',paupercmd:'Pauper Cdr',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',pauper:'Pauper',vintage:'Vintage'};
+  var fmtLabel={commander:'Commander',commanderduel:'Cdr Duel',paupercmd:'Pauper Cdr',paupercmdduel:'PDH Duel',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',pauper:'Pauper',vintage:'Vintage'};
   var fa=_deckFilterActive||profs.map(function(_,i){return i;});
   var allActive=fa.length===profs.length;
   var html='';
@@ -12475,18 +12477,22 @@ function anaRoles(meta){
 }
 
 /* ----- Format-aware targets ----- */
-function anaIsCommanderFormat(fmt){return ['commander','paupercmd','brawl','oathbreaker'].indexOf(fmt)>=0;}
+function anaIsCommanderFormat(fmt){return ['commander','commanderduel','paupercmd','paupercmdduel','brawl','oathbreaker'].indexOf(fmt)>=0;}
+function anaIsDuelFormat(fmt){return ['commanderduel','paupercmdduel'].indexOf(fmt)>=0;}
 function anaTargets(fmt,totalCards,themes){
   var th=themes||{};
   var drawMult=th.draw||1;var rampMult=th.ramp||1;var winconMult=th.wincon||1;var discardMult=th.discard||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
-    var base={land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
+    var duel=anaIsDuelFormat(fmt);
+    // Duel (1v1, 20 PV) : parties plus courtes → moins de ramp, plus de removal, draw modéré
+    var base=duel
+      ?{land:[36,38],ramp:[7,10],draw:[8,11],removal:[8,12],interaction:[6,9],wincon:[5,9]}
+      :{land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
     // Ajustements selon le profil du commandant
-    if(drawMult>=2.0){base.draw=[15,20];base.wincon=[2,4];}       // Draw-as-wincon : Queza, Nekusar…
-    else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[3,6];}  // Spellslinger / draw matters
-    if(rampMult>=1.5&&base.ramp[0]<12)base.ramp=[12,16];          // Landfall / treasures
-    if(winconMult>=1.4&&base.wincon[0]>=5)base.wincon=[7,12];     // Sacrifice / drain / tokens
-    // Défausse-moteur : moins de draw classique, plus de créatures avec madness/rejouabilité
+    if(drawMult>=2.0){base.draw=[15,20];base.wincon=[2,4];}
+    else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[3,6];}
+    if(rampMult>=1.5&&base.ramp[0]<12)base.ramp=[12,16];
+    if(winconMult>=1.4&&base.wincon[0]>=5)base.wincon=[7,12];
     if(discardMult>=1.5){base.draw=[6,10];base.wincon=[6,11];base.interaction=[10,15];}
     return base;
   }
@@ -12497,11 +12503,13 @@ function anaWeights(fmt,totalCards,themes){
   var th=themes||{};
   var drawMult=th.draw||1;var winconMult=th.wincon||1;var discardMult=th.discard||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
+    var duel=anaIsDuelFormat(fmt);
     if(drawMult>=2.0)return{land:.15,ramp:.14,draw:.30,removal:.15,interaction:.15,wincon:.11};
     if(drawMult>=1.5)return{land:.16,ramp:.15,draw:.24,removal:.16,interaction:.15,wincon:.14};
-    // Défausse-moteur+compteurs : wincon et interaction importants, draw moins critique
     if(discardMult>=1.5)return{land:.17,ramp:.14,draw:.13,removal:.17,interaction:.19,wincon:.20};
     if(winconMult>=1.4)return{land:.16,ramp:.14,draw:.16,removal:.18,interaction:.16,wincon:.20};
+    // Duel : removal et wincon plus importants, ramp moins critique
+    if(duel)return{land:.18,ramp:.12,draw:.16,removal:.20,interaction:.16,wincon:.18};
     return{land:.18,ramp:.16,draw:.18,removal:.16,interaction:.16,wincon:.16};
   }
   return{land:.20,ramp:.10,draw:.20,removal:.18,interaction:.16,wincon:.16};
@@ -13402,9 +13410,11 @@ function anaRunVsDeck(myDeckId){
       res.textContent='⚠ Pas assez de cartes en cache pour simuler ('+libA.length+' vs '+libB.length+' identifiées).';
       return;
     }
+    var _vsFmt=myDeck.format||'';
+    var _vsOpts=anaIsCommanderFormat(_vsFmt)?(anaIsDuelFormat(_vsFmt)?{startLife:20,maxTurns:14}:{startLife:40,maxTurns:20}):{};
     res.innerHTML='⏳ Simulation 50 parties…';
     setTimeout(function(){
-      var wr=anaWinRate(libA,libB,50);
+      var wr=anaWinRate(libA,libB,50,_vsOpts);
       var pctV=Math.round(wr*100);
       var col=pctV>=60?'#78c890':pctV>=45?'#5b8cf5':pctV>=30?'#f5b95b':'#e07070';
       var verdict=pctV>=60?'Matchup favorable':pctV>=45?'Matchup équilibré':pctV>=30?'Matchup défavorable':'Matchup très défavorable';
@@ -14142,7 +14152,8 @@ function anaRender(deckId){
       {key:'prison',label:'Prison',ico:'⛓',hint:'Taxes + ralentissement'}
     ];
     var _isCmd=anaIsCommanderFormat(fmt);
-    var _simOpts=_isCmd?{startLife:40,maxTurns:20}:{};
+    var _isDuel=anaIsDuelFormat(fmt);
+    var _simOpts=_isCmd?(_isDuel?{startLife:20,maxTurns:14}:{startLife:40,maxTurns:20}):{};
     var _arcSz=_isCmd?libUser.length:40;
     var _simRuns=80;
     var libOpt=fullOpt&&fullOpt.swaps.length?_anaApplyOptToLib(libUser,fullOpt.swaps):null;
@@ -14152,7 +14163,8 @@ function anaRender(deckId){
     var avgOpt=matrixOpt?matrixOpt.reduce(function(s,m){return s+m.wr;},0)/matrixOpt.length:null;
 
     html+='<div class="card"><div class="lbl">🎯 Matrice de matchups (style metagame)</div>';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Win rate sur '+_simRuns+' parties simulées contre chaque archétype'+(_isCmd?' (Commander : 40 PV, 20 tours max, decks scalés)':'')+'. Les résultats sont des estimations simulées.</div>';
+    var _simHint=_isCmd?(_isDuel?' (Duel : 20 PV, 14 tours max)':' (Commander : 40 PV, 20 tours max, decks scalés)'):'';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Win rate sur '+_simRuns+' parties simulées contre chaque archétype'+_simHint+'. Les résultats sont des estimations simulées.</div>';
     // Header
     html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:3px;font-size:11px;min-width:600px">';
     html+='<thead><tr><th style="text-align:left;padding:4px 6px;color:var(--tx3);font-family:Goudy Mediaeval,serif;font-size:10px;letter-spacing:.06em">VOTRE DECK</th>';
