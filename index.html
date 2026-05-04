@@ -12210,9 +12210,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v6: ajout champ power (P/T réelle) dans les metas de simulation
-  if((__aP.__version||0)<6){
-    _anaData={__version:6};
+  // Migration v8: ajout toughness dans les metas de simulation
+  if((__aP.__version||0)<8){
+    _anaData={__version:8};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -12220,7 +12220,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=6;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=8;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -12431,7 +12431,7 @@ function anaInferTags(meta){
   var type=(meta.typeLine||'').toLowerCase();
   if(type.indexOf('land')>=0){return {draw:0,removal:0,ramp:0,interaction:0,wincon:0,isLand:1};}
   var cmc=meta.cmc||0;
-  var draw=0,removal=0,ramp=0,interaction=0,wincon=0;
+  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0;
   var nMap={a:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7};
   // Pioche — "draw/draws X card(s)" (singulier ou 3e personne)
   var dm=oracle.match(/draws? \w+ cards?/g)||[];
@@ -12450,7 +12450,7 @@ function anaInferTags(meta){
   if(/explore/.test(oracle))draw+=0.2;
   // Removal
   if(/destroy target|exile target/.test(oracle))removal+=1;
-  if(/destroy all|exile all|destroy each|exile each/.test(oracle))removal+=2.5;
+  if(/destroy all|exile all|destroy each|exile each/.test(oracle)){removal+=2.5;wrath=1;}
   if(/deals \d+ damage to (target|any target|target creature|target planeswalker)/.test(oracle))removal+=1;
   if(/-x\/-x|-\d\/-\d/.test(oracle))removal+=0.7;
   if(/sacrifices a creature/.test(oracle))removal+=0.5;
@@ -12464,7 +12464,7 @@ function anaInferTags(meta){
   if(type.indexOf('artifact')>=0&&/\{t\}.*add /.test(oracle))ramp+=0.6;
   if(/landfall/.test(oracle))ramp+=0.3;
   // Interaction
-  if(/counter target/.test(oracle))interaction+=2;
+  if(/counter target/.test(oracle)){interaction+=2;counter=1;}
   if(removal>0)interaction+=removal*0.3;
   if(/return target.*to.*hand/.test(oracle))interaction+=1;
   if(/tap target|doesn't untap/.test(oracle))interaction+=0.5;
@@ -12503,7 +12503,7 @@ function anaInferTags(meta){
   if(/commander deals/.test(oracle))wincon+=0.5;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection)};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter};
 }
 
 /* ----- Helpers ----- */
@@ -12537,6 +12537,8 @@ function anaRoles(meta){
     removal:t.removal>=0.6?1:0,
     interaction:t.interaction>=0.6?1:0,
     wincon:t.wincon>=1.0?1:0,
+    wrath:t.wrath>=1?1:0,
+    counter:t.counter>=1?1:0,
     land:0,
     creature:tl.indexOf('creature')>=0?1:0
   };
@@ -12609,7 +12611,9 @@ function _anaIngestCard(card,nlHint){
   else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)imageUri=card.card_faces[0].image_uris.normal||card.card_faces[0].image_uris.large||card.card_faces[0].image_uris.small||'';
   var _rawPow=card.power||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].power)||null;
   var _realPow=_rawPow?parseInt(_rawPow):null;if(isNaN(_realPow))_realPow=null;
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||'',keywords:card.keywords||[],power:_realPow};
+  var _rawTou=card.toughness||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].toughness)||null;
+  var _realTou=_rawTou?parseInt(_rawTou):null;if(isNaN(_realTou))_realTou=null;
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||'',keywords:card.keywords||[],power:_realPow,toughness:_realTou};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -13223,8 +13227,9 @@ function _anaExtractCmd(deck){
   var meta=_anaData[nl]||_anaData[deck.commander.nl||''];
   if(!meta)return null;
   var roles=anaRoles(meta);
-  // Utilise la vraie force si disponible, sinon estimation CMC
+  // Utilise les vraies stats si disponibles, sinon estimation CMC
   var power=roles.creature?(meta.power!=null?meta.power:Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2))):0;
+  var toughness=roles.creature?(meta.toughness!=null?meta.toughness:Math.max(1,power+1)):0;
   // Détection des capacités passives du commandant
   var passTxt=(meta.oracleText||'').toLowerCase();
   var cmdPassive={};
@@ -13242,7 +13247,7 @@ function _anaExtractCmd(deck){
   // Sac-drain : Syr Konrad, Teysa Karlov type
   if(/whenever (?:a|another) creature (?:you control )?dies.*(?:each opponent.*los|deals? \d+ damage)/.test(passTxt))
     cmdPassive.sacDrain=1;
-  return {name:deck.commander.name,nl:nl,cmc:meta.cmc||0,isLand:false,roles:roles,power:power,isCommander:true,cmdPassive:Object.keys(cmdPassive).length?cmdPassive:null};
+  return {name:deck.commander.name,nl:nl,cmc:meta.cmc||0,isLand:false,roles:roles,power:power,toughness:toughness,isCommander:true,cmdPassive:Object.keys(cmdPassive).length?cmdPassive:null};
 }
 function _anaBuildSimLib(deck){
   var lib=[];
@@ -13253,9 +13258,10 @@ function _anaBuildSimLib(deck){
     var meta=_anaData[c.nl];if(!meta)return;
     var roles=anaRoles(meta);
     var power=roles.creature?(meta.power!=null?meta.power:Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2))):0;
+    var toughness=roles.creature?(meta.toughness!=null?meta.toughness:Math.max(1,power+1)):0;
     var qty=c.qty||1;
     for(var i=0;i<qty;i++){
-      lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power});
+      lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power,toughness:toughness});
     }
   });
   return lib;
@@ -13556,11 +13562,13 @@ function _matchTurn(self,opp,turn,onPlay){
     if(attackers.length){
       var totalPower=attackers.reduce(function(s,c){return s+(c.power||0);},0);
       var blockers=opp.bf.filter(function(c){return c.roles.creature;});
-      blockers.sort(function(a,b){return (b.power||0)-(a.power||0);});
+      blockers.sort(function(a,b){return (b.toughness!=null?b.toughness:b.power||0)-(a.toughness!=null?a.toughness:a.power||0);});
       attackers.sort(function(a,b){return (b.power||0)-(a.power||0);});
       var blocked=0;
       for(var k=0;k<Math.min(blockers.length,attackers.length);k++){
-        blocked+=Math.min(blockers[k].power||0,attackers[k].power||0);
+        // Un bloqueur absorbe jusqu'à sa toughness (pas sa puissance)
+        var bTough=blockers[k].toughness!=null?blockers[k].toughness:(blockers[k].power!=null?blockers[k].power+1:1);
+        blocked+=Math.min(bTough,attackers[k].power||0);
       }
       var faceDmg=Math.max(0,totalPower-blocked);
       var anthemBonus=self.bf.filter(function(c){return c.anthem;}).length*attackers.length;
