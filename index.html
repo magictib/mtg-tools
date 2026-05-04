@@ -467,6 +467,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .um-btn.danger:hover{background:rgba(232,108,108,.08)}
 .um-rename-wrap{margin-top:6px;display:none}
 .um-rename-wrap input{width:100%;margin-bottom:6px;padding:5px 8px;font-size:.82rem}
+/* ===== TOAST ===== */
+#app-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--s3);border:.5px solid var(--gold2);color:var(--gold2);border-radius:20px;padding:7px 18px;font-size:.8rem;font-family:'Goudy Mediaeval',serif;letter-spacing:.04em;pointer-events:none;opacity:0;transition:opacity .25s,transform .25s;z-index:9999;white-space:nowrap}
+#app-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 /* ===== NOTIFICATIONS ===== */
 #notif-wrap{position:relative}
 #notif-btn{width:34px;height:34px;border-radius:50%;background:var(--s2);border:.5px solid var(--bd2);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:1rem;transition:all .15s;box-shadow:0 2px 12px rgba(0,0,0,.4);color:var(--tx2)}
@@ -856,6 +859,7 @@ body.mana-cursor{cursor:none}
         <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">PRÉFÉRENCES</div>
         <label style="display:block;font-size:.78rem;color:var(--tx2);margin-bottom:4px">🌐 Langue des cartes</label>
         <select id="um-lang-sel" class="psel" style="width:100%;font-size:.82rem" onchange="setUserLang(this.value)"></select>
+        <div style="font-size:.7rem;color:var(--tx3);margin-top:4px;line-height:1.4">Les cartes exclusives Commander (precons) sont souvent uniquement disponibles en anglais sur Scryfall, même si une autre langue est sélectionnée.</div>
         <button class="um-btn" id="um-pwa-install-btn" onclick="pwaInstallFromMenu();toggleUserMenu()" style="display:none;margin-top:8px">📲 Installer l'app (hors-ligne)</button>
       </div>
       <button class="um-btn danger" onclick="openDeleteProfileOv()" style="margin-top:6px">🗑 Supprimer le profil</button>
@@ -1599,6 +1603,7 @@ body.mana-cursor{cursor:none}
     </div>
     <div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">🌐 La langue des images est définie dans <b>Mes préférences</b> (icône ✎ en haut à droite).</div>
     <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic;min-height:1em"></div>
+    <div id="ana-missing-wrap" style="display:none;margin-top:6px;font-size:.74rem;color:var(--tx3);line-height:1.8;flex-wrap:wrap;gap:4px"></div>
   </div>
   <div id="ana-results" style="display:none"></div>
 </div>
@@ -12120,6 +12125,7 @@ function setActiveMana(type){
    =================================================================== */
 var _anaData={}; // nl -> {cmc, typeLine, oracleText, colors, colorIdentity, name, isLand, tags}
 var _anaState=null;
+var _anaMissingCards=[];
 var _anaSimMode='multi'; // 'multi' = 40 PV / 20 tours | 'duel' = 20 PV / 14 tours
 var _anaOptMode='all'; // 'all' = toutes suggestions | 'collection' = cartes des decks uniquement
 function anaSetOptMode(mode){
@@ -12271,9 +12277,20 @@ try{
   if(__uL)_userLang=__uL;
   else{var __old=localStorage.getItem('mtg_ana_lang');if(__old){_userLang=__old;localStorage.setItem('mtg_user_lang',__old);localStorage.removeItem('mtg_ana_lang');}}
 }catch(e){}
+function showToast(msg,durationMs){
+  var el=document.getElementById('app-toast');
+  if(!el)return;
+  el.textContent=msg;
+  el.classList.add('show');
+  clearTimeout(el._tid);
+  el._tid=setTimeout(function(){el.classList.remove('show');},durationMs||2200);
+}
 function setUserLang(lang){
   _userLang=lang||'en';
   try{localStorage.setItem('mtg_user_lang',_userLang);}catch(e){}
+  var _lEntry=null;for(var _li=0;_li<USER_LANGS.length;_li++){if(USER_LANGS[_li].code===_userLang){_lEntry=USER_LANGS[_li];break;}}
+  var label=_lEntry?_lEntry.label:_userLang;
+  showToast('🌐 Langue enregistrée : '+label);
   // Reecrire les images visibles dans tout le DOM
   document.querySelectorAll('img').forEach(_localizeOneImg);
   // Re-render Analyse si actif
@@ -12645,8 +12662,9 @@ function anaFuzzyFetch(nls,fallbackList,onDone){
   function next(i){
     if(i>=nls.length){
       _anaSaveCache();
+      _anaMissingCards=failed.slice();
       console.log('[Analyse] Phase 2 (fuzzy): '+found+'/'+nls.length+' trouvees');
-      if(failed.length)console.warn('[Analyse] Cartes introuvables:',failed.slice(0,20).join(', ')+(failed.length>20?'…':''));
+      if(failed.length)console.warn('[Analyse] Cartes introuvables:',failed.join(', '));
       onDone();
       return;
     }
@@ -12681,6 +12699,7 @@ function anaAnalyze(){
   if(!deck||!deck.cards||!deck.cards.length){alert('Ce deck est vide');return;}
   var st=document.getElementById('ana-status');
   document.getElementById('ana-results').style.display='none';
+  var _mwReset=document.getElementById('ana-missing-wrap');if(_mwReset)_mwReset.style.display='none';
   var deckNls=deck.cards.map(function(c){return c.nl||stripDFC(c.name||'').toLowerCase()||null;});
   var fallback=deck.cards.map(function(c){var nl=c.nl||stripDFC(c.name||'').toLowerCase()||null;return {nl:nl,name:c.name||nl||'',qty:c.qty||1,sec:c.sec||''};});
   if(deck.commander&&deck.commander.name){
@@ -12693,10 +12712,21 @@ function anaAnalyze(){
   st.textContent=toFetch.length?'⏳ Récupération de '+toFetch.length+' carte(s) sur Scryfall…':'✓ Cache complet — analyse en cours…';
   // Reset EDHREC pour cette analyse (sera re-rempli en async ci-dessous)
   _anaCurrentEDHREC=null;
+  _anaMissingCards=[];
   anaFetchMissing(deckNls,fallback,function(){
     var found=deckNls.filter(function(nl){return _anaData[nl];}).length;
     var miss=deckNls.length-found;
-    st.textContent=miss?'⚠ '+found+'/'+deckNls.length+' cartes du deck identifiées ('+miss+' introuvables — voir console F12)':'✓ '+found+'/'+deckNls.length+' cartes du deck analysées';
+    var mw=document.getElementById('ana-missing-wrap');
+    if(miss&&_anaMissingCards.length){
+      st.textContent='⚠ '+found+'/'+deckNls.length+' cartes identifiées ('+miss+' introuvables) :';
+      if(mw){mw.style.display='flex';mw.innerHTML=_anaMissingCards.map(function(n){return '<span style="background:var(--s3);border-radius:4px;padding:1px 6px">'+n+'</span>';}).join('');}
+    }else if(miss){
+      st.textContent='⚠ '+found+'/'+deckNls.length+' cartes du deck identifiées ('+miss+' introuvables)';
+      if(mw)mw.style.display='none';
+    }else{
+      st.textContent='✓ '+found+'/'+deckNls.length+' cartes du deck analysées';
+      if(mw)mw.style.display='none';
+    }
     try{anaRender(deckId);}catch(e){console.error('[Analyse] Erreur de rendu',e);st.textContent='❌ Erreur : '+e.message;}
     // Enrichissement EDHREC async pour les decks Commander
     if(deck.commander&&deck.commander.name&&anaIsCommanderFormat(deck.format)){
@@ -14381,5 +14411,6 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
+<div id="app-toast"></div>
 </body>
 </html>
