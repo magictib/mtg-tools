@@ -11673,7 +11673,6 @@ function bldOvDrop(e,zone){
   bldHideDragOverlay();
   if(!_bldDragSrc)return;
   if(zone==='oublie'){
-    // Delete from source section (ignore if coming from search)
     if(_bldDragSection!=='search')bldRemFrom(_bldDragSrc,_bldDragSection);
   } else if(_bldDragSection==='search'){
     bldAdd(_bldDragSrc,zone);
@@ -11714,6 +11713,36 @@ function bldDrop(e,zone){
   else bldMoveCard(_bldDragSrc,_bldDragSection,zone);
   _bldDragSrc=null;_bldDragSection=null;
 }
+// Document-level DnD: bypass pointer-events:none on overlay via bounding-box hit testing
+(function(){
+  var BLD_ZONES=['main','sideb','avoir','oublie'];
+  function getBldZoneAtPoint(x,y){
+    for(var i=0;i<BLD_ZONES.length;i++){
+      var btn=document.getElementById('bld-ov-'+BLD_ZONES[i]);if(!btn)continue;
+      var r=btn.getBoundingClientRect();
+      if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return BLD_ZONES[i];
+    }return null;
+  }
+  document.addEventListener('dragover',function(e){
+    if(!_bldDragSrc)return;
+    e.preventDefault();e.dataTransfer.dropEffect='move';
+    var hit=getBldZoneAtPoint(e.clientX,e.clientY);
+    BLD_ZONES.forEach(function(z){
+      var b=document.getElementById('bld-ov-'+z);if(b)b.classList.toggle('dragover',z===hit);
+    });
+  });
+  document.addEventListener('drop',function(e){
+    if(!_bldDragSrc)return;
+    var zone=getBldZoneAtPoint(e.clientX,e.clientY);
+    if(!zone)return;
+    e.preventDefault();e.stopPropagation();
+    var src=_bldDragSrc,section=_bldDragSection;
+    bldHideDragOverlay();_bldDragSrc=null;_bldDragSection=null;
+    if(zone==='oublie'){if(section!=='search')bldRemFrom(src,section);}
+    else if(section==='search')bldAdd(src,zone);
+    else bldMoveCard(src,section,zone);
+  });
+})();
 function bldToggleColl(pi,btn){
   if(bldCollFilter.has(pi))bldCollFilter.delete(pi);else bldCollFilter.add(pi);
   btn.classList.toggle('active',bldCollFilter.has(pi));
@@ -11872,6 +11901,11 @@ function bldSideToMain(name){
   var mi=bldFindIn(bldMain,name);
   if(mi>=0)bldMain[mi].qty+=d.qty;else bldMain.push(d);
   renderBldDecks();renderBldStats();
+}
+function bldApplySwap(btn,addNm,cutNm){
+  bldAdd(addNm,'main');bldRemFrom(cutNm,'main');
+  btn.style.background='rgba(39,174,96,.25)';btn.style.borderColor='var(--gr)';btn.style.color='var(--gr2)';
+  btn.textContent='✓ Appliqué';btn.disabled=true;
 }
 function bldShowCardImg(name){
   var d=bldData[name.toLowerCase()];
@@ -12062,7 +12096,7 @@ function bldOptimize(){
             +'<div style="font-size:.76rem;color:var(--ac2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">'+esc(dobj.name)+'</div>'
             +(dobj.type?'<div style="font-size:.6rem;color:var(--tx3)">'+esc(bldTypeKey(dobj.type))+(dobj.cmc!=null?' · CMC '+dobj.cmc:'')+'</div>':'')
             +'</div>'
-            +'<button onclick="bldAdd(\''+addNm+'\',\'main\');bldRemFrom(\''+cutNm+'\',\'main\')" style="padding:5px 8px;background:rgba(180,140,50,.18);border:.5px solid var(--ac);border-radius:6px;color:var(--ac2);font-size:.7rem;cursor:pointer;white-space:nowrap">✓ Appliquer</button>'
+            +'<button onclick="bldApplySwap(this,\''+addNm+'\',\''+cutNm+'\')" style="padding:5px 8px;background:rgba(180,140,50,.18);border:.5px solid var(--ac);border-radius:6px;color:var(--ac2);font-size:.7rem;cursor:pointer;white-space:nowrap">✓ Appliquer</button>'
             +'</div>';
         }
         swapHtml+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.1em;margin:14px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--bd)">TOUTES LES SUGGESTIONS</div>';
@@ -15133,7 +15167,10 @@ function metaFetchGoldfish(fmt,label){
   var url=META_GF_URLS[fmt];
   metaSafeProxyFetch(url,function(html){
     var decks=metaParseGoldfish(html);
-    if(!decks.length){metaSetStatus('Aucun deck trouvé pour '+label+'. Structure de la page modifiée.','var(--rd2)');return;}
+    if(!decks.length){
+      var snippet=html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,250);
+      metaSetStatus('Aucun deck trouvé pour '+label+'. Reçu : '+snippet,'var(--rd2)');return;
+    }
     _metaPending[fmt]=decks;
     metaSetStatus(decks.length+' decks récupérés pour '+label+'. Ajustez les tiers puis sauvegardez.','var(--gr2)');
     metaShowAdminPreview(fmt);
@@ -15188,6 +15225,27 @@ function metaParseGoldfish(html){
       if(m){try{JSON.parse(m[1]).forEach(function(d){push(d.name||d.title||'',parseFloat(d.play_rate||d.playRate||0),d.url||'');});}catch(e){}if(decks.length)break;}
     }
   }
+  // Try 5: Next.js __NEXT_DATA__ embedded JSON
+  if(!decks.length){
+    var nd=doc.getElementById('__NEXT_DATA__');
+    if(nd){
+      try{
+        var ndj=JSON.parse(nd.textContent||'{}');
+        var pp=(ndj.props&&ndj.props.pageProps)||{};
+        var archs=pp.archetypes||pp.metagame||pp.decks||pp.data||[];
+        if(!archs.length&&pp.initialState){archs=pp.initialState.archetypes||pp.initialState.decks||[];}
+        archs.forEach(function(d){push(d.name||d.title||d.archetype||'',parseFloat(d.play_rate||d.playRate||d.share||0),d.url||d.href||'');});
+      }catch(e){}
+    }
+  }
+  // Try 6: any element with data-name or data-archetype attributes
+  if(!decks.length){
+    doc.querySelectorAll('[data-archetype],[data-name]').forEach(function(el){
+      var name=(el.dataset.archetype||el.dataset.name||'').trim();
+      var pct=parseFloat((el.dataset.share||el.dataset.playRate||'0').replace('%',''))||0;
+      push(name,pct,el.href||'');
+    });
+  }
   return decks;
 }
 
@@ -15231,8 +15289,13 @@ function metaFetchEdhrec(fmt,label){
   }
   function tryViaProxy(){
     metaSafeProxyFetch(url,function(content){
-      try{handleData(JSON.parse(content));}
-      catch(e){metaSetStatus('Données EDHREC illisibles (proxy). Contenu : '+content.slice(0,80),'var(--rd2)');}
+      try{
+        // Strip JSONP wrapper if present: funcName({...}) or funcName([...])
+        var s=content.trim();
+        var jp=s.match(/^\w[\w.]*\s*\(\s*([\s\S]+)\s*\)\s*;?\s*$/);
+        if(jp)s=jp[1];
+        handleData(JSON.parse(s));
+      }catch(e){metaSetStatus('EDHREC illisible. Reçu : '+content.slice(0,200),'var(--rd2)');}
     },function(err){metaSetStatus('Erreur EDHREC : '+err,'var(--rd2)');},false);
   }
   fetch(url,{headers:{'Accept':'application/json'}})
