@@ -12420,6 +12420,23 @@ function anaInferTags(meta){
   if(/tap target|doesn't untap/.test(oracle))interaction+=0.5;
   if(/can't be countered/.test(oracle))interaction+=0.3;
   if(/protection from|hexproof|indestructible/.test(oracle))interaction+=0.4;
+  // Protection (valeur spécifique commander : protège le commandant de la taxe/suppression)
+  var protection=0;
+  // Accorder hexproof/shroud à une créature ciblée (protège le commandant)
+  if(/target creature gains? (hexproof|shroud)|grants? (hexproof|shroud) to target creature/.test(oracle))protection+=1.0;
+  // Protection de masse (toutes les créatures ont hexproof/shroud)
+  if(/creatures (you control )?(have|gain) (hexproof|shroud)/.test(oracle))protection+=1.5;
+  // Accorder indestructible ciblé ou de masse
+  if(/target creature gains? indestructible/.test(oracle))protection+=0.9;
+  if(/creatures (you control )?(have|gain) indestructible/.test(oracle))protection+=1.3;
+  // Sort ne peut pas être contrée (évite la taxe commandant)
+  if(/this spell can't be countered|spells (you cast )?can't be countered/.test(oracle))protection+=1.2;
+  // Accorder la hâte (commandant attaque avant d'être détruit)
+  if(/creatures (you control )?(have|gain) haste/.test(oracle))protection+=0.8;
+  if(/target creature gains? haste/.test(oracle))protection+=0.5;
+  // Mot-clé sur la carte elle-même (moins utile pour protéger le commandant)
+  var kws=((meta.keywords||[]).join(' ')).toLowerCase();
+  if(/hexproof|shroud|indestructible/.test(kws))protection+=0.3;
   // Wincon
   if(/you win the game/.test(oracle))wincon+=6;
   if(/each opponent loses (\d+|that much) life/.test(oracle))wincon+=1.5;
@@ -12436,7 +12453,7 @@ function anaInferTags(meta){
   if(/commander deals/.test(oracle))wincon+=0.5;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection)};
 }
 
 /* ----- Helpers ----- */
@@ -12687,14 +12704,16 @@ function anaAnalyze(){
 function anaCardScore(meta){
   if(!meta||!meta.tags)return 0;
   var t=meta.tags;if(t.isLand)return 0;
-  var th=_anaCurrentThemes||{draw:1,removal:1,ramp:1,interaction:1,wincon:1};
-  return (
+  var th=_anaCurrentThemes||{draw:1,removal:1,ramp:1,interaction:1,wincon:1,protection:0};
+  var base=(
     t.draw*2.5*(th.draw||1)+
     t.removal*2.0*(th.removal||1)+
     t.ramp*1.8*(th.ramp||1)+
     t.interaction*2.0*(th.interaction||1)+
     t.wincon*3.0*(th.wincon||1)
   )-((meta.cmc||0)*0.4);
+  if(th.protection&&t.protection)base+=t.protection*1.5*(th.protection||0);
+  return base;
 }
 
 /* ----- Goldfish simulation (inspired Python engine v13) ----- */
@@ -12917,7 +12936,7 @@ var _ANTI_SYNERGY_RULES=[
 ];
 
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
-var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,labels:[]};
+var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,labels:[]};
 
 function _anaCommanderThemes(deck){
   var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,labels:[],_debug:'no-deck'};
@@ -13683,6 +13702,7 @@ function anaRender(deckId){
   _anaCurrentThemes=_anaCommanderThemes(deck);
   var cards=deck.cards.slice();
   var fmt=deck.format||'';
+  _anaCurrentThemes.protection=anaIsCommanderFormat(fmt)?1:0;
   var totalCards=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var deckCi=_anaDeckCi(deck);
 
