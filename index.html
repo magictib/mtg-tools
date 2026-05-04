@@ -15038,22 +15038,25 @@ function metaFetch(fmt){
   else metaFetchGoldfish(fmt,fmtObj.label);
 }
 
-function metaSafeProxyFetch(url,onHtml,onFail){
+function metaSafeProxyFetch(url,onContent,onFail,expectHtml){
   function tryProxy(proxyUrl,fallback){
     fetch(proxyUrl+encodeURIComponent(url))
       .then(function(r){return r.text();})
       .then(function(text){
-        var html='';
-        if(text.trim().startsWith('{')||text.trim().startsWith('[')){
-          try{var d=JSON.parse(text);html=d.contents||text;}catch(e){html=text;}
-        } else {
-          html=text;
+        var content=text;
+        // allorigins wraps response: {"contents":"...","status":{...}}
+        if(text.trim().startsWith('{')){
+          try{var w=JSON.parse(text);if(w.contents!==undefined)content=w.contents||'';}catch(e){}
         }
-        if(!html||html.trim().startsWith('<!DOCTYPE')||html.trim().startsWith('<html')){
-          if(fallback)fallback();else onFail('Proxy indisponible — le site cible bloque les requêtes.');
-        } else {
-          onHtml(html);
+        if(!content){
+          if(fallback)fallback();else onFail('Contenu vide reçu du proxy.');return;
         }
+        var isHtml=content.trim().startsWith('<');
+        if(!expectHtml&&isHtml){
+          // Expected JSON but proxy returned HTML (blocked or error page)
+          if(fallback)fallback();else onFail('Proxy indisponible — le site cible bloque les requêtes.');return;
+        }
+        onContent(content);
       })
       .catch(function(){if(fallback)fallback();else onFail('Erreur réseau.');});
   }
@@ -15069,85 +15072,111 @@ function metaFetchGoldfish(fmt,label){
     _metaPending[fmt]=decks;
     metaSetStatus(decks.length+' decks récupérés pour '+label+'. Ajustez les tiers puis sauvegardez.','var(--gr2)');
     metaShowAdminPreview(fmt);
-  },function(err){metaSetStatus('Erreur MTGGoldfish : '+err,'var(--rd2)');});
+  },function(err){metaSetStatus('Erreur MTGGoldfish : '+err,'var(--rd2)');},true);
 }
 
 function metaParseGoldfish(html){
   var parser=new DOMParser();
   var doc=parser.parseFromString(html,'text/html');
   var decks=[];
-  var tiles=doc.querySelectorAll('.archetype-tile');
-  tiles.forEach(function(tile){
-    var nameEl=tile.querySelector('.archetype-tile-title a')||tile.querySelector('.archetype-tile-title');
-    var pctEl=tile.querySelector('.archetype-tile-statistic span')||tile.querySelector('.archetype-tile-statistic');
-    if(!nameEl) return;
-    var name=nameEl.textContent.trim();
-    var playRate=parseFloat((pctEl?pctEl.textContent:'0').replace('%',''))||0;
-    var url=nameEl.href||'';
-    decks.push({name:name,colors:[],playRate:playRate,winRate:null,source:'MTGGoldfish',url:url,tier:metaAssignTierByRate(playRate)});
+  var seen=new Set();
+  function push(name,playRate,url){
+    if(!name||name.length<2||seen.has(name))return;
+    seen.add(name);
+    decks.push({name:name,colors:[],playRate:playRate,winRate:null,source:'MTGGoldfish',url:url||'',tier:metaAssignTierByRate(playRate)});
+  }
+  // Try 1: .archetype-tile (classic + current structure)
+  doc.querySelectorAll('.archetype-tile').forEach(function(tile){
+    var nameEl=tile.querySelector('.archetype-tile-title a, h3 a, h2 a, .title a, a');
+    var pctEl=tile.querySelector('.archetype-tile-statistic span, [class*="statistic"] span, [class*="percentage"], [class*="play-rate"]');
+    if(!nameEl)return;
+    push(nameEl.textContent.trim(),parseFloat((pctEl?pctEl.textContent:'0').replace('%',''))||0,nameEl.href||'');
   });
+  // Try 2: metagame table rows
   if(!decks.length){
-    doc.querySelectorAll('table tbody tr').forEach(function(row){
+    doc.querySelectorAll('table.table tbody tr, table tbody tr').forEach(function(row){
       var cells=row.querySelectorAll('td');
-      if(cells.length<2) return;
+      if(cells.length<2)return;
       var nameEl=cells[0].querySelector('a')||cells[0];
       var name=nameEl.textContent.trim();
-      if(!name||name==='Deck') return;
-      var playRate=parseFloat(cells[1].textContent.replace('%',''))||0;
-      var url=(nameEl.href)||'';
-      decks.push({name:name,colors:[],playRate:playRate,winRate:null,source:'MTGGoldfish',url:url,tier:metaAssignTierByRate(playRate)});
+      if(!name||name==='Deck'||name==='Archetype')return;
+      push(name,parseFloat(cells[1].textContent.replace(/[^0-9.]/g,''))||0,nameEl.href||'');
     });
+  }
+  // Try 3: any link with /archetype/ in href
+  if(!decks.length){
+    doc.querySelectorAll('a[href*="/archetype/"]').forEach(function(a){
+      var name=a.textContent.trim();
+      if(!name)return;
+      var parent=a.closest('tr,li,[class*="tile"],[class*="row"]');
+      var pct=0;
+      if(parent){var m=(parent.textContent||'').match(/(\d+\.?\d*)\s*%/);if(m)pct=parseFloat(m[1])||0;}
+      push(name,pct,a.href||'');
+    });
+  }
+  // Try 4: JSON embedded in a <script> tag
+  if(!decks.length){
+    var scripts=Array.from(doc.querySelectorAll('script'));
+    for(var i=0;i<scripts.length;i++){
+      var st=scripts[i].textContent||'';
+      var m=st.match(/"archetypes"\s*:\s*(\[[\s\S]+?\])/)||st.match(/metagame\w*\s*=\s*(\[[\s\S]+?\]);/);
+      if(m){try{JSON.parse(m[1]).forEach(function(d){push(d.name||d.title||'',parseFloat(d.play_rate||d.playRate||0),d.url||'');});}catch(e){}if(decks.length)break;}
+    }
   }
   return decks;
 }
 
 function metaFetchEdhrec(fmt,label){
   var url=META_EDHREC_URLS[fmt];
-  function parse(data){
-    var container=data.container||{};
-    var json_dict=container.json_dict||data;
-    var cardViews=json_dict.cardviews||(data.cardviews)||[];
-    if(!cardViews.length&&data.container&&data.container.json_dict) cardViews=data.container.json_dict.cardviews||[];
+  function parseEdhrec(data){
+    // Support multiple response shapes
+    var cardViews=[];
+    if(Array.isArray(data)){cardViews=data;}
+    else{
+      var c=data.container||data;
+      var jd=c.json_dict||c;
+      cardViews=jd.cardviews||jd.commanders||jd.top||[];
+      if(!cardViews.length&&data.container)cardViews=((data.container.json_dict||{}).cardviews)||[];
+    }
     var decks=[];
-    cardViews.slice(0,60).forEach(function(cv){
-      var name=cv.name||cv.sanitized||'';
-      if(!name) return;
-      var numDecks=cv.num_decks||0;
-      var colors=(cv.color_identity||[]).map(function(c){return c.toUpperCase();});
-      var url=cv.url?'https://edhrec.com'+cv.url:'';
-      decks.push({name:name,colors:colors,playRate:numDecks,winRate:null,source:'EDHREC',url:url});
+    cardViews.slice(0,80).forEach(function(cv){
+      var name=cv.name||cv.sanitized_wo_braces||cv.sanitized||'';
+      if(!name)return;
+      var numDecks=cv.num_decks||cv.count||0;
+      var colors=(cv.color_identity||[]).map(function(c){return(c+'').toUpperCase();});
+      var u=cv.url?'https://edhrec.com'+cv.url:'';
+      decks.push({name:name,colors:colors,playRate:numDecks,winRate:null,source:'EDHREC',url:u});
     });
     if(decks.length){
       decks.forEach(function(d,i){
-        if(i<Math.ceil(decks.length*.1)) d.tier='S';
-        else if(i<Math.ceil(decks.length*.25)) d.tier='A';
-        else if(i<Math.ceil(decks.length*.6)) d.tier='B';
+        if(i<Math.ceil(decks.length*.1))d.tier='S';
+        else if(i<Math.ceil(decks.length*.25))d.tier='A';
+        else if(i<Math.ceil(decks.length*.6))d.tier='B';
         else d.tier='C';
       });
     }
     return decks;
   }
-  fetch(url)
-    .then(function(r){return r.json();})
-    .then(function(data){
-      var decks=parse(data);
-      if(!decks.length) throw new Error('empty');
-      _metaPending[fmt]=decks;
-      metaSetStatus(decks.length+' commandants récupérés pour '+label+'. Ajustez les tiers puis sauvegardez.','var(--gr2)');
-      metaShowAdminPreview(fmt);
+  function handleData(data){
+    var decks=parseEdhrec(data);
+    if(!decks.length){metaSetStatus('Aucune donnée EDHREC pour '+label+'. Format de réponse inattendu.','var(--rd2)');return;}
+    _metaPending[fmt]=decks;
+    metaSetStatus(decks.length+' commandants récupérés pour '+label+'. Ajustez les tiers puis sauvegardez.','var(--gr2)');
+    metaShowAdminPreview(fmt);
+  }
+  function tryViaProxy(){
+    metaSafeProxyFetch(url,function(content){
+      try{handleData(JSON.parse(content));}
+      catch(e){metaSetStatus('Données EDHREC illisibles (proxy). Contenu : '+content.slice(0,80),'var(--rd2)');}
+    },function(err){metaSetStatus('Erreur EDHREC : '+err,'var(--rd2)');},false);
+  }
+  fetch(url,{headers:{'Accept':'application/json'}})
+    .then(function(r){
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return r.json();
     })
-    .catch(function(){
-      metaSafeProxyFetch(url,function(html){
-        try{
-          var inner=JSON.parse(html);
-          var decks=parse(inner);
-          if(!decks.length){metaSetStatus('Aucune donnée EDHREC pour '+label+'.','var(--rd2)');return;}
-          _metaPending[fmt]=decks;
-          metaSetStatus(decks.length+' commandants récupérés pour '+label+'. Ajustez les tiers puis sauvegardez.','var(--gr2)');
-          metaShowAdminPreview(fmt);
-        }catch(e){metaSetStatus('Données EDHREC illisibles. Réessayez plus tard.','var(--rd2)');}
-      },function(err){metaSetStatus('Erreur EDHREC : '+err,'var(--rd2)');});
-    });
+    .then(handleData)
+    .catch(tryViaProxy);
 }
 
 function metaShowAdminPreview(fmt){
