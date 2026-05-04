@@ -12130,12 +12130,11 @@ function anaSetOptMode(mode){
 }
 function _anaCollectionNlSet(){
   var s={};
-  Object.keys(decks||{}).forEach(function(id){
-    var d=decks[id];if(!d||!d.cards)return;
-    d.cards.forEach(function(c){
-      var nl=c.nl||stripDFC(c.name||'').toLowerCase();
-      if(nl)s[nl]=1;
-    });
+  // Collection réelle du profil actif (importée via CSV)
+  var coll=(profs&&profs[actP]&&Array.isArray(profs[actP]))?profs[actP]:[];
+  coll.forEach(function(c){
+    var nl=c.nl||stripDFC(c.name||'').toLowerCase();
+    if(nl)s[nl]=1;
   });
   return s;
 }
@@ -12365,6 +12364,17 @@ function anaZoom(url){
   var z=document.getElementById('ana-zoom');if(!z||!url)return;
   z.querySelector('img').src=url;
   z.style.display='flex';
+}
+function _anaImgFallback(img){
+  var fb=img.dataset.fallback;
+  if(fb&&img.src!==fb){
+    img.src=fb;
+    var card=img.closest('.ana-img-card');
+    if(card)card.dataset.img=fb; // zoom vers la version EN aussi
+  } else {
+    img.parentNode.classList.add('ana-img-fallback');
+    img.style.display='none';
+  }
 }
 function anaClearCache(){
   if(!confirm('Vider le cache d\'analyse Scryfall ?'))return;
@@ -13868,10 +13878,13 @@ function anaRender(deckId){
     }
   }
   suggestions.sort(function(a,b){return b.score-a.score;});
-  var topSuggestions=suggestions.slice(0,10);
+  // Filtrer par collection si nécessaire (calculé une seule fois, réutilisé partout)
+  var _collNlsFilter=_anaOptMode==='collection'?_anaCollectionNlSet():null;
+  var suggPool=_collNlsFilter?suggestions.filter(function(s){return _collNlsFilter[s.nl];}):suggestions;
+  var topSuggestions=suggPool.slice(0,10);
 
   // Plan d'optimisation
-  var optResult=anaOptimize(rows.filter(function(r){return r.inCache;}),suggestions.slice(),5);
+  var optResult=anaOptimize(rows.filter(function(r){return r.inCache;}),suggPool.slice(),5);
 
   // ===== HTML =====
   var html='';
@@ -14021,9 +14034,13 @@ function anaRender(deckId){
     var img=anaImageUrl(name,meta);
     var safeName=esc(name);
     var safeImg=img?img.replace(/"/g,'&quot;'):'';
+    // Fallback EN si langue non-EN et version localisée indisponible (Scryfall 404)
+    var fbUrl=(_userLang&&_userLang!=='en'&&meta&&meta.imageUri)?meta.imageUri:'';
+    var safeFb=fbUrl?fbUrl.replace(/"/g,'&quot;'):'';
     if(img){
+      var fbAttr=safeFb?' data-fallback="'+safeFb+'"':'';
       return '<div class="ana-img-card" data-img="'+safeImg+'" onclick="anaZoom(this.dataset.img)" title="'+safeName+'">'+
-        '<img src="'+img+'" loading="lazy" alt="'+safeName+'" onerror="this.parentNode.classList.add(\'ana-img-fallback\');this.style.display=\'none\'">'+
+        '<img src="'+img+'"'+fbAttr+' loading="lazy" alt="'+safeName+'" onerror="_anaImgFallback(this)">'+
         '<div class="ana-img-badge" style="color:'+scoreCol+'">'+scoreStr+'</div>'+
         (extraOverlay||'')+
       '</div>';
@@ -14196,8 +14213,7 @@ function anaRender(deckId){
   }
 
   // === Proposition deck 100% ===
-  var _optPool=suggestions.slice();
-  if(_anaOptMode==='collection'){var _collNls=_anaCollectionNlSet();_optPool=_optPool.filter(function(s){return _collNls[s.nl];});}
+  var _optPool=suggPool.slice(); // déjà filtré si mode collection
   var fullOpt=anaScoreOptimize(rows.filter(function(r){return r.inCache;}),_optPool,weights,targets,60);
   html+='<div class="card">';
   html+='<div class="lbl">🏆 Proposition de deck à 100%</div>';
