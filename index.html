@@ -12210,9 +12210,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v4: normalisation apostrophes bouclees -> droites dans les cles nl
-  if((__aP.__version||0)<5){
-    _anaData={__version:5};
+  // Migration v6: ajout champ power (P/T réelle) dans les metas de simulation
+  if((__aP.__version||0)<6){
+    _anaData={__version:6};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -12220,7 +12220,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=6;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -12607,7 +12607,9 @@ function _anaIngestCard(card,nlHint){
   var imageUri='';
   if(card.image_uris)imageUri=card.image_uris.normal||card.image_uris.large||card.image_uris.small||'';
   else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)imageUri=card.card_faces[0].image_uris.normal||card.card_faces[0].image_uris.large||card.card_faces[0].image_uris.small||'';
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||'',keywords:card.keywords||[]};
+  var _rawPow=card.power||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].power)||null;
+  var _realPow=_rawPow?parseInt(_rawPow):null;if(isNaN(_realPow))_realPow=null;
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||'',keywords:card.keywords||[],power:_realPow};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -13221,8 +13223,26 @@ function _anaExtractCmd(deck){
   var meta=_anaData[nl]||_anaData[deck.commander.nl||''];
   if(!meta)return null;
   var roles=anaRoles(meta);
-  var power=roles.creature?Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2)):0;
-  return {name:deck.commander.name,nl:nl,cmc:meta.cmc||0,isLand:false,roles:roles,power:power,isCommander:true};
+  // Utilise la vraie force si disponible, sinon estimation CMC
+  var power=roles.creature?(meta.power!=null?meta.power:Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2))):0;
+  // Détection des capacités passives du commandant
+  var passTxt=(meta.oracleText||'').toLowerCase();
+  var cmdPassive={};
+  // Draw-drain : Queza, Nekusar, Niv-Mizzet Parun, Niv Mizzet the Firemind...
+  var hasDrawTrigger=/whenever (you |a player |each player )?draw/.test(passTxt);
+  if(hasDrawTrigger){
+    if(/(?:each )?opponent.*los|\bdeal.*damage.*(?:each|target|any).*(?:player|opponent)/.test(passTxt))
+      cmdPassive.drawDrain=1;
+    if(/you gain \d+ life/.test(passTxt))
+      cmdPassive.drawLifegain=1;
+  }
+  // ETB-drain : Purphoros, Wayta, etc. ("whenever another creature enters…deals 2 damage")
+  if(/whenever (?:a|another) creature enters.*(?:deals? \d+ damage to each opponent|each opponent.*los \d+)/.test(passTxt))
+    cmdPassive.etbDrain=2;
+  // Sac-drain : Syr Konrad, Teysa Karlov type
+  if(/whenever (?:a|another) creature (?:you control )?dies.*(?:each opponent.*los|deals? \d+ damage)/.test(passTxt))
+    cmdPassive.sacDrain=1;
+  return {name:deck.commander.name,nl:nl,cmc:meta.cmc||0,isLand:false,roles:roles,power:power,isCommander:true,cmdPassive:Object.keys(cmdPassive).length?cmdPassive:null};
 }
 function _anaBuildSimLib(deck){
   var lib=[];
@@ -13232,7 +13252,7 @@ function _anaBuildSimLib(deck){
     if(cmdNl&&c.nl===cmdNl)return; // commandant géré séparément via command zone
     var meta=_anaData[c.nl];if(!meta)return;
     var roles=anaRoles(meta);
-    var power=roles.creature?Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2)):0;
+    var power=roles.creature?(meta.power!=null?meta.power:Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2))):0;
     var qty=c.qty||1;
     for(var i=0;i<qty;i++){
       lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power});
@@ -13344,17 +13364,21 @@ function _wrCell(wr){
 /* ----- Moteur de match head-to-head ----- */
 function _matchPlayer(lib,startLife){return {life:startLife||20,lib:_anaShuffle(lib.slice()),hand:[],bf:[],lastCast:null,cmd:null,cmdTax:0};}
 function _matchDraw(p,n){n=n||1;for(var i=0;i<n;i++)if(p.lib.length)p.hand.push(p.lib.shift());}
-function _castPriority(c,opp,turn){
+function _castPriority(c,opp,turn,self){
   var oppHasCreature=opp.bf.some(function(x){return x.roles&&x.roles.creature;});
   var oppHasWincon=opp.bf.some(function(x){return x.roles&&x.roles.wincon;});
   if(c.roles.wrath&&oppHasCreature)return 200;
   if(c.roles.removal&&oppHasWincon)return 180;
   if(c.roles.removal&&oppHasCreature)return 130;
   if(c.roles.ramp&&turn<=4)return 110;
+  // Si le commandant est en jeu avec draw-drain, la pioche = dégâts → priorité maximale
+  var cmdActive=self&&self.cmd&&self.cmd.cmdPassive&&self.bf&&self.bf.some(function(x){return x===self.cmd;});
+  if(c.roles.draw&&cmdActive&&self.cmd.cmdPassive.drawDrain)return 105;
   if(c.roles.draw&&turn<=5)return 95;
   if(c.roles.wincon)return 80;
   if(c.roles.creature)return 60;
   if(c.roles.interaction&&!c.roles.counter)return 50;
+  if(c.roles.draw)return 55; // late game : draw reste utile (was 30)
   if(c.roles.counter)return 40;
   return 30;
 }
@@ -13387,8 +13411,23 @@ function _applySpell(c,self,opp){
     return;
   }
   if(c.roles.ramp){self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});return;}
-  if(c.roles.draw){_matchDraw(self,2);return;}
-  if(c.roles.creature||c.roles.wincon){c.justCast=true;self.bf.push(c);self.lastCast=c;return;}
+  if(c.roles.draw){
+    var draws=2;
+    _matchDraw(self,draws);
+    // Passive drain du commandant : Queza, Nekusar, Niv-Mizzet…
+    if(self.cmd&&self.cmd.cmdPassive&&self.bf.some(function(x){return x===self.cmd;})){
+      if(self.cmd.cmdPassive.drawDrain)opp.life-=draws;
+      if(self.cmd.cmdPassive.drawLifegain)self.life+=draws;
+    }
+    return;
+  }
+  if(c.roles.creature||c.roles.wincon){
+    c.justCast=true;self.bf.push(c);self.lastCast=c;
+    // ETB-drain du commandant : Purphoros, Wayta… (exclut l'entrée du commandant lui-même)
+    if(!c.isCommander&&self.cmd&&self.cmd.cmdPassive&&self.cmd.cmdPassive.etbDrain&&self.bf.some(function(x){return x===self.cmd;}))
+      opp.life-=self.cmd.cmdPassive.etbDrain;
+    return;
+  }
   if(c.faceDmg){opp.life-=c.faceDmg;return;}
 }
 function _matchTurn(self,opp,turn,onPlay){
@@ -13401,7 +13440,7 @@ function _matchTurn(self,opp,turn,onPlay){
   var hasCounter=self.hand.some(function(c){return c.roles&&c.roles.counter;});
   var hasWrath=self.hand.some(function(c){return c.roles&&c.roles.wrath;});
   var castable=self.hand.filter(function(c){return !c.isLand&&c.cmc<=mana;}).slice();
-  castable.sort(function(a,b){return _castPriority(b,opp,turn)-_castPriority(a,opp,turn);});
+  castable.sort(function(a,b){return _castPriority(b,opp,turn,self)-_castPriority(a,opp,turn,self);});
   var manaLeft=mana;
   var reserve=hasCounter&&mana>=4&&!hasWrath?2:0;
   castable.forEach(function(c){
