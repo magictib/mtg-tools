@@ -298,7 +298,8 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .edhrec-decks{font-size:.7rem;color:var(--tx3);min-width:60px;text-align:right}
 .edh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:.5rem}
 .edh-card{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color .15s;-webkit-tap-highlight-color:transparent;contain:content;position:relative}
-.bld-maxed{opacity:.42;filter:grayscale(60%)}
+.bld-maxed{opacity:.38;filter:grayscale(65%)}
+.bld-maxed .edh-meta button{pointer-events:none;cursor:not-allowed;opacity:.5}
 .bld-max-badge{position:absolute;top:4px;left:4px;background:rgba(180,40,40,.88);color:#fff;font-size:.52rem;padding:1px 5px;border-radius:3px;font-family:'Goudy Mediaeval',serif;letter-spacing:.07em;pointer-events:none;z-index:2}
 .edh-card:hover{border-color:var(--ac)}
 .edh-card.edh-sel{opacity:.45;border-color:var(--gr2)!important;transform:none!important}
@@ -1780,9 +1781,9 @@ body.mana-cursor{cursor:none}
 <div id="bld-right">
   <!-- Stats sticky -->
   <div class="bld-sticky-stats" id="bld-statscard" style="display:none">
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between">
-      <div style="display:flex;gap:10px" id="bld-cntrs"></div>
-      <div id="bld-curve" style="display:flex;align-items:flex-end;gap:2px;height:32px"></div>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+      <div style="display:flex;gap:10px;align-items:center" id="bld-cntrs"></div>
+      <div id="bld-curve" style="display:flex;align-items:flex-end;gap:3px;flex:1;min-width:110px;height:52px"></div>
     </div>
     <div id="bld-colorbar" style="margin-top:6px;display:flex;gap:3px;flex-wrap:wrap"></div>
     <div id="bld-types" style="display:none"></div>
@@ -2862,7 +2863,14 @@ body.mana-cursor{cursor:none}
   <div class="card" id="meta-admin-card" style="display:none">
     <div class="lbl">⚙ Mise à jour méta</div>
     <div id="meta-fetch-status" style="font-size:.78rem;color:var(--tx3);margin-bottom:8px;min-height:1.1rem;font-style:italic"></div>
+    <div style="font-size:.7rem;color:var(--tx3);margin-bottom:6px">Auto (MTGTop8 / EDHREC) :</div>
     <div class="meta-fetch-row" id="meta-fetch-row"></div>
+    <div style="margin-top:12px;font-size:.7rem;color:var(--tx3);margin-bottom:4px">Saisie manuelle (un deck par ligne, format : <em>NomDeck,Tier</em> ou juste <em>NomDeck</em>) :</div>
+    <select id="meta-manual-fmt" style="width:100%;background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:4px 6px;font-size:.75rem;margin-bottom:4px">
+      <option value="">-- Choisir un format --</option>
+    </select>
+    <textarea id="meta-manual-ta" rows="6" placeholder="Burn,S&#10;Amulet Titan,A&#10;Living End,B" style="width:100%;background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:6px 8px;font-size:.75rem;font-family:monospace;resize:vertical"></textarea>
+    <button class="btn btnsm" onclick="metaImportManual(document.getElementById('meta-manual-fmt').value)" style="margin-top:4px;width:100%">⬆ Importer la saisie</button>
     <div id="meta-admin-preview"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="btn btnp btnsm" onclick="metaAdminSave()">💾 Sauvegarder</button>
@@ -11722,6 +11730,10 @@ function bldDrop(e,zone){
 var _bldPtr=null;
 function bldPtrDown(e,name,section){
   if(e.button!==undefined&&e.button!==0)return;
+  if(section==='search'){
+    var _d=bldData[(name||'').toLowerCase()];
+    if(_d&&bldTotalCount(_d.name||name)>=bldMaxCopies(_d))return;
+  }
   e.preventDefault();
   _bldPtr={name:name,section:section,moved:false,startX:e.clientX,startY:e.clientY};
 }
@@ -12008,12 +12020,17 @@ function bldMaxCopies(c){
   if(fmt==='commander'||fmt==='paupercmd')return 1;
   return 4;
 }
+function bldTotalCount(name){
+  var total=0;
+  [bldMain,bldSide,bldAvoir].forEach(function(arr){var idx=bldFindIn(arr,name);if(idx>=0)total+=arr[idx].qty;});
+  return total;
+}
 function bldUpdateResMaxed(){
   function applyMaxed(el,name){
     var d=bldData[(name||'').toLowerCase()];
     if(!d)return;
     var max=bldMaxCopies(d);
-    var cnt=0;var idx=bldFindIn(bldMain,d.name||name);if(idx>=0)cnt=bldMain[idx].qty;
+    var cnt=bldTotalCount(d.name||name);
     var maxed=cnt>=max;
     el.classList.toggle('bld-maxed',maxed);
     var badge=el.querySelector('.bld-max-badge');
@@ -12064,11 +12081,11 @@ function renderBldStats(){
   var curveMax=Math.max.apply(null,curve)||1;
   var cv='';
   curve.forEach(function(v,i){
-    var h=v?Math.max(Math.round(v/curveMax*30),2):0;
-    cv+='<div style="display:flex;flex-direction:column;align-items:center;gap:1px;width:16px">'
-      +(v?'<span style="font-size:.5rem;color:var(--tx3)">'+v+'</span>':'<span style="font-size:.5rem;color:transparent">0</span>')
-      +'<div style="width:100%;background:'+(h?'var(--ac)':'transparent')+';height:'+h+'px;border-radius:2px 2px 0 0"></div>'
-      +'<span style="font-size:.5rem;color:var(--tx3)">'+(i<6?i:'6+')+'</span></div>';
+    var h=v?Math.max(Math.round(v/curveMax*32),3):0;
+    cv+='<div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;min-width:0">'
+      +'<span style="font-size:.48rem;color:var(--tx3);line-height:1">'+(v||'·')+'</span>'
+      +'<div style="width:100%;background:'+(h?'var(--ac)':'transparent')+';height:'+h+'px;border-radius:2px 2px 0 0;transition:height .15s;min-height:'+(v?'3px':'0')+'"></div>'
+      +'<span style="font-size:.48rem;color:var(--tx3);line-height:1">'+(i<6?i:'6+')+'</span></div>';
   });
   document.getElementById('bld-curve').innerHTML=cv;
 }
@@ -15091,11 +15108,12 @@ var META_FORMATS=[
   {id:'pioneer',    label:'Pioneer',    src:'goldfish'},
 ];
 
+// MTGTop8 : rendu côté serveur, moins protégé Cloudflare que MTGGoldfish
 var META_GF_URLS={
-  pauper:   'https://www.mtggoldfish.com/metagame/pauper/full',
-  standard: 'https://www.mtggoldfish.com/metagame/standard/full',
-  modern:   'https://www.mtggoldfish.com/metagame/modern/full',
-  pioneer:  'https://www.mtggoldfish.com/metagame/pioneer/full',
+  pauper:   'https://www.mtgtop8.com/format?f=PAU',
+  standard: 'https://www.mtgtop8.com/format?f=ST',
+  modern:   'https://www.mtgtop8.com/format?f=MO',
+  pioneer:  'https://www.mtgtop8.com/format?f=PI',
 };
 
 var META_EDHREC_URLS={
@@ -15120,6 +15138,11 @@ function metaInit(){
     if(fetchRow) fetchRow.innerHTML=META_FORMATS.map(function(f){
       return '<button class="btn btnsm" onclick="metaFetch(\''+f.id+'\')">⟳ '+f.label+'</button>';
     }).join('');
+    var manualSel=document.getElementById('meta-manual-fmt');
+    if(manualSel){
+      manualSel.innerHTML='<option value="">-- Choisir un format --</option>'+
+        META_FORMATS.map(function(f){return '<option value="'+f.id+'">'+f.label+'</option>';}).join('');
+    }
   }
   metaRender();
 }
@@ -15183,7 +15206,7 @@ function metaFetch(fmt){
   if(!fmtObj) return;
   metaSetStatus('Récupération '+fmtObj.label+'…');
   if(fmtObj.src==='edhrec') metaFetchEdhrec(fmt,fmtObj.label);
-  else metaFetchGoldfish(fmt,fmtObj.label);
+  else metaFetchTop8(fmt,fmtObj.label);
 }
 
 function metaSafeProxyFetch(url,onContent,onFail,expectHtml){
@@ -15212,90 +15235,78 @@ function metaSafeProxyFetch(url,onContent,onFail,expectHtml){
     });
   });
 }
-function metaFetchGoldfish(fmt,label){
+function metaFetchTop8(fmt,label){
   var url=META_GF_URLS[fmt];
   metaSafeProxyFetch(url,function(html){
-    var decks=metaParseGoldfish(html);
+    var decks=metaParseTop8(html);
     if(!decks.length){
-      var snippet=html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,250);
-      metaSetStatus('Aucun deck trouvé pour '+label+'. Reçu : '+snippet,'var(--rd2)');return;
+      var snippet=html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,300);
+      metaSetStatus('MTGTop8 '+label+' : 0 decks. Reçu : '+snippet,'var(--rd2)');return;
     }
     _metaPending[fmt]=decks;
-    metaSetStatus(decks.length+' decks récupérés pour '+label+'. Ajustez les tiers puis sauvegardez.','var(--gr2)');
+    metaSetStatus(decks.length+' decks récupérés ('+label+'). Ajustez les tiers puis sauvegardez.','var(--gr2)');
     metaShowAdminPreview(fmt);
-  },function(err){metaSetStatus('Erreur MTGGoldfish : '+err,'var(--rd2)');},true);
+  },function(err){metaSetStatus('Erreur MTGTop8 : '+err,'var(--rd2)');},true);
 }
-
-function metaParseGoldfish(html){
+function metaParseTop8(html){
   var parser=new DOMParser();
   var doc=parser.parseFromString(html,'text/html');
-  var decks=[];
-  var seen=new Set();
-  function push(name,playRate,url){
+  var decks=[];var seen=new Set();
+  function push(name,pct,url){
+    name=(name||'').trim();
     if(!name||name.length<2||seen.has(name))return;
     seen.add(name);
-    decks.push({name:name,colors:[],playRate:playRate,winRate:null,source:'MTGGoldfish',url:url||'',tier:metaAssignTierByRate(playRate)});
+    decks.push({name:name,colors:[],playRate:pct,winRate:null,source:'MTGTop8',url:url||'',tier:metaAssignTierByRate(pct)});
   }
-  // Try 1: .archetype-tile (classic + current structure)
-  doc.querySelectorAll('.archetype-tile').forEach(function(tile){
-    var nameEl=tile.querySelector('.archetype-tile-title a, h3 a, h2 a, .title a, a');
-    var pctEl=tile.querySelector('.archetype-tile-statistic span, [class*="statistic"] span, [class*="percentage"], [class*="play-rate"]');
-    if(!nameEl)return;
-    push(nameEl.textContent.trim(),parseFloat((pctEl?pctEl.textContent:'0').replace('%',''))||0,nameEl.href||'');
+  // MTGTop8 : liens /archetype?a= avec pourcentage à proximité
+  doc.querySelectorAll('a[href*="/archetype?a="]').forEach(function(a){
+    var name=a.textContent.trim();if(!name||name.length<2)return;
+    var parent=a.closest('td,div,li,tr');
+    var pct=0;if(parent){var m=(parent.textContent||'').match(/(\d+\.?\d*)\s*%/);if(m)pct=parseFloat(m[1])||0;}
+    push(name,pct,'https://www.mtgtop8.com'+a.getAttribute('href'));
   });
-  // Try 2: metagame table rows
+  // Fallback : tableau générique
   if(!decks.length){
-    doc.querySelectorAll('table.table tbody tr, table tbody tr').forEach(function(row){
-      var cells=row.querySelectorAll('td');
-      if(cells.length<2)return;
-      var nameEl=cells[0].querySelector('a')||cells[0];
-      var name=nameEl.textContent.trim();
-      if(!name||name==='Deck'||name==='Archetype')return;
-      push(name,parseFloat(cells[1].textContent.replace(/[^0-9.]/g,''))||0,nameEl.href||'');
+    doc.querySelectorAll('table tr').forEach(function(tr){
+      var cells=tr.querySelectorAll('td');if(cells.length<2)return;
+      var a=cells[0].querySelector('a');
+      var name=(a?a.textContent:cells[0].textContent).trim();if(!name||name.length<2)return;
+      var pct=parseFloat((cells[cells.length-1].textContent||'').replace(/[^0-9.]/g,''))||0;
+      push(name,pct,a?'https://www.mtgtop8.com'+(a.getAttribute('href')||''):'');
     });
   }
-  // Try 3: any link with /archetype/ in href
+  // Fallback : tout lien /archetype (sans paramètre)
   if(!decks.length){
-    doc.querySelectorAll('a[href*="/archetype/"]').forEach(function(a){
-      var name=a.textContent.trim();
-      if(!name)return;
-      var parent=a.closest('tr,li,[class*="tile"],[class*="row"]');
-      var pct=0;
+    doc.querySelectorAll('a[href*="/archetype"]').forEach(function(a){
+      var name=a.textContent.trim();if(!name||name.length<2)return;
+      var parent=a.closest('td,div,li,tr');var pct=0;
       if(parent){var m=(parent.textContent||'').match(/(\d+\.?\d*)\s*%/);if(m)pct=parseFloat(m[1])||0;}
       push(name,pct,a.href||'');
     });
   }
-  // Try 4: JSON embedded in a <script> tag
-  if(!decks.length){
-    var scripts=Array.from(doc.querySelectorAll('script'));
-    for(var i=0;i<scripts.length;i++){
-      var st=scripts[i].textContent||'';
-      var m=st.match(/"archetypes"\s*:\s*(\[[\s\S]+?\])/)||st.match(/metagame\w*\s*=\s*(\[[\s\S]+?\]);/);
-      if(m){try{JSON.parse(m[1]).forEach(function(d){push(d.name||d.title||'',parseFloat(d.play_rate||d.playRate||0),d.url||'');});}catch(e){}if(decks.length)break;}
-    }
-  }
-  // Try 5: Next.js __NEXT_DATA__ embedded JSON
-  if(!decks.length){
-    var nd=doc.getElementById('__NEXT_DATA__');
-    if(nd){
-      try{
-        var ndj=JSON.parse(nd.textContent||'{}');
-        var pp=(ndj.props&&ndj.props.pageProps)||{};
-        var archs=pp.archetypes||pp.metagame||pp.decks||pp.data||[];
-        if(!archs.length&&pp.initialState){archs=pp.initialState.archetypes||pp.initialState.decks||[];}
-        archs.forEach(function(d){push(d.name||d.title||d.archetype||'',parseFloat(d.play_rate||d.playRate||d.share||0),d.url||d.href||'');});
-      }catch(e){}
-    }
-  }
-  // Try 6: any element with data-name or data-archetype attributes
-  if(!decks.length){
-    doc.querySelectorAll('[data-archetype],[data-name]').forEach(function(el){
-      var name=(el.dataset.archetype||el.dataset.name||'').trim();
-      var pct=parseFloat((el.dataset.share||el.dataset.playRate||'0').replace('%',''))||0;
-      push(name,pct,el.href||'');
-    });
-  }
   return decks;
+}
+// Saisie manuelle : "DeckName,Tier" ou juste "DeckName" (une ligne par deck)
+function metaImportManual(fmt){
+  var ta=document.getElementById('meta-manual-ta');
+  if(!ta)return;
+  var lines=ta.value.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  if(!lines.length){metaSetStatus('Aucune ligne saisie.','var(--am)');return;}
+  var seen=new Set();var decks=[];
+  lines.forEach(function(line,idx){
+    var parts=line.split(',');
+    var name=(parts[0]||'').trim();
+    if(!name||seen.has(name))return;
+    seen.add(name);
+    var tier=(parts[1]||'').trim().toUpperCase();
+    if(!['S','A','B','C'].includes(tier))tier=idx<Math.ceil(lines.length*.1)?'S':idx<Math.ceil(lines.length*.25)?'A':idx<Math.ceil(lines.length*.6)?'B':'C';
+    decks.push({name:name,colors:[],playRate:0,winRate:null,source:'Manuel',url:'',tier:tier});
+  });
+  if(!decks.length){metaSetStatus('Aucun deck valide.','var(--rd2)');return;}
+  var fmtObj=META_FORMATS.find(function(f){return f.id===fmt;});
+  _metaPending[fmt]=decks;
+  metaSetStatus(decks.length+' decks importés manuellement.','var(--gr2)');
+  metaShowAdminPreview(fmt);
 }
 
 function metaFetchEdhrec(fmt,label){
