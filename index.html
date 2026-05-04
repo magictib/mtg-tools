@@ -701,6 +701,8 @@ body.mana-cursor{cursor:none}
 .ar-zone-ov-inner{background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:16px;max-width:88vw;max-height:80vh;overflow-y:auto;min-width:280px}
 #ar-ghost{position:fixed;pointer-events:none;z-index:700;display:none;width:82px;height:115px}
 #ar-ghost img{width:100%;height:100%;border-radius:7px;object-fit:cover;box-shadow:0 10px 30px rgba(0,0,0,.9);display:block;opacity:.9}
+#bld-ghost{position:fixed;pointer-events:none;z-index:9901;display:none;width:60px;height:84px}
+#bld-ghost img{width:100%;height:100%;border-radius:6px;object-fit:cover;box-shadow:0 8px 25px rgba(0,0,0,.9);display:block;opacity:.85}
 /* Life delta popup */
 .ar-life-delta{position:absolute;top:-24px;left:50%;transform:translateX(-50%);font-family:'Goudy Mediaeval',serif;font-size:1rem;font-weight:bold;pointer-events:none;white-space:nowrap;animation:ar-delta-fade .9s ease-out forwards}
 @keyframes ar-delta-fade{0%{opacity:1;transform:translateX(-50%) translateY(0)}100%{opacity:0;transform:translateX(-50%) translateY(-20px)}}
@@ -1901,11 +1903,12 @@ body.mana-cursor{cursor:none}
     <div class="bld-drop-btn" id="bld-ov-avoir" ondragover="bldOvOver(event,'avoir')" ondragleave="bldOvLeave('avoir')" ondrop="bldOvDrop(event,'avoir')">
       <span class="dbi">👁</span>À voir
     </div>
-    <div class="bld-drop-btn" id="bld-ov-oublie" ondragover="bldOvOver(event,'oublie')" ondragleave="bldOvLeave('oublie')" ondrop="bldOvDrop(event,'oublie')" style="border-color:rgba(200,72,72,.4);color:var(--rd2)">
+    <div class="bld-drop-btn" id="bld-ov-oublie" style="border-color:rgba(200,72,72,.4);color:var(--rd2)">
       <span class="dbi">🗑</span>Supprimer
     </div>
   </div>
 </div>
+<div id="bld-ghost"><img id="bld-ghost-img" src="" alt=""></div>
 </div>
 
 <!-- PARTIES -->
@@ -11713,36 +11716,59 @@ function bldDrop(e,zone){
   else bldMoveCard(_bldDragSrc,_bldDragSection,zone);
   _bldDragSrc=null;_bldDragSection=null;
 }
-// Document-level DnD: bypass pointer-events:none on overlay via bounding-box hit testing
-(function(){
-  var BLD_ZONES=['main','sideb','avoir','oublie'];
-  function getBldZoneAtPoint(x,y){
-    for(var i=0;i<BLD_ZONES.length;i++){
-      var btn=document.getElementById('bld-ov-'+BLD_ZONES[i]);if(!btn)continue;
-      var r=btn.getBoundingClientRect();
-      if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return BLD_ZONES[i];
-    }return null;
+// Pointer-based drag (même mécanisme que l'arène)
+var _bldPtr=null;
+function bldPtrDown(e,name,section){
+  if(e.button!==undefined&&e.button!==0)return;
+  e.preventDefault();
+  _bldPtr={name:name,section:section,moved:false,startX:e.clientX,startY:e.clientY};
+}
+function bldPtrMove(e){
+  if(!_bldPtr)return;
+  var dx=e.clientX-_bldPtr.startX,dy=e.clientY-_bldPtr.startY;
+  if(!_bldPtr.moved&&dx*dx+dy*dy<36)return;
+  if(!_bldPtr.moved){
+    _bldPtr.moved=true;
+    var d=bldData[(_bldPtr.name||'').toLowerCase()];
+    var ghost=document.getElementById('bld-ghost');
+    var gimg=document.getElementById('bld-ghost-img');
+    if(gimg)gimg.src=d&&d.img||'';
+    if(ghost)ghost.style.display='block';
+    bldShowDragOverlay();
   }
-  document.addEventListener('dragover',function(e){
-    if(!_bldDragSrc)return;
-    e.preventDefault();e.dataTransfer.dropEffect='move';
-    var hit=getBldZoneAtPoint(e.clientX,e.clientY);
-    BLD_ZONES.forEach(function(z){
-      var b=document.getElementById('bld-ov-'+z);if(b)b.classList.toggle('dragover',z===hit);
-    });
+  var ghost=document.getElementById('bld-ghost');
+  if(ghost){ghost.style.left=(e.clientX-30)+'px';ghost.style.top=(e.clientY-42)+'px';}
+  var cx=e.clientX,cy=e.clientY;
+  ['main','sideb','avoir','oublie'].forEach(function(z){
+    var b=document.getElementById('bld-ov-'+z);if(!b)return;
+    var r=b.getBoundingClientRect();
+    b.classList.toggle('dragover',cx>=r.left&&cx<=r.right&&cy>=r.top&&cy<=r.bottom);
   });
-  document.addEventListener('drop',function(e){
-    if(!_bldDragSrc)return;
-    var zone=getBldZoneAtPoint(e.clientX,e.clientY);
-    if(!zone)return;
-    e.preventDefault();e.stopPropagation();
-    var src=_bldDragSrc,section=_bldDragSection;
-    bldHideDragOverlay();_bldDragSrc=null;_bldDragSection=null;
-    if(zone==='oublie'){if(section!=='search')bldRemFrom(src,section);}
-    else if(section==='search')bldAdd(src,zone);
-    else bldMoveCard(src,section,zone);
+}
+function bldPtrUp(e){
+  if(!_bldPtr)return;
+  var ghost=document.getElementById('bld-ghost');if(ghost)ghost.style.display='none';
+  bldHideDragOverlay();
+  if(!_bldPtr.moved){
+    if(_bldPtr.section!=='search')bldShowCardImg(_bldPtr.name);
+    _bldPtr=null;return;
+  }
+  var cx=e.clientX,cy=e.clientY;
+  var zone=null;
+  ['main','sideb','avoir','oublie'].forEach(function(z){
+    var b=document.getElementById('bld-ov-'+z);if(!b)return;
+    var r=b.getBoundingClientRect();
+    if(cx>=r.left&&cx<=r.right&&cy>=r.top&&cy<=r.bottom)zone=z;
   });
-})();
+  var src=_bldPtr.name,section=_bldPtr.section;
+  _bldPtr=null;
+  if(!zone)return;
+  if(zone==='oublie'){if(section!=='search')bldRemFrom(src,section);}
+  else if(section==='search')bldAdd(src,zone);
+  else bldMoveCard(src,section,zone);
+}
+document.addEventListener('pointermove',bldPtrMove,{passive:false});
+document.addEventListener('pointerup',bldPtrUp);
 function bldToggleColl(pi,btn){
   if(bldCollFilter.has(pi))bldCollFilter.delete(pi);else bldCollFilter.add(pi);
   btn.classList.toggle('active',bldCollFilter.has(pi));
@@ -11861,7 +11887,7 @@ function bldRenderRes(data,append){
     var banStatus=bldGetBanStatus(d);
     var banClass=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
     var banBadge=banStatus==='banned'?'<div style="font-size:.6rem;color:var(--rd2);text-align:center;padding:1px 0;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em">⛔ BANNI</div>':'';
-    return '<div class="edh-card'+banClass+'" data-cardname="'+esc(d.name.toLowerCase())+'" draggable="true" ondragstart="bldSrchDragStart(event,\''+nm+'\')" ondragend="bldDragEnd(event)"'+zm+'>'
+    return '<div class="edh-card'+banClass+'" data-cardname="'+esc(d.name.toLowerCase())+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\'search\')" style="touch-action:none;user-select:none;cursor:grab"'+zm+'>'
       +(d.img?'<img src="'+d.img+'" alt="'+esc(d.name)+'" loading="lazy">'
              :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(d.name)+'</div>')
       +banBadge
@@ -11935,16 +11961,13 @@ function renderBldDecks(){
     var banStatus=bldGetBanStatus(c);
     var banCls=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
     var banBadge=banStatus==='banned'?'<span class="bld-ban-badge">BANNI</span>':'';
-    return '<div class="bld-row'+banCls+'" draggable="true"'
-      +' ondragstart="bldDragStart(event,\''+nm+'\',\''+section+'\')"'
-      +' ondragend="bldDragEnd(event)"'
-      +' onclick="bldShowCardImg(\''+nm+'\')">'
+    return '<div class="bld-row'+banCls+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\''+section+'\')" style="touch-action:none;user-select:none;cursor:grab">'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+c.qty+'</span>'
       +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx);font-size:.82rem">'+esc(c.name)+'</span>'
       +banBadge
       +(c.rarity?'<span style="font-size:.6rem;padding:1px 4px;border-radius:999px;background:rgba(100,100,120,.1);color:'+(rc[c.rarity]||'var(--tx3)')+';border:.5px solid var(--bd)">'+({common:'C',uncommon:'U',rare:'R',mythic:'M'}[c.rarity]||'?')+'</span>':'')
       +(c.cmc!=null&&c.type&&c.type.indexOf('Land')<0?'<span style="font-size:.66rem;color:var(--tx3);min-width:14px;text-align:right">'+c.cmc+'</span>':'')
-      +'<span onclick="event.stopPropagation();bldRemFrom(\''+nm+'\',\''+section+'\')" style="font-size:.7rem;color:var(--rd2);cursor:pointer;padding:0 4px;line-height:1;opacity:.6">✕</span>'
+      +'<span onpointerdown="event.stopPropagation()" onclick="bldRemFrom(\''+nm+'\',\''+section+'\')" style="font-size:.7rem;color:var(--rd2);cursor:pointer;padding:0 4px;line-height:1;opacity:.6">✕</span>'
       +'</div>';
   }
   // Main deck : tri + groupement
@@ -12052,7 +12075,7 @@ function bldOptimize(){
         var zm=dobj.img?' data-zoom="'+dobj.img.replace(/"/g,'&quot;')+'" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()"':'';
         var banStatus=bldGetBanStatus(dobj);
         var banClass=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
-        return '<div class="edh-card'+banClass+'" draggable="true" ondragstart="bldSrchDragStart(event,\''+nm+'\')" ondragend="bldDragEnd(event)"'+zm+'>'
+        return '<div class="edh-card'+banClass+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\'search\')" style="touch-action:none;user-select:none;cursor:grab"'+zm+'>'
           +(dobj.img?'<img src="'+dobj.img+'" alt="'+esc(dobj.name)+'" loading="lazy">'
                     :'<div style="height:90px;background:var(--s3);display:flex;align-items:center;justify-content:center;padding:4px;text-align:center;font-size:.65rem;color:var(--tx3)">'+esc(dobj.name)+'</div>')
           +'<div class="edh-meta"><div class="edh-nm">'+esc(dobj.name)+'</div>'
@@ -12075,7 +12098,7 @@ function bldOptimize(){
       }).sort(function(a,b){return b.score-a.score;});
       // Build swaps section
       var swapHtml='';
-      var nSwaps=Math.min(5,candidates.length,sugs.length);
+      var nSwaps=Math.min(10,candidates.length,sugs.length);
       if(nSwaps>0){
         swapHtml+='<div style="font-size:9px;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.1em;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--bd)">⚡ SWAPS SUGGÉRÉS</div>';
         for(var i=0;i<nSwaps;i++){
