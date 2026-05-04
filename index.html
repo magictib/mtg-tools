@@ -13284,7 +13284,7 @@ function _matchDraw(p,n){n=n||1;for(var i=0;i<n;i++)if(p.lib.length)p.hand.push(
 function _castPriority(c,opp,turn){
   var oppHasCreature=opp.bf.some(function(x){return x.roles&&x.roles.creature;});
   var oppHasWincon=opp.bf.some(function(x){return x.roles&&x.roles.wincon;});
-  if(c.roles.wrath&&opp.bf.filter(function(x){return x.roles.creature;}).length>=2)return 200;
+  if(c.roles.wrath&&oppHasCreature)return 200;
   if(c.roles.removal&&oppHasWincon)return 180;
   if(c.roles.removal&&oppHasCreature)return 130;
   if(c.roles.ramp&&turn<=4)return 110;
@@ -13325,7 +13325,7 @@ function _applySpell(c,self,opp){
   }
   if(c.roles.ramp){self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});return;}
   if(c.roles.draw){_matchDraw(self,2);return;}
-  if(c.roles.creature||c.roles.wincon){self.bf.push(c);self.lastCast=c;return;}
+  if(c.roles.creature||c.roles.wincon){c.justCast=true;self.bf.push(c);self.lastCast=c;return;}
   if(c.faceDmg){opp.life-=c.faceDmg;return;}
 }
 function _matchTurn(self,opp,turn,onPlay){
@@ -13336,10 +13336,11 @@ function _matchTurn(self,opp,turn,onPlay){
   // Mana disponible
   var mana=self.bf.filter(function(c){return c.isLand;}).length;
   var hasCounter=self.hand.some(function(c){return c.roles&&c.roles.counter;});
+  var hasWrath=self.hand.some(function(c){return c.roles&&c.roles.wrath;});
   var castable=self.hand.filter(function(c){return !c.isLand&&c.cmc<=mana;}).slice();
   castable.sort(function(a,b){return _castPriority(b,opp,turn)-_castPriority(a,opp,turn);});
   var manaLeft=mana;
-  var reserve=hasCounter&&mana>=4?2:0;
+  var reserve=hasCounter&&mana>=4&&!hasWrath?2:0;
   castable.forEach(function(c){
     if(c.cmc>manaLeft-reserve)return;
     if(c.roles.counter&&turn<=2)return;
@@ -13352,8 +13353,25 @@ function _matchTurn(self,opp,turn,onPlay){
     var cmdCost=self.cmd.cmc+(self.cmdTax||0)*2;
     if(manaLeft-reserve>=cmdCost){
       manaLeft-=cmdCost;
+      self.cmd.justCast=true;
       _applySpell(self.cmd,self,opp);
       self.lastCast=self.cmd;
+    }
+  }
+  // Réaction instantanée : opp contre le dernier sort avant le combat (simule instant-speed)
+  if(self.lastCast&&self.lastCast.roles&&(self.lastCast.roles.creature||self.lastCast.roles.wincon)){
+    var oppLands=opp.bf.filter(function(x){return x.isLand;}).length;
+    for(var ri=0;ri<opp.hand.length;ri++){
+      var rh=opp.hand[ri];
+      if(rh.roles&&rh.roles.counter&&rh.cmc<=oppLands){
+        var ct=self.lastCast;
+        var ctIdx=self.bf.indexOf(ct);
+        if(ctIdx>=0)self.bf.splice(ctIdx,1);
+        if(ct.isCommander)self.cmdTax++;
+        self.lastCast=null;
+        opp.hand.splice(ri,1);
+        break;
+      }
     }
   }
   // Combat
