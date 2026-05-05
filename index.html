@@ -2423,6 +2423,7 @@ body.mana-cursor{cursor:none}
         <div style="display:flex;gap:6px;margin-bottom:5px">
           <input type="text" id="ar-mox-url" placeholder="https://moxfield.com/decks/public?q=…" style="flex:1;font-size:.75rem;padding:5px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
           <button class="btn btnsm" onclick="arPoolFetchMoxfield()" style="white-space:nowrap;font-size:.76rem">⬇ Import</button>
+          <button class="btn btnsm btnp" onclick="arPoolFetchMoxfield(true)" style="white-space:nowrap;font-size:.76rem" title="Import tous les decks + simuler tous les matchups automatiquement">⚡ Méta</button>
         </div>
         <div id="ar-mox-status" style="font-size:.72rem;color:var(--tx3);min-height:.9rem;margin-bottom:2px"></div>
         <button id="ar-mox-sim-btn" class="btn btnsm" onclick="metaSimAllPairs(100,this.getAttribute('data-fmt'))" style="display:none;width:100%;font-size:.75rem;margin-top:4px">⚡ Simuler tous les matchups pour ce format</button>
@@ -15292,7 +15293,7 @@ function arPoolRender(){
 }
 
 /* --- Moxfield batch import --- */
-function arPoolFetchMoxfield(){
+function arPoolFetchMoxfield(autoSim){
   var urlEl=document.getElementById('ar-mox-url');
   var stat=document.getElementById('ar-mox-status');
   if(!urlEl||!stat)return;
@@ -15300,9 +15301,7 @@ function arPoolFetchMoxfield(){
   if(!url){stat.style.color='var(--rd2)';stat.textContent='Collez une URL Moxfield';return;}
   stat.style.color='var(--tx2)';stat.textContent='';
   var simBtn=document.getElementById('ar-mox-sim-btn');if(simBtn)simBtn.style.display='none';
-  // Detect search page URL (moxfield.com/decks/public?q=BASE64)
   var searchM=url.match(/moxfield\.com\/decks\/public\?q=([A-Za-z0-9+/=%-]+)/);
-  // Detect single deck URL (moxfield.com/decks/PUBLICID)
   var deckM=!searchM&&url.match(/moxfield\.com\/decks\/([A-Za-z0-9_-]+)/);
   if(searchM){
     var qStr=searchM[1];try{qStr=decodeURIComponent(qStr);}catch(e){}
@@ -15318,7 +15317,13 @@ function arPoolFetchMoxfield(){
         var list=resp.data||[];
         if(!list.length){stat.style.color='var(--tx3)';stat.textContent='Aucun deck trouvé pour ce format.';return;}
         stat.textContent='⏳ '+list.length+' decks trouvés — importation en cours…';
-        _arMoxBatchImport(list,fmt,stat);
+        var onDone=autoSim?function(n,sk,f,total){
+          if(total<2){return;}
+          stat.style.color='var(--tx2)';stat.textContent='⏳ Import terminé ('+total+' decks). Simulation de tous les matchups…';
+          goTab('meta');metaInit();
+          setTimeout(function(){metaSimAllPairs(100,f);},300);
+        }:null;
+        _arMoxBatchImport(list,fmt,stat,onDone);
       })
       .catch(function(e){stat.style.color='var(--rd2)';stat.textContent='✗ '+e.message;});
   } else if(deckM){
@@ -15380,17 +15385,19 @@ function _arMoxFetchOneDeck(publicId,fmt,cb){
     .catch(function(e){cb(null,false,e.message);});
 }
 
-function _arMoxBatchImport(list,fmt,stat){
+function _arMoxBatchImport(list,fmt,stat,onDone){
   var idx=0;var imported=0;var skipped=0;var errors=0;
   arPoolLoad();
   function next(){
     if(idx>=list.length){
       arPoolSave();arPoolRender();metaRefreshSelects();arBotPopulateSel(null);
+      var totalForFmt=_arPool.filter(function(d){return!fmt||d.fmt===fmt;}).length;
       stat.style.color='var(--gr2)';
-      stat.textContent='✓ '+imported+' decks importés'+(skipped?' ('+skipped+' déjà présents)':'')+(errors?' — '+errors+' erreurs':'');
+      stat.textContent='✓ '+imported+' décks importés'+(skipped?' ('+skipped+' déjà présents)':'')+(errors?' — '+errors+' erreurs':'');
       var simBtn=document.getElementById('ar-mox-sim-btn');
-      if(simBtn&&imported>=2){simBtn.style.display='';simBtn.setAttribute('data-fmt',fmt);}
+      if(simBtn&&totalForFmt>=2&&!onDone){simBtn.style.display='';simBtn.setAttribute('data-fmt',fmt);}
       metaRenderFormatTabs();
+      if(onDone)onDone(imported,skipped,fmt,totalForFmt);
       return;
     }
     var deck=list[idx];idx++;
@@ -15420,7 +15427,7 @@ function metaRenderFormatTabs(){
   function tabStyle(active){return'padding:4px 11px;border-radius:20px;font-size:.72rem;border:.5px solid '+(active?'var(--gold2)':'rgba(255,255,255,.15)')+';background:'+(active?'rgba(201,168,76,.14)':'transparent')+';color:'+(active?'var(--gold2)':'var(--tx2)')+';cursor:pointer;font-family:inherit;transition:all .15s';}
   var html='<button style="'+tabStyle(!_metaActiveFormat)+'" onclick="metaSelectFmt(\'\')">Tous</button>';
   fmtList.forEach(function(f){
-    html+='<button style="'+tabStyle(f===_metaActiveFormat)+'" onclick="metaSelectFmt('+JSON.stringify(f)+')">'+esc(_fmtLabel(f))+'</button>';
+    html+='<button style="'+tabStyle(f===_metaActiveFormat)+'" data-fmt="'+esc(f)+'" onclick="metaSelectFmt(this.getAttribute(\'data-fmt\'))">'+esc(_fmtLabel(f))+'</button>';
   });
   el.innerHTML=html;
 }
