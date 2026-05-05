@@ -652,6 +652,8 @@ body.mana-cursor{cursor:none}
 .meta-hl-green{background:rgba(126,200,126,.18);color:#7ec87e}
 .meta-hl-gold{background:rgba(201,168,76,.12);color:var(--gold2)}
 .meta-hl-red{background:rgba(224,112,112,.18);color:#e07070}
+.ar-clr-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,.18);background:transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;transition:all .12s;padding:0;flex-shrink:0}
+.ar-clr-btn.on{border-color:rgba(255,255,255,.75);box-shadow:0 0 5px rgba(255,255,255,.28);background:rgba(255,255,255,.08)}
 .ar-field-card.ar-multi-sel{border-color:#4af!important;box-shadow:0 0 0 2px rgba(68,170,255,.5),0 4px 16px rgba(0,0,0,.7)!important}
 #ar-lasso{position:absolute;border:1.5px solid rgba(100,200,255,.75);background:rgba(100,200,255,.08);pointer-events:none;display:none;z-index:50;border-radius:2px}
 #ar-multi-bar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:88;background:rgba(8,12,22,.98);border:1px solid rgba(100,200,255,.28);border-radius:11px;overflow:auto;resize:both;min-height:80px;box-shadow:0 12px 36px rgba(0,0,0,.92);padding:4px 0;backdrop-filter:blur(4px);display:none;flex-direction:column;min-width:260px;max-width:calc(100% - 16px)}
@@ -2875,15 +2877,35 @@ body.mana-cursor{cursor:none}
   <!-- Pool de decks -->
   <div class="card">
     <div class="lbl">📦 Pool de decks</div>
-    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+    <!-- Import URL Moxfield -->
+    <div style="margin-bottom:10px">
+      <div style="font-size:.66rem;color:var(--tx3);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Import depuis URL Moxfield</div>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="ar-pool-url" placeholder="https://www.moxfield.com/decks/..." style="flex:1;font-size:.78rem;padding:5px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+        <button class="btn btnsm" onclick="arPoolImportFromUrl()" style="white-space:nowrap;font-size:.76rem">⬇ Importer</button>
+      </div>
+      <div id="ar-pool-url-msg" style="font-size:.72rem;min-height:.85rem;margin-top:3px;color:var(--tx3);font-style:italic"></div>
+    </div>
+    <!-- Séparateur -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <div style="flex:1;height:.5px;background:var(--bd)"></div>
+      <span style="font-size:.65rem;color:var(--tx3)">ou import manuel</span>
+      <div style="flex:1;height:.5px;background:var(--bd)"></div>
+    </div>
+    <!-- Format quick-select -->
+    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
       <span style="font-size:.64rem;color:var(--tx3)">Format :</span>
       <button class="btn btnsm" onclick="arPoolSetFmt('pauperEdh')" style="font-size:.66rem;padding:2px 8px">Pauper EDH</button>
       <button class="btn btnsm" onclick="arPoolSetFmt('duelCommander')" style="font-size:.66rem;padding:2px 8px">Duel Cmdr</button>
       <button class="btn btnsm" onclick="arPoolSetFmt('pauper')" style="font-size:.66rem;padding:2px 8px">Pauper</button>
       <button class="btn btnsm" onclick="arPoolSetFmt('commander')" style="font-size:.66rem;padding:2px 8px">Commander</button>
     </div>
+    <!-- Nom du deck -->
     <input type="text" id="ar-pool-name" placeholder="Nom du deck" style="width:100%;font-size:.85rem;padding:6px 10px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;margin-bottom:6px">
-    <div style="display:flex;gap:6px;margin-bottom:6px">
+    <!-- Commandant (optionnel) -->
+    <input type="text" id="ar-pool-cmdr" placeholder="👑 Commandant (optionnel, auto-détecté si *CMDR*)" style="width:100%;font-size:.78rem;padding:5px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;margin-bottom:6px">
+    <!-- Format + Couleurs -->
+    <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
       <select id="ar-pool-fmt" style="flex:1;font-size:.78rem;padding:5px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
         <option value="">Format…</option>
         <option value="standard">Standard</option>
@@ -2895,8 +2917,14 @@ body.mana-cursor{cursor:none}
         <option value="pauperEdh">Pauper EDH</option>
         <option value="duelCommander">Duel Commander</option>
       </select>
+      <button id="ar-clr-W" class="ar-clr-btn" onclick="arPoolToggleClr('W')" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
+      <button id="ar-clr-U" class="ar-clr-btn" onclick="arPoolToggleClr('U')" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
+      <button id="ar-clr-B" class="ar-clr-btn" onclick="arPoolToggleClr('B')" title="Noir"><i class="ms ms-b ms-cost"></i></button>
+      <button id="ar-clr-R" class="ar-clr-btn" onclick="arPoolToggleClr('R')" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
+      <button id="ar-clr-G" class="ar-clr-btn" onclick="arPoolToggleClr('G')" title="Vert"><i class="ms ms-g ms-cost"></i></button>
     </div>
-    <textarea id="ar-pool-ta" rows="4" placeholder="Un seul deck : collez la liste de cartes (le nom vient du champ ci-dessus).&#10;&#10;Plusieurs decks à la fois :&#10;=== Nom du deck 1 ===&#10;1 Nom carte&#10;4 Autre carte&#10;&#10;=== Nom du deck 2 ===&#10;..." style="width:100%;font-size:.78rem;padding:6px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;resize:vertical;font-family:monospace;margin-bottom:6px"></textarea>
+    <!-- Liste de cartes -->
+    <textarea id="ar-pool-ta" rows="4" placeholder="Un seul deck : collez la liste de cartes (le nom vient du champ ci-dessus).&#10;&#10;Plusieurs decks à la fois :&#10;=== Nom du deck 1 ===&#10;1 Nom carte&#10;&#10;=== Nom du deck 2 ===&#10;..." style="width:100%;font-size:.78rem;padding:6px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;resize:vertical;font-family:monospace;margin-bottom:6px"></textarea>
     <button class="btn btnsm" onclick="arPoolImport()" style="width:100%;margin-bottom:8px">⬆ Importer dans le pool</button>
     <div id="ar-pool-list"></div>
   </div>
@@ -15214,8 +15242,45 @@ var _arPool=[];
 var _arMatches=[];
 var _arEndResult=null;
 var _metaActiveFormat='';
+var _arPoolColors=[];
 var _fmtLabels={standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',vintage:'Vintage',pauper:'Pauper',commander:'Commander',paupercmd:'Pauper EDH',pauperEdh:'Pauper EDH',duel:'Duel Commander',duelCommander:'Duel Commander',brawl:'Brawl',historic:'Historic',alchemy:'Alchemy',explorer:'Explorer',oathbreaker:'Oathbreaker',premodern:'Premodern',oldschool:'Old School'};
 function _fmtLabel(f){return _fmtLabels[f]||f||''}
+
+function arPoolToggleClr(c){
+  var idx=_arPoolColors.indexOf(c);
+  if(idx>=0)_arPoolColors.splice(idx,1);else _arPoolColors.push(c);
+  ['W','U','B','R','G'].forEach(function(k){
+    var btn=document.getElementById('ar-clr-'+k);if(!btn)return;
+    if(_arPoolColors.indexOf(k)>=0)btn.classList.add('on');else btn.classList.remove('on');
+  });
+}
+function _arPoolResetColors(){
+  _arPoolColors=[];
+  ['W','U','B','R','G'].forEach(function(k){var btn=document.getElementById('ar-clr-'+k);if(btn)btn.classList.remove('on');});
+}
+function _arPoolSetColors(colors){
+  _arPoolColors=[];
+  ['W','U','B','R','G'].forEach(function(k){var btn=document.getElementById('ar-clr-'+k);if(btn)btn.classList.remove('on');});
+  (colors||[]).forEach(function(c){
+    var k=(c||'').toUpperCase();
+    if(['W','U','B','R','G'].indexOf(k)>=0){_arPoolColors.push(k);var btn=document.getElementById('ar-clr-'+k);if(btn)btn.classList.add('on');}
+  });
+}
+function _arRenderColors(colors){
+  var map={W:'w',U:'u',B:'b',R:'r',G:'g'};
+  return (colors||[]).map(function(c){var k=map[(c||'').toUpperCase()]||c.toLowerCase();return'<i class="ms ms-'+k+' ms-cost" style="font-size:.72rem"></i>';}).join('');
+}
+function _extractCommander(raw){
+  var lines=(raw||'').split('\n');var inCmd=false;
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i].trim();
+    if(/^\/\/\s*(commander|commandant)/i.test(l)){inCmd=true;continue;}
+    if(/^\/\//.test(l)){inCmd=false;continue;}
+    if(l.indexOf('*CMDR*')>=0){var m=l.replace(/\*CMDR\*/g,'').trim();var pm=m.match(/^(\d+\s+)?(.+)$/);return pm?pm[2].trim():'';}
+    if(inCmd&&l){var pm2=l.match(/^(\d+\s+)?(.+)$/);if(pm2)return pm2[2].trim();}
+  }
+  return'';
+}
 
 function arPoolSetFmt(fmt){
   var sel=document.getElementById('ar-pool-fmt');
@@ -15260,6 +15325,7 @@ function arPoolImport(){
   var nameEl=document.getElementById('ar-pool-name');
   var rawEl=document.getElementById('ar-pool-ta');
   var fmtEl=document.getElementById('ar-pool-fmt');
+  var cmdrEl=document.getElementById('ar-pool-cmdr');
   var name=(nameEl||{value:''}).value.trim();
   var raw=(rawEl||{value:''}).value.trim();
   var fmt=(fmtEl||{value:''}).value;
@@ -15272,7 +15338,8 @@ function arPoolImport(){
       var dName=parts[i].trim();var dRaw=(parts[i+1]||'').trim();
       if(!dName||!dRaw)continue;
       var dcards=parseList(dRaw);if(!dcards.length)continue;
-      _arPool.push({id:'pool_'+Date.now()+'_'+i,name:dName,raw:dRaw,fmt:fmt,addedAt:Date.now(),cardCount:dcards.length});
+      var dCmdr=_extractCommander(dRaw);
+      _arPool.push({id:'pool_'+Date.now()+'_'+i,name:dName,raw:dRaw,fmt:fmt,addedAt:Date.now(),cardCount:dcards.length,commander:dCmdr,colors:[]});
       added++;
     }
     if(!added){alert('Aucun deck reconnu. Format attendu :\n=== Nom du deck ===\n1 Nom carte\n...');return;}
@@ -15287,12 +15354,15 @@ function arPoolImport(){
   if(!name){alert('Donnez un nom au deck');return;}
   var cards=parseList(raw);
   if(!cards.length){alert('Aucune carte reconnue dans la liste');return;}
-  _arPool.push({id:'pool_'+Date.now(),name:name,raw:raw,fmt:fmt,addedAt:Date.now(),cardCount:cards.length});
+  var commander=((cmdrEl&&cmdrEl.value)||'').trim()||_extractCommander(raw);
+  _arPool.push({id:'pool_'+Date.now(),name:name,raw:raw,fmt:fmt,addedAt:Date.now(),cardCount:cards.length,commander:commander,colors:_arPoolColors.slice()});
   arPoolSave();arPoolRender();metaRefreshSelects();
   var botSel=document.getElementById('ar-bot-deck');var botVal=botSel&&botSel.value;
   arBotPopulateSel(null);if(botSel&&botVal)botSel.value=botVal;
   if(nameEl)nameEl.value='';
   if(rawEl)rawEl.value='';
+  if(cmdrEl)cmdrEl.value='';
+  _arPoolResetColors();
   metaRenderFormatTabs();
 }
 
@@ -15303,15 +15373,71 @@ function arPoolDelete(id){
   arBotPopulateSel(null);
 }
 
+function arPoolImportFromUrl(){
+  arPoolLoad();
+  var urlEl=document.getElementById('ar-pool-url');
+  var msgEl=document.getElementById('ar-pool-url-msg');
+  var url=((urlEl&&urlEl.value)||'').trim();
+  if(!url){if(msgEl){msgEl.style.color='var(--rd2)';msgEl.textContent='Colle un lien Moxfield d\'abord.';}return;}
+  var m=url.match(/decks\/(?:personal\/)?([a-zA-Z0-9_-]{4,64})/);
+  if(!m){if(msgEl){msgEl.style.color='var(--rd2)';msgEl.textContent='URL invalide. Format attendu : https://www.moxfield.com/decks/XXXXXXX';}return;}
+  var deckId=m[1];
+  if(msgEl){msgEl.style.color='var(--tx3)';msgEl.textContent='⏳ Importation en cours...';}
+  fetch('/api/moxfield?id='+encodeURIComponent(deckId))
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(function(data){if(data.error)throw new Error(data.error);_arPoolProcessMoxData(data,urlEl,msgEl);})
+    .catch(function(e){if(msgEl){msgEl.style.color='var(--rd2)';msgEl.textContent='❌ '+e.message;}});
+}
+
+function _arPoolProcessMoxData(data,urlEl,msgEl){
+  var deckName=data.name||'Deck Moxfield';
+  var fmt=(data.format||'').toLowerCase();
+  var colorId=(data.colorIdentity||[]).map(function(c){return(c||'').toUpperCase();}).filter(function(c){return['W','U','B','R','G'].indexOf(c)>=0;});
+  var lines=[];var commanderName='';
+  function _mxName(c){
+    if(!c)return'';
+    if(typeof c==='string')return c;
+    if(c.card){if(typeof c.card==='string')return c.card;if(c.card.name)return c.card.name;if(c.card.scryfall_card&&c.card.scryfall_card.name)return c.card.scryfall_card.name;if(c.card.front_face&&c.card.front_face.name)return c.card.front_face.name;}
+    return c.name||c.cardName||c.card_name||'';
+  }
+  function _mxQty(c){return(c&&(c.quantity||c.qty||c.count))||1;}
+  function extractBoard(boardObj){
+    if(!boardObj)return;
+    var cm=boardObj.cards||boardObj.cardlist||boardObj;
+    if(!cm||typeof cm!=='object')return;
+    Object.keys(cm).forEach(function(k){var c=cm[k];if(!c||typeof c!=='object')return;var name=_mxName(c);if(!name)return;lines.push(_mxQty(c)+' '+name.split(' // ')[0]);});
+  }
+  var boards=data.boards||{};
+  var cmObj=(boards.commanders&&boards.commanders.cards)||boards.commanders||data.commanders;
+  if(cmObj&&typeof cmObj==='object'){var fk=Object.keys(cmObj)[0];if(fk){var cn=_mxName(cmObj[fk]);if(cn)commanderName=cn.split(' // ')[0];}}
+  if(boards.commanders||data.commanders)extractBoard(boards.commanders||data.commanders);
+  if(boards.mainboard)extractBoard(boards.mainboard);else if(data.mainboard)extractBoard(data.mainboard);
+  if(boards.sideboard)extractBoard(boards.sideboard);else if(data.sideboard)extractBoard(data.sideboard);
+  if(!lines.length){if(msgEl){msgEl.style.color='var(--rd2)';msgEl.textContent='❌ Deck vide ou format inattendu.';}return;}
+  var raw=lines.join('\n');
+  var cards=parseList(raw);
+  _arPool.push({id:'pool_'+Date.now(),name:deckName,raw:raw,fmt:fmt,addedAt:Date.now(),cardCount:cards.length,commander:commanderName||'',colors:colorId});
+  arPoolSave();arPoolRender();metaRefreshSelects();
+  var botSel=document.getElementById('ar-bot-deck');var botVal=botSel&&botSel.value;
+  arBotPopulateSel(null);if(botSel&&botVal)botSel.value=botVal;
+  metaRenderFormatTabs();
+  if(urlEl)urlEl.value='';
+  if(msgEl){msgEl.style.color='var(--gr2)';msgEl.textContent='✓ '+esc(deckName)+(commanderName?' · 👑 '+esc(commanderName):'')+' ('+cards.length+' cartes)';}
+}
+
 function arPoolRender(){
   var el=document.getElementById('ar-pool-list');if(!el)return;
   if(!_arPool.length){el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.78rem">Aucun deck importé.</div>';return;}
   el.innerHTML=_arPool.map(function(d){
+    var clrHtml=(d.colors&&d.colors.length)?('<span style="display:inline-flex;gap:1px;align-items:center;flex-shrink:0">'+_arRenderColors(d.colors)+'</span>'):'';
+    var cmdrHtml=d.commander?('<span style="font-size:.6rem;color:var(--gold2);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0" title="'+esc(d.commander)+'">👑 '+esc(d.commander)+'</span>'):'';
     return '<div class="ar-pool-item">'
-      +'<span style="flex:1;font-size:.8rem;color:var(--tx)">'+esc(d.name)+'</span>'
-      +'<span style="font-size:.64rem;color:var(--tx3)">'+d.cardCount+' cartes</span>'
-      +(d.fmt?'<span style="font-size:.62rem;color:var(--tx3);background:var(--s3);padding:1px 5px;border-radius:3px">'+esc(_fmtLabel(d.fmt))+'</span>':'')
-      +'<button class="btn btnsm btnrd" onclick="arPoolDelete(\''+d.id+'\')" style="padding:1px 7px;font-size:.65rem">✕</button>'
+      +'<span style="flex:1;font-size:.8rem;color:var(--tx);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.name)+'</span>'
+      +clrHtml
+      +cmdrHtml
+      +'<span style="font-size:.62rem;color:var(--tx3);flex-shrink:0">'+d.cardCount+'c</span>'
+      +(d.fmt?'<span style="font-size:.6rem;color:var(--tx3);background:var(--s3);padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap">'+esc(_fmtLabel(d.fmt))+'</span>':'')
+      +'<button class="btn btnsm btnrd" onclick="arPoolDelete(\''+d.id+'\')" style="padding:1px 7px;font-size:.65rem;flex-shrink:0">✕</button>'
       +'</div>';
   }).join('');
 }
