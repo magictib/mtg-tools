@@ -2930,28 +2930,35 @@ body.mana-cursor{cursor:none}
   </div>
   <!-- Simulation IA -->
   <div class="card">
-    <div class="lbl">🤖 Simulation IA</div>
-    <p style="font-size:.8rem;color:var(--tx2);margin-bottom:10px;line-height:1.5">Simulez des matchs entre decks du pool pour générer des statistiques exploitables. L'IA joue de façon optimale (courbe de mana, créatures, sorts).</p>
-    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:8px">
-      <div>
-        <div style="font-size:.7rem;color:var(--tx3);margin-bottom:3px">Deck A</div>
-        <select id="meta-sim-a" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-          <option value="">— Choisir —</option>
-        </select>
-      </div>
-      <div style="font-size:1.1rem;color:var(--tx3);padding-bottom:6px;text-align:center">⚔</div>
-      <div>
-        <div style="font-size:.7rem;color:var(--tx3);margin-bottom:3px">Deck B</div>
-        <select id="meta-sim-b" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-          <option value="">— Choisir —</option>
-        </select>
-      </div>
+    <div class="lbl">🤖 Simulation de méta</div>
+    <!-- Simulation complète -->
+    <div style="margin-bottom:10px">
+      <button class="btn btnp" onclick="metaRunMeta()" style="width:100%;margin-bottom:6px">⚡ Simuler tous les matchups du format actif</button>
+      <div style="font-size:.7rem;color:var(--tx3);line-height:1.5">Sélectionne un format dans les onglets ci-dessus · <b style="color:var(--tx2)">20 parties min. par paire</b> · tous les decks du pool s'affrontent</div>
     </div>
-    <div class="meta-sim-bar">
-      <button class="btn btnsm" onclick="metaSimN(100)">▶ 100</button>
-      <button class="btn btnsm" onclick="metaSimN(500)">▶ 500</button>
-      <button class="btn btnsm btnp" onclick="metaSimN(1000)">▶ 1 000</button>
-      <button class="btn btnsm" onclick="metaSimAllPairs(100,_metaActiveFormat)">⚡ Tous les matchups ×100</button>
+    <!-- Matchup individuel -->
+    <div style="border-top:.5px solid var(--bd);padding-top:10px">
+      <div style="font-size:.64rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px">Matchup individuel</div>
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end;margin-bottom:8px">
+        <div>
+          <div style="font-size:.7rem;color:var(--tx3);margin-bottom:3px">Deck A</div>
+          <select id="meta-sim-a" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+            <option value="">— Choisir —</option>
+          </select>
+        </div>
+        <div style="font-size:1.1rem;color:var(--tx3);padding-bottom:6px;text-align:center">⚔</div>
+        <div>
+          <div style="font-size:.7rem;color:var(--tx3);margin-bottom:3px">Deck B</div>
+          <select id="meta-sim-b" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+            <option value="">— Choisir —</option>
+          </select>
+        </div>
+      </div>
+      <div class="meta-sim-bar">
+        <button class="btn btnsm" onclick="metaSimN(100)">▶ 100</button>
+        <button class="btn btnsm" onclick="metaSimN(500)">▶ 500</button>
+        <button class="btn btnsm btnp" onclick="metaSimN(1000)">▶ 1 000</button>
+      </div>
     </div>
     <div id="meta-sim-status" style="margin-top:8px;font-size:.78rem;color:var(--tx3);min-height:1.2rem;font-style:italic"></div>
   </div>
@@ -15553,6 +15560,16 @@ function metaSimN(n){
   });
 }
 
+function metaRunMeta(){
+  var fmt=_metaActiveFormat||'';
+  if(!fmt){
+    var stat=document.getElementById('meta-sim-status');
+    if(stat){stat.style.color='var(--rd2)';stat.textContent='⚠ Sélectionne un format dans les onglets ci-dessus d\'abord !';}
+    return;
+  }
+  metaSimAllPairs(20,fmt);
+}
+
 function metaSimAllPairs(n,fmt){
   arPoolLoad();
   var fmtFilter=fmt||'';
@@ -15595,7 +15612,7 @@ function metaSimAllPairs(n,fmt){
 
 function metaAnalyticsRender(fmt){
   var el=document.getElementById('meta-analytics');if(!el)return;
-  arMatchesLoad();
+  arMatchesLoad();arPoolLoad();
   var matches=_arMatches.filter(function(m){
     if(!m.winner||!m.p2DeckId)return false;
     if(!fmt)return true;
@@ -15603,78 +15620,94 @@ function metaAnalyticsRender(fmt){
     return mFmt===fmt;
   });
   if(!matches.length){
-    var emptyMsg=fmt?'Aucune donnée pour "'+_fmtLabel(fmt)+'". Simulez des matchups ou jouez des parties.':'Aucune donnée. Simulez des matchups ou jouez des parties vs bot avec résultat.';
-    el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;text-align:center;padding:1rem">'+emptyMsg+'</div>';
+    el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;text-align:center;padding:1rem">'
+      +(fmt?'Aucune donnée pour "'+esc(_fmtLabel(fmt))+'". Sélectionne ce format et lance la simulation.':'Sélectionne un format dans les onglets, puis lance la simulation.')
+      +'</div>';
     return;
   }
+  // Build per-deck stats
   var byDeck={};
-  function gd(id,name){if(!byDeck[id])byDeck[id]={id:id,name:name||id,w:0,l:0,d:0,turns:[]};return byDeck[id];}
+  function gd(id,name){
+    if(!byDeck[id]){
+      var pd=_arPool.find(function(p){return'pool:'+p.id===id;});
+      byDeck[id]={id:id,name:name||id,w:0,l:0,colors:(pd&&pd.colors)||[],commander:(pd&&pd.commander)||''};
+    }
+    return byDeck[id];
+  }
   matches.forEach(function(m){
     var p1=gd(m.p1DeckId,m.p1Name);var p2=gd(m.p2DeckId,m.p2Name);
-    if(m.winner==='p1'){p1.w++;p2.l++;}else if(m.winner==='p2'){p2.w++;p1.l++;}else{p1.d++;p2.d++;}
-    if(m.turns>0){p1.turns.push(m.turns);p2.turns.push(m.turns);}
+    if(m.winner==='p1'){p1.w++;p2.l++;}else if(m.winner==='p2'){p2.w++;p1.l++;}
   });
   var rows=Object.values(byDeck).sort(function(a,b){
-    var wA=a.w+a.l+a.d?(a.w+a.d*0.5)/(a.w+a.l+a.d):0;
-    var wB=b.w+b.l+b.d?(b.w+b.d*0.5)/(b.w+b.l+b.d):0;
-    return wB-wA;
+    var tA=a.w+a.l,tB=b.w+b.l;
+    return(tB?b.w/tB:0)-(tA?a.w/tA:0);
   });
-  var total=matches.length;var sim=matches.filter(function(m){return m.mode==='simulated';}).length;
-  var fmtBadge=fmt?'<span style="font-size:.62rem;color:var(--gold2);background:rgba(201,168,76,.12);padding:1px 7px;border-radius:10px;border:.5px solid rgba(201,168,76,.3);margin-left:6px">'+esc(_fmtLabel(fmt))+'</span>':'';
-  var html=(fmt?'<div style="margin-bottom:10px;font-size:.74rem;color:var(--tx2)">Filtré par format '+fmtBadge+'</div>':'')
-    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">'
-    +'<div class="stat"><div class="sv">'+total+'</div><div class="sl">Parties</div></div>'
-    +'<div class="stat"><div class="sv">'+rows.length+'</div><div class="sl">Decks</div></div>'
-    +'<div class="stat"><div class="sv">'+sim+'</div><div class="sl">Simulées IA</div></div>'
-    +'</div>';
+  // H2H map: h2h[idA][idB] = {w: A wins vs B, tot: total games A vs B}
+  var h2h={};
+  matches.forEach(function(m){
+    var a=m.p1DeckId,b=m.p2DeckId;
+    if(!h2h[a])h2h[a]={};if(!h2h[b])h2h[b]={};
+    if(!h2h[a][b])h2h[a][b]={w:0,tot:0};
+    if(!h2h[b][a])h2h[b][a]={w:0,tot:0};
+    h2h[a][b].tot++;h2h[b][a].tot++;
+    if(m.winner==='p1')h2h[a][b].w++;
+    else if(m.winner==='p2')h2h[b][a].w++;
+  });
+  var total=matches.length;
+  var sim=matches.filter(function(m){return m.mode==='simulated';}).length;
   var medals=['🥇','🥈','🥉'];
-  html+='<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse;font-size:.78rem">'
-    +'<thead><tr style="color:var(--tx3);font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--bd)">'
-    +'<th style="padding:4px 6px;text-align:left">#</th>'
-    +'<th style="padding:4px 6px;text-align:left">Deck</th>'
-    +'<th style="padding:4px 6px;text-align:center" title="Parties jouées">P</th>'
-    +'<th style="padding:4px 6px;text-align:center" title="Victoires">V</th>'
-    +'<th style="padding:4px 6px;text-align:center" title="Défaites">D</th>'
-    +'<th style="padding:4px 6px;text-align:center" title="Taux de victoire">V%</th>'
-    +'<th style="padding:4px 6px;text-align:center" title="Tours moyens">⌛</th>'
-    +'</tr></thead><tbody>';
+  var html='';
+  // Header
+  if(fmt)html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">'
+    +'<span style="font-size:.62rem;color:var(--gold2);background:rgba(201,168,76,.12);padding:1px 8px;border-radius:10px;border:.5px solid rgba(201,168,76,.3)">'+esc(_fmtLabel(fmt))+'</span>'
+    +'<span style="font-size:.7rem;color:var(--tx3)">'+rows.length+' decks · '+total+' parties'+(sim?' · '+sim+' simulées':'')+'</span></div>';
+  // Leaderboard
+  html+='<div style="font-size:.64rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:6px">Classement</div>';
   rows.forEach(function(r,i){
-    var tot=r.w+r.l+r.d;var wr=tot?Math.round(r.w/tot*100):0;
-    var avg=r.turns.length?Math.round(r.turns.reduce(function(a,b){return a+b;},0)/r.turns.length*10)/10:'—';
-    var wc=wr>=60?'#7ec87e':wr>=45?'var(--gold2)':wr>=30?'var(--tx2)':'#e07070';
-    html+='<tr style="border-bottom:.5px solid var(--bd)'+(i===0?';background:rgba(201,168,76,.06)':'')+'">'
-      +'<td style="padding:5px 6px;font-size:.9rem">'+(medals[i]||('<span style="color:var(--tx3)">'+(i+1)+'</span>'))+'</td>'
-      +'<td style="padding:5px 6px;color:var(--tx);font-size:.8rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.name)+'</td>'
-      +'<td style="padding:5px 6px;text-align:center;color:var(--tx2)">'+tot+'</td>'
-      +'<td style="padding:5px 6px;text-align:center;color:#7ec87e;font-weight:bold">'+r.w+'</td>'
-      +'<td style="padding:5px 6px;text-align:center;color:#e07070">'+r.l+'</td>'
-      +'<td style="padding:5px 6px;text-align:center;font-weight:bold;color:'+wc+'">'+wr+'%</td>'
-      +'<td style="padding:5px 6px;text-align:center;color:var(--tx3)">'+avg+'</td>'
-      +'</tr>';
+    var tot=r.w+r.l;var wr=tot?r.w/tot:0;var wrPct=Math.round(wr*100);
+    var bc=wrPct>=60?'#7ec87e':wrPct>=45?'#c9a84c':'#e07070';
+    var clrH=(r.colors&&r.colors.length)?('<span style="display:inline-flex;gap:1px;margin-left:4px;vertical-align:middle">'+_arRenderColors(r.colors)+'</span>'):'';
+    html+='<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:.5px solid var(--bd)'+(i===0?';background:rgba(201,168,76,.05)':'')+'">'
+      +'<span style="width:22px;text-align:center;font-size:.82rem;flex-shrink:0">'+(medals[i]||('<span style="color:var(--tx3);font-size:.72rem">'+(i+1)+'</span>'))+'</span>'
+      +'<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:var(--tx)">'+esc(r.name)+clrH+'</div>'
+      +'<span style="font-size:.68rem;color:var(--tx3);flex-shrink:0;white-space:nowrap">'+r.w+'V '+r.l+'D</span>'
+      +'<div style="width:50px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;height:5px;flex-shrink:0">'
+        +'<div style="height:100%;width:'+wrPct+'%;background:'+bc+'"></div></div>'
+      +'<span style="font-size:.72rem;font-weight:700;color:'+bc+';width:32px;text-align:right;flex-shrink:0">'+wrPct+'%</span>'
+      +'</div>';
   });
-  html+='</tbody></table></div>';
-  // H2H Matrix (affiche uniquement si ≥2 decks avec matchups directs)
-  if(rows.length>=2&&rows.length<=8){
-    html+='<div style="font-size:.72rem;color:var(--tx2);font-weight:600;margin-bottom:6px">Matchups directs (% victoires ligne vs colonne)</div>';
-    html+='<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:.68rem">';
-    html+='<tr><td style="padding:3px 5px;color:var(--tx3)"></td>';
-    rows.forEach(function(r){html+='<th style="padding:4px 6px;color:var(--tx3);font-weight:normal;min-width:60px;text-align:center;border-bottom:.5px solid var(--bd);white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis">'+esc(r.name.substring(0,10))+'</th>';});
-    html+='</tr>';
+  // Matchups directs
+  if(rows.length>=2){
+    html+='<div style="font-size:.64rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin:12px 0 8px">Résultats des matchups</div>';
     rows.forEach(function(rA){
-      html+='<tr><td style="padding:3px 6px;color:var(--tx3);white-space:nowrap;font-size:.7rem">'+esc(rA.name.substring(0,10))+'</td>';
-      rows.forEach(function(rB){
-        if(rA.id===rB.id){html+='<td class="meta-h2h-cell" style="color:var(--tx3);background:rgba(255,255,255,.04)">—</td>';return;}
-        var ab=matches.filter(function(m){return(m.p1DeckId===rA.id&&m.p2DeckId===rB.id)||(m.p1DeckId===rB.id&&m.p2DeckId===rA.id);});
-        var wA=ab.reduce(function(s,m){return s+((m.p1DeckId===rA.id&&m.winner==='p1')||(m.p2DeckId===rA.id&&m.winner==='p2')?1:0);},0);
-        var tot=ab.filter(function(m){return m.winner&&m.winner!=='draw';}).length;
-        if(!tot){html+='<td class="meta-h2h-cell" style="color:var(--tx3)">—</td>';return;}
-        var pct=Math.round(wA/tot*100);
-        var cls=pct>=60?'meta-hl-green':pct<=40?'meta-hl-red':'meta-hl-gold';
-        html+='<td class="meta-h2h-cell '+cls+'">'+pct+'%</td>';
+      var opps=rows.filter(function(rB){return rB.id!==rA.id&&h2h[rA.id]&&h2h[rA.id][rB.id]&&h2h[rA.id][rB.id].tot>0;});
+      if(!opps.length)return;
+      opps.sort(function(a,b){
+        var pa=h2h[rA.id][a.id],pb=h2h[rA.id][b.id];
+        return(pb.tot?pb.w/pb.tot:0)-(pa.tot?pa.w/pa.tot:0);
       });
-      html+='</tr>';
+      html+='<div style="margin-bottom:10px">'
+        +'<div style="font-size:.74rem;color:var(--tx);font-weight:600;margin-bottom:4px">'+esc(rA.name)
+          +((rA.colors&&rA.colors.length)?(' <span style="vertical-align:middle">'+_arRenderColors(rA.colors)+'</span>'):'')
+          +(rA.commander?(' <span style="font-size:.6rem;color:var(--gold2)">· 👑 '+esc(rA.commander)+'</span>'):'')
+        +'</div>'
+        +'<div style="display:flex;gap:4px;flex-wrap:wrap">';
+      opps.forEach(function(rB){
+        var d=h2h[rA.id][rB.id];
+        var pct=d.tot?Math.round(d.w/d.tot*100):0;
+        var lost=d.tot-d.w;
+        var bg=pct>=60?'rgba(126,200,126,.15)':pct>=45?'rgba(201,168,76,.1)':'rgba(224,112,112,.15)';
+        var col=pct>=60?'#7ec87e':pct>=45?'#c9a84c':'#e07070';
+        var icon=pct>=60?'▲':pct>=45?'●':'▼';
+        var shortName=rB.name.length>15?rB.name.substring(0,13)+'…':rB.name;
+        html+='<div style="background:'+bg+';border:.5px solid '+col+';color:'+col
+          +';border-radius:8px;padding:3px 8px;font-size:.66rem;white-space:nowrap;line-height:1.4">'
+          +'<span style="font-size:.6rem;margin-right:2px">'+icon+'</span>'
+          +esc(shortName)+' <b>'+d.w+'-'+lost+'</b> <span style="opacity:.85">('+pct+'%)</span>'
+          +'</div>';
+      });
+      html+='</div></div>';
     });
-    html+='</table></div>';
   }
   el.innerHTML=html;
 }
