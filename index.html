@@ -15058,8 +15058,8 @@ function anaRunVsDeck(myDeckId){
   var sel=document.getElementById('ana-vs-deck');var res=document.getElementById('ana-vs-result');
   if(!sel||!res)return;
   var oppId=sel.value;
-  var oppDeck=decks[oppId];if(!oppDeck||!oppDeck.cards){res.textContent='❌ Deck adverse introuvable';return;}
-  var myDeck=decks[myDeckId];if(!myDeck){res.textContent='❌ Deck source introuvable';return;}
+  var oppDeck=_anaGetDeck(oppId);if(!oppDeck||!oppDeck.cards){res.textContent='❌ Deck adverse introuvable';return;}
+  var myDeck=_anaGetDeck(myDeckId);if(!myDeck){res.textContent='❌ Deck source introuvable';return;}
   res.style.color='var(--tx3)';res.innerHTML='⏳ Récupération des données du deck adverse…';
   var oppNls=oppDeck.cards.map(function(c){return c.nl;});
   var fb=oppDeck.cards.slice();
@@ -15669,9 +15669,9 @@ function anaRender(deckId){
 
   // Commandant (rappel visuel)
   if(deck.commander&&deck.commander.name){
-    var _cmdImgUrl=deck.commander.img||'';
     var _cmdMetaNl=stripDFC(deck.commander.name).toLowerCase();
     var _cmdMeta=_anaData[_cmdMetaNl]||{};
+    var _cmdImgUrl=deck.commander.img||_cmdMeta.imageUri||'';
     html+='<div class="card" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">';
     if(_cmdImgUrl){
       html+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(deck.commander.name)+'" style="width:180px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.7);flex-shrink:0;cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=\''+esc(_cmdImgUrl)+'\';z.style.display=\'flex\'">';
@@ -16007,18 +16007,32 @@ function anaRender(deckId){
   // === Win rate vs deck selectionne ===
   html+='<div class="card"><div class="lbl">🆚 Win rate vs un deck spécifique</div>';
   html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Sélectionne un de tes decks ou d\'un ami, puis lance la simulation (les cartes du deck adverse doivent être dans le cache d\'analyse).</div>';
-  // Build options
-  var otherIds=Object.keys(decks||{}).filter(function(id){return id!==deckId&&decks[id]&&decks[id].cards&&decks[id].cards.length;});
-  if(!otherIds.length){
+  // Build options : decks propres + decks amis
+  var _vsOpts=[];
+  Object.keys(decks||{}).forEach(function(id){
+    var d=decks[id];if(!d||!d.cards||!d.cards.length||id===deckId)return;
+    _vsOpts.push({id:id,label:(d.name||'Sans nom')+(d.format?' ['+d.format+']':''),owner:d.ownerUid===userId?'Mes decks':null});
+  });
+  Object.keys(_epDecks||{}).forEach(function(uid){
+    var friendName=(_friends||[]).filter(function(f){return f.uid===uid;})[0];
+    var ownerLabel=friendName?(friendName.name||'Ami'):'Ami';
+    Object.keys(_epDecks[uid]||{}).forEach(function(did){
+      var d=_epDecks[uid][did];if(!d||!d.cards||!d.cards.length)return;
+      _vsOpts.push({id:'ep:'+uid+':'+did,label:(d.name||'Sans nom')+(d.format?' ['+d.format+']':''),owner:ownerLabel});
+    });
+  });
+  if(!_vsOpts.length){
     html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun autre deck disponible.</div>';
   } else {
-    otherIds.sort(function(a,b){return ((decks[a]||{}).name||'').localeCompare((decks[b]||{}).name||'');});
+    _vsOpts.sort(function(a,b){return a.label.localeCompare(b.label);});
     html+='<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">';
     html+='<select id="ana-vs-deck" class="psel" style="flex:1;min-width:200px">';
-    otherIds.forEach(function(id){
-      var d=decks[id];var nm=esc(d.name||'Sans nom');
-      var fmt=d.format?' ['+d.format+']':'';
-      html+='<option value="'+id+'">'+nm+fmt+'</option>';
+    var _vsByOwner={};
+    _vsOpts.forEach(function(o){var k=o.owner||'Mes decks';if(!_vsByOwner[k])_vsByOwner[k]=[];_vsByOwner[k].push(o);});
+    Object.keys(_vsByOwner).forEach(function(owner){
+      html+='<optgroup label="'+esc(owner)+'">';
+      _vsByOwner[owner].forEach(function(o){html+='<option value="'+o.id+'">'+esc(o.label)+'</option>';});
+      html+='</optgroup>';
     });
     html+='</select>';
     html+='<button class="btn btnp btnsm" onclick="anaRunVsDeck(\''+deckId+'\')">⚔ Simuler 50 parties</button>';
