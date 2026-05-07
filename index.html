@@ -13361,8 +13361,8 @@ var _anaPauperStaples=[
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
   // Migration v9: ajout mill/reanimate dans les tags + toughness
-  if((__aP.__version||0)<9){
-    _anaData={__version:9};
+  if((__aP.__version||0)<10){
+    _anaData={__version:10};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13370,7 +13370,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=9;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=10;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -13581,7 +13581,7 @@ function anaInferTags(meta){
   var type=(meta.typeLine||'').toLowerCase();
   if(type.indexOf('land')>=0){return {draw:0,removal:0,ramp:0,interaction:0,wincon:0,isLand:1};}
   var cmc=meta.cmc||0;
-  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0,mill=0,reanimate=0;
+  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0,mill=0,reanimate=0,untap_creature=0;
   var nMap={a:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7};
   // Pioche — "draw/draws X card(s)" (singulier ou 3e personne)
   var dm=oracle.match(/draws? \w+ cards?/g)||[];
@@ -13637,6 +13637,15 @@ function anaInferTags(meta){
   // Mot-clé sur la carte elle-même (moins utile pour protéger le commandant)
   var kws=((meta.keywords||[]).join(' ')).toLowerCase();
   if(/hexproof|shroud|indestructible/.test(kws))protection+=0.3;
+  // Equipement/Aura conférant hexproof ou shroud (ex: Whispersilk Cloak, Swiftfoot Boots, Clout of Dominus)
+  if(/equipped creature (?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.2;
+  if(/enchanted creature[^.]*(?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.0;
+  // Equipement/Aura conférant l'indestructible
+  if(/equipped creature (?:has|gains?) indestructible/.test(oracle))protection+=0.8;
+  if(/enchanted creature[^.]*(?:has|gains?) indestructible/.test(oracle))protection+=0.7;
+  // Dégager une créature (synergy forte avec commandants à ability de tap — ex: Freed from the Real)
+  if(/untap enchanted creature/.test(oracle)){interaction+=0.8;untap_creature=1.0;}
+  if(/(?:you may )?untap target creature/.test(oracle)){interaction+=0.5;untap_creature=Math.max(untap_creature,0.7);}
   // Wincon
   if(/you win the game/.test(oracle))wincon+=6;
   if(/each opponent loses (\d+|that much) life/.test(oracle))wincon+=1.5;
@@ -13660,7 +13669,7 @@ function anaInferTags(meta){
   if(/return target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard to the battlefield|put target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard onto the battlefield/.test(oracle))reanimate=1;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature)};
 }
 
 /* ----- Helpers ----- */
@@ -13941,6 +13950,8 @@ function anaCardScore(meta){
     t.wincon*3.0*(th.wincon||1)
   )-((meta.cmc||0)*0.4);
   if(th.protection&&t.protection)base+=t.protection*1.5*(th.protection||0);
+  // Bonus untap (ex: Freed from the Real) — fort si commandant avec ability de tap (protection > 1)
+  if(t.untap_creature&&(th.protection||0)>1)base+=t.untap_creature*2.5*((th.protection||0)-1);
   return base;
 }
 
@@ -14108,6 +14119,10 @@ var _COMMANDER_THEME_RULES=[
   // Artefacts matters
   {p:/metalcraft|whenever.*artifact.*enters.*battlefield/i,     m:{artifact:1.3,wincon:1.2},     label:'Artifact-matters'},
   {p:/whenever.*you cast.*artifact/i,                           m:{artifact:1.3,draw:1.2},       label:'Artifact-cast'},
+  // Commandant avec ability de tap infligeant des dégâts (ex: Gelectrode, Niv-Mizzet)
+  {p:/\{t\}[^.]*:?[^.]*deals? \d+ damage|deals? \d+ damage[^.{]*\{t\}/i, m:{protection:2.5},  label:'Tap-damage'},
+  // Commandant avec ability de tap générique (untap et protection synergy)
+  {p:/\{t\}:/i,                                                m:{protection:1.5},              label:'Tap-ability'},
 ];
 
 // Mapping keywords officiels Scryfall (card.keywords[]) → thèmes
@@ -14937,6 +14952,13 @@ function _anaThemeSynergyScore(cardMeta,themes){
   if((th.artifact||1)>1){
     if(/artifact|metalcraft/.test(o))s+=2;
   }
+  // Synergy tap-ability : commandant avec {T}: ability (protection mult > 1.5)
+  if((th.protection||0)>1.5){
+    if(/untap enchanted creature/.test(o))s+=8;
+    if(/untap target creature/.test(o))s+=5;
+    if(/equipped creature[^.]*(?:hexproof|shroud)|enchanted creature[^.]*(?:hexproof|shroud)/.test(o))s+=4;
+    if(/equipped creature[^.]*indestructible|enchanted creature[^.]*indestructible/.test(o))s+=3;
+  }
   return s;
 }
 
@@ -15084,7 +15106,8 @@ function anaRender(deckId){
   _anaCurrentThemes=_anaCommanderThemes(deck);
   var cards=deck.cards.slice();
   var fmt=deck.format||'';
-  _anaCurrentThemes.protection=anaIsCommanderFormat(fmt)?1:0;
+  if(anaIsCommanderFormat(fmt)){if(!(_anaCurrentThemes.protection>1))_anaCurrentThemes.protection=1;}
+  else{_anaCurrentThemes.protection=0;}
   var totalCards=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var deckCi=_anaDeckCi(deck);
 
