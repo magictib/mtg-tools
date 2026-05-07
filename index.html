@@ -4552,14 +4552,37 @@ function loadDecks(){
         }
         decks=d;
         try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
-        renderDBar();
+        renderDBar();_refreshAllDeckSelects();
       } else if(Object.keys(decks).length){
         saveDecks(); // synchro locale → Firebase
       }
     }).catch(function(){});
 }
+function _refreshAllDeckSelects(){
+  // Analyse
+  if(typeof anaPopulateDeckSel==='function')anaPopulateDeckSel();
+  // Builder
+  if(typeof bldInitDeckSel==='function')bldInitDeckSel();
+  // Hunt
+  if(typeof htPopulateSel==='function')htPopulateSel();
+  // Game setup + multi-game par profil
+  profs.forEach(function(_,pi){
+    var s1=document.getElementById('gsetup-deck'+pi);if(s1&&typeof _buildDeckSelect==='function')_buildDeckSelect(s1,pi);
+    var s2=document.getElementById('mg-deck'+pi);if(s2&&typeof _buildDeckSelect==='function')_buildDeckSelect(s2,pi);
+  });
+  // Matchup selector
+  var dkMs=document.getElementById('deck-matchup-sel');
+  if(dkMs){
+    var prev=dkMs.value;
+    dkMs.innerHTML='<option value="">— Sélectionner un deck —</option>'+
+      Object.keys(decks).map(function(id){return'<option value="'+id+'">'+esc((decks[id]||{}).name||'Sans nom')+'</option>';}).join('');
+    if(prev)dkMs.value=prev;
+  }
+  // Arena
+  if(typeof arFilterDecksByProf==='function')arFilterDecksByProf();
+}
 function saveDecks(){
-  htPopulateSel();
+  _refreshAllDeckSelects();
   try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
   var batch=db.batch();
   var ref=db.collection('users').doc(userId).collection('decks');
