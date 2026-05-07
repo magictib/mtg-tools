@@ -15452,11 +15452,22 @@ function anaRender(deckId){
   var grade=anaGrade(overall);
 
   // Top / bottom non-land (commandants exclus)
-  var _cmdNl=deck.commander?stripDFC(deck.commander.name||'').toLowerCase():'';
+  // Collecte tous les noms de commandants possibles (deck.commander + cards sec=Commander)
+  var _cmdNls=new Set();
+  if(deck.commander&&deck.commander.name){
+    _cmdNls.add(stripDFC(deck.commander.name).toLowerCase());
+    if(deck.commander.nl)_cmdNls.add(deck.commander.nl);
+  }
+  (deck.cards||[]).forEach(function(c){
+    if(/^commander|^commandant/i.test(c.sec||'')){
+      _cmdNls.add(stripDFC(c.name||'').toLowerCase());
+      if(c.nl)_cmdNls.add(c.nl);
+    }
+  });
   var nonLandRows=rows.filter(function(r){
     if(!r.inCache||r.roles.land)return false;
     var cardNl=r.card.nl||stripDFC(r.card.name||'').toLowerCase();
-    if(_cmdNl&&cardNl===_cmdNl)return false;
+    if(_cmdNls.has(cardNl))return false;
     if(/^commander|^commandant/i.test(r.card.sec||''))return false;
     return true;
   });
