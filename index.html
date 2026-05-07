@@ -668,6 +668,7 @@ body.mana-cursor{cursor:none}
 .bld-sw-slot.drop-tgt{border-color:var(--gold2)!important;background:rgba(201,168,76,.14)!important;box-shadow:0 0 0 2px rgba(201,168,76,.38)!important}
 .bld-sw-empty{border:1.5px dashed rgba(255,255,255,.2);border-radius:6px;padding:6px 8px;text-align:center;color:var(--tx3);font-size:.62rem;font-style:italic;min-height:44px;display:flex;align-items:center;justify-content:center;transition:border-color .1s,background .1s;cursor:default}
 .bld-sw-empty.drop-tgt{border-color:var(--gold2);color:var(--gold2);background:rgba(201,168,76,.08)}
+.bld-sw-empty.sel{border-color:var(--gold2)!important;color:var(--gold2)!important;background:rgba(201,168,76,.1)!important;box-shadow:0 0 0 1.5px rgba(201,168,76,.35)!important}
 .bld-sw-img{width:42px;min-width:42px;height:59px;border-radius:3px;object-fit:cover;cursor:pointer;flex-shrink:0;display:block}
 .bld-deck-drag-h{color:var(--tx3);cursor:grab;font-size:.82rem;padding:0 2px;flex-shrink:0;opacity:.45;touch-action:none;line-height:1;user-select:none}
 .bld-deck-drag-h:hover{color:var(--gold2);opacity:1}
@@ -11943,16 +11944,44 @@ function bldPtrMove(e){
     var r=b.getBoundingClientRect();
     b.classList.toggle('dragover',cx>=r.left&&cx<=r.right&&cy>=r.top&&cy<=r.bottom);
   });
+  document.querySelectorAll('[data-swslot]').forEach(function(el){
+    var r=el.getBoundingClientRect();
+    el.classList.toggle('drop-tgt',cx>=r.left&&cx<=r.right&&cy>=r.top&&cy<=r.bottom);
+  });
 }
 function bldPtrUp(e){
   if(!_bldPtr)return;
   var ghost=document.getElementById('bld-ghost');if(ghost)ghost.style.display='none';
   bldHideDragOverlay();
+  document.querySelectorAll('[data-swslot]').forEach(function(el){el.classList.remove('drop-tgt');});
   if(!_bldPtr.moved){
-    if(_bldPtr.section!=='search')bldShowCardImg(_bldPtr.name);
+    if(_bldSwapSel!==null&&_bldPtr.section!=='search'){
+      var sw2=_bldSwaps[_bldSwapSel.idx];
+      if(sw2){
+        var d2=bldData[_bldPtr.name.toLowerCase()];
+        if(!d2){var fi2=bldFindIn(bldMain,_bldPtr.name);d2=fi2>=0?bldMain[fi2]:{name:_bldPtr.name};}
+        sw2[_bldSwapSel.slot]=d2;_bldSwapSel=null;_bldOptTab='swaps';bldRenderOpt();
+      }
+    } else if(_bldPtr.section!=='search'){
+      bldShowCardImg(_bldPtr.name);
+    }
     _bldPtr=null;return;
   }
   var cx=e.clientX,cy=e.clientY;
+  var swDropEl=null;
+  document.querySelectorAll('[data-swslot]').forEach(function(el){
+    var r=el.getBoundingClientRect();
+    if(cx>=r.left&&cx<=r.right&&cy>=r.top&&cy<=r.bottom)swDropEl=el;
+  });
+  if(swDropEl&&_bldPtr.section!=='search'){
+    var parts=swDropEl.dataset.swslot.split('-');var swIdx=parseInt(parts[0]),swSlot=parts[1];
+    var swN=_bldSwaps[swIdx];if(swN){
+      var d3=bldData[_bldPtr.name.toLowerCase()];
+      if(!d3){var fi3=bldFindIn(bldMain,_bldPtr.name);d3=fi3>=0?bldMain[fi3]:{name:_bldPtr.name};}
+      swN[swSlot]=d3;bldRenderSwapsPanel();
+    }
+    _bldPtr=null;return;
+  }
   var zone=null;
   ['main','sideb','avoir','oublie'].forEach(function(z){
     var b=document.getElementById('bld-ov-'+z);if(!b)return;
@@ -12435,11 +12464,13 @@ function bldRenderSwapsPanel(){
     var lc=tp==='cut'?'var(--rd2)':'var(--gold2)';
     var slotKey=idx+'-'+tp;
     if(!card){
-      return '<div class="bld-sw-empty '+tp+'" data-swslot="'+slotKey+'"'
+      return '<div class="bld-sw-empty '+tp+(isSel?' sel':'')+'" data-swslot="'+slotKey+'"'
+        +' onclick="bldSwapSelectSlot('+idx+',\''+tp+'\')"'
+        +' style="cursor:pointer"'
         +' ondragover="bldSwCardDragOver(event,'+idx+',\''+tp+'\')"'
         +' ondrop="bldSwCardDrop(event,'+idx+',\''+tp+'\')"'
         +' ondragend="bldSwCardDragEnd()">'
-        +'<div><div style="font-size:.5rem;color:'+lc+';margin-bottom:3px;letter-spacing:.05em">'+lbl+'</div>Glisse ici</div>'
+        +'<div><div style="font-size:.5rem;color:'+lc+';margin-bottom:3px;letter-spacing:.05em">'+lbl+'</div>'+(isSel?'Clique une carte →':'Glisse ici')+'</div>'
         +'</div>';
     }
     var imgH=card.img?'<img src="'+card.img+'" class="bld-sw-img" onclick="event.stopPropagation();bldSwShowImg('+idx+',\''+tp+'\')" title="'+esc(card.name)+'">':'';
