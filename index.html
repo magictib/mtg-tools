@@ -14234,6 +14234,54 @@ var _ANTI_SYNERGY_RULES=[
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
 var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,sweeper:0,labels:[]};
 
+/* ----- Personnalisation des thèmes par deck (overrides utilisateur) ----- */
+var _anaUserThemesData={};var _anaThemeEditorOpen={};
+try{var _uTd=localStorage.getItem('mtg_ana_themes');if(_uTd)_anaUserThemesData=JSON.parse(_uTd);}catch(e){}
+var _anaThemeMeta=[
+  {k:'draw',        fr:'Pioche',              ico:'📖'},
+  {k:'removal',     fr:'Retrait',             ico:'🗡'},
+  {k:'ramp',        fr:'Ramp',                ico:'🌱'},
+  {k:'interaction', fr:'Interaction',         ico:'🔄'},
+  {k:'wincon',      fr:'Condition de victoire',ico:'🏆'},
+  {k:'discard',     fr:'Défausse',            ico:'🃏'},
+  {k:'counters',    fr:'Marqueurs +1/+1',     ico:'⬆'},
+  {k:'lifegain',    fr:'Gain de vie',         ico:'❤'},
+  {k:'graveyard',   fr:'Cimetière',           ico:'💀'},
+  {k:'enchantment', fr:'Enchantements',       ico:'✨'},
+  {k:'artifact',    fr:'Artefacts',           ico:'⚙'},
+  {k:'protection',  fr:'Protection',          ico:'🛡'},
+  {k:'sacrifice',   fr:'Sacrifice',           ico:'🔪'},
+  {k:'sweeper',     fr:'Board sweep',         ico:'💥'}
+];
+function _anaSaveUserThemes(){try{localStorage.setItem('mtg_ana_themes',JSON.stringify(_anaUserThemesData));}catch(e){}}
+function _anaGetEffectiveThemes(deckId,autoThemes){
+  var ov=_anaUserThemesData[deckId];
+  if(!ov||!Object.keys(ov).length)return autoThemes;
+  return Object.assign({},autoThemes,ov);
+}
+function _anaToggleThemeEditor(deckId){
+  _anaThemeEditorOpen[deckId]=!_anaThemeEditorOpen[deckId];
+  var el=document.getElementById('ana-thed-'+deckId);
+  if(el)el.style.display=_anaThemeEditorOpen[deckId]?'block':'none';
+}
+function _anaApplyThemeEdits(deckId){
+  var ov={};
+  _anaThemeMeta.forEach(function(tm){
+    var inp=document.getElementById('ana-th-'+deckId+'-'+tm.k);
+    if(inp)ov[tm.k]=parseFloat(inp.value)||0;
+  });
+  _anaUserThemesData[deckId]=ov;
+  _anaSaveUserThemes();
+  _anaThemeEditorOpen[deckId]=true;
+  anaRender(deckId);
+}
+function _anaResetThemes(deckId){
+  delete _anaUserThemesData[deckId];
+  _anaSaveUserThemes();
+  _anaThemeEditorOpen[deckId]=true;
+  anaRender(deckId);
+}
+
 function _anaCommanderThemes(deck){
   var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,sweeper:0,labels:[],_debug:'no-deck'};
   if(!deck)return def;
@@ -15200,12 +15248,14 @@ function anaRefreshMatrix(){
 /* ----- Render Mythic Tools+ style ----- */
 function anaRender(deckId){
   var deck=decks[deckId];if(!deck)return;
-  // Themes du commandant : applique des multiplicateurs au scoring
-  _anaCurrentThemes=_anaCommanderThemes(deck);
-  var cards=deck.cards.slice();
+  // Themes du commandant : auto-détection puis application des overrides utilisateur
   var fmt=deck.format||'';
-  if(anaIsCommanderFormat(fmt)){if(!(_anaCurrentThemes.protection>1))_anaCurrentThemes.protection=1;}
-  else{_anaCurrentThemes.protection=0;}
+  var _autoDetectedThemes=_anaCommanderThemes(deck);
+  if(anaIsCommanderFormat(fmt)){if(!(_autoDetectedThemes.protection>1))_autoDetectedThemes.protection=1;}
+  else{_autoDetectedThemes.protection=0;}
+  var _hasThemeOverride=!!(_anaUserThemesData[deckId]&&Object.keys(_anaUserThemesData[deckId]).length);
+  _anaCurrentThemes=_anaGetEffectiveThemes(deckId,_autoDetectedThemes);
+  var cards=deck.cards.slice();
   var totalCards=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var deckCi=_anaDeckCi(deck);
 
@@ -15362,13 +15412,13 @@ function anaRender(deckId){
     html+='<a onclick="anaSetArchetype(\''+deckId+'\',\'auto\')" style="cursor:pointer;color:var(--tx3);font-size:9px;text-decoration:none" title="Auto-détection ('+(_ARCH_LABELS[autoArch]||{label:autoArch}).label+')">↩</a>';
   }
   html+='</span>';
-  // Themes detectes (commander oracle text) — toujours afficher pour visibilite/debug
+  // Themes detectes + éditeur personnalisé
   if(_anaCurrentThemes){
-    var themeContent='';
     var dbg=_anaCurrentThemes._debug||'';
+    var themeContent='';
     if(_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length){
       themeContent=_anaCurrentThemes.labels.map(function(l){
-        return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)" title="Multiplicateur de score appliqué via l\'oracle text du commandant">'+esc(l)+'</span>';
+        return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)">'+esc(l)+'</span>';
       }).join(' ');
     } else if(dbg.indexOf('no-commander')>=0){
       themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Commandant non défini — sélectionne-le dans l\'éditeur du deck pour activer le scoring contextuel</span>';
@@ -15377,7 +15427,38 @@ function anaRender(deckId){
     } else {
       themeContent='<span style="font-size:10px;color:var(--tx3);font-style:italic">aucun thème spécial détecté (scoring neutre)</span>';
     }
-    html+='<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center"><span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> '+themeContent+'</div>';
+    html+='<div style="margin-top:4px">';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">';
+    html+='<span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> ';
+    html+=themeContent;
+    if(_hasThemeOverride)html+=' <span style="font-size:9px;padding:1px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
+    html+=' <button onclick="_anaToggleThemeEditor(\''+deckId+'\')" style="font-size:10px;padding:1px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">⚙ Personnaliser</button>';
+    html+='</div>';
+    // Panneau éditeur (collapsible, persistant entre re-renders)
+    var _edOpen=!!_anaThemeEditorOpen[deckId];
+    html+='<div id="ana-thed-'+deckId+'" style="display:'+(_edOpen?'block':'none')+';margin-top:8px;padding:10px 12px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;line-height:1.5">';
+    html+='Ajuste les multiplicateurs selon ton plan de jeu (1.0 = neutre · 2.0 = important · 3.0 = central au deck).<br>';
+    html+='<span style="color:var(--gold2)">Auto</span> = valeur déduite de l\'oracle text du commandant.';
+    html+='</div>';
+    _anaThemeMeta.forEach(function(tm){
+      var autoVal=_autoDetectedThemes[tm.k]||0;
+      var curVal=_anaCurrentThemes[tm.k]||0;
+      var isOv=_hasThemeOverride&&_anaUserThemesData[deckId]&&(_anaUserThemesData[deckId][tm.k]!==undefined);
+      var valCol=isOv?'var(--gold2)':'var(--tx2)';
+      html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">';
+      html+='<span style="width:140px;font-size:11px;color:var(--tx2);white-space:nowrap;flex-shrink:0">'+esc(tm.ico)+' '+esc(tm.fr)+'</span>';
+      html+='<span style="font-size:9px;color:var(--tx3);width:42px;text-align:right;flex-shrink:0">auto '+autoVal.toFixed(1)+'</span>';
+      html+='<input type="range" id="ana-th-'+deckId+'-'+tm.k+'" min="0" max="3" step="0.1" value="'+curVal.toFixed(1)+'" style="flex:1;accent-color:var(--gold2)" oninput="document.getElementById(\'ana-thv-'+deckId+'-'+tm.k+'\').textContent=parseFloat(this.value).toFixed(1);document.getElementById(\'ana-thv-'+deckId+'-'+tm.k+'\').style.color=(Math.abs(parseFloat(this.value)-'+autoVal.toFixed(1)+')<0.05?\'var(--tx2)\':\'var(--gold2)\')">';
+      html+='<span id="ana-thv-'+deckId+'-'+tm.k+'" style="width:28px;font-size:11px;color:'+valCol+';text-align:right;font-weight:bold;flex-shrink:0">'+curVal.toFixed(1)+'</span>';
+      html+='</div>';
+    });
+    html+='<div style="display:flex;gap:6px;margin-top:12px">';
+    html+='<button onclick="_anaApplyThemeEdits(\''+deckId+'\')" style="flex:1;padding:7px;background:var(--gold2);color:#000;border:none;border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:12px;cursor:pointer;font-weight:bold;letter-spacing:.04em">✓ Appliquer</button>';
+    if(_hasThemeOverride)html+='<button onclick="_anaResetThemes(\''+deckId+'\')" style="padding:7px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:11px;cursor:pointer">↩ Auto</button>';
+    html+='</div>';
+    html+='</div>';
+    html+='</div>';
   }
   html+='</div>';
   html+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
