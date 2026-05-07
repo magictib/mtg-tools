@@ -2204,13 +2204,6 @@ body.mana-cursor{cursor:none}
   <div class="card">
     <div class="lbl">Statistiques</div>
     <div id="game-stats" style="margin-bottom:4px"></div>
-    <div id="deck-matchup-section" style="display:none;margin-top:8px;padding-top:8px;border-top:.5px solid var(--bd)">
-      <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">MATCHUPS D'UN DECK</div>
-      <select id="deck-matchup-sel" onchange="renderDeckMatchupDetail(this.value)" style="font-size:.78rem;padding:3px 6px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;width:100%;margin-bottom:6px">
-        <option value="">— Sélectionner un deck —</option>
-      </select>
-      <div id="deck-matchup-detail"></div>
-    </div>
   </div>
 
   <!-- Historique -->
@@ -2291,7 +2284,7 @@ body.mana-cursor{cursor:none}
         <button class="btn btnsm" onclick="toggleManualGame()">Annuler</button>
       </div>
     </div>
-    <div id="game-history"></div>
+    <div id="game-history" style="max-height:340px;overflow-y:auto"></div>
   </div>
 
 </div>
@@ -4588,14 +4581,6 @@ function _refreshAllDeckSelects(){
     var s1=document.getElementById('gsetup-deck'+pi);if(s1&&typeof _buildDeckSelect==='function')_buildDeckSelect(s1,pi);
     var s2=document.getElementById('mg-deck'+pi);if(s2&&typeof _buildDeckSelect==='function')_buildDeckSelect(s2,pi);
   });
-  // Matchup selector
-  var dkMs=document.getElementById('deck-matchup-sel');
-  if(dkMs){
-    var prev=dkMs.value;
-    dkMs.innerHTML='<option value="">— Sélectionner un deck —</option>'+
-      Object.keys(decks).map(function(id){return'<option value="'+id+'">'+esc((decks[id]||{}).name||'Sans nom')+'</option>';}).join('');
-    if(prev)dkMs.value=prev;
-  }
   // Arena
   if(typeof arFilterDecksByProf==='function')arFilterDecksByProf();
 }
@@ -9793,7 +9778,11 @@ var _MTG_COLORS=['W','U','B','R','G'];
 var _MTG_COLOR_CSS={W:'#f5f0c0',U:'#5a9de0',B:'#777',R:'#d44',G:'#4a9a4a'};
 var _MTG_COLOR_NAME={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
 
+var _matchupFilterDeck='';
 function renderGameStats(){
+  function wr(s){return s.played>0?s.won/s.played:0;}
+  function wrColor(r){return r>=0.5?'var(--gr2)':r>=0.3?'var(--am)':'var(--tx3)';}
+  function effCols(colors,deckId){return(colors&&colors.length?colors:null)||_deckColors(deckId)||[];}
   var profSt={};
   PN.forEach(function(n,i){profSt[i]={name:n,played:0,won:0};});
   var deckSt={};
@@ -9802,14 +9791,10 @@ function renderGameStats(){
     var totalManches=isBO?g.boScore.reduce(function(s,w){return s+w;},0):1;
     g.players.forEach(function(p,pi){
       var pWins=isBO?(g.boScore[pi]||0):0;
-      if(p.profIdx>=0&&p.profIdx<3){
-        profSt[p.profIdx].played+=totalManches;
-        if(isBO)profSt[p.profIdx].won+=pWins;
-      }
+      if(p.profIdx>=0&&p.profIdx<3){profSt[p.profIdx].played+=totalManches;if(isBO)profSt[p.profIdx].won+=pWins;}
       if(p.deckId){
         if(!deckSt[p.deckId])deckSt[p.deckId]={name:p.deckName||p.deckId,profIdx:p.profIdx,played:0,won:0};
-        deckSt[p.deckId].played+=totalManches;
-        if(isBO)deckSt[p.deckId].won+=pWins;
+        deckSt[p.deckId].played+=totalManches;if(isBO)deckSt[p.deckId].won+=pWins;
       }
     });
     if(!isBO&&g.winner){
@@ -9819,176 +9804,174 @@ function renderGameStats(){
   });
   var html='';
   if(!games.length){document.getElementById('game-stats').innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.83rem">Aucune partie enregistrée</div>';return;}
+  // PAR PROFIL — trié par taux de victoire
   html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:4px">PAR PROFIL</div>';
-  html+=Object.values(profSt).map(function(s){
-    var wr=s.played>0?Math.round(s.won/s.played*100):0;
+  html+=Object.values(profSt).sort(function(a,b){return wr(b)-wr(a);}).map(function(s){
+    var r=wr(s);var wrPct=Math.round(r*100);
     return '<div class="gstat-row"><div style="flex:1;font-family:\'Goudy Mediaeval\',serif;font-size:.8rem">'+esc(s.name)+'</div>'
       +'<div style="font-size:.8rem;color:var(--tx3)">'+s.played+'p</div>'
       +'<div style="font-size:.8rem;color:var(--gr2);min-width:48px;text-align:right">'+s.won+' vic.</div>'
-      +'<div style="font-size:.8rem;font-weight:700;min-width:38px;text-align:right;color:'+(wr>=50?'var(--gr2)':wr>=30?'var(--am)':'var(--tx3)')+'">'+wr+'%</div></div>';
+      +'<div style="font-size:.8rem;font-weight:700;min-width:38px;text-align:right;color:'+wrColor(r)+'">'+wrPct+'%</div></div>';
   }).join('');
+  // PAR DECK — trié par taux de victoire
   var dkList=Object.values(deckSt);
   if(dkList.length){
     html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin:8px 0 4px">PAR DECK</div>';
-    html+=dkList.sort(function(a,b){return b.played-a.played;}).map(function(s){
-      var wr=s.played>0?Math.round(s.won/s.played*100):0;
-      var pn=s.profIdx>=0&&s.profIdx<3?PN[s.profIdx]:'?';
+    html+=dkList.sort(function(a,b){return wr(b)-wr(a);}).map(function(s){
+      var r=wr(s);var wrPct=Math.round(r*100);
+      var pn=s.profIdx>=0&&s.profIdx<PN.length?PN[s.profIdx]:'?';
       return '<div class="gstat-row"><div style="flex:1;font-size:.8rem">'+esc(s.name)+'<span style="color:var(--tx3);font-size:.72rem"> · '+esc(pn)+'</span></div>'
         +'<div style="font-size:.8rem;color:var(--tx3)">'+s.played+'p</div>'
         +'<div style="font-size:.8rem;color:var(--gr2);min-width:48px;text-align:right">'+s.won+' vic.</div>'
-        +'<div style="font-size:.8rem;font-weight:700;min-width:38px;text-align:right;color:'+(wr>=50?'var(--gr2)':wr>=30?'var(--am)':'var(--tx3)')+'">'+wr+'%</div></div>';
+        +'<div style="font-size:.8rem;font-weight:700;min-width:38px;text-align:right;color:'+wrColor(r)+'">'+wrPct+'%</div></div>';
     }).join('');
   }
-  // Victoires par couleur (fromage) — comptage par manches individuelles
+  // PAR COULEUR — trié par taux de victoire
   var colorSt={};
   _MTG_COLORS.forEach(function(c){colorSt[c]={played:0,won:0};});
   games.forEach(function(g){
     var isBO=g.boMode&&g.boMode!=='bo1'&&g.boScore&&g.boScore.length;
     g.players.forEach(function(p,pi){
-      var cols=p.colors||_deckColors(p.deckId)||[];
+      var cols=effCols(p.colors,p.deckId);
       var pPlayed=isBO?g.boScore.reduce(function(s,w){return s+w;},0):1;
       var pWins=isBO?(g.boScore[pi]||0):0;
-      cols.forEach(function(c){
-        if(colorSt[c]){colorSt[c].played+=pPlayed;if(isBO)colorSt[c].won+=pWins;}
-      });
+      cols.forEach(function(c){if(colorSt[c]){colorSt[c].played+=pPlayed;if(isBO)colorSt[c].won+=pWins;}});
     });
     if(!isBO&&g.winner){
-      var wcols=g.winner.colors||_deckColors(g.winner.deckId)||[];
-      wcols.forEach(function(c){if(colorSt[c])colorSt[c].won++;});
+      effCols(g.winner.colors,g.winner.deckId).forEach(function(c){if(colorSt[c])colorSt[c].won++;});
     }
   });
-  var totalWins=_MTG_COLORS.reduce(function(s,c){return s+colorSt[c].won;},0);
-  var anyColor=_MTG_COLORS.some(function(c){return colorSt[c].played>0;});
-  if(anyColor){
+  var colorList=_MTG_COLORS.filter(function(c){return colorSt[c].played>0;});
+  colorList.sort(function(a,b){return wr(colorSt[b])-wr(colorSt[a]);});
+  if(colorList.length){
+    var totalWins=colorList.reduce(function(s,c){return s+colorSt[c].won;},0);
     html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin:8px 0 4px">PAR COULEUR</div>';
-    // pie chart (conic-gradient) based on wins
     var gradParts=[];var acc=0;
-    _MTG_COLORS.forEach(function(c){
+    colorList.forEach(function(c){
       if(!colorSt[c].won)return;
       var pct=totalWins>0?colorSt[c].won/totalWins*100:0;
       gradParts.push(_MTG_COLOR_CSS[c]+' '+acc.toFixed(1)+'% '+(acc+pct).toFixed(1)+'%');
       acc+=pct;
     });
-    var pieStyle='width:72px;height:72px;border-radius:50%;flex-shrink:0;border:2px solid var(--bd2)';
-    if(gradParts.length)pieStyle+=';background:conic-gradient('+gradParts.join(',')+')';
-    else pieStyle+=';background:var(--s3)';
-    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
-    html+='<div style="'+pieStyle+'"></div>';
-    html+='<div style="flex:1">';
-    _MTG_COLORS.forEach(function(c){
-      var s=colorSt[c];if(!s.played)return;
-      var wr=Math.round(s.won/s.played*100);
-      html+='<div style="display:flex;align-items:center;gap:4px;font-size:.74rem;margin-bottom:2px">';
-      html+='<div style="width:9px;height:9px;border-radius:50%;background:'+_MTG_COLOR_CSS[c]+';flex-shrink:0;border:.5px solid var(--bd2)"></div>';
-      html+='<span style="color:var(--tx2);flex:1">'+_MTG_COLOR_NAME[c]+'</span>';
-      html+='<span style="color:var(--tx3);margin-right:3px">'+s.played+'p</span>';
-      html+='<span style="color:var(--gr2);min-width:22px;text-align:right">'+s.won+'V</span>';
-      html+='<span style="font-weight:700;min-width:30px;text-align:right;color:'+(wr>=50?'var(--gr2)':wr>=30?'var(--am)':'var(--tx3)')+'">'+wr+'%</span>';
-      html+='</div>';
+    var pieStyle='width:72px;height:72px;border-radius:50%;flex-shrink:0;border:2px solid var(--bd2)'+(gradParts.length?';background:conic-gradient('+gradParts.join(',')+')'  :';background:var(--s3)');
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="'+pieStyle+'"></div><div style="flex:1">';
+    colorList.forEach(function(c){
+      var s=colorSt[c];var r=wr(s);var wrPct=Math.round(r*100);
+      html+='<div style="display:flex;align-items:center;gap:4px;font-size:.74rem;margin-bottom:2px">'
+        +'<div style="width:9px;height:9px;border-radius:50%;background:'+_MTG_COLOR_CSS[c]+';flex-shrink:0;border:.5px solid var(--bd2)"></div>'
+        +'<span style="color:var(--tx2);flex:1">'+_MTG_COLOR_NAME[c]+'</span>'
+        +'<span style="color:var(--tx3);margin-right:3px">'+s.played+'p</span>'
+        +'<span style="color:var(--gr2);min-width:22px;text-align:right">'+s.won+'V</span>'
+        +'<span style="font-weight:700;min-width:30px;text-align:right;color:'+wrColor(r)+'">'+wrPct+'%</span>'
+        +'</div>';
     });
     html+='</div></div>';
   }
-  // Stats par combinaison de couleurs (fromage)
-  var comboSt={};
-  var MTG_ORD_C=['W','U','B','R','G'];
+  // PAR COMBINAISON DE COULEURS — trié par taux de victoire, bug [] corrigé
+  var comboSt={};var MTG_ORD_C=['W','U','B','R','G'];
   games.forEach(function(g){
     var isBO=g.boMode&&g.boMode!=='bo1'&&g.boScore&&g.boScore.length;
     g.players.forEach(function(p,pi){
-      var cols=p.colors||_deckColors(p.deckId)||[];
-      if(!cols.length)return;
-      var sorted=MTG_ORD_C.filter(function(c){return cols.indexOf(c)>=0;});
-      var key=sorted.join('');
+      var cols=effCols(p.colors,p.deckId);if(!cols.length)return;
+      var key=MTG_ORD_C.filter(function(c){return cols.indexOf(c)>=0;}).join('');if(!key)return;
       var pPlayed=isBO?g.boScore.reduce(function(s,w){return s+w;},0):1;
       var pWins=isBO?(g.boScore[pi]||0):0;
-      if(!comboSt[key])comboSt[key]={colors:sorted,played:0,won:0};
-      comboSt[key].played+=pPlayed;
-      if(isBO)comboSt[key].won+=pWins;
+      if(!comboSt[key])comboSt[key]={colors:MTG_ORD_C.filter(function(c){return cols.indexOf(c)>=0;}),played:0,won:0};
+      comboSt[key].played+=pPlayed;if(isBO)comboSt[key].won+=pWins;
     });
-    if(!g.boMode||g.boMode==='bo1'){
-      if(g.winner){
-        var wcols=g.winner.colors||_deckColors(g.winner.deckId)||[];
-        if(wcols.length){
-          var wsorted=MTG_ORD_C.filter(function(c){return wcols.indexOf(c)>=0;});
-          var wkey=wsorted.join('');
-          if(comboSt[wkey])comboSt[wkey].won++;
-        }
-      }
+    if(!isBO&&g.winner){
+      var wc=effCols(g.winner.colors,g.winner.deckId);
+      var wkey=MTG_ORD_C.filter(function(c){return wc.indexOf(c)>=0;}).join('');
+      if(wkey&&comboSt[wkey])comboSt[wkey].won++;
     }
   });
   var comboList=Object.values(comboSt).filter(function(s){return s.played>0;});
+  comboList.sort(function(a,b){return wr(b)-wr(a);});
   if(comboList.length){
     html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin:8px 0 4px">PAR COMBINAISON DE COULEURS</div>';
-    comboList.sort(function(a,b){return b.played-a.played;}).forEach(function(s){
-      var wr=Math.round(s.won/s.played*100);
+    comboList.forEach(function(s){
+      var r=wr(s);var wrPct=Math.round(r*100);
       var icons=s.colors.map(function(c){return '<i class="ms ms-'+c.toLowerCase()+' ms-cost" style="font-size:.9rem"></i>';}).join('');
-      html+='<div class="gstat-row">'
-        +'<div style="flex:1;display:flex;align-items:center;gap:3px">'+icons+'</div>'
+      html+='<div class="gstat-row"><div style="flex:1;display:flex;align-items:center;gap:3px">'+icons+'</div>'
         +'<div style="font-size:.8rem;color:var(--tx3)">'+s.played+'p</div>'
         +'<div style="font-size:.8rem;color:var(--gr2);min-width:48px;text-align:right">'+s.won+' vic.</div>'
-        +'<div style="font-size:.8rem;font-weight:700;min-width:38px;text-align:right;color:'+(wr>=50?'var(--gr2)':wr>=30?'var(--am)':'var(--tx3)')+'">'+wr+'%</div>'
-        +'</div>';
+        +'<div style="font-size:.8rem;font-weight:700;min-width:38px;text-align:right;color:'+wrColor(r)+'">'+wrPct+'%</div></div>';
     });
   }
-  // Matchups deck vs deck
-  var matchups={};
-  var deckNames={};
+  // MATCHUPS DECK VS DECK — avec filtre par deck
+  var matchups={};var deckNames={};
   games.forEach(function(g){
     g.players.forEach(function(p){if(p.deckId)deckNames[p.deckId]=p.deckName||p.deckId;});
     var dks=g.players.filter(function(p){return !!p.deckId;});
     var winnerDk=g.winner?g.winner.deckId:'';
-    for(var i=0;i<dks.length;i++){
-      for(var j=i+1;j<dks.length;j++){
-        var a=dks[i].deckId,b=dks[j].deckId;
-        var key=a<b?a+'|||'+b:b+'|||'+a;
-        var d1=a<b?a:b,d2=a<b?b:a;
-        if(!matchups[key])matchups[key]={d1:d1,d2:d2,w1:0,w2:0,draw:0};
-        var m=matchups[key];
-        if(winnerDk===d1)m.w1++;
-        else if(winnerDk===d2)m.w2++;
-        else m.draw++;
-      }
-    }
+    for(var i=0;i<dks.length;i++){for(var j=i+1;j<dks.length;j++){
+      var a=dks[i].deckId,b=dks[j].deckId;
+      var key=a<b?a+'|||'+b:b+'|||'+a;var d1=a<b?a:b,d2=a<b?b:a;
+      if(!matchups[key])matchups[key]={d1:d1,d2:d2,w1:0,w2:0,draw:0};
+      var m=matchups[key];
+      if(winnerDk===d1)m.w1++;else if(winnerDk===d2)m.w2++;else m.draw++;
+    }}
   });
-  var mkList=Object.values(matchups).filter(function(m){return m.w1+m.w2+m.draw>=1;});
-  if(mkList.length){
+  var allMkList=Object.values(matchups).filter(function(m){return m.w1+m.w2+m.draw>=1;});
+  if(allMkList.length){
+    // Sélecteur de filtre deck (inline, persisté dans _matchupFilterDeck)
+    var selOpts='<option value="">— Tous les matchups —</option>'+
+      Object.keys(deckNames).sort(function(a,b){return(deckNames[a]||'').localeCompare(deckNames[b]||'');})
+        .filter(function(id){return Object.keys(matchups).some(function(k){return k.split('|||').indexOf(id)>=0;});})
+        .map(function(id){return'<option value="'+id+'"'+(_matchupFilterDeck===id?' selected':'')+'>'+esc(deckNames[id]||id)+'</option>';}).join('');
     html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin:8px 0 4px">MATCHUPS DECK VS DECK</div>';
-    mkList.sort(function(a,b){return (b.w1+b.w2+b.draw)-(a.w1+a.w2+a.draw);}).forEach(function(m){
-      var total=m.w1+m.w2+m.draw;
-      var n1=esc(deckNames[m.d1]||m.d1);var n2=esc(deckNames[m.d2]||m.d2);
-      var wr1=total>0?Math.round(m.w1/total*100):0;var wr2=total>0?Math.round(m.w2/total*100):0;
-      html+='<div style="padding:5px 0;border-bottom:.5px solid var(--bd);font-size:.77rem">'
-        +'<div style="display:flex;justify-content:space-between;margin-bottom:3px">'
-        +'<span style="color:var(--tx2)">'+n1+' <span style="color:'+(wr1>=50?'var(--gr2)':'var(--tx3)')+'">'+m.w1+'V</span></span>'
-        +'<span style="color:var(--tx3);font-size:.7rem">vs '+total+'p'+(m.draw?' ('+m.draw+'=)':'')+'</span>'
-        +'<span style="color:var(--tx2)"><span style="color:'+(wr2>=50?'var(--gr2)':'var(--tx3)')+'">'+m.w2+'V</span> '+n2+'</span>'
-        +'</div>'
-        +'<div style="display:flex;border-radius:3px;overflow:hidden;height:5px;background:var(--s3)">'
-        +(m.w1>0?'<div style="flex:'+m.w1+';background:var(--ac)"></div>':'')
-        +(m.draw>0?'<div style="flex:'+m.draw+';background:var(--tx3)"></div>':'')
-        +(m.w2>0?'<div style="flex:'+m.w2+';background:var(--gr)"></div>':'')
-        +'</div></div>';
-    });
+    html+='<select onchange="_matchupFilterDeck=this.value;renderGameStats()" style="font-size:.78rem;padding:3px 6px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;width:100%;margin-bottom:6px">'+selOpts+'</select>';
+    var mkList=_matchupFilterDeck
+      ? allMkList.filter(function(m){return m.d1===_matchupFilterDeck||m.d2===_matchupFilterDeck;})
+      : allMkList;
+    if(_matchupFilterDeck){
+      // Vue centrée sur le deck sélectionné (favorable/neutre/défavorable)
+      var withWr=mkList.map(function(m){
+        var isD1=m.d1===_matchupFilterDeck;
+        var myWins=isD1?m.w1:m.w2;var oppId=isD1?m.d2:m.d1;
+        var total=m.w1+m.w2+m.draw;var r=total>0?myWins/total:0.5;
+        return{oppId:oppId,oppName:deckNames[oppId]||oppId,myWins:myWins,oppWins:isD1?m.w2:m.w1,draw:m.draw,total:total,r:r};
+      });
+      withWr.sort(function(a,b){return b.r-a.r;});
+      var fav=withWr.filter(function(x){return x.r>0.55;});
+      var neu=withWr.filter(function(x){return x.r>=0.45&&x.r<=0.55;});
+      var unf=withWr.filter(function(x){return x.r<0.45;});
+      function mkGroup(label,color,items){
+        if(!items.length)return'';
+        var h='<div style="font-size:.7rem;color:'+color+';font-weight:700;margin:5px 0 2px">'+label+'</div>';
+        items.forEach(function(x){
+          var wrPct=Math.round(x.r*100);
+          h+='<div style="display:flex;align-items:center;gap:4px;font-size:.77rem;padding:3px 0;border-bottom:.5px solid var(--bd)">'
+            +'<span style="flex:1;color:var(--tx2)">'+esc(x.oppName)+'</span>'
+            +'<span style="color:var(--tx3);font-size:.7rem">'+x.total+'p</span>'
+            +'<span style="color:var(--gr2);margin-left:4px">'+x.myWins+'V</span>'
+            +'<span style="font-weight:700;min-width:34px;text-align:right;color:'+color+'">'+wrPct+'%</span>'
+            +'</div>';
+        });
+        return h;
+      }
+      html+=mkGroup('▲ Favorable','var(--gr2)',fav)+mkGroup('● Neutre','var(--am)',neu)+mkGroup('▼ Défavorable','var(--rd2)',unf);
+    } else {
+      // Vue globale tous les matchups — triés par nombre de parties
+      mkList.sort(function(a,b){return(b.w1+b.w2+b.draw)-(a.w1+a.w2+a.draw);}).forEach(function(m){
+        var total=m.w1+m.w2+m.draw;
+        var n1=esc(deckNames[m.d1]||m.d1);var n2=esc(deckNames[m.d2]||m.d2);
+        var wr1=total>0?Math.round(m.w1/total*100):0;var wr2=total>0?Math.round(m.w2/total*100):0;
+        html+='<div style="padding:5px 0;border-bottom:.5px solid var(--bd);font-size:.77rem">'
+          +'<div style="display:flex;justify-content:space-between;margin-bottom:3px">'
+          +'<span style="color:var(--tx2)">'+n1+' <span style="color:'+(wr1>=50?'var(--gr2)':'var(--tx3)')+'">'+m.w1+'V</span></span>'
+          +'<span style="color:var(--tx3);font-size:.7rem">'+total+'p'+(m.draw?' ('+m.draw+'=)':'')+'</span>'
+          +'<span style="color:var(--tx2)"><span style="color:'+(wr2>=50?'var(--gr2)':'var(--tx3)')+'">'+m.w2+'V</span> '+n2+'</span>'
+          +'</div>'
+          +'<div style="display:flex;border-radius:3px;overflow:hidden;height:5px;background:var(--s3)">'
+          +(m.w1>0?'<div style="flex:'+m.w1+';background:var(--ac)"></div>':'')
+          +(m.draw>0?'<div style="flex:'+m.draw+';background:var(--tx3)"></div>':'')
+          +(m.w2>0?'<div style="flex:'+m.w2+';background:var(--gr)"></div>':'')
+          +'</div></div>';
+      });
+    }
   }
   document.getElementById('game-stats').innerHTML=html;
-  // Populate deck matchup selector
-  var dkMatchupSel=document.getElementById('deck-matchup-sel');
-  var dkMatchupSec=document.getElementById('deck-matchup-section');
-  if(dkMatchupSel){
-    var hasMk=Object.keys(matchups).length>0;
-    if(dkMatchupSec)dkMatchupSec.style.display=hasMk?'block':'none';
-    var prevVal=dkMatchupSel.value;
-    dkMatchupSel.innerHTML='<option value="">— Sélectionner un deck —</option>';
-    Object.keys(deckNames).sort(function(a,b){return (deckNames[a]||'').localeCompare(deckNames[b]||'');}).forEach(function(id){
-      var inMk=Object.keys(matchups).some(function(k){return k.split('|||').indexOf(id)>=0;});
-      if(inMk){
-        var opt=document.createElement('option');
-        opt.value=id;opt.textContent=deckNames[id]||id;
-        if(id===prevVal)opt.selected=true;
-        dkMatchupSel.appendChild(opt);
-      }
-    });
-    if(prevVal&&dkMatchupSel.value===prevVal)renderDeckMatchupDetail(prevVal);
-  }
 }
 
 function renderDeckMatchupDetail(deckId){
