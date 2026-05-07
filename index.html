@@ -5814,6 +5814,19 @@ function _deckBelongsTo(dk,profIdx){
   // Ancien format sans ownerUid : seulement pour le profil courant (0)
   return profIdx===0&&(dk.owner||0)===0;
 }
+// Cherche un deck par ID dans le store local ET dans les epDecks des amis
+function _anyDeck(deckId){
+  if(!deckId||deckId==='__autre__')return null;
+  if(decks[deckId])return decks[deckId];
+  for(var _du in _epDecks){if(_epDecks[_du]&&_epDecks[_du][deckId])return _epDecks[_du][deckId];}
+  return null;
+}
+// Retourne les couleurs d'un deck (local ou ami)
+function _deckColors(deckId){
+  var d=_anyDeck(deckId);
+  if(!d)return[];
+  return d.colors||(d.commander?d.commander.colors:[])||[];
+}
 function getDeckUsage(profIdx){
   // Retourne Map<key_name, {qty, decks:[deckName]}> des cartes dans d'autres decks du profil
   var usage=new Map();
@@ -6475,23 +6488,30 @@ function setGameFmt(fmt,life,btn){
 function _buildDeckSelect(sel, ownerPi){
   var prev=sel.value;
   sel.innerHTML='<option value="">— Aucun deck —</option>';
-  // Propres decks
-  var own=Object.keys(decks).filter(function(id){return _deckBelongsTo(decks[id],ownerPi);});
-  if(own.length){
+  // Retourne l'objet {deckId: deck} pour un profil (pi=0: decks locaux, pi>0: epDecks)
+  function getDkSrc(pi){
+    if(pi===0){var r={};Object.keys(decks).forEach(function(id){if(_deckBelongsTo(decks[id],0))r[id]=decks[id];});return r;}
+    var uid=_profUid(pi);
+    if(uid&&_epDecks[uid]&&Object.keys(_epDecks[uid]).length)return _epDecks[uid];
+    // Fallback: decks locaux avec ownerUid correspondant
+    var r={};Object.keys(decks).forEach(function(id){if(_deckBelongsTo(decks[id],pi))r[id]=decks[id];});return r;
+  }
+  var ownDks=getDkSrc(ownerPi);
+  var ownIds=Object.keys(ownDks);
+  if(ownIds.length){
     var g=document.createElement('optgroup');g.label='Mes decks';
-    own.forEach(function(id){var o=document.createElement('option');o.value=id;o.textContent=decks[id].name||'Sans nom';g.appendChild(o);});
+    ownIds.forEach(function(id){var o=document.createElement('option');o.value=id;o.textContent=ownDks[id].name||'Sans nom';g.appendChild(o);});
     sel.appendChild(g);
   }
-  // Decks des autres profils
   profs.forEach(function(_,opi){
     if(opi===ownerPi)return;
-    var their=Object.keys(decks).filter(function(id){return _deckBelongsTo(decks[id],opi);});
-    if(!their.length)return;
+    var theirDks=getDkSrc(opi);
+    var theirIds=Object.keys(theirDks);
+    if(!theirIds.length)return;
     var g2=document.createElement('optgroup');g2.label=PN[opi]||'Profil '+opi;
-    their.forEach(function(id){var o=document.createElement('option');o.value=id;o.textContent=decks[id].name||'Sans nom';g2.appendChild(o);});
+    theirIds.forEach(function(id){var o=document.createElement('option');o.value=id;o.textContent=theirDks[id].name||'Sans nom';g2.appendChild(o);});
     sel.appendChild(g2);
   });
-  // Autre (commandant libre)
   var aut=document.createElement('option');aut.value='__autre__';aut.textContent='Autre (commandant libre)';
   sel.appendChild(aut);
   if(prev)sel.value=prev;
@@ -9434,7 +9454,7 @@ function applyDeckColors(slot,deckId){
   var cmdRow=document.getElementById('gsetup-cmd-row'+slot);
   if(cmdRow)cmdRow.style.display=deckId==='__autre__'?'block':'none';
   if(!deckId||deckId==='__autre__')return;
-  var dk=decks[deckId];if(!dk)return;
+  var dk=_anyDeck(deckId);if(!dk)return;
   var colors=dk.colors||(dk.commander?dk.commander.colors:[]);
   if(!colors||!colors.length)return;
   setupColors[slot]=colors.slice();
@@ -9482,8 +9502,9 @@ function startGame(){
       var playerName=(nameInp&&nameInp.value.trim())||PN[pi]||('Joueur '+pi);
       var deckId=(document.getElementById('gsetup-deck'+pi)||{}).value||'';
       var cmdName=deckId==='__autre__'?((document.getElementById('gsetup-cmd'+pi)||{}).value||'').trim():'';
-      var deckName=deckId==='__autre__'?(cmdName||'Commandant libre'):deckId&&decks[deckId]?decks[deckId].name+(decks[deckId].owner!==pi?' ('+PN[decks[deckId].owner]+')':''):'';
-      var cmdArt=(deckId&&deckId!=='__autre__'&&decks[deckId]&&decks[deckId].commander)?decks[deckId].commander.artImg:null;
+      var _gsDk=_anyDeck(deckId);
+      var deckName=deckId==='__autre__'?(cmdName||'Commandant libre'):(_gsDk?_gsDk.name:'');
+      var cmdArt=(_gsDk&&_gsDk.commander)?_gsDk.commander.artImg:null;
       players.push({name:playerName,profIdx:pi,life:startLife,poison:0,dead:false,cmdDmg:{},
         deckId:deckId==='__autre__'?'':deckId,deckName:deckName,cmdName:cmdName,
         colors:(setupColors[pi]||[]).slice(),
@@ -9824,7 +9845,7 @@ function renderGameStats(){
   games.forEach(function(g){
     var isBO=g.boMode&&g.boMode!=='bo1'&&g.boScore&&g.boScore.length;
     g.players.forEach(function(p,pi){
-      var cols=p.colors||(p.deckId&&decks[p.deckId]?(decks[p.deckId].colors||(decks[p.deckId].commander?decks[p.deckId].commander.colors:[])):[])||[];
+      var cols=p.colors||_deckColors(p.deckId)||[];
       var pPlayed=isBO?g.boScore.reduce(function(s,w){return s+w;},0):1;
       var pWins=isBO?(g.boScore[pi]||0):0;
       cols.forEach(function(c){
@@ -9832,7 +9853,7 @@ function renderGameStats(){
       });
     });
     if(!isBO&&g.winner){
-      var wcols=g.winner.colors||(g.winner.deckId&&decks[g.winner.deckId]?(decks[g.winner.deckId].colors||(decks[g.winner.deckId].commander?decks[g.winner.deckId].commander.colors:[])):[])||[];
+      var wcols=g.winner.colors||_deckColors(g.winner.deckId)||[];
       wcols.forEach(function(c){if(colorSt[c])colorSt[c].won++;});
     }
   });
@@ -9873,7 +9894,7 @@ function renderGameStats(){
   games.forEach(function(g){
     var isBO=g.boMode&&g.boMode!=='bo1'&&g.boScore&&g.boScore.length;
     g.players.forEach(function(p,pi){
-      var cols=p.colors||(p.deckId&&decks[p.deckId]?(decks[p.deckId].colors||(decks[p.deckId].commander?decks[p.deckId].commander.colors:[])):[])||[];
+      var cols=p.colors||_deckColors(p.deckId)||[];
       if(!cols.length)return;
       var sorted=MTG_ORD_C.filter(function(c){return cols.indexOf(c)>=0;});
       var key=sorted.join('');
@@ -9885,7 +9906,7 @@ function renderGameStats(){
     });
     if(!g.boMode||g.boMode==='bo1'){
       if(g.winner){
-        var wcols=g.winner.colors||(g.winner.deckId&&decks[g.winner.deckId]?(decks[g.winner.deckId].colors||(decks[g.winner.deckId].commander?decks[g.winner.deckId].commander.colors:[])):[])||[];
+        var wcols=g.winner.colors||_deckColors(g.winner.deckId)||[];
         if(wcols.length){
           var wsorted=MTG_ORD_C.filter(function(c){return wcols.indexOf(c)>=0;});
           var wkey=wsorted.join('');
@@ -10079,7 +10100,7 @@ function mgApplyDeckColors(pi,deckId){
   var cmdRow=document.getElementById('mg-cmd-row'+pi);
   if(cmdRow)cmdRow.style.display=deckId==='__autre__'?'block':'none';
   var container=document.getElementById('mg-colors'+pi);if(!container)return;
-  var colors=(deckId&&deckId!=='__autre__'&&decks[deckId]&&(decks[deckId].colors||(decks[deckId].commander?decks[deckId].commander.colors:[])))||[];
+  var colors=_deckColors(deckId);
   container.innerHTML=mgColorBtns(pi,colors);
 }
 function mgToggleColor(pi,color,btn){btn.classList.toggle('on');}
@@ -10157,7 +10178,7 @@ function openEditGame(id){
         var ci=document.getElementById('mg-cmd'+p.profIdx);if(ci)ci.value=p.cmdName||'';
       }
       // restore colors (saved or fallback from deck)
-      var savedColors=p.colors||(p.deckId&&decks[p.deckId]?(decks[p.deckId].colors||(decks[p.deckId].commander?decks[p.deckId].commander.colors:[])):[])||[];
+      var savedColors=p.colors||_deckColors(p.deckId)||[];
       var container=document.getElementById('mg-colors'+p.profIdx);
       if(container)container.innerHTML=mgColorBtns(p.profIdx,savedColors);
     }else{
@@ -10186,7 +10207,8 @@ function saveManualGame(){
     var deckId=sel?sel.value:'';
     var cmdIn=document.getElementById('mg-cmd'+pi);
     var cmdName=deckId==='__autre__'?(cmdIn?cmdIn.value.trim():''):'';
-    var deckName=deckId==='__autre__'?(cmdName||'Commandant libre'):deckId&&decks[deckId]?decks[deckId].name+(decks[deckId].owner!==pi?' ('+PN[decks[deckId].owner]+')':''):'';
+    var _mgDk=_anyDeck(deckId);
+    var deckName=deckId==='__autre__'?(cmdName||'Commandant libre'):(_mgDk?_mgDk.name:'');
     var colors=mgGetColors(pi);
     return{name:PN[pi],profIdx:pi,deckId:deckId==='__autre__'?'':deckId,deckName:deckName,cmdName:cmdName,colors:colors,finalLife:0,poison:0};
   });
@@ -10201,7 +10223,8 @@ function saveManualGame(){
       var wDeckId=wSel?wSel.value:'';
       var wCmdIn=document.getElementById('mg-cmd'+wi);
       var wCmdName=wDeckId==='__autre__'?(wCmdIn?wCmdIn.value.trim():''):'';
-      var wDeckName=wDeckId==='__autre__'?(wCmdName||'Commandant libre'):wDeckId&&decks[wDeckId]?decks[wDeckId].name+(decks[wDeckId].owner!==wi?' ('+PN[decks[wDeckId].owner]+')':''):'';
+      var _mgWDk=_anyDeck(wDeckId);
+      var wDeckName=wDeckId==='__autre__'?(wCmdName||'Commandant libre'):(_mgWDk?_mgWDk.name:'');
       winner={name:PN[wi],profIdx:wi,deckId:wDeckId==='__autre__'?'':wDeckId,deckName:wDeckName,cmdName:wCmdName,colors:mgGetColors(wi)};
     }
   }
