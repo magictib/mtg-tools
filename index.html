@@ -9407,8 +9407,8 @@ function htRender(){
 
 function initSetupDecks(){
   profs.forEach(function(_,pi){
-    var sel=document.getElementById('gsetup-deck'+pi);if(!sel)return;
-    _buildDeckSelect(sel,pi);
+    var s1=document.getElementById('gsetup-deck'+pi);if(s1)_buildDeckSelect(s1,pi);
+    var s2=document.getElementById('mg-deck'+pi);if(s2)_buildDeckSelect(s2,pi);
   });
   // Slot 3 peut être un profil ami — populate son deck select si visible
   if(profs.length<4){
@@ -13380,21 +13380,14 @@ function anaSetView(section,mode){
 function _cardImg(cardOrName,size,name){
   size=size||'normal';
   var nm=name||(cardOrName&&cardOrName.name)||(typeof cardOrName==='string'?cardOrName:'')||'';
-  // Anglais: URL directe CDN
-  if(!_userLang||_userLang==='en'){
-    if(cardOrName&&typeof cardOrName==='object'){
-      if(cardOrName.image_uris)return cardOrName.image_uris[size]||cardOrName.image_uris.normal||cardOrName.image_uris.large||'';
-      if(cardOrName.card_faces&&cardOrName.card_faces[0]&&cardOrName.card_faces[0].image_uris){
-        var iu=cardOrName.card_faces[0].image_uris;return iu[size]||iu.normal||iu.large||'';
-      }
+  if(cardOrName&&typeof cardOrName==='object'){
+    if(cardOrName.image_uris)return cardOrName.image_uris[size]||cardOrName.image_uris.normal||cardOrName.image_uris.large||'';
+    if(cardOrName.card_faces&&cardOrName.card_faces[0]&&cardOrName.card_faces[0].image_uris){
+      var iu=cardOrName.card_faces[0].image_uris;return iu[size]||iu.normal||iu.large||'';
     }
-    if(nm)return 'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(nm)+'&format=image&version='+size;
-    return '';
   }
-  // Localise: redirection Scryfall vers la version traduite (fallback EN auto si pas dispo)
-  if(nm)return 'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(nm)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+size;
-  // Pas de nom -> fallback URL directe anglaise
-  if(cardOrName&&typeof cardOrName==='object'&&cardOrName.image_uris)return cardOrName.image_uris[size]||cardOrName.image_uris.normal||'';
+  // Toujours retourner l'URL anglaise — la localisation est gérée async par _batchLocalizeImgs
+  if(nm)return 'https://api.scryfall.com/cards/named?exact='+encodeURIComponent(nm)+'&format=image&version='+size;
   return '';
 }
 var USER_LANGS=[
@@ -13415,6 +13408,8 @@ try{
   if(__uL)_userLang=__uL;
   else{var __old=localStorage.getItem('mtg_ana_lang');if(__old){_userLang=__old;localStorage.setItem('mtg_user_lang',__old);localStorage.removeItem('mtg_ana_lang');}}
 }catch(e){}
+var _localizedImgCache={};  // {lang+'|'+name : url_ou_null}
+var _localizeTimer=null;
 function showToast(msg,durationMs){
   var el=document.getElementById('app-toast');
   if(!el)return;
@@ -13429,62 +13424,98 @@ function setUserLang(lang){
   var _lEntry=null;for(var _li=0;_li<USER_LANGS.length;_li++){if(USER_LANGS[_li].code===_userLang){_lEntry=USER_LANGS[_li];break;}}
   var label=_lEntry?_lEntry.label:_userLang;
   showToast('🌐 Langue enregistrée : '+label);
-  // Réinitialiser le flag fallback pour relancer la tentative dans la nouvelle langue
-  document.querySelectorAll('img[data-localized-to="fallback"]').forEach(function(img){
-    delete img.dataset.localizedTo;
-    if(img.dataset.originalSrc)img.src=img.dataset.originalSrc;
-  });
-  document.querySelectorAll('img').forEach(_localizeOneImg);
+  // Réinitialiser l'état de localisation de toutes les images
+  document.querySelectorAll('img').forEach(function(img){delete img.dataset.localizedTo;});
+  if(!_userLang||_userLang==='en'){
+    // Restaurer les URLs anglaises originales
+    document.querySelectorAll('img').forEach(function(img){
+      if(img.dataset.originalSrc&&img.src!==img.dataset.originalSrc)img.src=img.dataset.originalSrc;
+    });
+  } else {
+    _batchLocalizeImgs(_userLang);
+  }
   // Re-render Analyse si actif
   var sel=document.getElementById('ana-deck-sel');
   if(sel&&sel.value&&_anaState)anaRender(sel.value);
 }
 
-// Reecriture transparente des src d'images de cartes Scryfall vers la langue choisie.
-// Utilise exact= (pas fuzzy) pour eviter de matcher la mauvaise carte.
-// Fallback automatique vers l'URL originale si exact echoue (404 / pas de print dans la langue).
+// Localisation transparente des images Scryfall.
+// Pour l'anglais : restitue l'URL CDN originale.
+// Pour les autres langues : délègue au système batch async (_batchLocalizeImgs).
 function _localizeOneImg(img){
   if(!img||img.tagName!=='IMG')return;
-  var src=img.getAttribute('src')||img.src||'';
+  var src=img.getAttribute('src')||'';
   var name=img.alt||'';
   if(!src||!name||name.length<3)return;
   if(src.indexOf('scryfall')<0)return;
   if(img.dataset&&img.dataset.noLocalize==='1')return;
   if(img.dataset&&img.dataset.localizedTo===_userLang)return;
-  var version='normal';
-  var mv=src.match(/version=(small|normal|large|png|art_crop|border_crop)/);
-  if(mv)version=mv[1];
-  else if(src.indexOf('/small/')>=0)version='small';
-  else if(src.indexOf('/large/')>=0)version='large';
-  else if(src.indexOf('/art_crop/')>=0)version='art_crop';
-  else if(src.indexOf('/png/')>=0)version='png';
-  // Conserver l'URL originale (CDN direct) pour fallback
+  // Sauvegarder l'URL CDN anglaise pour fallback
   if(!img.dataset.originalSrc&&src.indexOf('cards.scryfall.io')>=0)img.dataset.originalSrc=src;
-  var newSrc;
   if(!_userLang||_userLang==='en'){
-    // Restaurer l'URL originale CDN si on l'a
-    if(img.dataset.originalSrc){newSrc=img.dataset.originalSrc;}
-    else if(src.indexOf('cards.scryfall.io')>=0&&src.indexOf('lang=')<0){img.dataset.localizedTo='en';return;}
-    else {newSrc='https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&version='+version;}
+    if(img.dataset.originalSrc&&src!==img.dataset.originalSrc)img.src=img.dataset.originalSrc;
+    img.dataset.localizedTo='en';
   } else {
-    if(src.indexOf('lang='+_userLang+'&')>=0||src.indexOf('lang='+_userLang)>=0){img.dataset.localizedTo=_userLang;return;}
-    newSrc='https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+version;
+    _scheduleBatchLocalize();
   }
-  if(newSrc&&newSrc!==src){
-    img.dataset.localizedTo=_userLang||'en';
-    // En cas d'erreur (404 ou autre), revenir a l'URL originale CDN — ne JAMAIS afficher une mauvaise carte
-    var origSrc=img.dataset.originalSrc;
-    if(origSrc&&origSrc!==newSrc){
-      img.onerror=function(){
-        var self=this;
-        if(self.dataset.localizedTo!=='fallback'){
-          self.dataset.localizedTo='fallback';
-          self.src=origSrc;
-        }
-      };
-    }
-    img.src=newSrc;
-  }
+}
+
+// Déclenche _batchLocalizeImgs après un délai (regroupe les appels du MutationObserver)
+function _scheduleBatchLocalize(){
+  if(_localizeTimer)clearTimeout(_localizeTimer);
+  _localizeTimer=setTimeout(function(){_localizeTimer=null;_batchLocalizeImgs(_userLang);},250);
+}
+
+// Fetch async batché : !"Name" lang:XX → URL image localisée via Scryfall search
+function _batchLocalizeImgs(lang){
+  if(!lang||lang==='en')return;
+  var nameToImgs={};
+  document.querySelectorAll('img').forEach(function(img){
+    var src=img.getAttribute('src')||'';
+    var name=img.alt||'';
+    if(!src||!name||name.length<3)return;
+    if(src.indexOf('scryfall')<0)return;
+    if((img.dataset.noLocalize||'0')==='1')return;
+    if(img.dataset.localizedTo===lang)return;
+    if(!img.dataset.originalSrc&&src.indexOf('cards.scryfall.io')>=0)img.dataset.originalSrc=src;
+    var ck=lang+'|'+name;
+    if(_localizedImgCache[ck]){_applyLocalizedSrc(img,_localizedImgCache[ck],lang);return;}
+    if(_localizedImgCache[ck]===null)return; // pas de version dans cette langue
+    if(!nameToImgs[name])nameToImgs[name]=[];
+    nameToImgs[name].push(img);
+  });
+  var names=Object.keys(nameToImgs);if(!names.length)return;
+  var batches=[];for(var i=0;i<names.length;i+=15)batches.push(names.slice(i,i+15));
+  batches.forEach(function(batch,bi){
+    setTimeout(function(){
+      if(_userLang!==lang)return; // langue changée entre-temps
+      var q='('+batch.map(function(n){return '!"'+n.replace(/"/g,'')+'"';}).join(' or ')+') lang:'+lang;
+      fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&unique=cards&order=name')
+        .then(function(r){return r.json();})
+        .then(function(d){
+          var byName={};
+          if(d.data)d.data.forEach(function(card){
+            if(byName[card.name])return;
+            var uri=(card.image_uris&&card.image_uris.normal)||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.normal)||'';
+            if(uri)byName[card.name]=uri;
+          });
+          batch.forEach(function(name){
+            var ck=lang+'|'+name;
+            var uri=byName[name];
+            if(uri){_localizedImgCache[ck]=uri;(nameToImgs[name]||[]).forEach(function(img){if(_userLang===lang)_applyLocalizedSrc(img,uri,lang);});}
+            else _localizedImgCache[ck]=null;
+          });
+        }).catch(function(){});
+    },bi*150);
+  });
+}
+
+function _applyLocalizedSrc(img,uri,lang){
+  if(img.dataset.localizedTo===lang)return;
+  img.dataset.localizedTo=lang;
+  var origSrc=img.dataset.originalSrc;
+  if(origSrc){img.onerror=function(){img.src=origSrc;img.onerror=null;};}
+  img.src=uri;
 }
 
 // MutationObserver pour traiter les nouvelles images ajoutees dynamiquement dans le DOM
@@ -13514,9 +13545,10 @@ function populateUserLangSel(){
   sel.innerHTML=USER_LANGS.map(function(l){return '<option value="'+l.code+'"'+(l.code===_userLang?' selected':'')+'>'+l.label+'</option>';}).join('');
 }
 function anaImageUrl(name,meta){
-  if((!_userLang||_userLang==='en')&&meta&&meta.imageUri)return meta.imageUri;
-  if(!name)return (meta&&meta.imageUri)||'';
-  return 'https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang||'en')+'&version=normal';
+  // Retourne toujours l'URL anglaise — la localisation async (_batchLocalizeImgs) s'occupe de la traduction
+  if(meta&&meta.imageUri)return meta.imageUri;
+  if(!name)return '';
+  return 'https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&version=normal';
 }
 
 function anaZoom(url){
