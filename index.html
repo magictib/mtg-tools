@@ -13529,19 +13529,50 @@ function anaInit(){
   if(optSel)optSel.value=_anaOptMode;
 }
 
+function _anaGetDeck(deckId){
+  if(!deckId)return null;
+  if(deckId.startsWith('ep:')){
+    var parts=deckId.split(':');var uid=parts[1];var did=parts.slice(2).join(':');
+    return(_epDecks[uid]||{})[did]||null;
+  }
+  return decks[deckId]||null;
+}
 function anaPopulateDeckSel(){
   var sel=document.getElementById('ana-deck-sel');if(!sel)return;
-  var ids=Object.keys(decks||{});
-  ids.sort(function(a,b){return ((decks[a]||{}).name||'').localeCompare((decks[b]||{}).name||'');});
-  if(!ids.length){sel.innerHTML='<option value="">— Aucun deck disponible —</option>';return;}
+  var prev=sel.value;
   var html='<option value="">— Sélectionner un deck —</option>';
-  ids.forEach(function(id){
-    var d=decks[id]||{};var nm=esc(d.name||'Sans nom');
-    var fmt=d.format?' ['+d.format+']':'';
-    var n=d.cards?d.cards.reduce(function(s,c){return s+(c.qty||1);},0):0;
-    html+='<option value="'+id+'">'+nm+fmt+' · '+n+' c.</option>';
+  var hasAny=false;
+  // Decks propres groupés par profil
+  profs.forEach(function(_,pi){
+    var ids=Object.keys(decks).filter(function(id){return _deckBelongsTo(decks[id],pi);});
+    if(!ids.length)return;
+    ids.sort(function(a,b){return(decks[a].name||'').localeCompare(decks[b].name||'');});
+    html+='<optgroup label="'+esc(PN[pi]||'Profil '+pi)+'">';
+    ids.forEach(function(id){
+      var d=decks[id]||{};
+      var fmt=d.format?' ['+d.format+']':'';
+      var n=d.cards?d.cards.reduce(function(s,c){return s+(c.qty||1);},0):0;
+      html+='<option value="'+id+'">'+esc(d.name||'Sans nom')+fmt+' · '+n+' c.</option>';
+    });
+    html+='</optgroup>';hasAny=true;
   });
+  // Decks des amis
+  (_epSlots.deck||[]).forEach(function(ep){
+    var fd=_epDecks[ep.uid];if(!fd||!Object.keys(fd).length)return;
+    var fids=Object.keys(fd);
+    fids.sort(function(a,b){return(fd[a].name||'').localeCompare(fd[b].name||'');});
+    html+='<optgroup label="'+esc(ep.name||ep.uid)+'">';
+    fids.forEach(function(id){
+      var d=fd[id]||{};
+      var fmt=d.format?' ['+d.format+']':'';
+      var n=d.cards?d.cards.reduce(function(s,c){return s+(c.qty||1);},0):0;
+      html+='<option value="ep:'+ep.uid+':'+id+'">'+esc(d.name||'Sans nom')+fmt+' · '+n+' c.</option>';
+    });
+    html+='</optgroup>';hasAny=true;
+  });
+  if(!hasAny){sel.innerHTML='<option value="">— Aucun deck disponible —</option>';return;}
   sel.innerHTML=html;
+  if(prev)sel.value=prev;
 }
 
 /* ----- Tag inference from oracle text + type line ----- */
@@ -13858,7 +13889,7 @@ function anaFuzzyFetch(nls,fallbackList,onDone){
 function anaAnalyze(){
   var deckId=document.getElementById('ana-deck-sel').value;
   if(!deckId){alert('Sélectionne un deck à analyser');return;}
-  var deck=decks[deckId];
+  var deck=_anaGetDeck(deckId);
   if(!deck||!deck.cards||!deck.cards.length){alert('Ce deck est vide');return;}
   var st=document.getElementById('ana-status');
   document.getElementById('ana-results').style.display='none';
@@ -15216,7 +15247,7 @@ function anaRefreshMatrix(){
 
 /* ----- Render Mythic Tools+ style ----- */
 function anaRender(deckId){
-  var deck=decks[deckId];if(!deck)return;
+  var deck=_anaGetDeck(deckId);if(!deck)return;
   // Themes du commandant : auto-détection puis application des overrides utilisateur
   var fmt=deck.format||'';
   var _autoDetectedThemes=_anaCommanderThemes(deck);
