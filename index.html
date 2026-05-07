@@ -1906,8 +1906,18 @@ body.mana-cursor{cursor:none}
       <span style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em">CMC</span>
       <input type="number" id="bld-cmc" min="0" max="20" placeholder="—" style="width:52px;padding:5px 7px;font-size:.82rem">
     </div>
-    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px;align-items:center">
-      <span style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em">CRÉATURE</span>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px" id="bld-type-btns">
+      <button class="dm active" onclick="bldSetType('',this)">Tous</button>
+      <button class="dm" onclick="bldSetType('creature',this)">Créature</button>
+      <button class="dm" onclick="bldSetType('instant',this)">Éphémère</button>
+      <button class="dm" onclick="bldSetType('sorcery',this)">Rituel</button>
+      <button class="dm" onclick="bldSetType('enchantment',this)">Enchantement</button>
+      <button class="dm" onclick="bldSetType('artifact',this)">Artefact</button>
+      <button class="dm" onclick="bldSetType('planeswalker',this)">Planeswalker</button>
+      <button class="dm" onclick="bldSetType('land',this)">Terrain</button>
+      <button class="dm" onclick="bldSetType('battle',this)">Bataille</button>
+    </div>
+    <div id="bld-pt-row" style="display:none;gap:5px;flex-wrap:wrap;margin-bottom:4px;align-items:center">
       <span style="font-size:9px;color:var(--tx3)">Force min</span>
       <input type="number" id="bld-pow" min="0" max="20" placeholder="—" style="width:52px;padding:5px 7px;font-size:.82rem" onkeydown="if(event.key==='Enter')bldSearch()">
       <span style="font-size:9px;color:var(--tx3)">End. min</span>
@@ -11800,7 +11810,7 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 // ===== BUILDER =====
-var bldMain=[],bldSide=[],bldAvoir=[],bldOublie=[],bldSrchColors=new Set(),bldSrchRarity='',bldSrchKeywords=new Set(),bldNextPage=null,bldData={};
+var bldMain=[],bldSide=[],bldAvoir=[],bldOublie=[],bldSrchColors=new Set(),bldSrchRarity='',bldSrchType='',bldSrchKeywords=new Set(),bldNextPage=null,bldData={};
 var bldCollFilter=new Set();
 var bldFormat='',bldSortMode='type',_bldDragSrc=null,_bldDragSection=null;
 var BLD_FMT_SCRYFALL={commander:'commander',paupercmd:'paupercommander',pauper:'pauper',standard:'standard',pioneer:'pioneer',modern:'modern',legacy:'legacy',vintage:'vintage'};
@@ -12101,6 +12111,13 @@ function bldRenderKeywordTags(){
       +'<button onclick="bldRemoveKeyword(\''+safe+'\')" style="background:none;border:none;color:var(--rd2);cursor:pointer;padding:0 0 0 4px;font-size:.9rem;line-height:1">×</button></span>';
   }).join('');
 }
+function bldSetType(t,btn){
+  bldSrchType=t;
+  document.querySelectorAll('#bld-type-btns .dm').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  var ptRow=document.getElementById('bld-pt-row');
+  if(ptRow)ptRow.style.display=(t==='creature')?'flex':'none';
+}
 function bldSetRarity(r,btn){
   bldSrchRarity=r;
   document.querySelectorAll('#bld-rar-btns .dm').forEach(function(b){b.classList.remove('active');});
@@ -12115,11 +12132,13 @@ function bldBuildQ(){
   bldSrchKeywords.forEach(function(k){parts.push('keyword:'+(k.indexOf(' ')>=0?'"'+k+'"':k));});
   var cmc=(document.getElementById('bld-cmc')||{value:''}).value.trim();
   if(cmc!=='')parts.push('cmc='+cmc);
-  var pow=(document.getElementById('bld-pow')||{value:''}).value.trim();
-  var tou=(document.getElementById('bld-tou')||{value:''}).value.trim();
-  if(pow!=='')parts.push('pow>='+pow);
-  if(tou!=='')parts.push('tou>='+tou);
-  if((pow!==''||tou!=='')&&!parts.some(function(p){return /^type:creature/i.test(p)||p==='t:creature';}))parts.push('type:creature');
+  if(bldSrchType)parts.push('type:'+bldSrchType);
+  if(bldSrchType==='creature'){
+    var pow=(document.getElementById('bld-pow')||{value:''}).value.trim();
+    var tou=(document.getElementById('bld-tou')||{value:''}).value.trim();
+    if(pow!=='')parts.push('pow>='+pow);
+    if(tou!=='')parts.push('tou>='+tou);
+  }
   return parts.join(' ');
 }
 function bldSearch(){
