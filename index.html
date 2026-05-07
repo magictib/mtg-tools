@@ -13542,31 +13542,22 @@ function anaPopulateDeckSel(){
   var prev=sel.value;
   var html='<option value="">— Sélectionner un deck —</option>';
   var hasAny=false;
-  // Decks propres groupés par profil
+  // Même logique que renderDBar : pi=0 → decks locaux, pi>0 → _epDecks
   profs.forEach(function(_,pi){
-    var ids=Object.keys(decks).filter(function(id){return _deckBelongsTo(decks[id],pi);});
+    var ep=pi>0?(_epSlots.deck||[])[pi-1]:null;
+    var deckSrc=pi===0?decks:(_epDecks[ep&&ep.uid]||{});
+    var ids=pi===0
+      ?Object.keys(deckSrc).filter(function(id){return _deckBelongsTo(deckSrc[id],0);})
+      :Object.keys(deckSrc);
     if(!ids.length)return;
-    ids.sort(function(a,b){return(decks[a].name||'').localeCompare(decks[b].name||'');});
+    ids.sort(function(a,b){return((deckSrc[a]||{}).name||'').localeCompare((deckSrc[b]||{}).name||'');});
     html+='<optgroup label="'+esc(PN[pi]||'Profil '+pi)+'">';
     ids.forEach(function(id){
-      var d=decks[id]||{};
+      var d=deckSrc[id]||{};
       var fmt=d.format?' ['+d.format+']':'';
       var n=d.cards?d.cards.reduce(function(s,c){return s+(c.qty||1);},0):0;
-      html+='<option value="'+id+'">'+esc(d.name||'Sans nom')+fmt+' · '+n+' c.</option>';
-    });
-    html+='</optgroup>';hasAny=true;
-  });
-  // Decks des amis
-  (_epSlots.deck||[]).forEach(function(ep){
-    var fd=_epDecks[ep.uid];if(!fd||!Object.keys(fd).length)return;
-    var fids=Object.keys(fd);
-    fids.sort(function(a,b){return(fd[a].name||'').localeCompare(fd[b].name||'');});
-    html+='<optgroup label="'+esc(ep.name||ep.uid)+'">';
-    fids.forEach(function(id){
-      var d=fd[id]||{};
-      var fmt=d.format?' ['+d.format+']':'';
-      var n=d.cards?d.cards.reduce(function(s,c){return s+(c.qty||1);},0):0;
-      html+='<option value="ep:'+ep.uid+':'+id+'">'+esc(d.name||'Sans nom')+fmt+' · '+n+' c.</option>';
+      var val=pi===0?id:('ep:'+(ep&&ep.uid)+':'+id);
+      html+='<option value="'+val+'">'+esc(d.name||'Sans nom')+fmt+' · '+n+' c.</option>';
     });
     html+='</optgroup>';hasAny=true;
   });
