@@ -1700,9 +1700,15 @@ body.mana-cursor{cursor:none}
   <div class="card">
     <div class="lbl">📊 Analyse d'efficacité d'un deck</div>
     <div style="font-size:11px;color:var(--tx3);margin-bottom:10px">Sélectionne un deck pour évaluer son équilibre (mana, pioche, removal, menaces, interaction) et obtenir un score sur 100 par catégorie.</div>
-    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
-      <select id="ana-deck-sel" class="psel" style="flex:1;min-width:220px"></select>
-      <button class="btn btnp" onclick="anaAnalyze()">⚡ Analyser</button>
+    <div style="margin-bottom:8px">
+      <select id="ana-deck-sel" class="psel" style="width:100%" onchange="document.getElementById('ana-pretheme').style.display='none'"></select>
+    </div>
+    <div style="margin-bottom:8px">
+      <button onclick="anaShowPreEditor()" style="width:100%;padding:11px;background:linear-gradient(135deg,#9c7a1a,#c9a84c);color:#1a1208;border:none;border-radius:9px;font-family:'Goudy Mediaeval',serif;font-size:14px;font-weight:bold;cursor:pointer;letter-spacing:.05em;box-shadow:0 2px 12px rgba(201,168,76,.35)">⚙ Personnaliser l'analyse</button>
+    </div>
+    <div id="ana-pretheme" style="display:none"></div>
+    <div class="row" style="gap:8px">
+      <button class="btn btnp" onclick="anaAnalyze()" style="flex:1">⚡ Analyser</button>
       <button class="btn btnsm" onclick="anaClearCache()" title="Vider le cache d'analyse">🗑 Cache</button>
     </div>
     <div class="row" style="gap:16px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
@@ -14276,6 +14282,53 @@ function _anaResetThemes(deckId){
   _anaSaveUserThemes();
   _anaThemeEditorOpen[deckId]=true;
   anaRender(deckId);
+}
+/* ----- Pré-éditeur de thèmes (avant l'analyse) ----- */
+function anaShowPreEditor(){
+  var deckId=document.getElementById('ana-deck-sel').value;
+  if(!deckId){alert('Sélectionne un deck d\'abord');return;}
+  var deck=_anaGetDeck(deckId);
+  if(!deck){alert('Deck introuvable');return;}
+  var panel=document.getElementById('ana-pretheme');
+  if(panel.dataset.deck===deckId&&panel.style.display!=='none'){panel.style.display='none';panel.dataset.deck='';return;}
+  var autoThemes=_anaCommanderThemes(deck);
+  var ov=_anaUserThemesData[deckId]||{};
+  var cur=Object.assign({},autoThemes,ov);
+  var hasOv=Object.keys(ov).length>0;
+  var notCached=!autoThemes._debug||autoThemes._debug.indexOf('ok')<0;
+  var html='<div style="margin-bottom:10px;padding:12px 14px;background:var(--s3);border-radius:10px;border:1px solid var(--bd2)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  html+='<span style="font-size:12px;font-weight:bold;color:var(--tx2);font-family:\'Goudy Mediaeval\',serif">🎴 Thèmes — '+esc(deck.name||'Deck')+'</span>';
+  if(hasOv)html+='<span style="font-size:9px;padding:2px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
+  html+='</div>';
+  if(notCached)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">⚠ Commandant pas encore chargé — thèmes auto après la 1ère analyse. Tu peux forcer des valeurs dès maintenant.</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px">1.0 = neutre · 2.0 = important · 3.0 = central au deck</div>';
+  _anaThemeMeta.forEach(function(tm){
+    var val=parseFloat(cur[tm.k]||0).toFixed(1);
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">';
+    html+='<span style="width:155px;font-size:11px;color:var(--tx2)">'+tm.ico+' '+tm.fr+'</span>';
+    html+='<input type="range" min="0" max="3" step="0.1" value="'+val+'" id="pre-th-'+tm.k+'" oninput="document.getElementById(\'pre-thv-'+tm.k+'\').textContent=parseFloat(this.value).toFixed(1)" style="flex:1">';
+    html+='<span id="pre-thv-'+tm.k+'" style="width:28px;text-align:right;font-size:11px;color:var(--gold2)">'+val+'</span>';
+    html+='</div>';
+  });
+  html+='<div style="display:flex;gap:6px;margin-top:12px">';
+  html+='<button onclick="_anaApplyPreTheme(\''+deckId+'\')" style="flex:1;padding:8px;background:var(--gold2);color:#000;border:none;border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:12px;cursor:pointer;font-weight:bold">✓ Enregistrer</button>';
+  if(hasOv)html+='<button onclick="_anaResetPreTheme(\''+deckId+'\')" style="padding:8px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:7px;font-size:11px;cursor:pointer">↩ Auto</button>';
+  html+='<button onclick="document.getElementById(\'ana-pretheme\').style.display=\'none\'" style="padding:8px 12px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:7px;font-size:11px;cursor:pointer">✕</button>';
+  html+='</div></div>';
+  panel.innerHTML=html;panel.dataset.deck=deckId;panel.style.display='block';
+}
+function _anaApplyPreTheme(deckId){
+  var ov={};
+  _anaThemeMeta.forEach(function(tm){var el=document.getElementById('pre-th-'+tm.k);if(el)ov[tm.k]=parseFloat(el.value);});
+  _anaUserThemesData[deckId]=ov;_anaSaveUserThemes();
+  document.getElementById('ana-pretheme').style.display='none';
+  if(_anaState)anaRender(deckId);
+}
+function _anaResetPreTheme(deckId){
+  delete _anaUserThemesData[deckId];_anaSaveUserThemes();
+  anaShowPreEditor();
+  if(_anaState)anaRender(deckId);
 }
 
 function _anaCommanderThemes(deck){
