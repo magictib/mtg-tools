@@ -13422,7 +13422,11 @@ function setUserLang(lang){
   var _lEntry=null;for(var _li=0;_li<USER_LANGS.length;_li++){if(USER_LANGS[_li].code===_userLang){_lEntry=USER_LANGS[_li];break;}}
   var label=_lEntry?_lEntry.label:_userLang;
   showToast('🌐 Langue enregistrée : '+label);
-  // Reecrire les images visibles dans tout le DOM
+  // Réinitialiser le flag fallback pour relancer la tentative dans la nouvelle langue
+  document.querySelectorAll('img[data-localized-to="fallback"]').forEach(function(img){
+    delete img.dataset.localizedTo;
+    if(img.dataset.originalSrc)img.src=img.dataset.originalSrc;
+  });
   document.querySelectorAll('img').forEach(_localizeOneImg);
   // Re-render Analyse si actif
   var sel=document.getElementById('ana-deck-sel');
@@ -13457,7 +13461,7 @@ function _localizeOneImg(img){
     else {newSrc='https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&version='+version;}
   } else {
     if(src.indexOf('lang='+_userLang+'&')>=0||src.indexOf('lang='+_userLang)>=0){img.dataset.localizedTo=_userLang;return;}
-    newSrc='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+version;
+    newSrc='https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang)+'&version='+version;
   }
   if(newSrc&&newSrc!==src){
     img.dataset.localizedTo=_userLang||'en';
@@ -13505,7 +13509,7 @@ function populateUserLangSel(){
 function anaImageUrl(name,meta){
   if((!_userLang||_userLang==='en')&&meta&&meta.imageUri)return meta.imageUri;
   if(!name)return (meta&&meta.imageUri)||'';
-  return 'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang||'en')+'&version=normal';
+  return 'https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&lang='+encodeURIComponent(_userLang||'en')+'&version=normal';
 }
 
 function anaZoom(url){
