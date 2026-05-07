@@ -30,7 +30,7 @@
   --gr:#5a8e60;--gr2:#78c890;
   --am:#e0a84c;--rd:#c94848;--rd2:#e07070;
 }
-body{font-family:'Crimson Pro',Georgia,serif;background:var(--bg);color:var(--tx);min-height:100vh;overflow-x:hidden}
+body{font-family:'Crimson Pro',Georgia,serif;background:var(--bg);color:var(--tx);min-height:100vh;overflow-x:clip}
 body::before{content:'';position:fixed;top:-40%;left:-20%;width:80vw;height:80vw;background:radial-gradient(circle,rgba(180,130,40,.08),transparent 70%);pointer-events:none;z-index:0}
 body::after{content:'';position:fixed;bottom:-30%;right:-10%;width:60vw;height:60vw;background:radial-gradient(circle,rgba(140,60,20,.07),transparent 70%);pointer-events:none;z-index:0}
 .wrap{max-width:700px;margin:0 auto;padding:1.5rem 1rem 4rem;position:relative;z-index:1}
@@ -665,6 +665,12 @@ body.mana-cursor{cursor:none}
 .bld-sw-slot.sel{border-color:var(--gold2)!important;box-shadow:0 0 0 1.5px rgba(201,168,76,.35)!important}
 .bld-sw-handle{display:flex;align-items:center;justify-content:center;color:var(--tx3);cursor:grab;font-size:.9rem;touch-action:none;flex-shrink:0}
 .bld-sw-handle:active{cursor:grabbing;color:var(--gold2)}
+.bld-sw-slot.drop-tgt{border-color:var(--gold2)!important;background:rgba(201,168,76,.14)!important;box-shadow:0 0 0 2px rgba(201,168,76,.38)!important}
+.bld-sw-empty{border:1.5px dashed rgba(255,255,255,.2);border-radius:6px;padding:6px 8px;text-align:center;color:var(--tx3);font-size:.62rem;font-style:italic;min-height:44px;display:flex;align-items:center;justify-content:center;transition:border-color .1s,background .1s;cursor:default}
+.bld-sw-empty.drop-tgt{border-color:var(--gold2);color:var(--gold2);background:rgba(201,168,76,.08)}
+.bld-sw-img{width:42px;min-width:42px;height:59px;border-radius:3px;object-fit:cover;cursor:pointer;flex-shrink:0;display:block}
+.bld-deck-drag-h{color:var(--tx3);cursor:grab;font-size:.82rem;padding:0 2px;flex-shrink:0;opacity:.45;touch-action:none;line-height:1;user-select:none}
+.bld-deck-drag-h:hover{color:var(--gold2);opacity:1}
 .ar-field-card.ar-multi-sel{border-color:#4af!important;box-shadow:0 0 0 2px rgba(68,170,255,.5),0 4px 16px rgba(0,0,0,.7)!important}
 #ar-lasso{position:absolute;border:1.5px solid rgba(100,200,255,.75);background:rgba(100,200,255,.08);pointer-events:none;display:none;z-index:50;border-radius:2px}
 #ar-multi-bar{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:88;background:rgba(8,12,22,.98);border:1px solid rgba(100,200,255,.28);border-radius:11px;overflow:auto;resize:both;min-height:80px;box-shadow:0 12px 36px rgba(0,0,0,.92);padding:4px 0;backdrop-filter:blur(4px);display:none;flex-direction:column;min-width:260px;max-width:calc(100% - 16px)}
@@ -1631,6 +1637,7 @@ body.mana-cursor{cursor:none}
         <button class="dm" id="dsort-type" onclick="setDSort('type',this)">Type</button>
         <button class="dm" id="dsort-cmc" onclick="setDSort('cmc',this)">CMC</button>
         <button class="dm" id="dsort-name" onclick="setDSort('name',this)">Nom</button>
+        <button class="dm" id="dsort-color" onclick="setDSort('color',this)">Couleur</button>
       </div>
       <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;margin-bottom:6px">COURBE DE MANA</div>
       <div id="dcurve" style="margin-bottom:12px"></div>
@@ -5225,7 +5232,7 @@ function fetchMissingPrices(){
   function ingestCard(card){
     var nl=stripDFC(card.name).toLowerCase();
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
     return nl;
   }
   function fuzzyFallback(){
@@ -5242,7 +5249,7 @@ function fetchMissingPrices(){
             ingestCard(card);
             // Aussi sauvegarder sous le nl original (alias) pour que l'app le retrouve
             if(!allPriceMap[item.nl]&&card.prices){var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pa>0)allPriceMap[item.nl]=_pa;}
-            if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
+            if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
           }
           setTimeout(next,90);
         })
@@ -5279,6 +5286,13 @@ function getVSec(c){
   var meta=dCardMeta[c.nl]||{};
   var tl=(meta.typeLine||'').toLowerCase();
   if(dSortMode==='cmc'){var cmc=Math.floor(meta.cmc||0);return 'CMC '+(cmc>=7?'7+':cmc);}
+  if(dSortMode==='color'){
+    if(tl.indexOf('land')>=0)return 'Terrains';
+    var cc=meta.colors||[];
+    if(!cc.length)return 'Incolore';
+    if(cc.length>1)return 'Multicolore';
+    return {W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'}[cc[0]]||cc[0];
+  }
   if(tl.indexOf('creature')>=0)return 'Créatures';
   if(tl.indexOf('instant')>=0)return 'Éphémères';
   if(tl.indexOf('sorcery')>=0)return 'Rituels';
@@ -5724,8 +5738,8 @@ function fetchDeckImages(){
     if(aliasNl&&aliasNl!==nl&&img)dImgCache[aliasNl]=img;
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
     if(aliasNl&&aliasNl!==nl&&!allPriceMap[aliasNl]&&card.prices){var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pa>0)allPriceMap[aliasNl]=_pa;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
-    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||'')};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
+    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
     return nl;
   }
   function fuzzyFallback(){
@@ -5856,10 +5870,22 @@ function renderDeck(){
   var sorted=filtered.slice();
   if(dSortMode==='name')sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
   else if(dSortMode==='cmc')sorted.sort(function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);});
+  else if(dSortMode==='color'){
+    var _CORD={W:0,U:1,B:2,R:3,G:4};
+    var _RORD={mythic:0,rare:1,uncommon:2,common:3};
+    function _clrKey(c){var m=dCardMeta[c.nl]||{};var tl=(m.typeLine||'').toLowerCase();if(tl.indexOf('land')>=0)return 7;var cc=m.colors||[];if(!cc.length)return 6;if(cc.length>1)return 5;return _CORD[cc[0]]!==undefined?_CORD[cc[0]]:4;}
+    sorted.sort(function(a,b){
+      var oa=_clrKey(a),ob=_clrKey(b);if(oa!==ob)return oa-ob;
+      var ma=dCardMeta[a.nl]||{},mb=dCardMeta[b.nl]||{};
+      var ra=_RORD[ma.rarity]!==undefined?_RORD[ma.rarity]:4,rb=_RORD[mb.rarity]!==undefined?_RORD[mb.rarity]:4;
+      if(ra!==rb)return ra-rb;return a.name.localeCompare(b.name);
+    });
+  }
   var secs=[];
   sorted.forEach(function(c){var s=getVSec(c);if(secs.indexOf(s)<0)secs.push(s);});
   if(dSortMode==='type'){secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
   else if(dSortMode==='cmc'){secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});}
+  else if(dSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
   var html='';
   if(dViewMode==='image'){
     // Mode grille d'images
@@ -5890,10 +5916,17 @@ function renderDeck(){
     });
   } else {
     // Mode liste
+    var _RLBL={mythic:'Mythic',rare:'Rare',uncommon:'Peu commune',common:'Commune'};
+    var _RCLR={mythic:'#e07030',rare:'#d4a017',uncommon:'#b0c4de',common:'var(--tx3)'};
     secs.forEach(function(sec){
       var sc=sorted.filter(function(c){return getVSec(c)===sec;});if(!sc.length)return;
       html+='<div class="dsec">'+esc(sec)+' <span style="color:var(--tx3);font-size:9px">('+sc.length+')</span></div>';
+      var prevSecRar=null;
       sc.forEach(function(card){
+        if(dSortMode==='color'){
+          var r=(dCardMeta[card.nl]||{}).rarity||'';
+          if(r&&r!==prevSecRar&&_RCLR[r]){html+='<div style="font-size:.58rem;color:'+_RCLR[r]+';padding:2px 0 1px 4px;letter-spacing:.05em;font-weight:600;text-transform:uppercase">'+(_RLBL[r]||r)+'</div>';prevSecRar=r;}
+        }
         var k=getKey(card);
         var qs=pms.map(function(m){return m.get(k)||0;});
         var x=Math.max.apply(null,qs);
@@ -12132,6 +12165,7 @@ function renderBldDecks(){
     var banCls=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
     var banBadge=banStatus==='banned'?'<span class="bld-ban-badge">BANNI</span>':'';
     return '<div class="bld-row'+banCls+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\''+section+'\')" style="touch-action:none;user-select:none;cursor:grab">'
+      +'<span class="bld-deck-drag-h" draggable="true" data-n="'+esc(c.name)+'" ondragstart="bldDeckToDragStart(event,this.dataset.n)" onpointerdown="event.stopPropagation()" title="Glisser vers un slot COUPER">⠿</span>'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+c.qty+'</span>'
       +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx);font-size:.82rem">'+esc(c.name)+'</span>'
       +banBadge
@@ -12304,6 +12338,8 @@ var _bldOptTab='swaps';
 var _bldSwapSel=null;
 var _bldDragIdx=-1;
 var _bldTouchDragIdx=-1;
+var _bldCardDrag=null;
+var _bldDeckDrag=null;
 
 function bldOptimize(){
   var optcard=document.getElementById('bld-optcard');
@@ -12387,38 +12423,66 @@ function bldSwapReplaceSlot(name){
 }
 
 function bldSwApply(idx){
-  var sw=_bldSwaps[idx];if(!sw||sw.applied)return;
+  var sw=_bldSwaps[idx];if(!sw||sw.applied||!sw.cut||!sw.add)return;
   bldAdd(sw.add.name,'main');bldRemFrom(sw.cut.name,'main');
   sw.applied=true;bldRenderSwapsPanel();
 }
 
 function bldRenderSwapsPanel(){
   var panel=document.getElementById('bld-swaps-panel');if(!panel)return;
-  if(!_bldSwaps.length){panel.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem;text-align:center;padding:1rem">Aucun swap suggéré — deck déjà bien optimisé.</div>';return;}
-  var html='<div style="font-size:.64rem;color:var(--tx3);margin-bottom:6px;line-height:1.5">Glisse ☰ pour réordonner · Clique sur une carte pour choisir son remplaçant</div>';
+  function mkSlot(card,tp,idx,isSel){
+    var lbl=tp==='cut'?'COUPER':'AJOUTER';
+    var lc=tp==='cut'?'var(--rd2)':'var(--gold2)';
+    var slotKey=idx+'-'+tp;
+    if(!card){
+      return '<div class="bld-sw-empty '+tp+'" data-swslot="'+slotKey+'"'
+        +' ondragover="bldSwCardDragOver(event,'+idx+',\''+tp+'\')"'
+        +' ondrop="bldSwCardDrop(event,'+idx+',\''+tp+'\')"'
+        +' ondragend="bldSwCardDragEnd()">'
+        +'<div><div style="font-size:.5rem;color:'+lc+';margin-bottom:3px;letter-spacing:.05em">'+lbl+'</div>Glisse ici</div>'
+        +'</div>';
+    }
+    var imgH=card.img?'<img src="'+card.img+'" class="bld-sw-img" onclick="event.stopPropagation();bldSwShowImg('+idx+',\''+tp+'\')" title="'+esc(card.name)+'">':'';
+    return '<div class="bld-sw-slot '+tp+(isSel?' sel':'')+'" data-swslot="'+slotKey+'"'
+      +' draggable="true"'
+      +' ondragstart="bldSwCardDragStart(event,'+idx+',\''+tp+'\')"'
+      +' ondragover="bldSwCardDragOver(event,'+idx+',\''+tp+'\')"'
+      +' ondrop="bldSwCardDrop(event,'+idx+',\''+tp+'\')"'
+      +' ondragend="bldSwCardDragEnd()"'
+      +' onclick="bldSwapSelectSlot('+idx+',\''+tp+'\')"'
+      +' style="display:flex;align-items:center;gap:5px">'
+      +imgH
+      +'<div style="min-width:0;flex:1;overflow:hidden">'
+      +'<div style="font-size:.5rem;color:'+lc+';letter-spacing:.05em;margin-bottom:1px">'+lbl+'</div>'
+      +'<div style="font-size:.7rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">'+esc(card.name)+'</div>'
+      +(card.type?'<div style="font-size:.56rem;color:var(--tx3)">'+esc(bldTypeKey(card.type))+(card.cmc!=null?' \xb7 '+card.cmc:'')+'</div>':'')
+      +'</div>'
+      +'</div>';
+  }
+  if(!_bldSwaps.length){
+    panel.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem;text-align:center;padding:12px 0">Aucun swap — deck déjà bien optimisé.</div>'
+      +'<div style="text-align:center;margin-top:8px"><button onclick="bldSwAddEmpty()" style="padding:5px 14px;background:rgba(201,168,76,.1);border:.5px solid var(--gold2);border-radius:7px;color:var(--gold2);font-size:.72rem;cursor:pointer">+ Ajouter un swap</button></div>';
+    return;
+  }
+  var html='<div style="font-size:.62rem;color:var(--tx3);margin-bottom:7px">☰ Réordonner · Glisse une carte d\'un slot vers un autre · Glisse ⠿ du deck vers COUPER</div>';
   _bldSwaps.forEach(function(sw,idx){
     var cutSel=_bldSwapSel&&_bldSwapSel.idx===idx&&_bldSwapSel.slot==='cut';
     var addSel=_bldSwapSel&&_bldSwapSel.idx===idx&&_bldSwapSel.slot==='add';
-    html+='<div class="bld-sw-row" id="bld-sw-row-'+idx+'" data-idx="'+idx+'" draggable="true"'
-      +' ondragstart="bldSwDragStart(event,'+idx+')" ondragover="bldSwDragOver(event,'+idx+')" ondrop="bldSwDrop(event,'+idx+')" ondragleave="bldSwDragLeave(event)">'
-      +'<div style="display:grid;grid-template-columns:20px 1fr 14px 1fr auto;gap:4px;align-items:center">'
-      +'<div class="bld-sw-handle" onpointerdown="bldSwTouchStart(event,'+idx+')" title="Réordonner">☰</div>'
-      +'<div class="bld-sw-slot cut'+(cutSel?' sel':'')+'" onclick="bldSwapSelectSlot('+idx+',\'cut\')">'
-      +'<div style="font-size:.54rem;color:var(--rd2);letter-spacing:.05em;margin-bottom:1px">COUPER</div>'
-      +'<div style="font-size:.72rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">'+esc(sw.cut.name)+'</div>'
-      +(sw.cut.type?'<div style="font-size:.58rem;color:var(--tx3)">'+esc(bldTypeKey(sw.cut.type))+(sw.cut.cmc!=null?' · '+sw.cut.cmc:'')+'</div>':'')
-      +'</div>'
+    var applyBtn=sw.applied
+      ?'<span style="font-size:.62rem;color:var(--gr2);padding:0 3px;flex-shrink:0">✓</span>'
+      :(sw.cut&&sw.add?'<button onclick="bldSwApply('+idx+')" style="padding:3px 6px;background:rgba(180,140,50,.18);border:.5px solid var(--ac);border-radius:5px;color:var(--ac2);font-size:.62rem;cursor:pointer;flex-shrink:0" title="Appliquer le swap">✓</button>':'<span style="width:22px;display:inline-block;flex-shrink:0"></span>');
+    var delBtn='<button onclick="bldSwDelSwap('+idx+')" style="padding:3px 5px;background:rgba(200,72,72,.1);border:.5px solid rgba(200,72,72,.3);border-radius:5px;color:var(--rd2);font-size:.62rem;cursor:pointer;flex-shrink:0" title="Supprimer">✕</button>';
+    html+='<div class="bld-sw-row" id="bld-sw-row-'+idx+'" data-idx="'+idx+'"'
+      +' ondragover="bldSwDragOver(event,'+idx+')" ondrop="bldSwDrop(event,'+idx+')" ondragleave="bldSwDragLeave(event)">'
+      +'<div style="display:grid;grid-template-columns:18px 1fr auto 1fr auto auto;gap:4px;align-items:center">'
+      +'<div class="bld-sw-handle" draggable="true" ondragstart="bldSwDragStart(event,'+idx+')" onpointerdown="bldSwTouchStart(event,'+idx+')" title="Réordonner">☰</div>'
+      +mkSlot(sw.cut,'cut',idx,cutSel)
       +'<div style="text-align:center;color:var(--gold2);font-size:.85rem;flex-shrink:0">→</div>'
-      +'<div class="bld-sw-slot add'+(addSel?' sel':'')+'" onclick="bldSwapSelectSlot('+idx+',\'add\')">'
-      +'<div style="font-size:.54rem;color:var(--gold2);letter-spacing:.05em;margin-bottom:1px">AJOUTER</div>'
-      +'<div style="font-size:.72rem;color:var(--ac2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">'+esc(sw.add.name)+'</div>'
-      +(sw.add.type?'<div style="font-size:.58rem;color:var(--tx3)">'+esc(bldTypeKey(sw.add.type))+(sw.add.cmc!=null?' · '+sw.add.cmc:'')+'</div>':'')
-      +'</div>'
-      +(sw.applied
-        ?'<span style="font-size:.66rem;color:var(--gr2);white-space:nowrap;flex-shrink:0;padding:0 4px">✓ Fait</span>'
-        :'<button onclick="bldSwApply('+idx+')" style="padding:4px 7px;background:rgba(180,140,50,.18);border:.5px solid var(--ac);border-radius:6px;color:var(--ac2);font-size:.66rem;cursor:pointer;white-space:nowrap;flex-shrink:0">✓ Appliquer</button>')
+      +mkSlot(sw.add,'add',idx,addSel)
+      +applyBtn+delBtn
       +'</div></div>';
   });
+  html+='<div style="text-align:center;margin-top:10px"><button onclick="bldSwAddEmpty()" style="padding:5px 14px;background:rgba(201,168,76,.1);border:.5px solid var(--gold2);border-radius:7px;color:var(--gold2);font-size:.72rem;cursor:pointer">+ Ajouter un swap</button></div>';
   panel.innerHTML=html;
 }
 
@@ -12459,17 +12523,50 @@ function bldRenderSugsPanel(panelId,topOnly){
   }
 }
 
-// HTML5 drag (desktop)
-function bldSwDragStart(e,idx){_bldDragIdx=idx;if(e.dataTransfer)e.dataTransfer.effectAllowed='move';setTimeout(function(){var r=document.getElementById('bld-sw-row-'+idx);if(r)r.classList.add('dragging');},0);}
-function bldSwDragOver(e,idx){e.preventDefault();if(idx===_bldDragIdx)return;document.querySelectorAll('.bld-sw-row').forEach(function(r){r.classList.remove('drag-over');});var r=document.getElementById('bld-sw-row-'+idx);if(r)r.classList.add('drag-over');}
+// HTML5 drag (desktop) — row reordering via handle
+function bldSwDragStart(e,idx){_bldDragIdx=idx;_bldCardDrag=null;_bldDeckDrag=null;if(e.dataTransfer)e.dataTransfer.effectAllowed='move';setTimeout(function(){var r=document.getElementById('bld-sw-row-'+idx);if(r)r.classList.add('dragging');},0);}
+function bldSwDragOver(e,idx){e.preventDefault();if(_bldCardDrag!==null||_bldDeckDrag!==null)return;if(idx===_bldDragIdx)return;document.querySelectorAll('.bld-sw-row').forEach(function(r){r.classList.remove('drag-over');});var r=document.getElementById('bld-sw-row-'+idx);if(r)r.classList.add('drag-over');}
 function bldSwDragLeave(){/* handled via drag-over on target row */}
 function bldSwDrop(e,idx){
   e.preventDefault();
+  if(_bldCardDrag!==null||_bldDeckDrag!==null)return;
   document.querySelectorAll('.bld-sw-row').forEach(function(r){r.classList.remove('drag-over','dragging');});
   if(idx===_bldDragIdx||_bldDragIdx<0)return;
   var item=_bldSwaps.splice(_bldDragIdx,1)[0];_bldSwaps.splice(idx,0,item);_bldDragIdx=-1;
   bldRenderSwapsPanel();
 }
+// Card-level drag between swap slots
+function bldSwCardDragStart(e,idx,slot){_bldCardDrag={idx:idx,slot:slot};_bldDeckDrag=null;if(e.dataTransfer)e.dataTransfer.effectAllowed='move';e.stopPropagation();}
+function bldSwCardDragOver(e,idx,slot){
+  if(_bldCardDrag===null&&_bldDeckDrag===null)return;
+  e.preventDefault();e.stopPropagation();
+  document.querySelectorAll('.bld-sw-slot,.bld-sw-empty').forEach(function(el){el.classList.remove('drop-tgt');});
+  var t=document.querySelector('[data-swslot="'+idx+'-'+slot+'"]');if(t)t.classList.add('drop-tgt');
+}
+function bldSwCardDrop(e,idx,slot){
+  e.preventDefault();e.stopPropagation();
+  document.querySelectorAll('.bld-sw-slot,.bld-sw-empty').forEach(function(el){el.classList.remove('drop-tgt');});
+  var sw=_bldSwaps[idx];if(!sw)return;
+  if(_bldDeckDrag){
+    var dn=_bldDeckDrag;_bldDeckDrag=null;
+    var d=bldData[dn.toLowerCase()]||{name:dn};
+    sw[slot]=d;bldRenderSwapsPanel();return;
+  }
+  if(!_bldCardDrag)return;
+  var fromSw=_bldSwaps[_bldCardDrag.idx];if(!fromSw){_bldCardDrag=null;return;}
+  var fromCard=fromSw[_bldCardDrag.slot];
+  var toCard=sw[slot];
+  sw[slot]=fromCard;fromSw[_bldCardDrag.slot]=toCard;
+  _bldCardDrag=null;bldRenderSwapsPanel();
+}
+function bldSwCardDragEnd(){
+  _bldCardDrag=null;_bldDeckDrag=null;
+  document.querySelectorAll('.bld-sw-slot,.bld-sw-empty').forEach(function(el){el.classList.remove('drop-tgt');});
+}
+function bldDeckToDragStart(e,name){_bldDeckDrag=name;_bldCardDrag=null;if(e.dataTransfer)e.dataTransfer.effectAllowed='move';}
+function bldSwDelSwap(idx){_bldSwaps.splice(idx,1);if(_bldSwapSel&&_bldSwapSel.idx===idx)_bldSwapSel=null;bldRenderSwapsPanel();}
+function bldSwAddEmpty(){_bldSwaps.push({cut:null,add:null,applied:false});bldRenderSwapsPanel();}
+function bldSwShowImg(idx,slot){var sw=_bldSwaps[idx];if(!sw)return;var c=sw[slot];if(!c||!c.img)return;bldShowCardImg(c.name);}
 // Touch/pointer drag (mobile)
 function bldSwTouchStart(e,idx){
   if(e.type!=='pointerdown')return;
