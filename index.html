@@ -12464,39 +12464,85 @@ function bldOptimize(){
   var target=(bldFormat==='commander'||bldFormat==='paupercmd')?100:60;
   var missing=Math.max(0,target-totalCards);
   if(needed)needed.textContent='Objectif : '+target+' cartes · '+totalCards+' dans le deck · '+missing+' à trouver';
-  var colors=new Set();bldMain.forEach(function(c){(c.colors||[]).forEach(function(cl){colors.add(cl);});});
-  var inDeck=new Set();
-  [bldMain,bldSide,bldAvoir].forEach(function(arr){arr.forEach(function(c){inDeck.add(c.name.toLowerCase());});});
-  var q='';
-  if(bldFormat){var fk=BLD_FMT_SCRYFALL[bldFormat];if(fk)q+='legal:'+fk+' ';}
-  if(colors.size>0&&colors.size<=3)q+='c<='+Array.from(colors).join('')+' ';
-  q+='-type:basic';
-  fetch('https://api.scryfall.com/cards/search?order=edhrec&q='+encodeURIComponent(q.trim()))
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(!d.data||!d.data.length){bldRenderOpt();return;}
-      var rawSugs=d.data.filter(function(c){return !inDeck.has(stripDFC(c.name||'').toLowerCase());});
-      rawSugs.forEach(function(c){var dobj=bldCardObj(c);bldData[dobj.name.toLowerCase()]=dobj;});
-      _bldSugs=rawSugs;
-      var typeCnt={};
-      bldMain.forEach(function(c){var tk=bldTypeKey(c.type);typeCnt[tk]=(typeCnt[tk]||0)+c.qty;});
-      var candidates=bldMain.filter(function(c){return bldTypeKey(c.type)!=='Land';}).map(function(c){
-        var tk=bldTypeKey(c.type);var ban=bldGetBanStatus(c);
-        return {c:c,score:(c.cmc||0)*0.15+(typeCnt[tk]>8?(typeCnt[tk]-8)*0.1:0)+(ban!=='ok'?50:0)};
-      }).sort(function(a,b){return b.score-a.score;});
-      // Noms déjà présents dans les swaps manuels
-      var existCuts=new Set(_bldSwaps.map(function(s){return s.cut&&s.cut.name.toLowerCase();}));
-      var existAdds=new Set(_bldSwaps.map(function(s){return s.add&&s.add.name.toLowerCase();}));
-      var nSwaps=Math.min(10,candidates.length,rawSugs.length);
-      for(var i=0;i<nSwaps;i++){
-        var cutCard=candidates[i].c;var addCard=bldCardObj(rawSugs[i]);
-        var isDup=existCuts.has(cutCard.name.toLowerCase())||existAdds.has(addCard.name.toLowerCase());
-        _bldSwaps.push({cut:cutCard,add:addCard,applied:false,suggested:true,duplicate:isDup});
-      }
-      bldRenderSwapsPanel();
-      bldRenderOpt();
-    })
-    .catch(function(){bldRenderOpt();});
+
+  // Construire un objet deck temporaire pour le moteur d'analyse
+  var bldDeckTemp={
+    cards:bldMain.map(function(c){return {name:c.name,nl:c.nl||stripDFC(c.name||'').toLowerCase(),qty:c.qty,sec:'Deck'};}),
+    format:bldFormat,
+    commander:dCommander||null
+  };
+  var nls=bldDeckTemp.cards.map(function(c){return c.nl;}).filter(Boolean);
+  var fb=bldDeckTemp.cards.slice();
+  if(dCommander&&dCommander.name){
+    var _cNl=stripDFC(dCommander.name).toLowerCase();
+    if(nls.indexOf(_cNl)<0){nls.push(_cNl);fb.push({nl:_cNl,name:dCommander.name});}
+  }
+
+  // Afficher un état de chargement
+  var sugsP=document.getElementById('bld-sugs-panel');
+  if(sugsP){sugsP.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:8px 0">⏳ Analyse en cours…</div>';sugsP.style.display='';}
+
+  anaFetchMissing(nls,fb,function(){
+    // Initialiser les thèmes du commandant (pour anaCardScore)
+    var themes=_anaCommanderThemes(bldDeckTemp);
+    if(anaIsCommanderFormat(bldFormat||'')){if(!(themes.protection>1))themes.protection=1;}
+    else{themes.protection=0;}
+    _anaCurrentThemes=_anaGetEffectiveThemes(null,themes);
+    var deckCi=_anaDeckCi(bldDeckTemp);
+    var fmt=bldFormat||'';
+    var isPauper=_anaIsPauperFormat(fmt);
+
+    // Construire les scored rows (non-terrains) — même logique que anaRender
+    var inDeckNls={};
+    bldMain.forEach(function(c){inDeckNls[c.nl||stripDFC(c.name||'').toLowerCase()]=1;});
+    // Exclure commandant des scored rows
+    var cmdNlSet=new Set();
+    if(dCommander&&dCommander.name)cmdNlSet.add(stripDFC(dCommander.name).toLowerCase());
+    bldDeckTemp.cards.forEach(function(c){if(/^commander|^commandant/i.test(c.sec||''))cmdNlSet.add(c.nl||'');});
+
+    var scoredRows=[];
+    bldMain.forEach(function(c){
+      var nl=c.nl||stripDFC(c.name||'').toLowerCase();
+      if(cmdNlSet.has(nl))return;
+      var meta=_anaData[nl];if(!meta||meta.isLand)return;
+      scoredRows.push({card:c,meta:meta,score:anaCardScore(meta),inCache:true});
+    });
+
+    // Pool de suggestions depuis _anaData (même logique que anaRender)
+    var freqMatrix=_anaComputeFreqMatrix();
+    var edhrecFreq=_anaCurrentEDHREC;
+    var pool=[];
+    Object.keys(_anaData).forEach(function(nl){
+      if(inDeckNls[nl]||_anaIsBasicLandNl(nl))return;
+      var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
+      if(isPauper&&meta.rarity!=='common')return;
+      if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
+      var sv=_anaSynergyValue(nl,meta,_anaDetectArchetype(bldDeckTemp),freqMatrix,edhrecFreq);
+      var antiP=_anaAntiSynergyPenalty(meta,_anaCurrentThemes);
+      var synP=_anaThemeSynergyScore(meta,_anaCurrentThemes);
+      var adjScore=Math.max(0,sv.score+antiP+synP*0.4);
+      pool.push({nl:nl,name:meta.name||nl,meta:meta,score:adjScore});
+    });
+    pool.sort(function(a,b){return b.score-a.score;});
+
+    // Même optimiseur que l'analyse (Plan d'optimisation)
+    var optResult=anaOptimize(scoredRows,pool.slice(),10);
+
+    // Convertir en swaps du builder
+    var existCuts=new Set(_bldSwaps.map(function(s){return s.cut&&s.cut.name.toLowerCase();}));
+    var existAdds=new Set(_bldSwaps.map(function(s){return s.add&&s.add.name.toLowerCase();}));
+    optResult.swaps.forEach(function(sw){
+      var addMeta=sw.add.meta||{};
+      var addCard={name:sw.add.name,nl:sw.add.nl,qty:1,cmc:addMeta.cmc||0,colors:addMeta.colors||[],type:(addMeta.typeLine||'').split(' — ')[0],rarity:addMeta.rarity||'',img:addMeta.imageUri||''};
+      var isDup=existCuts.has(sw.cut.name.toLowerCase())||existAdds.has(addCard.name.toLowerCase());
+      _bldSwaps.push({cut:sw.cut,add:addCard,applied:false,suggested:true,duplicate:isDup});
+    });
+    _bldSugs=pool.slice(0,30).map(function(s){
+      return {name:s.name,nl:s.nl,object:'card',image_uris:{normal:s.meta.imageUri||''},cmc:s.meta.cmc||0,colors:s.meta.colors||[],type_line:s.meta.typeLine||'',rarity:s.meta.rarity||''};
+    });
+    bldRenderSwapsPanel();
+    bldRenderOpt();
+  });
 }
 
 function bldRenderOpt(){
