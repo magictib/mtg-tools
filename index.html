@@ -3894,6 +3894,7 @@ var csvRows=[], outRows=[], prevSnap=new Map();
 var profs=[null], actP=0, eMode='all'; // slot 0 = current user only
 var scAllP=[], scFlips=[], scFlipN=0, scSugTO=null;
 var decks={}, actDeck=null, dCards=[], dFMode='all', dOwner=0, allPriceMap={};
+var _adminEditUid=null; // uid de l'ami dont on édite le deck en mode admin
 var _deckOrders={}, _dkDragId=null, _dkDragPi=null;
 var dFormat='', dCommander=null, dColors=[];
 var dCardMeta={}, dSortMode='sec';
@@ -4618,12 +4619,14 @@ function renderDBar(){
     var pids=pi===0
       ?Object.keys(deckSrc).filter(function(id){return _deckBelongsTo(deckSrc[id],0);})
       :Object.keys(deckSrc);
-    if(allActive&&pi>0&&!pids.length)return;
+    var isAdminSection=pi>0&&_userRole==='admin';
+    if(allActive&&pi>0&&!pids.length&&!isAdminSection)return;
     var open=!allActive||dbarOpen[pi]||false;
     html+='<div class="dpsec">';
     if(allActive){
       html+='<div class="dphdr" onclick="toggleDSec('+pi+')">';
       html+='<span class="dpn">'+esc(PN[pi]||'Profil '+pi)+'</span><span class="dpc">('+pids.length+')</span>';
+      if(isAdminSection)html+='<button onclick="event.stopPropagation();newDeckAdmin(\''+ep.uid+'\')" style="margin-left:auto;margin-right:4px;font-size:.6rem;padding:1px 6px;border-radius:4px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);cursor:pointer">+ deck</button>';
       html+='<span class="dparr'+(open?' op':'')+'">&#x25B6;</span></div>';
     }
     html+='<div class="dpdecks'+(open?' op':'')+'">';
@@ -4635,8 +4638,8 @@ function renderDBar(){
       var fmtBadge=d.format?'<span style="font-size:.62rem;background:var(--s3);border:.5px solid var(--bd2);border-radius:3px;padding:0 4px;color:var(--tx3);margin-left:4px">'+esc(fmtLabel[d.format]||d.format)+'</span>':'';
       var cmdBadge=d.commander?'<span title="'+esc(d.commander.name)+'" style="font-size:.62rem;color:var(--gold2);margin-left:3px">★</span>':'';
       var rankBadge='<span style="font-size:.58rem;color:var(--tx3);margin-right:4px;min-width:12px;display:inline-block">'+(rank+1)+'.</span>';
-      var isActive=pi===0&&id===actDeck;
-      var clickFn=pi===0?'loadDeck(\''+id+'\')':'loadFriendDeck(\''+ep.uid+'\',\''+id+'\')';
+      var isActive=(pi===0&&id===actDeck)||(pi>0&&id===actDeck&&_adminEditUid===ep.uid);
+      var clickFn=pi===0?'loadDeck(\''+id+'\')':isAdminSection?'loadDeckAdmin(\''+ep.uid+'\',\''+id+'\')':'loadFriendDeck(\''+ep.uid+'\',\''+id+'\')';
       var dragAttrs=pi===0?' draggable="true" ondragstart="dkDragStart(event,\''+id+'\',0)" ondragover="dkDragOver(event)" ondragleave="dkDragLeave(event)" ondrop="dkDrop(event,\''+id+'\',0)"':'';
       html+='<div class="ditem'+(isActive?' active':'')+'"'+dragAttrs+' onclick="'+clickFn+'">'
         +'<div class="dn">'+rankBadge+esc(d.name)+fmtBadge+cmdBadge+'</div>'
@@ -4668,6 +4671,39 @@ function loadFriendDeck(uid,deckId){
   setOwner(pi>0?pi:0);
   renderDBar();analyzeDeck();
   document.getElementById('deckres').style.display='block';
+  document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
+}
+function loadDeckAdmin(uid,deckId){
+  var d=(_epDecks[uid]||{})[deckId];if(!d)return;
+  _adminEditUid=uid;actDeck=deckId;
+  var _freshF=d.rawName?parseList(d.rawName):null;
+  dCards=(_freshF&&_freshF.length)?_freshF:(d.cards||[]);_customAchat=[];renderCustomPanel();
+  document.getElementById('dnamein').value=d.name||'';
+  document.getElementById('ta-name').value=d.rawName||d.raw||'';
+  document.getElementById('etitle').textContent='👑 Admin — '+esc(d.name||'Deck');
+  document.getElementById('delbtn').style.display='inline-block';
+  document.getElementById('dcnt').textContent=dCards.length+' entrées, '+dCards.reduce(function(s,c){return s+c.qty;},0)+' cartes';
+  dFormat=d.format||'';dCommander=d.commander||null;
+  document.querySelectorAll('#dfmt-btns .dm').forEach(function(b){b.classList.remove('active');});
+  if(dFormat){document.querySelectorAll('#dfmt-btns .dm').forEach(function(b){if(b.getAttribute('onclick').indexOf("'"+dFormat+"'")>=0)b.classList.add('active');});}
+  var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
+  document.getElementById('dcmd-section').style.display=isCmd?'block':'none';
+  document.getElementById('dcolors-section').style.display=(!isCmd&&dFormat)?'block':'none';
+  if(dCommander){document.getElementById('dcmd-in').value=dCommander.name;renderDeckCmdPreview();}
+  else{deckCmdClear();}
+  setDeckColors(isCmd?(dCommander?dCommander.colors:[]):(d.colors||[]));
+  var pi=(_epSlots.deck||[]).findIndex(function(ep){return ep.uid===uid;})+1;
+  setOwner(pi>0?pi:0);
+  renderDBar();analyzeDeck();
+  document.getElementById('deckres').style.display='block';
+  document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
+}
+function newDeckAdmin(uid){
+  newDeck();
+  _adminEditUid=uid;
+  var pi=(_epSlots.deck||[]).findIndex(function(ep){return ep.uid===uid;})+1;
+  setOwner(pi>0?pi:0);
+  document.getElementById('etitle').textContent='👑 Admin — Nouveau deck';
   document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
 }
 function toggleDSec(pi){dbarOpen[pi]=!dbarOpen[pi];renderDBar();}
@@ -4757,7 +4793,7 @@ function setOwner(i){
   renderProfSlots('deck','prof-grid-deck');
 }
 function newDeck(){
-  actDeck=null;dCards=[];dImgCache={};dViewMode='list';dFormat='';dCommander=null;dColors=[];_customAchat=[];dSortMode='sec';renderCustomPanel();
+  actDeck=null;_adminEditUid=null;dCards=[];dImgCache={};dViewMode='list';dFormat='';dCommander=null;dColors=[];_customAchat=[];dSortMode='sec';renderCustomPanel();
   var sp=document.getElementById('deck-stats-panel');if(sp)sp.style.display='none';
   var sdp=document.getElementById('smart-deck-panel');if(sdp)sdp.style.display='none';
   _smartEdhCache={};_smartEdhPending={};
@@ -4825,9 +4861,16 @@ function saveDeck(){
   var id=actDeck||(Date.now().toString());actDeck=id;
   var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
   var savedColors=isCmd?(dCommander?dCommander.colors:[]):dColors.slice();
-  decks[id]={name:name,rawName:rawName,cards:cards,owner:dOwner,ownerUid:_profUid(dOwner)||userId,format:dFormat||null,commander:dCommander||null,colors:savedColors,updatedAt:Date.now()};
-  saveDecks();renderDBar();
-  document.getElementById('etitle').textContent=name;
+  var deckData={name:name,rawName:rawName,cards:cards,owner:dOwner,ownerUid:(_adminEditUid||_profUid(dOwner)||userId),format:dFormat||null,commander:dCommander||null,colors:savedColors,updatedAt:Date.now()};
+  if(_adminEditUid){
+    db.collection('users').doc(_adminEditUid).collection('decks').doc(id).set(deckData).catch(function(e){console.error('[Admin] Erreur save deck:',e);});
+    if(!_epDecks[_adminEditUid])_epDecks[_adminEditUid]={};
+    _epDecks[_adminEditUid][id]=deckData;
+  }else{
+    decks[id]=deckData;saveDecks();
+  }
+  renderDBar();
+  document.getElementById('etitle').textContent=(_adminEditUid?'👑 Admin — ':'')+name;
   document.getElementById('delbtn').style.display='inline-block';
   document.getElementById('dcnt').textContent=cards.length+' entrées, '+cards.reduce(function(s,c){return s+c.qty;},0)+' cartes';
   if(cards.length>0){analyzeDeck();document.getElementById('deckres').style.display='block';}
@@ -4836,9 +4879,14 @@ function deleteDeck(){
   if(!actDeck)return;
   if(!confirm('Supprimer ce deck ?'))return;
   var id=actDeck;
-  delete decks[id];saveDecks();
-  db.collection('users').doc(userId).collection('decks').doc(id).delete().catch(function(){});
-  newDeck();
+  if(_adminEditUid){
+    db.collection('users').doc(_adminEditUid).collection('decks').doc(id).delete().catch(function(){});
+    if(_epDecks[_adminEditUid])delete _epDecks[_adminEditUid][id];
+  }else{
+    delete decks[id];saveDecks();
+    db.collection('users').doc(userId).collection('decks').doc(id).delete().catch(function(){});
+  }
+  newDeck();renderDBar();
 }
 function clearDeckEditor(){
   document.getElementById('ta-name').value='';
