@@ -13360,9 +13360,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v9: ajout mill/reanimate dans les tags + toughness
-  if((__aP.__version||0)<10){
-    _anaData={__version:10};
+  // Migration v10: ajout sac_outlet dans les tags + thème sacrifice
+  if((__aP.__version||0)<11){
+    _anaData={__version:11};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13370,7 +13370,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=10;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=11;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -13581,7 +13581,7 @@ function anaInferTags(meta){
   var type=(meta.typeLine||'').toLowerCase();
   if(type.indexOf('land')>=0){return {draw:0,removal:0,ramp:0,interaction:0,wincon:0,isLand:1};}
   var cmc=meta.cmc||0;
-  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0,mill=0,reanimate=0,untap_creature=0;
+  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0,mill=0,reanimate=0,untap_creature=0,sac_outlet=0;
   var nMap={a:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7};
   // Pioche — "draw/draws X card(s)" (singulier ou 3e personne)
   var dm=oracle.match(/draws? \w+ cards?/g)||[];
@@ -13648,6 +13648,15 @@ function anaInferTags(meta){
   // Dégager une créature (synergy forte avec commandants à ability de tap — ex: Freed from the Real)
   if(/untap enchanted creature/.test(oracle)){interaction+=0.8;untap_creature=1.0;}
   if(/(?:you may )?untap target creature/.test(oracle)){interaction+=0.5;untap_creature=Math.max(untap_creature,0.7);}
+  // Moteurs à sacrifice (sac outlets) — synergy forte avec commandants type Juri, Korvold…
+  if(/[,;]? sacrifice (a|an|a creature|a permanent|another)[^:]*:/.test(oracle))sac_outlet+=1.0;
+  if(/\{0\}[^:]*sacrifice|sacrifice (a|a creature|a permanent)[^:]*\{0\}/.test(oracle))sac_outlet+=0.5;
+  // Voler + sacrifier une créature ennemie (ex: Momo's Heist, Act of Treason + sac outlet)
+  if(/gain control of target (creature|permanent)/.test(oracle))sac_outlet+=0.9;
+  // Fling/Thud : sacrifice → dégâts égaux à la force
+  if(/sacrifice a creature[^.]*deals damage equal to|as an additional cost[^.]*sacrifice[^.]*creature/.test(oracle)&&/deals damage equal to (its|their|the sacrificed)/.test(oracle)){sac_outlet+=0.8;wincon+=1.5;}
+  // Auto-sacrifice en fin de tour (Ball Lightning, Spark Elemental…) = carburant parfait pour Juri
+  if(/at the beginning of (the )?end step,? sacrifice (this|it)|sacrifice (this|it) at the beginning of (the )?end step/.test(oracle))sac_outlet+=0.5;
   // Wincon
   if(/you win the game/.test(oracle))wincon+=6;
   if(/each opponent loses (\d+|that much) life/.test(oracle))wincon+=1.5;
@@ -13675,7 +13684,7 @@ function anaInferTags(meta){
   if(/return target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard to the battlefield|put target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard onto the battlefield/.test(oracle))reanimate=1;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature)};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet)};
 }
 
 /* ----- Helpers ----- */
@@ -13958,6 +13967,8 @@ function anaCardScore(meta){
   if(th.protection&&t.protection)base+=t.protection*1.5*(th.protection||0);
   // Bonus untap (ex: Freed from the Real) — fort si commandant avec ability de tap (protection > 1)
   if(t.untap_creature&&(th.protection||0)>1)base+=t.untap_creature*2.5*((th.protection||0)-1);
+  // Bonus sac outlet (ex: Goblin Bombardment, Momo's Heist) — fort si commandant sacrifice (Juri, Korvold…)
+  if(t.sac_outlet&&(th.sacrifice||0)>1)base+=t.sac_outlet*3.0*((th.sacrifice||0)-1);
   return base;
 }
 
@@ -14094,7 +14105,11 @@ var _COMMANDER_THEME_RULES=[
   // Défausse → +1/+1 (Lotleth Troll spécifiquement)
   {p:/discard.*\+1\/\+1 counter|\+1\/\+1 counter.*discard/i,   m:{wincon:1.5,discard:1.6},label:'Défausse-compteurs'},
   // Sacrifice / aristocrats
-  {p:/whenever a creature.*dies|whenever (you|a player) sacrifice/i, m:{wincon:1.4},      label:'Sacrifice'},
+  {p:/whenever a creature.*dies|whenever (you|a player) sacrifice/i, m:{wincon:1.4,sacrifice:1.8}, label:'Sacrifice'},
+  // Juri-type : sacrifice d'un permanent → +1/+1 counter (sacrifice aggressif avec fling finisher)
+  {p:/whenever you sacrifice.*\+1\/\+1 counter|\+1\/\+1 counter.*whenever you sacrifice/i, m:{sacrifice:2.5,wincon:1.6,counters:1.4}, label:'Sacrifice-counters'},
+  // Korvold / Prossh-type : sacrifice → draw ou bénéfice massif
+  {p:/whenever you sacrifice a (permanent|creature|token).*draw|whenever a (creature|permanent).*dies.*draw/i, m:{sacrifice:2.0,wincon:1.5,draw:1.4}, label:'Sacrifice-draw'},
   {p:/each opponent loses \d+ life|deals \d+ damage to each opponent|drain/i, m:{wincon:1.5}, label:'Drain'},
   // +1/+1 / compteurs
   {p:/\+1\/\+1 counter|proliferate/i,                          m:{wincon:1.3,counters:1.3}, label:'+1/+1 counters'},
@@ -14185,10 +14200,10 @@ var _ANTI_SYNERGY_RULES=[
 ];
 
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
-var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,labels:[]};
+var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,labels:[]};
 
 function _anaCommanderThemes(deck){
-  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,labels:[],_debug:'no-deck'};
+  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,labels:[],_debug:'no-deck'};
   if(!deck)return def;
   var cmdName=(deck.commander&&deck.commander.name)||null;
   if(!cmdName&&deck.cards){
@@ -14939,10 +14954,21 @@ function _anaThemeSynergyScore(cardMeta,themes){
   if((th.ramp||1)>1.5){
     if(/landfall|whenever.*land enters/.test(o))s+=3;
   }
-  // Sacrifice/aristocrats
+  // Sacrifice/aristocrats — synergies génériques (wincon > 1.3)
   if((th.wincon||1)>1.3){
     if(/whenever.*creature.*dies|sacrifice a creature/.test(o))s+=2;
     if(/create.*token/.test(o))s+=1;
+  }
+  // Sacrifice-matters fort (Juri, Korvold, Prossh… sacrifice > 1.5)
+  if((th.sacrifice||1)>1.5){
+    if(/whenever.*creature.*dies|whenever.*player.*sacrifice/.test(o))s+=6;  // Mayhem Devil, Zurzoth
+    if(/sacrifice a creature[^.]*deals damage equal|as an additional cost[^.]*sacrifice[^.]*creature/.test(o))s+=8; // Fling, Thud
+    if(/gain control of target (creature|permanent)/.test(o))s+=7;          // Momo's Heist, Act of Treason
+    if(/sacrifice (this|it) at.*end step|at.*end step.*sacrifice/.test(o))s+=3; // Ball Lightning, Phage
+    if(/[,;]? sacrifice (a|an|a creature|a permanent)[^:]*:/.test(o))s+=4;  // Goblin Bombardment, sac outlets
+    if(/create.*token|put.*token/.test(o))s+=3;                              // Tokens = carburant
+    if(/treasure token|create.*treasure/.test(o))s+=2;                      // Trésor = sac fodder
+    if(/\+1\/\+1 counter.*sacrifice|sacrifice.*\+1\/\+1 counter/.test(o))s+=5; // counter sur sac
   }
   // Cimetière
   if((th.graveyard||1)>1){
