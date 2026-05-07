@@ -13969,6 +13969,8 @@ function anaCardScore(meta){
   if(t.untap_creature&&(th.protection||0)>1)base+=t.untap_creature*2.5*((th.protection||0)-1);
   // Bonus sac outlet (ex: Goblin Bombardment, Momo's Heist) — fort si commandant sacrifice (Juri, Korvold…)
   if(t.sac_outlet&&(th.sacrifice||0)>1)base+=t.sac_outlet*3.0*((th.sacrifice||0)-1);
+  // Synergies thématiques (utilisées aussi dans l'optimiseur, poids 0.4 pour normaliser l'échelle)
+  base+=_anaThemeSynergyScore(meta,th)*0.4;
   return base;
 }
 
@@ -14984,11 +14986,17 @@ function _anaThemeSynergyScore(cardMeta,themes){
   if((th.artifact||1)>1){
     if(/artifact|metalcraft/.test(o))s+=2;
   }
-  // Synergy Spellslinger : créatures qui infligent des dégâts sur sort (Firebrand Archer, Guttersnipe…)
+  // Synergy Spellslinger : créatures/sorts qui s'améliorent avec les sorts joués
   if((th.draw||1)>1.3){
     if(/whenever you cast[^.]*(?:noncreature|instant|sorcery)[^.]*deals? \d+ damage/.test(o))s+=6;
     if(/deals \d+ damage to each (?:opponent|player)/.test(o))s+=4;
     if(/whenever you cast.*deals? \d+ damage/.test(o))s+=3;
+    // Réducteur de coût (Goblin Electromancer, Baral, Curious Homunculus…) = plus de sorts par tour
+    if(/(?:instant|sorcery|spell)s? (?:you cast )?costs? (?:\{?\w\}? )?less to cast/.test(o))s+=8;
+    // Copies de sorts (Fork, Reverberate…)
+    if(/copy target (instant|sorcery)|copy that spell/.test(o))s+=5;
+    // Prowess + sorts
+    if(/prowess/.test(o)&&t.indexOf('creature')>=0)s+=3;
   }
   // Synergy tap-ability : commandant avec {T}: ability (protection mult > 1.5)
   if((th.protection||0)>1.5){
