@@ -11969,6 +11969,8 @@ function bldPtrUp(e){
       if(sw2){
         var d2=bldData[_bldPtr.name.toLowerCase()];
         if(!d2){var fi2=bldFindIn(bldMain,_bldPtr.name);d2=fi2>=0?bldMain[fi2]:{name:_bldPtr.name};}
+        var v2=bldSwValidate(_bldSwapSel.idx,_bldSwapSel.slot,d2,-1);
+        if(!v2.ok){showToast(v2.msg,2800);_bldPtr=null;return;}
         sw2[_bldSwapSel.slot]=d2;_bldSwapSel=null;bldRenderOpt();
       }
     } else if(_bldPtr.section!=='search'){
@@ -11987,6 +11989,8 @@ function bldPtrUp(e){
     var swN=_bldSwaps[swIdx];if(swN){
       var d3=bldData[_bldPtr.name.toLowerCase()];
       if(!d3){var fi3=bldFindIn(bldMain,_bldPtr.name);d3=fi3>=0?bldMain[fi3]:{name:_bldPtr.name};}
+      var v3=bldSwValidate(swIdx,swSlot,d3,-1);
+      if(!v3.ok){showToast(v3.msg,2800);_bldPtr=null;return;}
       swN[swSlot]=d3;bldRenderSwapsPanel();
     }
     _bldPtr=null;return;
@@ -12459,10 +12463,36 @@ function bldSwapSelectSlot(idx,slot){
   bldRenderOpt();
 }
 
+// Validation centralisée pour l'assignation d'une carte dans un slot de swap
+// excludeIdx : index de swap supplémentaire à ignorer dans les comptages (pour les échanges)
+function bldSwValidate(toIdx, toSlot, card, excludeIdx){
+  if(!card)return{ok:true};
+  var nl=card.name.toLowerCase();
+  if(toSlot==='cut'){
+    var fi=bldFindIn(bldMain,card.name);
+    if(fi<0)return{ok:false,msg:'"'+card.name+'" n\'est pas dans le deck'};
+    var qty=bldMain[fi].qty||1;
+    var already=0;
+    _bldSwaps.forEach(function(sw,i){if(i===toIdx||i===excludeIdx)return;if(sw.cut&&sw.cut.name.toLowerCase()===nl)already++;});
+    if(already>=qty)return{ok:false,msg:'"'+card.name+'" est déjà coupée ('+qty+'× dans le deck)'};
+  }else if(toSlot==='add'){
+    if(bldFindIn(bldMain,card.name)>=0)return{ok:false,msg:'"'+card.name+'" est déjà dans le deck'};
+    var singleton=bldFormat==='commander'||bldFormat==='paupercmd';
+    if(singleton){
+      var dup=false;
+      _bldSwaps.forEach(function(sw,i){if(i===toIdx||i===excludeIdx)return;if(sw.add&&sw.add.name.toLowerCase()===nl)dup=true;});
+      if(dup)return{ok:false,msg:'Format singleton : "'+card.name+'" est déjà dans un autre swap'};
+    }
+  }
+  return{ok:true};
+}
+
 function bldSwapReplaceSlot(name){
   if(!_bldSwapSel)return;
   var d=bldData[name.toLowerCase()];if(!d)return;
   var sw=_bldSwaps[_bldSwapSel.idx];if(!sw)return;
+  var v=bldSwValidate(_bldSwapSel.idx,_bldSwapSel.slot,d,-1);
+  if(!v.ok){showToast(v.msg,2800);return;}
   sw[_bldSwapSel.slot]=d;_bldSwapSel=null;_bldOptTab='sugs';bldRenderOpt();
 }
 
@@ -12601,12 +12631,22 @@ function bldSwCardDrop(e,idx,slot){
   if(_bldDeckDrag){
     var dn=_bldDeckDrag;_bldDeckDrag=null;
     var d=bldData[dn.toLowerCase()]||{name:dn};
+    var v=bldSwValidate(idx,slot,d,-1);
+    if(!v.ok){showToast(v.msg,2800);return;}
     sw[slot]=d;bldRenderSwapsPanel();return;
   }
   if(!_bldCardDrag)return;
   var fromSw=_bldSwaps[_bldCardDrag.idx];if(!fromSw){_bldCardDrag=null;return;}
   var fromCard=fromSw[_bldCardDrag.slot];
   var toCard=sw[slot];
+  // Valider la carte entrante dans le slot cible (en ignorant le slot source)
+  var vf=bldSwValidate(idx,slot,fromCard,_bldCardDrag.idx);
+  if(!vf.ok){showToast(vf.msg,2800);_bldCardDrag=null;return;}
+  // Si échange (toCard non vide), valider aussi la carte retour
+  if(toCard){
+    var vt=bldSwValidate(_bldCardDrag.idx,_bldCardDrag.slot,toCard,idx);
+    if(!vt.ok){showToast(vt.msg,2800);_bldCardDrag=null;return;}
+  }
   sw[slot]=fromCard;fromSw[_bldCardDrag.slot]=toCard;
   _bldCardDrag=null;bldRenderSwapsPanel();
 }
