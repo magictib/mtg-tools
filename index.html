@@ -13595,9 +13595,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v11: ajout deathtouch_grant dans les tags + thèmes sweeper/Lotleth
-  if((__aP.__version||0)<12){
-    _anaData={__version:12};
+  // Migration v13: rarity normalisée via legalities.pauper dans _anaIngestCard
+  if((__aP.__version||0)<13){
+    _anaData={__version:13};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13605,7 +13605,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=12;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=13;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -14172,7 +14172,9 @@ function _anaIngestCard(card,nlHint){
   var _realPow=_rawPow?parseInt(_rawPow):null;if(isNaN(_realPow))_realPow=null;
   var _rawTou=card.toughness||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].toughness)||null;
   var _realTou=_rawTou?parseInt(_rawTou):null;if(isNaN(_realTou))_realTou=null;
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:card.rarity||'',keywords:card.keywords||[],power:_realPow,toughness:_realTou};
+  // Pauper-legal cards have at least one Common printing — always store as common regardless of the specific printing returned
+  var _rar=(card.legalities&&card.legalities.pauper==='legal')?'common':(card.rarity||'');
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
