@@ -14163,8 +14163,8 @@ function anaTargets(fmt,totalCards,themes){
   var drawMult=th.draw||1;var rampMult=th.ramp||1;var winconMult=th.wincon||1;var discardMult=th.discard||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
     var base={land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
-    if(drawMult>=2.0){base.draw=[15,20];base.wincon=[4,7];base.removal=[8,11];base.interaction=[9,12];}
-    else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[3,6];base.removal=[7,10];base.interaction=[8,11];}
+    if(drawMult>=2.0){base.draw=[15,20];base.wincon=[1,4];base.removal=[8,11];base.interaction=[9,12];}
+    else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[2,5];base.removal=[7,10];base.interaction=[8,11];}
     if(rampMult>=1.5&&base.ramp[0]<12)base.ramp=[12,16];
     if(winconMult>=1.4&&base.wincon[0]>=5)base.wincon=[7,12];
     if(discardMult>=1.5){base.draw=[6,10];base.wincon=[6,11];base.interaction=[10,15];}
@@ -15973,13 +15973,19 @@ function anaRender(deckId){
 
   // Targets format-aware + sub-scores (ajustés selon le commandant)
   var targets=anaTargets(fmt,totalCards,_anaCurrentThemes);
+  // Counts ajustés pour le scoring uniquement : le surplus de la catégorie dominante
+  // remplit les catégories qu'elle remplace dans les decks à commandant synergique.
+  var _sc=Object.assign({},counts);
+  var _th2=_anaCurrentThemes||{};
+  if((_th2.draw||1)>=2.0&&counts.draw>targets.draw[0])_sc.wincon+=Math.round((counts.draw-targets.draw[0])*0.5);
+  if((_th2.ramp||1)>=2.0&&counts.ramp>targets.ramp[0])_sc.wincon+=Math.round((counts.ramp-targets.ramp[0])*0.4);
   var subScores={
-    land:anaCatScore(counts.land,targets.land),
-    ramp:anaCatScore(counts.ramp,targets.ramp),
-    draw:anaCatScore(counts.draw,targets.draw),
-    removal:anaCatScore(counts.removal,targets.removal),
-    interaction:anaCatScore(counts.interaction,targets.interaction),
-    wincon:anaCatScore(counts.wincon,targets.wincon)
+    land:anaCatScore(_sc.land,targets.land),
+    ramp:anaCatScore(_sc.ramp,targets.ramp),
+    draw:anaCatScore(_sc.draw,targets.draw),
+    removal:anaCatScore(_sc.removal,targets.removal),
+    interaction:anaCatScore(_sc.interaction,targets.interaction),
+    wincon:anaCatScore(_sc.wincon,targets.wincon)
   };
   var weights=anaWeights(fmt,totalCards,_anaCurrentThemes);
   var overall=0;Object.keys(weights).forEach(function(k){overall+=subScores[k]*weights[k];});
