@@ -15873,14 +15873,41 @@ function anaRender(deckId){
   });
   html+='</div>';
 
-  // === Bandeau 3 colonnes : Commandant | Répartition par type | Courbe de mana ===
+  // === Commandant | (Répartition par type + Courbe de mana) ===
   var _cmdNameVis=(deck.commander&&deck.commander.name)||null;
   if(!_cmdNameVis&&deck.cards){for(var _ci=0;_ci<deck.cards.length;_ci++){if(/^commander|^commandant/i.test(deck.cards[_ci].sec||'')){_cmdNameVis=deck.cards[_ci].name;break;}}}
-  var _gridCols=_cmdNameVis?'repeat(3,minmax(0,1fr))':'1fr 1fr';
-  html+='<div style="display:grid;grid-template-columns:'+_gridCols+';gap:12px;align-items:start">';
 
-  // Colonne 1 : Commandant
+  // Blocs type + courbe réutilisables
+  var _typeHtml='<div class="card" style="flex:1"><div class="lbl">Répartition par type</div>';
+  var typeOrder=['Créatures','Éphémères','Rituels','Enchantements','Artefacts','Planeswalkers','Terrains','Autres'];
+  typeOrder.forEach(function(name){
+    var n=typeCounts[name]||0;if(!n)return;
+    var pct=totalCards?(n/totalCards)*100:0;
+    _typeHtml+='<div class="ana-types-row"><div>'+name+'</div>';
+    _typeHtml+='<div><span class="ana-pct-bar"><div style="width:'+pct.toFixed(1)+'%"></div></span><b>'+n+'</b> <span style="color:var(--tx3);font-size:10px">'+pct.toFixed(0)+'%</span></div></div>';
+  });
+  _typeHtml+='</div>';
+
+  var maxBucket=Math.max.apply(null,manaCurve)||1;
+  var nonLandTot=manaCurve.reduce(function(s,n){return s+n;},0);
+  var avgCmc=0;if(nonLandTot){manaCurve.forEach(function(n,i){avgCmc+=n*(i===7?7.5:i);});avgCmc=avgCmc/nonLandTot;}
+  var _curveHtml='<div class="card" style="flex:1"><div class="lbl">Courbe de mana (sorts)</div>';
+  _curveHtml+='<div class="ana-curve-bar">';
+  manaCurve.forEach(function(n,i){
+    var h=(n/maxBucket)*70;
+    _curveHtml+='<div class="ana-curve-col">';
+    _curveHtml+='<div class="ana-curve-val">'+(n||'')+'</div>';
+    _curveHtml+='<div class="ana-curve-fill" style="height:'+(h<2?2:h)+'px"></div>';
+    _curveHtml+='<div class="ana-curve-lbl">'+(i===7?'7+':i)+'</div>';
+    _curveHtml+='</div>';
+  });
+  _curveHtml+='</div>';
+  _curveHtml+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div>';
+  _curveHtml+='</div>';
+
   if(_cmdNameVis){
+    // 2 colonnes : commandant | type+courbe empilés
+    html+='<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.8fr);gap:12px;align-items:stretch">';
     var _cmdMetaNl=stripDFC(_cmdNameVis).toLowerCase();
     var _cmdMeta=_anaData[_cmdMetaNl]||{};
     var _cmdImgUrl=(deck.commander&&deck.commander.img)||_cmdMeta.imageUri||'';
@@ -15897,38 +15924,13 @@ function anaRender(deckId){
       html+='<div style="font-size:11px;color:var(--tx3);font-style:italic" data-oracle-nl="'+esc(_cmdMetaNl)+'">Texte oracle non disponible.</div>';
     }
     html+='</div></div>';
-  }
-
-  // Colonne 2 : Répartition par type
-  html+='<div class="card"><div class="lbl">Répartition par type</div>';
-  var typeOrder=['Créatures','Éphémères','Rituels','Enchantements','Artefacts','Planeswalkers','Terrains','Autres'];
-  typeOrder.forEach(function(name){
-    var n=typeCounts[name]||0;if(!n)return;
-    var pct=totalCards?(n/totalCards)*100:0;
-    html+='<div class="ana-types-row"><div>'+name+'</div>';
-    html+='<div><span class="ana-pct-bar"><div style="width:'+pct.toFixed(1)+'%"></div></span><b>'+n+'</b> <span style="color:var(--tx3);font-size:10px">'+pct.toFixed(0)+'%</span></div></div>';
-  });
-  html+='</div>';
-
-  // Colonne 3 : Courbe de mana
-  html+='<div class="card"><div class="lbl">Courbe de mana (sorts)</div>';
-  var maxBucket=Math.max.apply(null,manaCurve)||1;
-  html+='<div class="ana-curve-bar">';
-  manaCurve.forEach(function(n,i){
-    var h=(n/maxBucket)*70;
-    html+='<div class="ana-curve-col">';
-    html+='<div class="ana-curve-val">'+(n||'')+'</div>';
-    html+='<div class="ana-curve-fill" style="height:'+(h<2?2:h)+'px"></div>';
-    html+='<div class="ana-curve-lbl">'+(i===7?'7+':i)+'</div>';
+    // Colonne droite : type + courbe empilés
+    html+='<div style="display:flex;flex-direction:column;gap:12px">'+_typeHtml+_curveHtml+'</div>';
     html+='</div>';
-  });
-  html+='</div>';
-  var nonLandTot=manaCurve.reduce(function(s,n){return s+n;},0);
-  var avgCmc=0;if(nonLandTot){manaCurve.forEach(function(n,i){avgCmc+=n*(i===7?7.5:i);});avgCmc=avgCmc/nonLandTot;}
-  html+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div>';
-  html+='</div>';
-
-  html+='</div>'; // fin grille 3 colonnes
+  } else {
+    // Pas de commandant : type + courbe côte à côte
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+_typeHtml+_curveHtml+'</div>';
+  }
 
 
   // Helpers
