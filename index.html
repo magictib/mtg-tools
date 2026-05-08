@@ -15191,12 +15191,12 @@ function _anaApplyOptToLib(originalLib,swaps){
   return opt;
 }
 
-/* ----- Validation simulation des swaps (greedy forward, 60 mini-parties/évaluation) ----- */
-// Teste chaque swap individuellement contre la simulation avant de l'accepter.
-// Garantit que seuls les swaps qui améliorent (ou ne dégradent pas) le win rate sont retenus.
+/* ----- Validation simulation des swaps (recherche binaire, 800 parties/évaluation) ----- */
+// Avec 800 parties (200 × 4 archs) l'écart-type est ~1.7% → détecte fiablement les dégradations.
+// Recherche binaire sur le préfixe ordonné par gain décroissant : O(log N) évaluations.
 function _anaSimValidateSwaps(swaps,libUser,cmdUser,simOpts,arcSz){
   if(!swaps||!swaps.length||!libUser||libUser.length<20)return swaps.slice();
-  var RUNS=15; // 15 × 4 archs = 60 mini-parties par évaluation
+  var RUNS=200; // 200 × 4 archs = 800 parties, std ≈ 1.7%
   var ARCHS=['aggro','midrange','combo','control'];
   var opts=Object.assign({},simOpts||{startLife:40,maxTurns:20});
   if(cmdUser)opts.cmdA=cmdUser;
@@ -15207,21 +15207,20 @@ function _anaSimValidateSwaps(swaps,libUser,cmdUser,simOpts,arcSz){
     return wr/ARCHS.length;
   }
   var baseWr=evalLib(libUser);
-  var accepted=[];
-  var currentLib=libUser;
-  var currentWr=baseWr;
-  var maxCheck=Math.min(swaps.length,20); // max 20 candidats examinés
-  for(var i=0;i<maxCheck&&accepted.length<12;i++){
-    var testLib=_anaApplyOptToLib(currentLib,[swaps[i]]);
-    var testWr=evalLib(testLib);
-    // Accepter si la perte simulée est ≤5% (bruit inhérent aux mini-simulations)
-    if(testWr>=currentWr-0.05){
-      accepted.push(swaps[i]);
-      currentLib=testLib;
-      currentWr=testWr;
-    }
+  var TOLERANCE=0.03; // ≈ 2 écarts-types → seuil fiable
+  // Test rapide : tous les swaps sont-ils acceptables ?
+  if(evalLib(_anaApplyOptToLib(libUser,swaps))>=baseWr-TOLERANCE)return swaps.slice();
+  // Test l'autre extrême : même 1 swap est-il acceptable ?
+  if(evalLib(_anaApplyOptToLib(libUser,swaps.slice(0,1)))<baseWr-TOLERANCE)return [];
+  // Recherche binaire sur le préfixe : trouver le plus grand N tel que les N premiers swaps soient OK
+  var lo=0,hi=swaps.length-1,best=0;
+  while(lo<=hi){
+    var mid=Math.floor((lo+hi)/2);
+    var testWr=evalLib(_anaApplyOptToLib(libUser,swaps.slice(0,mid+1)));
+    if(testWr>=baseWr-TOLERANCE){best=mid+1;lo=mid+1;}
+    else{hi=mid-1;}
   }
-  return accepted;
+  return swaps.slice(0,best);
 }
 
 /* ----- Couleur de la cellule selon le win rate (style metagame) ----- */
