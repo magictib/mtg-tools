@@ -996,6 +996,26 @@ body.mana-cursor{cursor:none}
   </div>
 </div>
 
+<!-- Builder export modal -->
+<div id="bld-export-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.82);align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto">
+  <div style="background:var(--s1);border:.5px solid var(--bd2);border-radius:16px;padding:1.25rem;width:100%;max-width:480px;margin-top:1.5rem">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:1rem">
+      <div class="lbl" style="margin-bottom:0;font-size:.95rem">📤 Exporter le deck</div>
+      <button class="btn btnsm btnrd" style="margin-left:auto;padding:3px 10px" onclick="bldExportClose()">✕</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:.75rem;flex-wrap:wrap">
+      <button class="btn btnsm active" id="bld-exp-fmt-mox" onclick="bldExportSetFmt('mox',this)">Moxfield</button>
+      <button class="btn btnsm" id="bld-exp-fmt-myth" onclick="bldExportSetFmt('myth',this)">Mythic Tools</button>
+      <button class="btn btnsm" id="bld-exp-fmt-txt" onclick="bldExportSetFmt('txt',this)">Texte brut</button>
+    </div>
+    <textarea id="bld-exp-ta" readonly style="width:100%;box-sizing:border-box;height:300px;resize:vertical;background:var(--s2);color:var(--tx);border:.5px solid var(--bd2);border-radius:8px;padding:8px;font-family:monospace;font-size:.75rem;line-height:1.55;outline:none"></textarea>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <button class="btn btnsm btnp" onclick="bldExportCopy()">📋 Copier</button>
+      <span id="bld-exp-ok" style="font-size:.78rem;color:var(--gr2);display:none">✓ Copié !</span>
+    </div>
+  </div>
+</div>
+
 <!-- Auth overlay (visible until logged in + approved) -->
 <div id="auth-overlay">
   <div style="width:100%;max-width:360px">
@@ -1845,6 +1865,7 @@ body.mana-cursor{cursor:none}
          ondragover="bldDragOver(event,'avoir')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'avoir')"></div>
     <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
       <button class="btn btnsm btnp" onclick="bldSaveDeck()">💾 Sauvegarder</button>
+      <button class="btn btnsm" onclick="bldExportDeck()">📤 Exporter</button>
       <button class="btn btnsm" onclick="bldClear()">🗑 Vider</button>
     </div>
   </div>
@@ -11863,7 +11884,7 @@ document.addEventListener('DOMContentLoaded',function(){
 // ===== BUILDER =====
 var bldMain=[],bldSide=[],bldAvoir=[],bldOublie=[],bldSrchColors=new Set(),bldSrchRarity='',bldSrchType='',bldSrchKeywords=new Set(),bldNextPage=null,bldData={};
 var bldCollFilter=new Set();
-var bldFormat='',bldSortMode='type',_bldDragSrc=null,_bldDragSection=null;
+var bldFormat='',bldSortMode='type',_bldDragSrc=null,_bldDragSection=null,bldCurDeckId=null;
 var BLD_FMT_SCRYFALL={commander:'commander',paupercmd:'paupercommander',pauper:'pauper',standard:'standard',pioneer:'pioneer',modern:'modern',legacy:'legacy',vintage:'vintage'};
 var BLD_TYPE_ORDER=['Creature','Planeswalker','Instant','Sorcery','Enchantment','Artifact','Land','Other'];
 var BLD_TYPE_LABELS={Creature:'Créatures',Planeswalker:'Planeswalkers',Instant:'Éphémères',Sorcery:'Rituels',Enchantment:'Enchantements',Artifact:'Artefacts',Land:'Terrains',Other:'Autres'};
@@ -11920,6 +11941,7 @@ function bldInitDeckSel(){
 function bldLoadSelectedDeck(){
   var sel=document.getElementById('bld-deck-sel');if(!sel||!sel.value)return;
   var id=sel.value;var dk=decks[id];if(!dk)return;
+  bldCurDeckId=id;
   bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
   var fmtSel=document.getElementById('bld-fmt-sel');
   if(dk.format){bldFormat=dk.format;if(fmtSel)fmtSel.value=dk.format;}
@@ -11932,13 +11954,15 @@ function bldLoadSelectedDeck(){
   var missing=names.filter(function(n){return !bldData[n.toLowerCase()];});
   function afterFetch(){
     cards.forEach(function(c){
+      var isSide=c.sec&&c.sec.toLowerCase().indexOf('side')>=0;
+      var target=isSide?bldSide:bldMain;
       var d=bldData[c.name.toLowerCase()];
-      if(d){bldMain.push(Object.assign({},d,{qty:c.qty}));return;}
+      if(d){target.push(Object.assign({},d,{qty:c.qty}));return;}
       // Fallback : _anaData (cache analyse) pour type/img/cmc
       var nl=stripDFC(c.name||'').toLowerCase();
       var am=_anaData[nl];
-      if(am)bldMain.push({name:c.name,qty:c.qty,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||'',legalities:{}});
-      else bldMain.push({name:c.name,qty:c.qty,cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}});
+      if(am)target.push({name:c.name,qty:c.qty,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||'',legalities:{}});
+      else target.push({name:c.name,qty:c.qty,cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}});
     });
     renderBldDecks();renderBldStats();
   }
@@ -11957,15 +11981,56 @@ function bldLoadSelectedDeck(){
 }
 function bldSaveDeck(){
   if(!bldMain.length){alert('Deck vide');return;}
+  var mainLines=bldMain.map(function(c){return c.qty+'x '+c.name;});
+  var sideLines=bldSide.map(function(c){return c.qty+'x '+c.name;});
+  var raw=mainLines.join('\n')+(sideLines.length?'\n// Sideboard\n'+sideLines.join('\n'):'');
+  if(bldCurDeckId&&decks[bldCurDeckId]){
+    decks[bldCurDeckId]=Object.assign({},decks[bldCurDeckId],{rawName:raw,cards:bldMain.slice(),format:bldFormat||decks[bldCurDeckId].format||null,updatedAt:Date.now()});
+    saveDecks();alert('Deck "'+decks[bldCurDeckId].name+'" mis à jour !');bldInitDeckSel();
+    return;
+  }
   var name=prompt('Nom du deck :','Nouveau deck');if(!name)return;
-  var lines=bldMain.map(function(c){return c.qty+'x '+c.name;});
-  if(bldSide.length){lines.push('// Sideboard');bldSide.forEach(function(c){lines.push(c.qty+'x '+c.name);});}
-  var raw=lines.join('\n');
   var id=Date.now().toString();
-  decks[id]={name:name,rawName:raw,cards:bldMain,owner:dOwner||0,ownerUid:_profUid(dOwner||0)||userId,format:bldFormat||null,commander:null,colors:[],updatedAt:Date.now()};
+  decks[id]={name:name,rawName:raw,cards:bldMain.slice(),owner:dOwner||0,ownerUid:_profUid(dOwner||0)||userId,format:bldFormat||null,commander:null,colors:[],updatedAt:Date.now()};
+  bldCurDeckId=id;
   saveDecks();alert('Deck "'+name+'" sauvegardé !');bldInitDeckSel();
 }
-function bldClear(){if(!confirm('Vider le deck ?'))return;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];renderBldDecks();renderBldStats();}
+function bldClear(){if(!confirm('Vider le deck ?'))return;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];bldCurDeckId=null;renderBldDecks();renderBldStats();}
+var _bldExpFmt='mox';
+function bldExportDeck(){
+  if(!bldMain.length){alert('Deck vide');return;}
+  _bldExpFmt='mox';
+  ['mox','myth','txt'].forEach(function(f){var b=document.getElementById('bld-exp-fmt-'+f);if(b)b.classList.toggle('active',f==='mox');});
+  _bldExpRefresh();
+  var m=document.getElementById('bld-export-modal');if(m)m.style.display='flex';
+}
+function bldExportClose(){var m=document.getElementById('bld-export-modal');if(m)m.style.display='none';}
+function bldExportSetFmt(fmt,btn){
+  _bldExpFmt=fmt;
+  document.querySelectorAll('#bld-exp-fmt-mox,#bld-exp-fmt-myth,#bld-exp-fmt-txt').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  _bldExpRefresh();
+}
+function _bldExpRefresh(){
+  var ta=document.getElementById('bld-exp-ta');if(!ta)return;
+  var fmtLine=function(c){return _bldExpFmt==='myth'?c.qty+'x '+c.name:c.qty+' '+c.name;};
+  var lines=[];
+  if(_bldExpFmt==='txt')lines.push('// Deck ('+bldMain.reduce(function(s,c){return s+c.qty;},0)+' cartes)');
+  bldMain.forEach(function(c){lines.push(fmtLine(c));});
+  if(bldSide.length){
+    lines.push('');
+    lines.push(_bldExpFmt==='myth'?'Sideboard:':'// Sideboard');
+    bldSide.forEach(function(c){lines.push(fmtLine(c));});
+  }
+  ta.value=lines.join('\n');
+}
+function bldExportCopy(){
+  var ta=document.getElementById('bld-exp-ta');if(!ta)return;
+  ta.select();
+  var ok=document.getElementById('bld-exp-ok');
+  try{navigator.clipboard.writeText(ta.value).then(function(){if(ok){ok.style.display='inline';setTimeout(function(){ok.style.display='none';},2000);}}).catch(function(){document.execCommand('copy');if(ok){ok.style.display='inline';setTimeout(function(){ok.style.display='none';},2000);}});}
+  catch(e){document.execCommand('copy');if(ok){ok.style.display='inline';setTimeout(function(){ok.style.display='none';},2000);}}
+}
 // Drag & drop
 function bldDragStart(e,name,section){
   _bldDragSrc=name;_bldDragSection=section;
