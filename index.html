@@ -13629,9 +13629,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v15: ramp bonus fixation couleur (signet/talisman)
-  if((__aP.__version||0)<15){
-    _anaData={__version:15};
+  // Migration v16: ramp bonus Arcane Signet + zoom localisé
+  if((__aP.__version||0)<16){
+    _anaData={__version:16};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13639,7 +13639,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=15;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=16;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -13810,6 +13810,12 @@ function _applyLocalizedSrc(img,uri,lang){
   var origSrc=img.dataset.originalSrc;
   if(origSrc){img.onerror=function(){img.src=origSrc;img.onerror=null;};}
   img.src=uri;
+  // Propager l'URL localisée aux attributs de zoom du parent (data-img / data-zoom)
+  var p=img.parentElement;
+  if(p&&p.dataset){
+    if(p.dataset.img)p.dataset.img=uri;
+    if(p.dataset.zoom)p.dataset.zoom=uri;
+  }
 }
 
 function _scheduleLocalizeTexts(){
@@ -14012,6 +14018,8 @@ function anaInferTags(meta){
   // Fixation de couleur : produit 2 manas colorés (signet) ou 1 mana au choix entre 2 couleurs (talisman)
   if(/add \{[wubrg]\}\{[wubrg]\}/.test(oracle))ramp+=0.7;
   if(/add \{[wubrg]\} or \{[wubrg]\}/.test(oracle))ramp+=0.5;
+  // Arcane Signet / Commander's Sphere : mana de toutes les couleurs du commandant
+  if(/add one mana of any color in your commander/.test(oracle))ramp+=0.7;
   if(/landfall/.test(oracle))ramp+=0.3;
   // Réduction de coût de sorts (ex: Goblin Electromancer, Baral, Curious Homunculus)
   if(/(?:instant|sorcery|spell)s? (?:you cast )?costs? (?:\{?\w\}? )?less to cast/.test(oracle))ramp+=0.9;
@@ -15983,7 +15991,7 @@ function anaRender(deckId){
     html+='<div style="display:grid;grid-template-columns:minmax(0,210px) 1fr;gap:12px;align-items:stretch">';
     html+='<div class="card" style="display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center">';
     if(_cmdImgUrl){
-      html+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:100%;max-width:210px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.7);cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=\''+esc(_cmdImgUrl)+'\';z.style.display=\'flex\'">';
+      html+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:100%;max-width:210px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.7);cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=this.src;z.style.display=\'flex\'">';
     }
     html+='<div style="width:100%">';
     html+='<div class="lbl" style="margin-bottom:4px">👑 '+esc(_cmdNameVis)+'</div>';
