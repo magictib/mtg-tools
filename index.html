@@ -11933,21 +11933,27 @@ function bldLoadSelectedDeck(){
   function afterFetch(){
     cards.forEach(function(c){
       var d=bldData[c.name.toLowerCase()];
-      if(d)bldMain.push(Object.assign({},d,{qty:c.qty}));
+      if(d){bldMain.push(Object.assign({},d,{qty:c.qty}));return;}
+      // Fallback : _anaData (cache analyse) pour type/img/cmc
+      var nl=stripDFC(c.name||'').toLowerCase();
+      var am=_anaData[nl];
+      if(am)bldMain.push({name:c.name,qty:c.qty,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||'',legalities:{}});
       else bldMain.push({name:c.name,qty:c.qty,cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}});
     });
     renderBldDecks();renderBldStats();
   }
   if(!missing.length){afterFetch();return;}
-  // Scryfall collection batch (max 75)
-  var identifiers=missing.slice(0,75).map(function(n){return{name:n};});
-  fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:identifiers})})
-    .then(function(r){return r.json();})
-    .then(function(data){
-      (data.data||[]).forEach(function(c){bldData[bldCardObj(c).name.toLowerCase()]=bldCardObj(c);});
-      afterFetch();
-    })
-    .catch(function(){afterFetch();});
+  // Scryfall collection batch par tranches de 75
+  var _batches=[];for(var _bi=0;_bi<missing.length;_bi+=75)_batches.push(missing.slice(_bi,_bi+75));
+  function _nextBatch(){
+    if(!_batches.length){afterFetch();return;}
+    var ids=_batches.shift().map(function(n){return{name:n};});
+    fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:ids})})
+      .then(function(r){return r.json();})
+      .then(function(data){(data.data||[]).forEach(function(c){bldData[bldCardObj(c).name.toLowerCase()]=bldCardObj(c);});_nextBatch();})
+      .catch(function(){_nextBatch();});
+  }
+  _nextBatch();
 }
 function bldSaveDeck(){
   if(!bldMain.length){alert('Deck vide');return;}
