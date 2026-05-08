@@ -13629,9 +13629,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v13: rarity normalisée via legalities.pauper dans _anaIngestCard
-  if((__aP.__version||0)<13){
-    _anaData={__version:13};
+  // Migration v14: wincon boost pour payoffs gain de vie (ex: Celestial Unicorn)
+  if((__aP.__version||0)<14){
+    _anaData={__version:14};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13639,7 +13639,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=13;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=14;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -14080,6 +14080,8 @@ function anaInferTags(meta){
   if(/double|infinite/.test(oracle))wincon+=0.7;
   if(/\+1\/\+1.*creatures you control/.test(oracle))wincon+=0.5;
   if(/commander deals/.test(oracle))wincon+=0.5;
+  // Payoff gain de vie : +1/+1 counter sur trigger de gain de vie → wincon fort en deck lifegain
+  if(/whenever.*you gain life.*\+1\/\+1|whenever.*you gain life.*put.*counter|whenever.*gain.*life.*put.*counter/.test(oracle))wincon+=1.5;
   // Mill
   var millPat=oracle.match(/mills? (\w+) cards?/g)||[];
   millPat.forEach(function(m){var w=m.replace(/mills? /,'').replace(/ cards?/,'').trim();mill+=(nMap[w]||5);});
@@ -14531,7 +14533,8 @@ var _COMMANDER_THEME_RULES=[
   {p:/whenever you sacrifice.*\+1\/\+1 counter|\+1\/\+1 counter.*whenever you sacrifice/i, m:{sacrifice:2.5,wincon:1.6,counters:1.4}, label:'Sacrifice-counters'},
   // Korvold / Prossh-type : sacrifice → draw ou bénéfice massif
   {p:/whenever you sacrifice a (permanent|creature|token).*draw|whenever a (creature|permanent).*dies.*draw/i, m:{sacrifice:2.0,wincon:1.5,draw:1.4}, label:'Sacrifice-draw'},
-  {p:/each opponent loses \d+ life|deals \d+ damage to each opponent|drain/i, m:{wincon:1.5}, label:'Drain'},
+  {p:/each opponent loses \d+ life|deals \d+ damage to each opponent|drain/i, m:{wincon:1.5,lifegain:1.3}, label:'Drain'},
+  {p:/(?:and )?you gain \d+ life|you gain that much life|you gain life equal/i, m:{lifegain:1.3}, label:'Lifegain-passive'},
   // +1/+1 / compteurs
   {p:/\+1\/\+1 counter|proliferate/i,                          m:{wincon:1.3,counters:1.3}, label:'+1/+1 counters'},
   {p:/for each (counter|\+1\/\+1)/i,                           m:{wincon:1.4,counters:1.4}, label:'Counter-payoff'},
