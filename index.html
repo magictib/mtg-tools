@@ -3915,6 +3915,8 @@ var _adminEditUid=null; // uid de l'ami dont on édite le deck en mode admin
 var _deckOrders={}, _dkDragId=null, _dkDragPi=null;
 var dFormat='', dCommander=null, dColors=[];
 var dCardMeta={}, dSortMode='sec';
+var _dMinRarityCache={};
+function _rRank(r){return ({common:0,uncommon:1,rare:2,mythic:3})[r]!==undefined?({common:0,uncommon:1,rare:2,mythic:3})[r]:99;}
 var COMMANDER_FMTS=['commander','paupercmd','brawl','oathbreaker'];
 var dbarOpen=[false]; // dynamic length
 var _deckFilterActive=null; // null = not init; array of active profile indices
@@ -5266,11 +5268,11 @@ function fetchMissingPrices(){
     return nl;
   }
   function fuzzyFallback(){
-    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();return;}
+    if(!notFound.length){renderPriceEstimate();renderDeckStats();analyzeSmartDeck();fetchMinRarity();return;}
     console.log('[Deck] Fallback fuzzy pour '+notFound.length+' carte(s) non trouvée(s) en exact :',notFound.map(function(x){return x.name;}).join(', '));
     var i=0;
     function next(){
-      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();return;}
+      if(i>=notFound.length){renderPriceEstimate();renderDeckStats();analyzeSmartDeck();fetchMinRarity();return;}
       var item=notFound[i++];
       fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(item.name))
         .then(function(r){return r.ok?r.json():null;})
@@ -5302,6 +5304,47 @@ function fetchMissingPrices(){
       batch.forEach(function(item){if(!dCardMeta[item.nl])notFound.push(item);});
       if(++done===batches.length)fuzzyFallback();
     });
+  });
+}
+function fetchMinRarity(){
+  var BASICS=['marais','plaine','forêt','foret','montagne','île','ile','swamp','plains','forest','mountain','island'];
+  var toFetch=[];
+  dCards.forEach(function(c){
+    if(BASICS.indexOf(c.nl)>=0)return;
+    var cur=(dCardMeta[c.nl]||{}).rarity||'';
+    if(!cur||cur==='common')return;
+    if(_dMinRarityCache.hasOwnProperty(c.nl)){
+      var cached=_dMinRarityCache[c.nl];
+      if(cached&&dCardMeta[c.nl]&&_rRank(cached)<_rRank(dCardMeta[c.nl].rarity))dCardMeta[c.nl].rarity=cached;
+      return;
+    }
+    toFetch.push(c);
+  });
+  if(!toFetch.length){renderDeck();return;}
+  var batches=[];
+  for(var i=0;i<toFetch.length;i+=10)batches.push(toFetch.slice(i,i+10));
+  var done=0;
+  function doAfter(){if(++done===batches.length)renderDeck();}
+  batches.forEach(function(batch,bi){
+    setTimeout(function(){
+      var q=batch.map(function(c){return '!"'+stripDFC(c.name||'').replace(/"/g,'')+'"';}).join(' OR ');
+      fetch('https://api.scryfall.com/cards/search?q=('+encodeURIComponent(q)+')&unique=cards&order=rarity&dir=asc')
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(data){
+          var resultMap={};
+          (data&&data.data||[]).forEach(function(card){resultMap[stripDFC(card.name||'').toLowerCase()]=card.rarity||'';});
+          batch.forEach(function(c){
+            var minR=resultMap[c.nl]||(dCardMeta[c.nl]||{}).rarity||'';
+            _dMinRarityCache[c.nl]=minR;
+            if(dCardMeta[c.nl]&&_rRank(minR)<_rRank(dCardMeta[c.nl].rarity))dCardMeta[c.nl].rarity=minR;
+          });
+          doAfter();
+        })
+        .catch(function(){
+          batch.forEach(function(c){_dMinRarityCache[c.nl]=(dCardMeta[c.nl]||{}).rarity||'';});
+          doAfter();
+        });
+    },bi*150);
   });
 }
 function setDSort(mode,btn){
