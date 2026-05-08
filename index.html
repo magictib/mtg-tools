@@ -15282,27 +15282,25 @@ function _anaRenderOptPanel(validatedSwaps){
 // Appelé uniquement quand tous les swaps dégradent la perf.
 // Utilise les mêmes archétypes/runs que la matrice pour cohérence totale.
 // baseWr = avgCur déjà calculé pour éviter de re-simuler le deck actuel.
+// Scan linéaire : cherche le préfixe de swaps qui maximise réellement le win rate
+// (doit strictement améliorer, pas juste "rester dans une tolérance").
 function _anaSimValidateSwaps(swaps,libUser,cmdUser,simOpts,arcSz,archetypes,simRuns,baseWr){
   if(!swaps||!swaps.length||!libUser||libUser.length<20)return [];
   var opts=Object.assign({},simOpts||{});
   if(cmdUser)opts.cmdA=cmdUser;
   arcSz=arcSz||libUser.length;
-  var TOLERANCE=0.03;
   function evalLib(lib){
     var wr=0;
     archetypes.forEach(function(a){wr+=anaWinRate(lib,function(){return _archetypeDeck(a.key,arcSz);},simRuns,opts);});
     return wr/archetypes.length;
   }
-  // Test 1 swap : si même ça dégrade → retourner 0
-  if(evalLib(_anaApplyOptToLib(libUser,swaps.slice(0,1)))<baseWr-TOLERANCE)return [];
-  // Recherche binaire sur le préfixe
-  var lo=0,hi=swaps.length-1,best=0;
-  while(lo<=hi){
-    var mid=Math.floor((lo+hi)/2);
-    if(evalLib(_anaApplyOptToLib(libUser,swaps.slice(0,mid+1)))>=baseWr-TOLERANCE){best=mid+1;lo=mid+1;}
-    else{hi=mid-1;}
+  var bestWr=baseWr;
+  var bestN=0;
+  for(var n=1;n<=swaps.length;n++){
+    var wr=evalLib(_anaApplyOptToLib(libUser,swaps.slice(0,n)));
+    if(wr>bestWr){bestWr=wr;bestN=n;}
   }
-  return swaps.slice(0,best);
+  return swaps.slice(0,bestN);
 }
 
 /* ----- Couleur de la cellule selon le win rate (style metagame) ----- */
@@ -15846,20 +15844,25 @@ function anaRefreshMatrix(){
     var _libOptAll=_rawSwaps.length?_anaApplyOptToLib(libUser,_rawSwaps):null;
     var _matrixOptAll=_libOptAll?archetypes.map(function(a){return {arch:a,wr:anaWinRate(_libOptAll,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};}):null;
     var _avgOptAll=_matrixOptAll?_matrixOptAll.reduce(function(s,m){return s+m.wr;},0)/archetypes.length:null;
-    var TOLERANCE=0.03;
-    // Étape 3 : valider — si tous les swaps sont OK on les garde tous, sinon recherche binaire
+    // Étape 3 : valider — n'accepter que des swaps qui améliorent réellement le win rate
     var _validSwaps,matrixOpt,avgOpt;
     if(!_rawSwaps.length){
       _validSwaps=[];matrixOpt=null;avgOpt=null;
-    } else if(_avgOptAll>=avgCur-TOLERANCE){
-      // Tous les swaps sont acceptables — réutiliser les simulations déjà faites
+    } else if(_avgOptAll>avgCur){
+      // Tous les swaps ensemble améliorent — réutiliser les simulations déjà faites
       _validSwaps=_rawSwaps;matrixOpt=_matrixOptAll;avgOpt=_avgOptAll;
     } else {
-      // Recherche binaire : même archétypes/runs pour cohérence totale avec la matrice
+      // Scan linéaire : trouver le sous-ensemble optimal
       _validSwaps=_anaSimValidateSwaps(_rawSwaps,libUser,cmdUser,_simOpts,_arcSz,archetypes,_simRuns,avgCur);
-      var _libOptV=_validSwaps.length?_anaApplyOptToLib(libUser,_validSwaps):null;
-      matrixOpt=_libOptV?archetypes.map(function(a){return {arch:a,wr:anaWinRate(_libOptV,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};}):null;
-      avgOpt=matrixOpt?matrixOpt.reduce(function(s,m){return s+m.wr;},0)/archetypes.length:null;
+      if(_validSwaps.length){
+        var _libOptV=_anaApplyOptToLib(libUser,_validSwaps);
+        matrixOpt=archetypes.map(function(a){return {arch:a,wr:anaWinRate(_libOptV,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
+        avgOpt=matrixOpt.reduce(function(s,m){return s+m.wr;},0)/archetypes.length;
+        // Vérification finale : rejeter si ça n'améliore toujours pas
+        if(avgOpt<=avgCur){_validSwaps=[];matrixOpt=null;avgOpt=null;}
+      } else {
+        matrixOpt=null;avgOpt=null;
+      }
     }
     if(_anaState)_anaState.validatedSwaps=_validSwaps;
     _anaRenderOptPanel(_validSwaps);
