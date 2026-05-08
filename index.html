@@ -13631,9 +13631,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v17: manarock flag + plancher score + protection optimiseur
-  if((__aP.__version||0)<17){
-    _anaData={__version:17};
+  // Migration v18: mana rocks exclus du bas + anaScoreOptimize protégé
+  if((__aP.__version||0)<18){
+    _anaData={__version:18};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13641,7 +13641,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=17;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=18;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -15439,7 +15439,7 @@ function anaFullOptimize(scoredRows,pool,maxIter){
     var nonLand=current.filter(function(r){
       if(r.meta.tags&&r.meta.tags.isLand)return false;
       if(addedNls[r.card.nl])return false;
-      if(r.meta&&r.meta.tags&&r.meta.tags.manarock&&_mrCount<=4)return false;
+      if(r.meta&&r.meta.tags&&r.meta.tags.manarock&&_mrCount<=6)return false;
       return true;
     });
     if(!nonLand.length)break;
@@ -15613,7 +15613,13 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
     return s;
   }
   for(var i=0;i<maxIter;i++){
-    var nonLand=current.filter(function(r){return r.meta&&r.meta.tags&&!r.meta.tags.isLand&&!addedNls[r.card.nl];});
+    var _mrSO=current.filter(function(r){return r.meta&&r.meta.tags&&r.meta.tags.manarock;}).length;
+    var nonLand=current.filter(function(r){
+      if(!r.meta||!r.meta.tags||r.meta.tags.isLand)return false;
+      if(addedNls[r.card.nl])return false;
+      if(r.meta.tags.manarock&&_mrSO<=6)return false;
+      return true;
+    });
     if(!nonLand.length||!poolCopy.length)break;
     var curScore=score(cnt);
     var bestGain=0;var bestSwap=null;
@@ -15653,7 +15659,7 @@ function anaOptimize(scoredRows,pool,iterations){
     var _mrC=current.filter(function(r){return r.meta&&r.meta.tags&&r.meta.tags.manarock;}).length;
     var nonLand=current.filter(function(r){
       if(r.meta.tags&&r.meta.tags.isLand)return false;
-      if(r.meta&&r.meta.tags&&r.meta.tags.manarock&&_mrC<=4)return false;
+      if(r.meta&&r.meta.tags&&r.meta.tags.manarock&&_mrC<=6)return false;
       return true;
     });
     if(!nonLand.length)break;
@@ -15822,7 +15828,8 @@ function anaRender(deckId){
     return true;
   });
   var topRows=nonLandRows.slice().sort(function(a,b){return b.score-a.score;}).slice(0,7);
-  var bottomRows=nonLandRows.slice().sort(function(a,b){return a.score-b.score;}).slice(0,7);
+  // Exclure les mana rocks du bas : ce sont des cartes d'infrastructure, pas des cartes inefficaces
+  var bottomRows=nonLandRows.filter(function(r){return !(r.meta&&r.meta.tags&&r.meta.tags.manarock);}).sort(function(a,b){return a.score-b.score;}).slice(0,7);
 
   // Detection archetype + matrice de frequence (EDHREC-like) + EDHREC reel si dispo
   var detectedArch=_anaResolveArchetype(deck,deckId);
