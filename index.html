@@ -13631,9 +13631,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v18: mana rocks exclus du bas + anaScoreOptimize protégé
-  if((__aP.__version||0)<18){
-    _anaData={__version:18};
+  // Migration v19: cap multiplicateurs thème 1.5 + targets/weights rééquilibrés pour draw-heavy
+  if((__aP.__version||0)<19){
+    _anaData={__version:19};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13641,7 +13641,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=18;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=19;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -14163,8 +14163,8 @@ function anaTargets(fmt,totalCards,themes){
   var drawMult=th.draw||1;var rampMult=th.ramp||1;var winconMult=th.wincon||1;var discardMult=th.discard||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
     var base={land:[36,38],ramp:[10,12],draw:[10,12],removal:[6,10],interaction:[8,10],wincon:[5,9]};
-    if(drawMult>=2.0){base.draw=[15,20];base.wincon=[2,4];}
-    else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[3,6];}
+    if(drawMult>=2.0){base.draw=[15,20];base.wincon=[4,7];base.removal=[8,11];base.interaction=[9,12];}
+    else if(drawMult>=1.5){base.draw=[12,16];base.wincon=[3,6];base.removal=[7,10];base.interaction=[8,11];}
     if(rampMult>=1.5&&base.ramp[0]<12)base.ramp=[12,16];
     if(winconMult>=1.4&&base.wincon[0]>=5)base.wincon=[7,12];
     if(discardMult>=1.5){base.draw=[6,10];base.wincon=[6,11];base.interaction=[10,15];}
@@ -14177,8 +14177,8 @@ function anaWeights(fmt,totalCards,themes){
   var th=themes||{};
   var drawMult=th.draw||1;var winconMult=th.wincon||1;var discardMult=th.discard||1;
   if(anaIsCommanderFormat(fmt)||totalCards>=80){
-    if(drawMult>=2.0)return{land:.15,ramp:.14,draw:.30,removal:.15,interaction:.15,wincon:.11};
-    if(drawMult>=1.5)return{land:.16,ramp:.15,draw:.24,removal:.16,interaction:.15,wincon:.14};
+    if(drawMult>=2.0)return{land:.15,ramp:.14,draw:.22,removal:.18,interaction:.18,wincon:.13};
+    if(drawMult>=1.5)return{land:.16,ramp:.15,draw:.21,removal:.17,interaction:.16,wincon:.15};
     if(discardMult>=1.5)return{land:.17,ramp:.14,draw:.13,removal:.17,interaction:.19,wincon:.20};
     if(winconMult>=1.4)return{land:.16,ramp:.14,draw:.16,removal:.18,interaction:.16,wincon:.20};
     return{land:.18,ramp:.16,draw:.18,removal:.16,interaction:.16,wincon:.16};
@@ -14389,12 +14389,18 @@ function anaCardScore(meta){
   if(!meta||!meta.tags)return 0;
   var t=meta.tags;if(t.isLand)return 0;
   var th=_anaCurrentThemes||{draw:1,removal:1,ramp:1,interaction:1,wincon:1,protection:0};
+  // Cap multipliers at 1.5 : évite que draw×2.0 rende removal 2.5× moins valorisé que draw
+  var thDraw=Math.min(th.draw||1,1.5);
+  var thRemoval=Math.min(th.removal||1,1.5);
+  var thRamp=Math.min(th.ramp||1,1.5);
+  var thInteract=Math.min(th.interaction||1,1.5);
+  var thWincon=Math.min(th.wincon||1,1.5);
   var base=(
-    t.draw*2.5*(th.draw||1)+
-    t.removal*2.0*(th.removal||1)+
-    t.ramp*1.8*(th.ramp||1)+
-    t.interaction*2.0*(th.interaction||1)+
-    t.wincon*3.0*(th.wincon||1)
+    t.draw*2.5*thDraw+
+    t.removal*2.0*thRemoval+
+    t.ramp*1.8*thRamp+
+    t.interaction*2.0*thInteract+
+    t.wincon*3.0*thWincon
   )-((meta.cmc||0)*0.4);
   if(th.protection&&t.protection)base+=t.protection*1.5*(th.protection||0);
   // Bonus untap (ex: Freed from the Real) — fort si commandant avec ability de tap (protection > 1)
