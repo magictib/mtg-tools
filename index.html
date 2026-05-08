@@ -11914,6 +11914,7 @@ function bldLoadSelectedDeck(){
   bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
   var fmtSel=document.getElementById('bld-fmt-sel');
   if(dk.format){bldFormat=dk.format;if(fmtSel)fmtSel.value=dk.format;}
+  dCommander=dk.commander||null;
   var raw=dk.rawName||'';
   var cards=parseList(raw);
   var names=cards.map(function(c){return c.name;});
@@ -12584,7 +12585,25 @@ function bldOptimize(){
     if(isCmd&&dCommander&&dCommander.name){
       anaFetchEDHRECCommander(dCommander.name,fmt,function(edhrecFreq){
         _anaCurrentEDHREC=edhrecFreq||null;
-        _runOptimize();
+        // Pré-fetcher les cartes EDHREC absentes de _anaData (comme anaRender le fait)
+        if(edhrecFreq&&!isPauper){
+          var _inDkNls={};
+          bldDeckTemp.cards.forEach(function(c){_inDkNls[c.nl]=1;});
+          var _pendNls=[];
+          Object.keys(edhrecFreq).slice(0,80).forEach(function(nl){
+            if(_inDkNls[nl]||_anaIsBasicLandNl(nl)||_anaData[nl])return;
+            if((edhrecFreq[nl].freq||0)<0.05)return;
+            _pendNls.push(nl);
+          });
+          if(_pendNls.length){
+            var _pendFb=_pendNls.map(function(nl){return {nl:nl,name:nl.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();})};});
+            anaFetchMissing(_pendNls,_pendFb,_runOptimize);
+          } else {
+            _runOptimize();
+          }
+        } else {
+          _runOptimize();
+        }
       });
     } else {
       _anaCurrentEDHREC=null;
@@ -13901,7 +13920,12 @@ function _anaInColors(cardCi,deckCi){
 }
 function _anaDeckCi(deck){
   if(deck.commander&&deck.commander.color_identity)return deck.commander.color_identity;
-  if(deck.commander&&deck.commander.colors)return deck.commander.colors;
+  if(deck.commander&&deck.commander.name){
+    var _cmdNl=stripDFC(deck.commander.name||'').toLowerCase();
+    var _cmdMeta=_anaData[_cmdNl];
+    if(_cmdMeta&&_cmdMeta.colorIdentity&&_cmdMeta.colorIdentity.length)return _cmdMeta.colorIdentity;
+  }
+  if(deck.commander&&deck.commander.colors&&deck.commander.colors.length)return deck.commander.colors;
   if(deck.colors&&deck.colors.length)return deck.colors;
   return null;
 }
