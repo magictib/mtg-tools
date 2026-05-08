@@ -15762,105 +15762,7 @@ function anaRender(deckId){
   var _cmdMeta=_cmdNameVis?(_anaData[_cmdMetaNl]||{}):{};
   var _cmdImgUrl=_cmdNameVis?((deck.commander&&deck.commander.img)||_cmdMeta.imageUri||''):'';
 
-  html+='<div style="display:grid;grid-template-columns:'+(_cmdNameVis?'minmax(0,210px) 1fr':'1fr')+';gap:12px;align-items:start">';
-
-  // Colonne gauche : image + oracle du commandant
-  if(_cmdNameVis){
-    html+='<div class="card" style="display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center">';
-    if(_cmdImgUrl){
-      html+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:100%;max-width:210px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.7);cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=\''+esc(_cmdImgUrl)+'\';z.style.display=\'flex\'">';
-    }
-    html+='<div style="width:100%">';
-    html+='<div class="lbl" style="margin-bottom:4px">👑 '+esc(_cmdNameVis)+'</div>';
-    if(_cmdMeta.typeLine)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">'+esc(_cmdMeta.typeLine)+'</div>';
-    if(_cmdMeta.oracleText){
-      html+='<div style="font-size:11px;color:var(--tx2);line-height:1.6;white-space:pre-line;border-left:2px solid var(--ac);padding-left:10px;text-align:left" data-oracle-nl="'+esc(_cmdMetaNl)+'">'+esc(_cmdMeta.oracleText)+'</div>';
-    } else {
-      html+='<div style="font-size:11px;color:var(--tx3);font-style:italic" data-oracle-nl="'+esc(_cmdMetaNl)+'">Texte oracle non disponible.</div>';
-    }
-    html+='</div></div>';
-  }
-
-  // Colonne droite : infos deck (grade + nom + format + thèmes + score)
-  html+='<div class="card">';
-  html+='<div class="ana-deck-header">';
-  html+='<div class="ana-grade-badge" style="color:'+grade.col+';border-color:'+grade.col+';background:rgba(0,0,0,.4)" title="'+overall+'/100">'+grade.l+'</div>';
-  html+='<div class="ana-deck-info">';
-  html+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
-  html+='<div class="ana-deck-meta">'+(fmt?fmt.toUpperCase():'Format libre')+' · '+totalCards+' cartes · '+ciHtml;
-  if(deck.commander&&deck.commander.name)html+=' · 👑 '+esc(deck.commander.name);
-  var archDef=_ARCH_LABELS[detectedArch]||_ARCH_LABELS.midrange;
-  html+=' · <span class="ana-arch-wrap" style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:rgba(201,168,76,.12);border:.5px solid var(--gold);border-radius:10px;font-size:10px;color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.04em" title="'+archDef.hint+(isArchOverride?' — défini manuellement':'')+'">';
-  html+='<select onchange="anaSetArchetype(\''+deckId+'\',this.value)" style="background:transparent;border:none;color:var(--gold2);font-family:inherit;font-size:10px;letter-spacing:inherit;cursor:pointer;outline:none;padding:0">';
-  Object.keys(_ARCH_LABELS).forEach(function(k){
-    var d=_ARCH_LABELS[k];
-    html+='<option value="'+k+'"'+(k===detectedArch?' selected':'')+' style="background:var(--s2);color:var(--tx)">'+d.ico+' '+d.label.toUpperCase()+'</option>';
-  });
-  html+='</select>';
-  if(isArchOverride){
-    html+='<a onclick="anaSetArchetype(\''+deckId+'\',\'auto\')" style="cursor:pointer;color:var(--tx3);font-size:9px;text-decoration:none" title="Auto-détection ('+(_ARCH_LABELS[autoArch]||{label:autoArch}).label+')">↩</a>';
-  }
-  html+='</span>';
-  if(_anaCurrentThemes){
-    var dbg=_anaCurrentThemes._debug||'';
-    var themeContent='';
-    if(_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length){
-      themeContent=_anaCurrentThemes.labels.map(function(l){
-        return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)">'+esc(l)+'</span>';
-      }).join(' ');
-    } else if(dbg.indexOf('no-commander')>=0){
-      themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Commandant non défini — sélectionne-le dans l\'éditeur du deck pour activer le scoring contextuel</span>';
-    } else if(dbg.indexOf('not-cached')>=0||dbg.indexOf('no-oracle')>=0){
-      themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Oracle text du commandant manquant — clique 🗑 Cache puis relance</span>';
-    } else {
-      themeContent='<span style="font-size:10px;color:var(--tx3);font-style:italic">aucun thème spécial détecté (scoring neutre)</span>';
-    }
-    html+='<div style="margin-top:4px">';
-    html+='<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">';
-    html+='<span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> ';
-    html+=themeContent;
-    if(_hasThemeOverride)html+=' <span style="font-size:9px;padding:1px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
-    html+=' <button onclick="_anaToggleThemeEditor(\''+deckId+'\')" style="font-size:10px;padding:1px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">⚙ Personnaliser</button>';
-    html+='</div>';
-    var _edOpen=!!_anaThemeEditorOpen[deckId];
-    html+='<div id="ana-thed-'+deckId+'" style="display:'+(_edOpen?'block':'none')+';margin-top:8px;padding:10px 12px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;line-height:1.5">';
-    html+='Ajuste les multiplicateurs selon ton plan de jeu (1.0 = neutre · 2.0 = important · 3.0 = central au deck).<br>';
-    html+='<span style="color:var(--gold2)">Auto</span> = valeur déduite de l\'oracle text du commandant.';
-    html+='</div>';
-    _anaThemeMeta.forEach(function(tm){
-      var autoVal=_autoDetectedThemes[tm.k]||0;
-      var curVal=_anaCurrentThemes[tm.k]||0;
-      var isOv=_hasThemeOverride&&_anaUserThemesData[deckId]&&(_anaUserThemesData[deckId][tm.k]!==undefined);
-      var valCol=isOv?'var(--gold2)':'var(--tx2)';
-      html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">';
-      html+='<span style="width:140px;font-size:11px;color:var(--tx2);white-space:nowrap;flex-shrink:0">'+esc(tm.ico)+' '+esc(tm.fr)+'</span>';
-      html+='<span style="font-size:9px;color:var(--tx3);width:42px;text-align:right;flex-shrink:0">auto '+autoVal.toFixed(1)+'</span>';
-      html+='<input type="range" id="ana-th-'+deckId+'-'+tm.k+'" min="0" max="3" step="0.1" value="'+curVal.toFixed(1)+'" style="flex:1;accent-color:var(--gold2)" oninput="document.getElementById(\'ana-thv-'+deckId+'-'+tm.k+'\').textContent=parseFloat(this.value).toFixed(1);document.getElementById(\'ana-thv-'+deckId+'-'+tm.k+'\').style.color=(Math.abs(parseFloat(this.value)-'+autoVal.toFixed(1)+')<0.05?\'var(--tx2)\':\'var(--gold2)\')">';
-      html+='<span id="ana-thv-'+deckId+'-'+tm.k+'" style="width:28px;font-size:11px;color:'+valCol+';text-align:right;font-weight:bold;flex-shrink:0">'+curVal.toFixed(1)+'</span>';
-      html+='</div>';
-    });
-    html+='<div style="display:flex;gap:6px;margin-top:12px">';
-    html+='<button onclick="_anaApplyThemeEdits(\''+deckId+'\')" style="flex:1;padding:7px;background:var(--gold2);color:#000;border:none;border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:12px;cursor:pointer;font-weight:bold;letter-spacing:.04em">✓ Appliquer</button>';
-    if(_hasThemeOverride)html+='<button onclick="_anaResetThemes(\''+deckId+'\')" style="padding:7px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:11px;cursor:pointer">↩ Auto</button>';
-    html+='</div>';
-    html+='</div>';
-    html+='</div>';
-  }
-  html+='</div>'; // ana-deck-meta
-  html+='</div>'; // ana-deck-info
-  html+='</div>'; // ana-deck-header
-  html+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
-  if(unanalyzed>0){
-    var notAnalyzed=rows.filter(function(r){return !r.inCache;}).map(function(r){return esc(r.card.name);});
-    html+='<div style="margin-top:6px;color:#f5b95b;font-size:10px">⚠ '+unanalyzed+' carte(s) non identifiée(s) sur Scryfall — non comptabilisées :</div>';
-    html+='<div style="margin-top:3px;font-size:10px;color:var(--tx3);max-height:60px;overflow-y:auto">'+notAnalyzed.join(', ')+'</div>';
-  }
-  html+='</div>'; // header card
-
-  html+='</div>'; // fin grille commandant|header
-
-  // === Répartition par type | Courbe de mana ===
+  // === Type + Courbe HTML ===
   var _typeHtml='<div class="card"><div class="lbl">Répartition par type</div>';
   var typeOrder=['Créatures','Éphémères','Rituels','Enchantements','Artefacts','Planeswalkers','Terrains','Autres'];
   typeOrder.forEach(function(name){
@@ -15879,7 +15781,108 @@ function anaRender(deckId){
     _curveHtml+='<div class="ana-curve-col"><div class="ana-curve-val">'+(n||'')+'</div><div class="ana-curve-fill" style="height:'+(h<2?2:h)+'px"></div><div class="ana-curve-lbl">'+(i===7?'7+':i)+'</div></div>';
   });
   _curveHtml+='</div><div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div></div>';
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+_typeHtml+_curveHtml+'</div>';
+
+  // === Header HTML (réutilisé selon présence commandant) ===
+  var _hdr='<div class="card">';
+  _hdr+='<div class="ana-deck-header">';
+  _hdr+='<div class="ana-grade-badge" style="color:'+grade.col+';border-color:'+grade.col+';background:rgba(0,0,0,.4)" title="'+overall+'/100">'+grade.l+'</div>';
+  _hdr+='<div class="ana-deck-info">';
+  _hdr+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
+  _hdr+='<div class="ana-deck-meta">'+(fmt?fmt.toUpperCase():'Format libre')+' · '+totalCards+' cartes · '+ciHtml;
+  if(deck.commander&&deck.commander.name)_hdr+=' · 👑 '+esc(deck.commander.name);
+  var archDef=_ARCH_LABELS[detectedArch]||_ARCH_LABELS.midrange;
+  _hdr+=' · <span class="ana-arch-wrap" style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:rgba(201,168,76,.12);border:.5px solid var(--gold);border-radius:10px;font-size:10px;color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.04em" title="'+archDef.hint+(isArchOverride?' — défini manuellement':'')+'">';
+  _hdr+='<select onchange="anaSetArchetype(\''+deckId+'\',this.value)" style="background:transparent;border:none;color:var(--gold2);font-family:inherit;font-size:10px;letter-spacing:inherit;cursor:pointer;outline:none;padding:0">';
+  Object.keys(_ARCH_LABELS).forEach(function(k){
+    var d=_ARCH_LABELS[k];
+    _hdr+='<option value="'+k+'"'+(k===detectedArch?' selected':'')+' style="background:var(--s2);color:var(--tx)">'+d.ico+' '+d.label.toUpperCase()+'</option>';
+  });
+  _hdr+='</select>';
+  if(isArchOverride){
+    _hdr+='<a onclick="anaSetArchetype(\''+deckId+'\',\'auto\')" style="cursor:pointer;color:var(--tx3);font-size:9px;text-decoration:none" title="Auto-détection ('+(_ARCH_LABELS[autoArch]||{label:autoArch}).label+')">↩</a>';
+  }
+  _hdr+='</span>';
+  if(_anaCurrentThemes){
+    var dbg=_anaCurrentThemes._debug||'';
+    var themeContent='';
+    if(_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length){
+      themeContent=_anaCurrentThemes.labels.map(function(l){
+        return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)">'+esc(l)+'</span>';
+      }).join(' ');
+    } else if(dbg.indexOf('no-commander')>=0){
+      themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Commandant non défini — sélectionne-le dans l\'éditeur du deck pour activer le scoring contextuel</span>';
+    } else if(dbg.indexOf('not-cached')>=0||dbg.indexOf('no-oracle')>=0){
+      themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Oracle text du commandant manquant — clique 🗑 Cache puis relance</span>';
+    } else {
+      themeContent='<span style="font-size:10px;color:var(--tx3);font-style:italic">aucun thème spécial détecté (scoring neutre)</span>';
+    }
+    _hdr+='<div style="margin-top:4px">';
+    _hdr+='<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">';
+    _hdr+='<span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> ';
+    _hdr+=themeContent;
+    if(_hasThemeOverride)_hdr+=' <span style="font-size:9px;padding:1px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
+    _hdr+=' <button onclick="_anaToggleThemeEditor(\''+deckId+'\')" style="font-size:10px;padding:1px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">⚙ Personnaliser</button>';
+    _hdr+='</div>';
+    var _edOpen=!!_anaThemeEditorOpen[deckId];
+    _hdr+='<div id="ana-thed-'+deckId+'" style="display:'+(_edOpen?'block':'none')+';margin-top:8px;padding:10px 12px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
+    _hdr+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;line-height:1.5">';
+    _hdr+='Ajuste les multiplicateurs selon ton plan de jeu (1.0 = neutre · 2.0 = important · 3.0 = central au deck).<br>';
+    _hdr+='<span style="color:var(--gold2)">Auto</span> = valeur déduite de l\'oracle text du commandant.';
+    _hdr+='</div>';
+    _anaThemeMeta.forEach(function(tm){
+      var autoVal=_autoDetectedThemes[tm.k]||0;
+      var curVal=_anaCurrentThemes[tm.k]||0;
+      var isOv=_hasThemeOverride&&_anaUserThemesData[deckId]&&(_anaUserThemesData[deckId][tm.k]!==undefined);
+      var valCol=isOv?'var(--gold2)':'var(--tx2)';
+      _hdr+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">';
+      _hdr+='<span style="width:140px;font-size:11px;color:var(--tx2);white-space:nowrap;flex-shrink:0">'+esc(tm.ico)+' '+esc(tm.fr)+'</span>';
+      _hdr+='<span style="font-size:9px;color:var(--tx3);width:42px;text-align:right;flex-shrink:0">auto '+autoVal.toFixed(1)+'</span>';
+      _hdr+='<input type="range" id="ana-th-'+deckId+'-'+tm.k+'" min="0" max="3" step="0.1" value="'+curVal.toFixed(1)+'" style="flex:1;accent-color:var(--gold2)" oninput="document.getElementById(\'ana-thv-'+deckId+'-'+tm.k+'\').textContent=parseFloat(this.value).toFixed(1);document.getElementById(\'ana-thv-'+deckId+'-'+tm.k+'\').style.color=(Math.abs(parseFloat(this.value)-'+autoVal.toFixed(1)+')<0.05?\'var(--tx2)\':\'var(--gold2)\')">';
+      _hdr+='<span id="ana-thv-'+deckId+'-'+tm.k+'" style="width:28px;font-size:11px;color:'+valCol+';text-align:right;font-weight:bold;flex-shrink:0">'+curVal.toFixed(1)+'</span>';
+      _hdr+='</div>';
+    });
+    _hdr+='<div style="display:flex;gap:6px;margin-top:12px">';
+    _hdr+='<button onclick="_anaApplyThemeEdits(\''+deckId+'\')" style="flex:1;padding:7px;background:var(--gold2);color:#000;border:none;border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:12px;cursor:pointer;font-weight:bold;letter-spacing:.04em">✓ Appliquer</button>';
+    if(_hasThemeOverride)_hdr+='<button onclick="_anaResetThemes(\''+deckId+'\')" style="padding:7px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:11px;cursor:pointer">↩ Auto</button>';
+    _hdr+='</div>';
+    _hdr+='</div>';
+    _hdr+='</div>';
+  }
+  _hdr+='</div>'; // ana-deck-meta
+  _hdr+='</div>'; // ana-deck-info
+  _hdr+='</div>'; // ana-deck-header
+  _hdr+='<div style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score d\'efficacité globale</span></div>';
+  if(unanalyzed>0){
+    var notAnalyzed=rows.filter(function(r){return !r.inCache;}).map(function(r){return esc(r.card.name);});
+    _hdr+='<div style="margin-top:6px;color:#f5b95b;font-size:10px">⚠ '+unanalyzed+' carte(s) non identifiée(s) sur Scryfall — non comptabilisées :</div>';
+    _hdr+='<div style="margin-top:3px;font-size:10px;color:var(--tx3);max-height:60px;overflow-y:auto">'+notAnalyzed.join(', ')+'</div>';
+  }
+  _hdr+='</div>'; // header card
+
+  // === Mise en page finale : avec ou sans commandant ===
+  var _tcRow='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+_typeHtml+_curveHtml+'</div>';
+  if(_cmdNameVis){
+    // 2-col : commandant à gauche (stretch), header+type/courbe empilés à droite
+    html+='<div style="display:grid;grid-template-columns:minmax(0,210px) 1fr;gap:12px;align-items:stretch">';
+    html+='<div class="card" style="display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center">';
+    if(_cmdImgUrl){
+      html+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:100%;max-width:210px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.7);cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=\''+esc(_cmdImgUrl)+'\';z.style.display=\'flex\'">';
+    }
+    html+='<div style="width:100%">';
+    html+='<div class="lbl" style="margin-bottom:4px">👑 '+esc(_cmdNameVis)+'</div>';
+    if(_cmdMeta.typeLine)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">'+esc(_cmdMeta.typeLine)+'</div>';
+    if(_cmdMeta.oracleText){
+      html+='<div style="font-size:11px;color:var(--tx2);line-height:1.6;white-space:pre-line;border-left:2px solid var(--ac);padding-left:10px;text-align:left" data-oracle-nl="'+esc(_cmdMetaNl)+'">'+esc(_cmdMeta.oracleText)+'</div>';
+    } else {
+      html+='<div style="font-size:11px;color:var(--tx3);font-style:italic" data-oracle-nl="'+esc(_cmdMetaNl)+'">Texte oracle non disponible.</div>';
+    }
+    html+='</div></div>'; // fin carte commandant
+    html+='<div style="display:flex;flex-direction:column;gap:12px">'+_hdr+_tcRow+'</div>';
+    html+='</div>'; // fin grille 2-col
+  } else {
+    html+=_hdr;
+    html+=_tcRow;
+  }
 
   // === Analyse par catégorie ===
   var subDef=[
