@@ -13631,9 +13631,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v16: ramp bonus Arcane Signet + zoom localisé
-  if((__aP.__version||0)<16){
-    _anaData={__version:16};
+  // Migration v17: manarock flag + plancher score + protection optimiseur
+  if((__aP.__version||0)<17){
+    _anaData={__version:17};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13641,7 +13641,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=16;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=17;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -13986,7 +13986,7 @@ function anaInferTags(meta){
   var type=(meta.typeLine||'').toLowerCase();
   if(type.indexOf('land')>=0){return {draw:0,removal:0,ramp:0,interaction:0,wincon:0,isLand:1};}
   var cmc=meta.cmc||0;
-  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0,mill=0,reanimate=0,untap_creature=0,sac_outlet=0,deathtouch_grant=0;
+  var draw=0,removal=0,ramp=0,interaction=0,wincon=0,wrath=0,counter=0,mill=0,reanimate=0,untap_creature=0,sac_outlet=0,deathtouch_grant=0,manarock=0;
   var nMap={a:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7};
   // Pioche — "draw/draws X card(s)" (singulier ou 3e personne)
   var dm=oracle.match(/draws? \w+ cards?/g)||[];
@@ -14022,6 +14022,10 @@ function anaInferTags(meta){
   if(/add \{[wubrg]\} or \{[wubrg]\}/.test(oracle))ramp+=0.5;
   // Arcane Signet / Commander's Sphere : mana de toutes les couleurs du commandant
   if(/add one mana of any color in your commander/.test(oracle))ramp+=0.7;
+  // Sol Ring / Mana Crypt : produit 2 manas génériques en une activation
+  if(/add \{c\}\{c\}/.test(oracle))ramp+=0.8;
+  // Mana rock : artifact CMC ≤ 3 produisant du mana via tap — infrastructure irremplaçable
+  if(type.indexOf('artifact')>=0&&ramp>=1.3&&cmc<=3)manarock=1;
   if(/landfall/.test(oracle))ramp+=0.3;
   // Réduction de coût de sorts (ex: Goblin Electromancer, Baral, Curious Homunculus)
   if(/(?:instant|sorcery|spell)s? (?:you cast )?costs? (?:\{?\w\}? )?less to cast/.test(oracle))ramp+=0.9;
@@ -14104,7 +14108,7 @@ function anaInferTags(meta){
   if(/return target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard to the battlefield|put target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard onto the battlefield/.test(oracle))reanimate=1;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant)};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant),manarock:manarock};
 }
 
 /* ----- Helpers ----- */
@@ -14403,6 +14407,8 @@ function anaCardScore(meta){
   base+=_anaThemeSynergyScore(meta,th)*0.4;
   // Anti-synergies : pénalise les cartes dont les prérequis sont absents
   base+=_anaAntiSynergyPenalty(meta,th);
+  // Plancher mana rocks : infrastructure toujours utile, jamais en-dessous de ce seuil
+  if(t.manarock){var mrFloor=(t.ramp>=2.0)?5.5:4.5;if(base<mrFloor)base=mrFloor;}
   return base;
 }
 
@@ -15429,7 +15435,13 @@ function anaFullOptimize(scoredRows,pool,maxIter){
   var swaps=[];
   var addedNls={};
   for(var i=0;i<maxIter;i++){
-    var nonLand=current.filter(function(r){return !(r.meta.tags&&r.meta.tags.isLand)&&!addedNls[r.card.nl];});
+    var _mrCount=current.filter(function(r){return r.meta&&r.meta.tags&&r.meta.tags.manarock;}).length;
+    var nonLand=current.filter(function(r){
+      if(r.meta.tags&&r.meta.tags.isLand)return false;
+      if(addedNls[r.card.nl])return false;
+      if(r.meta&&r.meta.tags&&r.meta.tags.manarock&&_mrCount<=4)return false;
+      return true;
+    });
     if(!nonLand.length)break;
     var weak=nonLand.reduce(function(min,c){return c.score<min.score?c:min;});
     if(!poolCopy.length)break;
@@ -15638,7 +15650,12 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
 function anaOptimize(scoredRows,pool,iterations){
   iterations=iterations||5;var current=scoredRows.slice();var poolCopy=pool.slice();var swaps=[];
   for(var i=0;i<iterations;i++){
-    var nonLand=current.filter(function(r){return !(r.meta.tags&&r.meta.tags.isLand);});
+    var _mrC=current.filter(function(r){return r.meta&&r.meta.tags&&r.meta.tags.manarock;}).length;
+    var nonLand=current.filter(function(r){
+      if(r.meta.tags&&r.meta.tags.isLand)return false;
+      if(r.meta&&r.meta.tags&&r.meta.tags.manarock&&_mrC<=4)return false;
+      return true;
+    });
     if(!nonLand.length)break;
     var weak=nonLand.reduce(function(min,c){return c.score<min.score?c:min;});
     if(!poolCopy.length)break;
