@@ -15191,6 +15191,92 @@ function _anaApplyOptToLib(originalLib,swaps){
   return opt;
 }
 
+/* ----- Helpers de rendu partagés entre anaRender et _anaRenderOptPanel ----- */
+function _anaSimBox(label,value,hint,col){
+  return '<div class="ana-sub">'+
+    '<div class="ana-sub-label">'+label+'</div>'+
+    '<div class="ana-sub-score" style="color:'+(col||'var(--tx1)')+'">'+value+'</div>'+
+    '<div class="ana-sub-meta">'+hint+'</div>'+
+  '</div>';
+}
+function _anaPct(v){return Math.round(v*100)+'%';}
+function _anaTStr(v){return v?'T'+v.toFixed(1):'—';}
+
+/* ----- Rendu du panel "Proposition 100%" avec les swaps validés par simulation ----- */
+function _anaRenderOptPanel(validatedSwaps){
+  var el=document.getElementById('ana-opt-validated-body');
+  if(!el||!_anaState)return;
+  var fullOpt=_anaState.fullOpt;
+  var overall=_anaState.overall;
+  var grade=anaGrade(overall);
+  var counts=_anaState.counts;
+  var targets=_anaState.targets;
+  var weights=_anaState.weights;
+  var sim=_anaState.sim;
+  var deck=_anaState.deck;
+  var rawCount=fullOpt&&fullOpt.swaps?fullOpt.swaps.length:0;
+  var h='';
+  if(!rawCount){
+    h='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le deck est déjà optimal vis-à-vis du pool de suggestions disponible.</div>';
+    el.innerHTML=h;return;
+  }
+  if(!validatedSwaps||!validatedSwaps.length){
+    h='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun des '+rawCount+' swaps proposés n\'améliore le win rate simulé — le deck est déjà bien optimisé pour ce méta.</div>';
+    el.innerHTML=h;return;
+  }
+  // Score avec les swaps validés seulement
+  var nc={land:counts.land,ramp:counts.ramp,draw:counts.draw,removal:counts.removal,interaction:counts.interaction,wincon:counts.wincon};
+  validatedSwaps.forEach(function(sw){
+    var cm=_anaData[sw.cut.nl];var am=sw.add.meta;
+    if(cm){var cr=anaRoles(cm);nc.ramp-=cr.ramp;nc.draw-=cr.draw;nc.removal-=cr.removal;nc.interaction-=cr.interaction;nc.wincon-=cr.wincon;}
+    if(am){var ar=anaRoles(am);nc.ramp+=ar.ramp;nc.draw+=ar.draw;nc.removal+=ar.removal;nc.interaction+=ar.interaction;nc.wincon+=ar.wincon;}
+  });
+  var ns={land:anaCatScore(nc.land,targets.land),ramp:anaCatScore(nc.ramp,targets.ramp),draw:anaCatScore(nc.draw,targets.draw),removal:anaCatScore(nc.removal,targets.removal),interaction:anaCatScore(nc.interaction,targets.interaction),wincon:anaCatScore(nc.wincon,targets.wincon)};
+  var newOverall=0;Object.keys(weights).forEach(function(k){newOverall+=ns[k]*(weights[k]||0);});
+  newOverall=Math.round(newOverall);
+  var newGrade=anaGrade(newOverall);
+  h+='<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div style="text-align:center"><div style="font-size:9px;color:var(--tx3)">ACTUEL</div><div style="font-size:28px;color:'+grade.col+';font-weight:bold;line-height:1">'+overall+'</div><div style="font-size:11px;color:var(--tx3)">'+grade.l+'</div></div>';
+  h+='<div style="font-size:24px;color:var(--gold2)">→</div>';
+  h+='<div style="text-align:center"><div style="font-size:9px;color:var(--tx3)">OPTIMISÉ SIM.</div><div style="font-size:32px;color:'+newGrade.col+';font-weight:bold;line-height:1">'+newOverall+'</div><div style="font-size:11px;color:var(--tx3)">'+newGrade.l+'</div></div>';
+  h+='<div style="margin-left:auto;text-align:right"><div style="font-size:9px;color:var(--tx3)">SWAPS VALIDÉS</div><div style="font-size:24px;color:var(--gold2);font-weight:bold;line-height:1">'+validatedSwaps.length+'</div>';
+  if(rawCount>validatedSwaps.length)h+='<div style="font-size:9px;color:var(--tx3)">/'+rawCount+' candidats scoring</div>';
+  h+='</div></div>';
+  h+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">Voir les '+validatedSwaps.length+' swaps validés ▾</summary>';
+  validatedSwaps.forEach(function(sw,i){
+    h+='<div class="ana-swap-row"><div style="font-size:11px;line-height:1.5">';
+    h+='<span style="color:var(--tx3);font-size:10px">#'+(i+1)+'</span> ';
+    h+='<span style="color:#e07070">– '+esc(sw.cut.name)+'</span>';
+    if(sw.cutScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
+    h+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span>';
+    if(sw.addScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
+    if(sw.gain!=null)h+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(1)+' pts</span>';
+    h+='</div></div>';
+  });
+  h+='</details>';
+  // Simulation de main du deck validé
+  var _simOptDeck={cards:deck.cards.filter(function(c){return !validatedSwaps.some(function(sw){return sw.cut.nl===c.nl;});}).concat(validatedSwaps.map(function(sw){return {name:sw.add.name,nl:sw.add.nl,qty:1,sec:''};}))} ;
+  var _simOpt=anaSimulate(_simOptDeck,100);
+  if(_simOpt){
+    var _mC=_simOpt.mulRate>0.5?'#e07070':_simOpt.mulRate>0.25?'#f5b95b':'#78c890';
+    var _dC=_simOpt.deadHandRate>0.15?'#e07070':_simOpt.deadHandRate>0.05?'#f5b95b':'#78c890';
+    h+='<div style="margin-top:14px;border-top:1px solid var(--bd);padding-top:12px">';
+    h+='<div style="font-size:11px;color:var(--gold2);font-weight:bold;margin-bottom:8px">🎲 Simulation de main — deck optimisé (100 parties)</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px">';
+    h+=_anaSimBox('Mulligans',(_simOpt.mulligans/_simOpt.runs).toFixed(2),'Nb moyen par partie',_mC);
+    h+=_anaSimBox('Mains mortes',_anaPct(_simOpt.deadHandRate),'Mains avec <2 lands',_dC);
+    h+=_anaSimBox('1er sort',_anaTStr(_simOpt.avgFirstSpell),'Tour moyen','#5b8cf5');
+    h+=_anaSimBox('Lands T5',_simOpt.avgManaT5.toFixed(1),'Lands en jeu au T5','#cdb87a');
+    h+=_anaSimBox('Sorts T7',_simOpt.avgSpellsT7.toFixed(1),'Sorts cumulés au T7','#5bf590');
+    if(_simOpt.drawReached>0)h+=_anaSimBox('1ère pioche',_anaTStr(_simOpt.avgFirstDraw)+' · '+_anaPct(_simOpt.drawReached),'Tour + taux','#5b8cf5');
+    if(_simOpt.winconReached>0)h+=_anaSimBox('1er wincon',_anaTStr(_simOpt.avgFirstWincon)+' · '+_anaPct(_simOpt.winconReached),'Tour + taux','#c95bf5');
+    h+='</div>';
+    if(sim){var _ds=sim.avgFirstSpell-_simOpt.avgFirstSpell;var _dm=sim.mulRate-_simOpt.mulRate;h+='<div style="margin-top:8px;font-size:11px;color:var(--tx2)">'+(_ds>0.3?'✓ Démarre '+_ds.toFixed(1)+' tour(s) plus tôt qu\'actuel':_dm>0.1?'✓ Moins de mulligans':'↔ Comportement similaire à l\'actuel')+'</div>';}
+    h+='</div>';
+  }
+  el.innerHTML=h;
+}
+
 /* ----- Validation simulation des swaps (recherche binaire, 800 parties/évaluation) ----- */
 // Avec 800 parties (200 × 4 archs) l'écart-type est ~1.7% → détecte fiablement les dégradations.
 // Recherche binaire sur le préfixe ordonné par gain décroissant : O(log N) évaluations.
@@ -15756,10 +15842,12 @@ function anaRefreshMatrix(){
     var _simOpts=cmdUser?Object.assign({},_base,{cmdA:cmdUser}):_base;
     var _arcSz=_isCmd?libUser.length:40;
     var _simRuns=80;
-    // Validation simulation : tester chaque swap avant de l'accepter
+    // Validation simulation : recherche binaire sur le préfixe de swaps
     var _rawSwaps=fullOpt&&fullOpt.swaps?fullOpt.swaps:[];
     var _validSwaps=_rawSwaps.length?_anaSimValidateSwaps(_rawSwaps,libUser,cmdUser,_simOpts,_arcSz):[];
-    if(_anaState)_anaState.validatedSwaps=_validSwaps; // exposer pour usage externe
+    if(_anaState)_anaState.validatedSwaps=_validSwaps;
+    // Mettre à jour le panel "Proposition 100%" avec les swaps validés
+    _anaRenderOptPanel(_validSwaps);
     var libOpt=_validSwaps.length?_anaApplyOptToLib(libUser,_validSwaps):null;
     var matrixCurrent=archetypes.map(function(a){return {arch:a,wr:anaWinRate(libUser,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
     var matrixOpt=libOpt?archetypes.map(function(a){return {arch:a,wr:anaWinRate(libOpt,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};}):null;
@@ -16273,15 +16361,7 @@ function anaRender(deckId){
   html+='</div>';
 
   // === Simulation de main ===
-  function simBox(label,value,hint,col){
-    return '<div class="ana-sub">'+
-      '<div class="ana-sub-label">'+label+'</div>'+
-      '<div class="ana-sub-score" style="color:'+col+'">'+value+'</div>'+
-      '<div class="ana-sub-meta">'+hint+'</div>'+
-    '</div>';
-  }
-  function pct(v){return Math.round(v*100)+'%';}
-  function tStr(v){return v?'T'+v.toFixed(1):'—';}
+  var simBox=_anaSimBox,pct=_anaPct,tStr=_anaTStr;
   var sim=anaSimulate(deck,100);
   if(sim){
     var mulCol=sim.mulRate>0.5?'#e07070':sim.mulRate>0.25?'#f5b95b':'#78c890';
@@ -16325,72 +16405,13 @@ function anaRender(deckId){
   // === Proposition deck 100% ===
   var _optPool=suggPool.slice(); // déjà filtré si mode collection
   var fullOpt=anaScoreOptimize(nonLandRows,_optPool,weights,targets,60);
-  html+='<div class="card">';
+  html+='<div class="card" id="ana-opt-card">';
   html+='<div class="lbl">🏆 Proposition de deck à 100%</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Optimisation itérative jusqu\'à plus aucun gain possible (max 60 swaps).'+(_anaOptMode==='collection'?' · Pool limité à ta collection ('+_optPool.length+' cartes disponibles).':'')+'</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Swaps validés par simulation — seuls les changements qui n\'empirent pas le win rate réel sont proposés.'+(_anaOptMode==='collection'?' · Pool limité à ta collection ('+_optPool.length+' cartes disponibles).':'')+'</div>';
   if(!fullOpt.swaps.length){
     html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le deck est déjà optimal vis-à-vis du pool de suggestions disponible.</div>';
   } else {
-    var totalGain100=fullOpt.swaps.reduce(function(s,sw){return s+sw.gain;},0);
-    // Recalculer le score ML simule
-    var newCounts={land:counts.land,ramp:counts.ramp,draw:counts.draw,removal:counts.removal,interaction:counts.interaction,wincon:counts.wincon};
-    fullOpt.swaps.forEach(function(sw){
-      var cutMeta=_anaData[sw.cut.nl];var addMeta=sw.add.meta;
-      if(cutMeta){var cr=anaRoles(cutMeta);newCounts.ramp-=cr.ramp;newCounts.draw-=cr.draw;newCounts.removal-=cr.removal;newCounts.interaction-=cr.interaction;newCounts.wincon-=cr.wincon;}
-      if(addMeta){var ar=anaRoles(addMeta);newCounts.ramp+=ar.ramp;newCounts.draw+=ar.draw;newCounts.removal+=ar.removal;newCounts.interaction+=ar.interaction;newCounts.wincon+=ar.wincon;}
-    });
-    var newSubScores={
-      land:anaCatScore(newCounts.land,targets.land),
-      ramp:anaCatScore(newCounts.ramp,targets.ramp),
-      draw:anaCatScore(newCounts.draw,targets.draw),
-      removal:anaCatScore(newCounts.removal,targets.removal),
-      interaction:anaCatScore(newCounts.interaction,targets.interaction),
-      wincon:anaCatScore(newCounts.wincon,targets.wincon)
-    };
-    var newOverall=0;Object.keys(weights).forEach(function(k){newOverall+=newSubScores[k]*weights[k];});
-    newOverall=Math.round(newOverall);
-    var newGrade=anaGrade(newOverall);
-    html+='<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
-    html+='<div style="text-align:center"><div style="font-size:9px;color:var(--tx3)">ACTUEL</div><div style="font-size:28px;color:'+grade.col+';font-weight:bold;line-height:1">'+overall+'</div><div style="font-size:11px;color:var(--tx3)">'+grade.l+'</div></div>';
-    html+='<div style="font-size:24px;color:var(--gold2)">→</div>';
-    html+='<div style="text-align:center"><div style="font-size:9px;color:var(--tx3)">100% OPTIMISÉ</div><div style="font-size:32px;color:'+newGrade.col+';font-weight:bold;line-height:1">'+newOverall+'</div><div style="font-size:11px;color:var(--tx3)">'+newGrade.l+'</div></div>';
-    html+='<div style="margin-left:auto;text-align:right"><div style="font-size:9px;color:var(--tx3)">SWAPS APPLIQUÉS</div><div style="font-size:24px;color:var(--gold2);font-weight:bold;line-height:1">'+fullOpt.swaps.length+'</div></div>';
-    html+='</div>';
-    html+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">Voir les '+fullOpt.swaps.length+' swaps recommandés ▾</summary>';
-    fullOpt.swaps.forEach(function(sw,i){
-      html+='<div class="ana-swap-row">';
-      html+='<div style="font-size:11px;line-height:1.5">';
-      html+='<span style="color:var(--tx3);font-size:10px">#'+(i+1)+'</span> ';
-      html+='<span style="color:#e07070">– '+esc(sw.cut.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
-      html+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
-      html+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(1)+' pts</span>';
-      html+='</div></div>';
-    });
-    html+='</details>';
-    // Simulation de main du deck optimisé
-    var _simOptDeck={cards:deck.cards.filter(function(c){return !fullOpt.swaps.some(function(sw){return sw.cut.nl===c.nl;});}).concat(fullOpt.swaps.map(function(sw){return {name:sw.add.name,nl:sw.add.nl,qty:1,sec:''};}))} ;
-    var _simOpt=anaSimulate(_simOptDeck,100);
-    if(_simOpt){
-      var _mulColO=_simOpt.mulRate>0.5?'#e07070':_simOpt.mulRate>0.25?'#f5b95b':'#78c890';
-      var _deadColO=_simOpt.deadHandRate>0.15?'#e07070':_simOpt.deadHandRate>0.05?'#f5b95b':'#78c890';
-      html+='<div style="margin-top:14px;border-top:1px solid var(--bd);padding-top:12px">';
-      html+='<div style="font-size:11px;color:var(--gold2);font-weight:bold;margin-bottom:8px">🎲 Simulation de main — deck optimisé (100 parties)</div>';
-      html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px">';
-      html+=simBox('Mulligans',(_simOpt.mulligans/_simOpt.runs).toFixed(2),'Nb moyen par partie',_mulColO);
-      html+=simBox('Mains mortes',pct(_simOpt.deadHandRate),'Mains avec <2 lands',_deadColO);
-      html+=simBox('1er sort',tStr(_simOpt.avgFirstSpell),'Tour moyen','#5b8cf5');
-      html+=simBox('Lands T5',_simOpt.avgManaT5.toFixed(1),'Lands en jeu au T5','#cdb87a');
-      html+=simBox('Sorts T7',_simOpt.avgSpellsT7.toFixed(1),'Sorts cumulés au T7','#5bf590');
-      if(_simOpt.drawReached>0)html+=simBox('1ère pioche',tStr(_simOpt.avgFirstDraw)+' · '+pct(_simOpt.drawReached),'Tour + taux','#5b8cf5');
-      if(_simOpt.winconReached>0)html+=simBox('1er wincon',tStr(_simOpt.avgFirstWincon)+' · '+pct(_simOpt.winconReached),'Tour + taux','#c95bf5');
-      html+='</div>';
-      if(sim){
-        var _dSpell=sim.avgFirstSpell-_simOpt.avgFirstSpell;var _dMul=sim.mulRate-_simOpt.mulRate;
-        var _v2=_dSpell>0.3?'✓ Démarre '+_dSpell.toFixed(1)+' tour(s) plus tôt qu\'actuel':_dMul>0.1?'✓ Moins de mulligans':'↔ Comportement similaire à l\'actuel';
-        html+='<div style="margin-top:8px;font-size:11px;color:var(--tx2)">'+_v2+'</div>';
-      }
-      html+='</div>';
-    }
+    html+='<div id="ana-opt-validated-body"><div style="color:var(--tx3);font-size:11px;font-style:italic;padding:8px 0">⏳ Validation des swaps par simulation en cours…</div></div>';
   }
   html+='</div>';
 
@@ -16441,7 +16462,7 @@ function anaRender(deckId){
   }
   html+='</div>';
 
-  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
+  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
