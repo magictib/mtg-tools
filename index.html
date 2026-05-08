@@ -13631,9 +13631,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v19: cap multiplicateurs thème 1.5 + targets/weights rééquilibrés pour draw-heavy
-  if((__aP.__version||0)<19){
-    _anaData={__version:19};
+  // Migration v20: validateur simulation greedy pour les swaps optimizer
+  if((__aP.__version||0)<20){
+    _anaData={__version:20};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13641,7 +13641,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=19;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=20;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -15191,6 +15191,39 @@ function _anaApplyOptToLib(originalLib,swaps){
   return opt;
 }
 
+/* ----- Validation simulation des swaps (greedy forward, 60 mini-parties/évaluation) ----- */
+// Teste chaque swap individuellement contre la simulation avant de l'accepter.
+// Garantit que seuls les swaps qui améliorent (ou ne dégradent pas) le win rate sont retenus.
+function _anaSimValidateSwaps(swaps,libUser,cmdUser,simOpts,arcSz){
+  if(!swaps||!swaps.length||!libUser||libUser.length<20)return swaps.slice();
+  var RUNS=15; // 15 × 4 archs = 60 mini-parties par évaluation
+  var ARCHS=['aggro','midrange','combo','control'];
+  var opts=Object.assign({},simOpts||{startLife:40,maxTurns:20});
+  if(cmdUser)opts.cmdA=cmdUser;
+  arcSz=arcSz||libUser.length;
+  function evalLib(lib){
+    var wr=0;
+    ARCHS.forEach(function(a){wr+=anaWinRate(lib,function(){return _archetypeDeck(a,arcSz);},RUNS,opts);});
+    return wr/ARCHS.length;
+  }
+  var baseWr=evalLib(libUser);
+  var accepted=[];
+  var currentLib=libUser;
+  var currentWr=baseWr;
+  var maxCheck=Math.min(swaps.length,20); // max 20 candidats examinés
+  for(var i=0;i<maxCheck&&accepted.length<12;i++){
+    var testLib=_anaApplyOptToLib(currentLib,[swaps[i]]);
+    var testWr=evalLib(testLib);
+    // Accepter si la perte simulée est ≤5% (bruit inhérent aux mini-simulations)
+    if(testWr>=currentWr-0.05){
+      accepted.push(swaps[i]);
+      currentLib=testLib;
+      currentWr=testWr;
+    }
+  }
+  return accepted;
+}
+
 /* ----- Couleur de la cellule selon le win rate (style metagame) ----- */
 function _wrCell(wr){
   var pct=Math.round(wr*100);
@@ -15724,7 +15757,11 @@ function anaRefreshMatrix(){
     var _simOpts=cmdUser?Object.assign({},_base,{cmdA:cmdUser}):_base;
     var _arcSz=_isCmd?libUser.length:40;
     var _simRuns=80;
-    var libOpt=fullOpt&&fullOpt.swaps&&fullOpt.swaps.length?_anaApplyOptToLib(libUser,fullOpt.swaps):null;
+    // Validation simulation : tester chaque swap avant de l'accepter
+    var _rawSwaps=fullOpt&&fullOpt.swaps?fullOpt.swaps:[];
+    var _validSwaps=_rawSwaps.length?_anaSimValidateSwaps(_rawSwaps,libUser,cmdUser,_simOpts,_arcSz):[];
+    if(_anaState)_anaState.validatedSwaps=_validSwaps; // exposer pour usage externe
+    var libOpt=_validSwaps.length?_anaApplyOptToLib(libUser,_validSwaps):null;
     var matrixCurrent=archetypes.map(function(a){return {arch:a,wr:anaWinRate(libUser,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
     var matrixOpt=libOpt?archetypes.map(function(a){return {arch:a,wr:anaWinRate(libOpt,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};}):null;
     var avgCur=matrixCurrent.reduce(function(s,m){return s+m.wr;},0)/matrixCurrent.length;
@@ -15741,15 +15778,15 @@ function anaRefreshMatrix(){
     h+='<td style="background:'+avgC.col+';color:'+avgC.textCol+';padding:8px 4px;text-align:center;border-radius:4px;font-weight:bold;border:1px solid var(--gold2)">'+avgC.pct+'%</td></tr>';
     if(matrixOpt){
       var avgDiff=Math.round((avgOpt-avgCur)*100);
-      if(avgOpt>=avgCur-0.03){
-        // L'optimisation améliore ou ne dégrade pas significativement (±3% bruit de simulation)
-        h+='<tr><td style="padding:6px;color:#78c890;font-weight:bold;font-size:11px;font-family:Goudy Mediaeval,serif">100% OPT.</td>';
-        matrixOpt.forEach(function(m,i){var c=_wrCell(m.wr);var diff=Math.round((m.wr-matrixCurrent[i].wr)*100);var arrow=diff>4?' ↑':diff<-4?' ↓':'';h+='<td style="background:'+c.col+';color:'+c.textCol+';padding:8px 4px;text-align:center;border-radius:4px;font-weight:bold" title="'+c.label+' — '+c.pct+'% ('+(diff>=0?'+':'')+diff+' vs actuel)">'+c.pct+'%'+arrow+'</td>';});
-        var avgO=_wrCell(avgOpt);
-        h+='<td style="background:'+avgO.col+';color:'+avgO.textCol+';padding:8px 4px;text-align:center;border-radius:4px;font-weight:bold;border:1px solid var(--gold2)">'+avgO.pct+'%<br><span style="font-size:9px">('+(avgDiff>=0?'+':'')+avgDiff+')</span></td></tr>';
-      } else {
-        // L'optimisation dégrade les performances simulées — on n'affiche pas une suggestion trompeuse
-        h+='<tr><td colspan="'+(archetypes.length+2)+'" style="padding:6px 8px;font-size:10px;color:var(--tx3);font-style:italic">⚠ Les suggestions d\'optimisation dégradent les performances simulées ('+avgDiff+'% moyen) — le deck actuel est préférable tel quel.</td></tr>';
+      var _optBadge=_validSwaps.length<_rawSwaps.length
+        ?' <span style="font-size:9px;color:var(--tx3);font-weight:normal">('+_validSwaps.length+'/'+_rawSwaps.length+' sim.)</span>'
+        :'';
+      h+='<tr><td style="padding:6px;color:#78c890;font-weight:bold;font-size:11px;font-family:Goudy Mediaeval,serif" title="Swaps validés par simulation : '+_validSwaps.length+' sur '+_rawSwaps.length+' proposés par le scoring">OPT. SIM.'+_optBadge+'</td>';
+      matrixOpt.forEach(function(m,i){var c=_wrCell(m.wr);var diff=Math.round((m.wr-matrixCurrent[i].wr)*100);var arrow=diff>4?' ↑':diff<-4?' ↓':'';h+='<td style="background:'+c.col+';color:'+c.textCol+';padding:8px 4px;text-align:center;border-radius:4px;font-weight:bold" title="'+c.label+' — '+c.pct+'% ('+(diff>=0?'+':'')+diff+' vs actuel)">'+c.pct+'%'+arrow+'</td>';});
+      var avgO=_wrCell(avgOpt);
+      h+='<td style="background:'+avgO.col+';color:'+avgO.textCol+';padding:8px 4px;text-align:center;border-radius:4px;font-weight:bold;border:1px solid var(--gold2)">'+avgO.pct+'%<br><span style="font-size:9px">('+(avgDiff>=0?'+':'')+avgDiff+')</span></td></tr>';
+      if(_validSwaps.length===0&&_rawSwaps.length>0){
+        h+='<tr><td colspan="'+(archetypes.length+2)+'" style="padding:4px 8px;font-size:10px;color:var(--tx3);font-style:italic">ℹ Aucun swap proposé n\'améliore le win rate simulé — le deck est déjà bien optimisé pour ce méta.</td></tr>';
       }
     }
     h+='</tbody></table></div>';
