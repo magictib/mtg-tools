@@ -1750,10 +1750,10 @@ body.mana-cursor{cursor:none}
 .ana-curve-fill{width:100%;background:linear-gradient(180deg,var(--gold2),var(--ac));border-radius:3px 3px 0 0;min-height:2px;transition:height .4s}
 .ana-curve-lbl{font-size:9px;color:var(--tx3);font-variant-numeric:tabular-nums}
 .ana-curve-val{font-size:10px;color:var(--tx2);font-variant-numeric:tabular-nums;font-weight:bold}
-.ana-cat-row{display:grid;grid-template-columns:130px 50px 1fr auto;gap:8px;align-items:center;margin:4px 0;font-size:11px}
-.ana-cat-bar{height:14px;background:rgba(0,0,0,.3);border-radius:3px;overflow:hidden;border:.5px solid var(--bd2);position:relative}
-.ana-cat-bar>.fill{height:100%;border-radius:3px;transition:width .4s}
-.ana-cat-bar>.target{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--gold2);box-shadow:0 0 4px var(--gold2)}
+.ana-cat-row{display:grid;grid-template-columns:22px 100px 32px 1fr 72px auto;gap:8px;align-items:center;margin:4px 0;font-size:11px}
+.ana-cat-bar{height:20px;background:rgba(0,0,0,.55);border-radius:100px;overflow:hidden;border:1.5px solid var(--cat-col,var(--bd2));box-shadow:0 0 8px var(--cat-col,transparent),inset 0 1px 4px rgba(0,0,0,.5);position:relative}
+.ana-cat-bar>.fill{height:100%;border-radius:100px;transition:width .5s cubic-bezier(.4,0,.2,1);background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.11) 0,rgba(255,255,255,.11) 10px,transparent 10px,transparent 14px)}
+.ana-cat-bar>.target{position:absolute;top:0;bottom:0;width:2px;background:var(--gold2);box-shadow:0 0 5px var(--gold2);z-index:2;opacity:.9}
 .ana-cat-status{font-size:10px;font-style:italic}
 .ana-mini-pip{display:inline-flex;width:18px;height:18px;border-radius:50%;justify-content:center;align-items:center;font-size:11px;font-weight:bold;margin:0 1px;text-shadow:0 1px 2px rgba(0,0,0,.5)}
 .pip-W{background:#fffaeb;color:#88735c}
@@ -15835,25 +15835,43 @@ function anaRender(deckId){
 
   // Sub-scores cartes
   var subDef=[
-    {k:'land',label:'Mana base',col:'#cdb87a'},
-    {k:'ramp',label:'Ramp',col:'#5bf590'},
-    {k:'draw',label:'Pioche',col:'#5b8cf5'},
-    {k:'removal',label:'Removal',col:'#f55b5b'},
-    {k:'interaction',label:'Interaction',col:'#f5b95b'},
-    {k:'wincon',label:'Menaces',col:'#c95bf5'}
+    {k:'land',  label:'Mana base',    col:'#cdb87a', ico:'⛰️'},
+    {k:'ramp',  label:'Ramp',         col:'#5bf590', ico:'🌿'},
+    {k:'draw',  label:'Pioche',       col:'#5b8cf5', ico:'📚'},
+    {k:'removal',label:'Removal',     col:'#f55b5b', ico:'⚔️'},
+    {k:'interaction',label:'Interaction',col:'#f5b95b',ico:'🛡️'},
+    {k:'wincon',label:'Menaces',      col:'#c95bf5', ico:'⚡'}
   ];
-  html+='<div class="card"><div class="lbl">Score par catégorie</div>';
-  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px">';
+  var _thLbls=(_anaCurrentThemes&&_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length)?_anaCurrentThemes.labels:null;
+  html+='<div class="card"><div class="lbl">Analyse par catégorie</div>';
+  if(_thLbls)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">⚡ Cibles ajustées pour ce commandant ('+_thLbls.join(', ')+') — marqueurs = fourchette cible.</div>';
+  else html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Les marqueurs dorés indiquent la fourchette cible recommandée.</div>';
   subDef.forEach(function(s){
     var sc=subScores[s.k]||0;var v=counts[s.k];var rg=targets[s.k];
-    html+='<div class="ana-sub">';
-    html+='<div class="ana-sub-label">'+s.label+'</div>';
-    html+='<div class="ana-sub-score" style="color:'+s.col+'">'+sc+'</div>';
-    html+='<div class="ana-sub-bar"><div style="width:'+sc+'%;background:'+s.col+'"></div></div>';
-    html+='<div class="ana-sub-meta">'+v+' carte(s) · cible '+rg[0]+'-'+rg[1]+'</div>';
+    var maxScale=Math.max(rg[1]*1.7,v*1.1,12);
+    var pct=Math.min(100,(v/maxScale)*100);
+    var loPct=(rg[0]/maxScale)*100;var hiPct=(rg[1]/maxScale)*100;
+    var statusText,statusCol;
+    if(v<rg[0]){statusText='Insuffisant';statusCol='#e07070';}
+    else if(v<=rg[1]){statusText='Optimal';statusCol='#78c890';}
+    else if(v<=rg[1]*1.5){statusText='Léger excès';statusCol='#f5b95b';}
+    else{statusText='Sur-investi';statusCol='#e07070';}
+    var wv=Math.round(wCounts[s.k]);var wDiff=v>0?Math.abs(wv-v)/v:0;
+    var wStr=wDiff>0.1?'<span title="Comptage pondéré par synergie" style="color:'+(wv<v?'#e07070':'#78c890')+';font-size:9px"> ('+wv+')</span>':'';
+    html+='<div class="ana-cat-row">';
+    html+='<div style="font-size:15px;line-height:1;text-align:center">'+s.ico+'</div>';
+    html+='<div>'+s.label+'</div>';
+    html+='<div style="color:'+s.col+';font-weight:bold;font-size:15px;text-align:center;line-height:1;font-variant-numeric:tabular-nums">'+sc+'</div>';
+    html+='<div class="ana-cat-bar" style="--cat-col:'+s.col+'">';
+    html+='<div class="fill" style="width:'+pct+'%;background-color:'+s.col+'"></div>';
+    if(rg[0]>0)html+='<div class="target" style="left:'+loPct+'%"></div>';
+    html+='<div class="target" style="left:'+hiPct+'%"></div>';
+    html+='</div>';
+    html+='<div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--tx2)"><b>'+v+'</b>'+wStr+'<span style="color:var(--tx3)"> /'+rg[0]+'-'+rg[1]+'</span></div>';
+    html+='<div class="ana-cat-status" style="color:'+statusCol+'">'+statusText+'</div>';
     html+='</div>';
   });
-  html+='</div></div>';
+  html+='</div>';
 
   // === Bandeau 3 colonnes : Commandant | Répartition par type | Courbe de mana ===
   var _cmdNameVis=(deck.commander&&deck.commander.name)||null;
@@ -15912,35 +15930,6 @@ function anaRender(deckId){
 
   html+='</div>'; // fin grille 3 colonnes
 
-  // Categories fonctionnelles vs cibles
-  var _thLbls=(_anaCurrentThemes&&_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length)?_anaCurrentThemes.labels:null;
-  html+='<div class="card"><div class="lbl">Catégories fonctionnelles vs cibles du format</div>';
-  if(_thLbls)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">⚡ Cibles ajustées pour ce commandant ('+_thLbls.join(', ')+') — marqueurs dorés = fourchette cible.</div>';
-  else html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Les marqueurs dorés indiquent la fourchette cible recommandée.</div>';
-  subDef.forEach(function(s){
-    var v=counts[s.k];var rg=targets[s.k];
-    var maxScale=Math.max(rg[1]*1.7,v*1.1,12);
-    var pct=Math.min(100,(v/maxScale)*100);
-    var loPct=(rg[0]/maxScale)*100;var hiPct=(rg[1]/maxScale)*100;
-    var statusText,statusCol;
-    if(v<rg[0]){statusText='Insuffisant';statusCol='#e07070';}
-    else if(v<=rg[1]){statusText='Optimal';statusCol='#78c890';}
-    else if(v<=rg[1]*1.5){statusText='Léger excès';statusCol='#f5b95b';}
-    else{statusText='Sur-investi';statusCol='#e07070';}
-    html+='<div class="ana-cat-row">';
-    html+='<div>'+s.label+'</div>';
-    var wv=Math.round(wCounts[s.k]);var wDiff=v>0?Math.abs(wv-v)/v:0;
-    var wStr=wDiff>0.1?'<span title="Comptage pondéré par synergie avec ce commandant" style="color:'+(wv<v?'#e07070':'#78c890')+';font-size:10px;margin-left:3px">('+wv+' eff.)</span>':'';
-    html+='<div style="font-variant-numeric:tabular-nums"><b>'+v+'</b>'+wStr+'<span style="color:var(--tx3)"> / '+rg[0]+'-'+rg[1]+'</span></div>';
-    html+='<div class="ana-cat-bar">';
-    html+='<div class="fill" style="width:'+pct+'%;background:'+s.col+'"></div>';
-    if(rg[0]>0)html+='<div class="target" style="left:'+loPct+'%"></div>';
-    html+='<div class="target" style="left:'+hiPct+'%"></div>';
-    html+='</div>';
-    html+='<div class="ana-cat-status" style="color:'+statusCol+'">'+statusText+'</div>';
-    html+='</div>';
-  });
-  html+='</div>';
 
   // Helpers
   function roleHints(rl){var h=[];if(rl.ramp)h.push('🌳');if(rl.draw)h.push('📚');if(rl.removal)h.push('🔥');if(rl.interaction)h.push('🛡');if(rl.wincon)h.push('💀');return h.join(' ');}
