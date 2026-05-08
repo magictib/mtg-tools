@@ -1850,6 +1850,7 @@ body.mana-cursor{cursor:none}
         <button class="dm" id="bld-sort-color" onclick="setBldSort('color',this)">Couleur</button>
       </div>
     </div>
+    <div id="bld-legality-warn" style="display:none;margin-bottom:.6rem"></div>
     <div id="bld-mainlist" class="bld-drop-zone" style="margin-bottom:1rem"
          ondragover="bldDragOver(event,'main')" ondragleave="bldDragLeave(event)" ondrop="bldDrop(event,'main')"></div>
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem">
@@ -12394,23 +12395,44 @@ function renderBldDecks(){
   var dc=document.getElementById('bld-deckcard');
   if(dc)dc.style.display=(bldMain.length||bldSide.length||bldAvoir.length)?'block':'none';
   var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
+  // Legality warning banner
+  var _warnEl=document.getElementById('bld-legality-warn');
+  if(_warnEl){
+    var _fmtKey=bldFormat?BLD_FMT_SCRYFALL[bldFormat]:null;
+    var _cmdNl=dCommander&&dCommander.name?stripDFC(dCommander.name).toLowerCase():'';
+    if(_fmtKey&&bldMain.length){
+      var _illegal=[];
+      bldMain.forEach(function(c){
+        var cnl=stripDFC(c.name||'').toLowerCase();
+        if(_cmdNl&&cnl===_cmdNl)return; // commandant exempté
+        var leg=c.legalities&&c.legalities[_fmtKey];
+        if(leg==='banned'||leg==='not_legal')_illegal.push(c.name);
+      });
+      if(_illegal.length){
+        var _fmtLbl={commander:'Commander',paupercmd:'Pauper EDH',pauper:'Pauper',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',vintage:'Vintage'}[bldFormat]||bldFormat;
+        _warnEl.style.display='block';
+        _warnEl.innerHTML='<div style="background:rgba(200,60,60,.13);border:.5px solid rgba(200,60,60,.45);border-radius:8px;padding:7px 10px;font-size:.75rem;color:var(--rd2)">'
+          +'<span style="font-weight:600">⛔ Deck illégal en '+esc(_fmtLbl)+'</span>'
+          +' — '+_illegal.length+' carte'+((_illegal.length>1)?'s':'')+' interdite'+((_illegal.length>1)?'s':'')+' : '
+          +_illegal.map(function(n){return '<span style="color:var(--tx2)">'+esc(n)+'</span>';}).join(', ')
+          +'</div>';
+      } else {
+        _warnEl.style.display='none';_warnEl.innerHTML='';
+      }
+    } else {
+      _warnEl.style.display='none';_warnEl.innerHTML='';
+    }
+  }
   function row(c,section){
     var nm=c.name.replace(/'/g,"&#39;");
     var banStatus=bldGetBanStatus(c);
     var banCls=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
     var banBadge=banStatus==='banned'?'<span class="bld-ban-badge">BANNI</span>':'';
-    // Badges croisés Pauper / PDH (affichés si banni dans ces formats et non couverts par le badge principal)
-    var _leg=c.legalities||{};
-    var _xb='';
-    if(_leg.pauper==='banned'&&bldFormat!=='pauper')
-      _xb+='<span style="font-size:.52rem;padding:1px 4px;border-radius:999px;background:rgba(230,160,30,.12);color:#e0a020;border:.5px solid rgba(230,160,30,.35);flex-shrink:0" title="Banni en Pauper">⊘ Pauper</span>';
-    if(_leg.paupercommander==='banned'&&bldFormat!=='paupercmd')
-      _xb+='<span style="font-size:.52rem;padding:1px 4px;border-radius:999px;background:rgba(230,160,30,.12);color:#e0a020;border:.5px solid rgba(230,160,30,.35);flex-shrink:0" title="Banni en Pauper EDH">⊘ PDH</span>';
     return '<div class="bld-row'+banCls+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\''+section+'\')" style="touch-action:none;user-select:none;cursor:grab">'
       +'<span class="bld-deck-drag-h" draggable="true" data-n="'+esc(c.name)+'" ondragstart="bldDeckToDragStart(event,this.dataset.n)" onpointerdown="event.stopPropagation()" title="Glisser vers un slot COUPER">⠿</span>'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+c.qty+'</span>'
       +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx);font-size:.82rem">'+esc(c.name)+'</span>'
-      +banBadge+_xb
+      +banBadge
       +(c.rarity?'<span style="font-size:.6rem;padding:1px 4px;border-radius:999px;background:rgba(100,100,120,.1);color:'+(rc[c.rarity]||'var(--tx3)')+';border:.5px solid var(--bd)">'+({common:'C',uncommon:'U',rare:'R',mythic:'M'}[c.rarity]||'?')+'</span>':'')
       +(c.cmc!=null&&c.type&&c.type.indexOf('Land')<0?'<span style="font-size:.66rem;color:var(--tx3);min-width:14px;text-align:right">'+c.cmc+'</span>':'')
       +'<span onpointerdown="event.stopPropagation()" onclick="bldRemFrom(\''+nm+'\',\''+section+'\')" style="font-size:.7rem;color:var(--rd2);cursor:pointer;padding:0 4px;line-height:1;opacity:.6">✕</span>'
