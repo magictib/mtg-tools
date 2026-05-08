@@ -4504,7 +4504,10 @@ function showCard(card){
   else{oracle=card.oracle_text||'';flavor=card.flavor_text||'';}
   document.getElementById('scname').textContent=card.name;
   document.getElementById('sctype').textContent=card.type_line||'';
-  document.getElementById('scora').textContent=oracle;
+  var _scoraEl=document.getElementById('scora');
+  _scoraEl.textContent=oracle;
+  _scoraEl.dataset.oracleNl=stripDFC(card.name||'').toLowerCase();
+  if(_userLang&&_userLang!=='en')_scheduleLocalizeTexts();
   document.getElementById('scflav').textContent=flavor;
   document.getElementById('scflav').style.display=flavor?'block':'none';
   var mana=(card.mana_cost||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].mana_cost)||'—').replace(/{/g,'').replace(/}/g,' ').trim()||'—';
@@ -10446,7 +10449,10 @@ function selectCmd(name,slug){
     else oracle=card.oracle_text||'';
     document.getElementById('cmdscname').textContent=card.name;
     document.getElementById('cmdsctype').textContent=card.type_line||'';
-    document.getElementById('cmdscora').textContent=oracle;
+    var _cmdscoraEl=document.getElementById('cmdscora');
+    _cmdscoraEl.textContent=oracle;
+    _cmdscoraEl.dataset.oracleNl=stripDFC(card.name||'').toLowerCase();
+    if(_userLang&&_userLang!=='en')_scheduleLocalizeTexts();
     var mana=(card.mana_cost||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].mana_cost)||'—').replace(/{/g,'').replace(/}/g,' ').trim()||'—';
     var pt=card.power!=null?card.power+'/'+card.toughness:card.loyalty?'Loyauté: '+card.loyalty:'—';
     var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[card.rarity]||card.rarity||'—';
@@ -11448,13 +11454,14 @@ function toggleScryfallOffline(){
 }
 
 // ===== COLLECTION DETAIL =====
-function _buildDetailHTML(displayName,dat,loanOpts){
+function _buildDetailHTML(displayName,dat,loanOpts,nl){
+  var _onl=nl||stripDFC(displayName||'').toLowerCase();
   return '<div style="display:flex;gap:10px;align-items:flex-start">'
     +(dat.img?'<img src="'+dat.img+'" alt="'+esc(displayName)+'" style="width:105px;border-radius:7px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,.5)">':'')
     +'<div style="flex:1;min-width:0">'
     +'<div style="font-family:\'Goudy Mediaeval\',serif;font-size:.82rem;color:var(--gold2);margin-bottom:2px">'+esc(displayName)+'</div>'
     +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(dat.type||'')+(dat.rar?' · '+dat.rar:'')+(dat.pt?' · '+dat.pt:'')+'</div>'
-    +(dat.oracle?'<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:6px">'+dat.oracle+'</div>':'')
+    +(dat.oracle?'<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:6px" data-oracle-nl="'+esc(_onl)+'">'+dat.oracle+'</div>':'')
     +(dat.prices?'<div style="font-size:.7rem;margin-bottom:6px">'+dat.prices+'</div>':'')
     +'</div></div>'
     +'<div class="det-action">'
@@ -13575,7 +13582,9 @@ try{
   else{var __old=localStorage.getItem('mtg_ana_lang');if(__old){_userLang=__old;localStorage.setItem('mtg_user_lang',__old);localStorage.removeItem('mtg_ana_lang');}}
 }catch(e){}
 var _localizedImgCache={};  // {lang+'|'+name : url_ou_null}
+var _localizedTextCache={};  // {lang+'|'+nl : printed_text_ou_null}
 var _localizeTimer=null;
+var _localizeTextTimer=null;
 function showToast(msg,durationMs){
   var el=document.getElementById('app-toast');
   if(!el)return;
@@ -13590,8 +13599,10 @@ function setUserLang(lang){
   var _lEntry=null;for(var _li=0;_li<USER_LANGS.length;_li++){if(USER_LANGS[_li].code===_userLang){_lEntry=USER_LANGS[_li];break;}}
   var label=_lEntry?_lEntry.label:_userLang;
   showToast('🌐 Langue enregistrée : '+label);
-  // Réinitialiser l'état de localisation de toutes les images
+  // Réinitialiser l'état de localisation de toutes les images et textes
   document.querySelectorAll('img').forEach(function(img){delete img.dataset.localizedTo;});
+  document.querySelectorAll('[data-oracle-nl]').forEach(function(el){delete el.dataset.localizedTextTo;});
+  _localizedTextCache={};
   if(!_userLang||_userLang==='en'){
     // Restaurer les URLs anglaises originales
     document.querySelectorAll('img').forEach(function(img){
@@ -13599,6 +13610,7 @@ function setUserLang(lang){
     });
   } else {
     _batchLocalizeImgs(_userLang);
+    _scheduleLocalizeTexts();
   }
   // Re-render Analyse si actif
   var sel=document.getElementById('ana-deck-sel');
@@ -13664,6 +13676,13 @@ function _batchLocalizeImgs(lang){
             if(byName[card.name])return;
             var uri=(card.image_uris&&card.image_uris.normal)||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.normal)||'';
             if(uri)byName[card.name]=uri;
+            // Capturer aussi le texte traduit (printed_text)
+            var cnl=stripDFC(card.name||'').toLowerCase();
+            var tck=lang+'|'+cnl;
+            if(!_localizedTextCache.hasOwnProperty(tck)){
+              var pt=card.printed_text||(card.card_faces&&card.card_faces.map(function(f){return f.printed_text||'';}).filter(Boolean).join('\n\n---\n\n'))||'';
+              _localizedTextCache[tck]=pt||null;
+            }
           });
           batch.forEach(function(name){
             var ck=lang+'|'+name;
@@ -13671,6 +13690,7 @@ function _batchLocalizeImgs(lang){
             if(uri){_localizedImgCache[ck]=uri;(nameToImgs[name]||[]).forEach(function(img){if(_userLang===lang)_applyLocalizedSrc(img,uri,lang);});}
             else _localizedImgCache[ck]=null;
           });
+          _scheduleLocalizeTexts();
         }).catch(function(){});
     },bi*150);
   });
@@ -13684,6 +13704,57 @@ function _applyLocalizedSrc(img,uri,lang){
   img.src=uri;
 }
 
+function _scheduleLocalizeTexts(){
+  if(!_userLang||_userLang==='en')return;
+  if(_localizeTextTimer)clearTimeout(_localizeTextTimer);
+  _localizeTextTimer=setTimeout(function(){_localizeTextTimer=null;_localizeTextsInDOM(_userLang);},300);
+}
+function _applyLocalizedText(el,text,lang){
+  if(el.dataset&&el.dataset.localizedTextTo===lang)return;
+  if(el.dataset)el.dataset.localizedTextTo=lang;
+  var st=el.getAttribute('style')||'';
+  if(st.indexOf('pre-line')>=0||st.indexOf('pre-wrap')>=0){el.textContent=text;}
+  else{el.innerHTML=esc(text).replace(/\n/g,'<br>');}
+}
+function _localizeTextsInDOM(lang){
+  if(!lang||lang==='en')return;
+  var nlToEls={};
+  document.querySelectorAll('[data-oracle-nl]').forEach(function(el){
+    var nl=el.dataset.oracleNl;if(!nl)return;
+    var ck=lang+'|'+nl;
+    if(_localizedTextCache.hasOwnProperty(ck)){
+      if(_localizedTextCache[ck])_applyLocalizedText(el,_localizedTextCache[ck],lang);
+      return;
+    }
+    if(!nlToEls[nl])nlToEls[nl]=[];
+    nlToEls[nl].push(el);
+  });
+  var nls=Object.keys(nlToEls);if(!nls.length)return;
+  var batches=[];for(var i=0;i<nls.length;i+=15)batches.push(nls.slice(i,i+15));
+  batches.forEach(function(batch,bi){
+    setTimeout(function(){
+      if(_userLang!==lang)return;
+      var names=batch.map(function(nl){return (_anaData[nl]&&_anaData[nl].name)||nl.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();});});
+      var q='('+names.map(function(n){return '!"'+n.replace(/"/g,'')+'"';}).join(' OR ')+') lang:'+lang;
+      fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&unique=cards&order=name')
+        .then(function(r){return r.json();})
+        .then(function(d){
+          var byNl={};
+          (d.data||[]).forEach(function(card){
+            var nl=stripDFC(card.name||'').toLowerCase();
+            var pt=card.printed_text||(card.card_faces&&card.card_faces.map(function(f){return f.printed_text||'';}).filter(Boolean).join('\n\n---\n\n'))||'';
+            byNl[nl]=pt||null;
+          });
+          batch.forEach(function(nl){
+            var ck=lang+'|'+nl;
+            var pt=byNl.hasOwnProperty(nl)?byNl[nl]:null;
+            _localizedTextCache[ck]=pt;
+            if(pt)(nlToEls[nl]||[]).forEach(function(el){if(_userLang===lang)_applyLocalizedText(el,pt,lang);});
+          });
+        }).catch(function(){batch.forEach(function(nl){_localizedTextCache[lang+'|'+nl]=null;});});
+    },bi*150);
+  });
+}
 // MutationObserver pour traiter les nouvelles images ajoutees dynamiquement dans le DOM
 (function(){
   if(typeof MutationObserver==='undefined')return;
@@ -13692,6 +13763,12 @@ function _applyLocalizedSrc(img,uri,lang){
     if(node.tagName==='IMG')_localizeOneImg(node);
     var imgs=node.querySelectorAll&&node.querySelectorAll('img');
     if(imgs)imgs.forEach(_localizeOneImg);
+    // Textes traduits
+    if(_userLang&&_userLang!=='en'){
+      if(node.dataset&&node.dataset.oracleNl)_scheduleLocalizeTexts();
+      var oEls=node.querySelectorAll&&node.querySelectorAll('[data-oracle-nl]');
+      if(oEls&&oEls.length)_scheduleLocalizeTexts();
+    }
   }
   var observer=new MutationObserver(function(mutations){
     mutations.forEach(function(m){
@@ -15778,7 +15855,44 @@ function anaRender(deckId){
   });
   html+='</div></div>';
 
-  // Courbe de mana
+  // === Bandeau 3 colonnes : Commandant | Répartition par type | Courbe de mana ===
+  var _cmdNameVis=(deck.commander&&deck.commander.name)||null;
+  if(!_cmdNameVis&&deck.cards){for(var _ci=0;_ci<deck.cards.length;_ci++){if(/^commander|^commandant/i.test(deck.cards[_ci].sec||'')){_cmdNameVis=deck.cards[_ci].name;break;}}}
+  var _gridCols=_cmdNameVis?'repeat(3,minmax(0,1fr))':'1fr 1fr';
+  html+='<div style="display:grid;grid-template-columns:'+_gridCols+';gap:12px;align-items:start">';
+
+  // Colonne 1 : Commandant
+  if(_cmdNameVis){
+    var _cmdMetaNl=stripDFC(_cmdNameVis).toLowerCase();
+    var _cmdMeta=_anaData[_cmdMetaNl]||{};
+    var _cmdImgUrl=(deck.commander&&deck.commander.img)||_cmdMeta.imageUri||'';
+    html+='<div class="card" style="display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center">';
+    if(_cmdImgUrl){
+      html+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:100%;max-width:220px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.7);cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=\''+esc(_cmdImgUrl)+'\';z.style.display=\'flex\'">';
+    }
+    html+='<div style="width:100%">';
+    html+='<div class="lbl" style="margin-bottom:4px">👑 '+esc(_cmdNameVis)+'</div>';
+    if(_cmdMeta.typeLine)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">'+esc(_cmdMeta.typeLine)+'</div>';
+    if(_cmdMeta.oracleText){
+      html+='<div style="font-size:11px;color:var(--tx2);line-height:1.6;white-space:pre-line;border-left:2px solid var(--ac);padding-left:10px;text-align:left" data-oracle-nl="'+esc(_cmdMetaNl)+'">'+esc(_cmdMeta.oracleText)+'</div>';
+    } else {
+      html+='<div style="font-size:11px;color:var(--tx3);font-style:italic" data-oracle-nl="'+esc(_cmdMetaNl)+'">Texte oracle non disponible.</div>';
+    }
+    html+='</div></div>';
+  }
+
+  // Colonne 2 : Répartition par type
+  html+='<div class="card"><div class="lbl">Répartition par type</div>';
+  var typeOrder=['Créatures','Éphémères','Rituels','Enchantements','Artefacts','Planeswalkers','Terrains','Autres'];
+  typeOrder.forEach(function(name){
+    var n=typeCounts[name]||0;if(!n)return;
+    var pct=totalCards?(n/totalCards)*100:0;
+    html+='<div class="ana-types-row"><div>'+name+'</div>';
+    html+='<div><span class="ana-pct-bar"><div style="width:'+pct.toFixed(1)+'%"></div></span><b>'+n+'</b> <span style="color:var(--tx3);font-size:10px">'+pct.toFixed(0)+'%</span></div></div>';
+  });
+  html+='</div>';
+
+  // Colonne 3 : Courbe de mana
   html+='<div class="card"><div class="lbl">Courbe de mana (sorts)</div>';
   var maxBucket=Math.max.apply(null,manaCurve)||1;
   html+='<div class="ana-curve-bar">';
@@ -15796,41 +15910,7 @@ function anaRender(deckId){
   html+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div>';
   html+='</div>';
 
-  // Commandant (rappel visuel) — cherche dans deck.commander puis dans deck.cards sec=Commander
-  var _cmdNameVis=(deck.commander&&deck.commander.name)||null;
-  if(!_cmdNameVis&&deck.cards){for(var _ci=0;_ci<deck.cards.length;_ci++){if(/^commander|^commandant/i.test(deck.cards[_ci].sec||'')){_cmdNameVis=deck.cards[_ci].name;break;}}}
-  if(_cmdNameVis){
-    var _cmdMetaNl=stripDFC(_cmdNameVis).toLowerCase();
-    var _cmdMeta=_anaData[_cmdMetaNl]||{};
-    var _cmdImgUrl=(deck.commander&&deck.commander.img)||_cmdMeta.imageUri||'';
-    html+='<div class="card" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">';
-    if(_cmdImgUrl){
-      html+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:180px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.7);flex-shrink:0;cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=\''+esc(_cmdImgUrl)+'\';z.style.display=\'flex\'">';
-    }
-    html+='<div style="flex:1;min-width:160px">';
-    html+='<div class="lbl" style="margin-bottom:4px">👑 '+esc(_cmdNameVis)+'</div>';
-    if(_cmdMeta.typeLine)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">'+esc(_cmdMeta.typeLine)+'</div>';
-    if(_cmdMeta.oracleText){
-      html+='<div style="font-size:11px;color:var(--tx2);line-height:1.6;white-space:pre-line;border-left:2px solid var(--ac);padding-left:10px">'+esc(_cmdMeta.oracleText)+'</div>';
-    } else {
-      html+='<div style="font-size:11px;color:var(--tx3);font-style:italic">Texte oracle non disponible — relance l\'analyse pour le charger.</div>';
-    }
-    html+='</div>';
-    html+='</div>';
-  }
-
-  // Répartition par type
-  html+='<div class="card"><div class="lbl">Répartition par type</div>';
-  var typeOrder=['Créatures','Éphémères','Rituels','Enchantements','Artefacts','Planeswalkers','Terrains','Autres'];
-  typeOrder.forEach(function(name){
-    var n=typeCounts[name]||0;if(!n)return;
-    var pct=totalCards?(n/totalCards)*100:0;
-    html+='<div class="ana-types-row">';
-    html+='<div>'+name+'</div>';
-    html+='<div><span class="ana-pct-bar"><div style="width:'+pct.toFixed(1)+'%"></div></span><b>'+n+'</b> <span style="color:var(--tx3);font-size:10px">'+pct.toFixed(0)+'%</span></div>';
-    html+='</div>';
-  });
-  html+='</div>';
+  html+='</div>'; // fin grille 3 colonnes
 
   // Categories fonctionnelles vs cibles
   var _thLbls=(_anaCurrentThemes&&_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length)?_anaCurrentThemes.labels:null;
