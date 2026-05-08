@@ -5018,8 +5018,6 @@ function importMoxfieldUrl(){
       else if(data.mainboard)extractCards(data.mainboard,commanderName?'Mainboard':null);
       if(boards.companions)extractCards(boards.companions,'Companion');
       else if(data.companions)extractCards(data.companions,'Companion');
-      if(boards.sideboard)extractCards(boards.sideboard,'Sideboard');
-      else if(data.sideboard)extractCards(data.sideboard,'Sideboard');
       if(boards.tokens)extractCards(boards.tokens,'Tokens');
 
       console.log('[Moxfield] '+debugCount+' entrées parcourues, '+debugNoName+' sans nom. Premier objet carte :',debugFirstCard);
@@ -12465,7 +12463,10 @@ function bldOptimize(){
   var missing=Math.max(0,target-totalCards);
   if(needed)needed.textContent='Objectif : '+target+' cartes · '+totalCards+' dans le deck · '+missing+' à trouver';
 
-  // Construire un objet deck temporaire pour le moteur d'analyse
+  var fmt=bldFormat||'';
+  var isPauper=_anaIsPauperFormat(fmt);
+  var isCmd=anaIsCommanderFormat(fmt);
+
   var bldDeckTemp={
     cards:bldMain.map(function(c){return {name:c.name,nl:c.nl||stripDFC(c.name||'').toLowerCase(),qty:c.qty,sec:'Deck'};}),
     format:bldFormat,
@@ -12478,24 +12479,18 @@ function bldOptimize(){
     if(nls.indexOf(_cNl)<0){nls.push(_cNl);fb.push({nl:_cNl,name:dCommander.name});}
   }
 
-  // Afficher un état de chargement
   var sugsP=document.getElementById('bld-sugs-panel');
   if(sugsP){sugsP.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:8px 0">⏳ Analyse en cours…</div>';sugsP.style.display='';}
 
-  anaFetchMissing(nls,fb,function(){
-    // Initialiser les thèmes du commandant (pour anaCardScore)
+  function _runOptimize(){
     var themes=_anaCommanderThemes(bldDeckTemp);
-    if(anaIsCommanderFormat(bldFormat||'')){if(!(themes.protection>1))themes.protection=1;}
+    if(isCmd){if(!(themes.protection>1))themes.protection=1;}
     else{themes.protection=0;}
     _anaCurrentThemes=_anaGetEffectiveThemes(null,themes);
     var deckCi=_anaDeckCi(bldDeckTemp);
-    var fmt=bldFormat||'';
-    var isPauper=_anaIsPauperFormat(fmt);
 
-    // Construire les scored rows (non-terrains) — même logique que anaRender
     var inDeckNls={};
     bldMain.forEach(function(c){inDeckNls[c.nl||stripDFC(c.name||'').toLowerCase()]=1;});
-    // Exclure commandant des scored rows
     var cmdNlSet=new Set();
     if(dCommander&&dCommander.name)cmdNlSet.add(stripDFC(dCommander.name).toLowerCase());
     bldDeckTemp.cards.forEach(function(c){if(/^commander|^commandant/i.test(c.sec||''))cmdNlSet.add(c.nl||'');});
@@ -12508,16 +12503,16 @@ function bldOptimize(){
       scoredRows.push({card:c,meta:meta,score:anaCardScore(meta),inCache:true});
     });
 
-    // Pool de suggestions depuis _anaData (même logique que anaRender)
     var freqMatrix=_anaComputeFreqMatrix();
     var edhrecFreq=_anaCurrentEDHREC;
+    var detectedArch=_anaDetectArchetype(bldDeckTemp);
     var pool=[];
     Object.keys(_anaData).forEach(function(nl){
       if(inDeckNls[nl]||_anaIsBasicLandNl(nl))return;
       var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
       if(isPauper&&meta.rarity!=='common')return;
       if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
-      var sv=_anaSynergyValue(nl,meta,_anaDetectArchetype(bldDeckTemp),freqMatrix,edhrecFreq);
+      var sv=_anaSynergyValue(nl,meta,detectedArch,freqMatrix,edhrecFreq);
       var antiP=_anaAntiSynergyPenalty(meta,_anaCurrentThemes);
       var synP=_anaThemeSynergyScore(meta,_anaCurrentThemes);
       var adjScore=Math.max(0,sv.score+antiP+synP*0.4);
@@ -12525,10 +12520,8 @@ function bldOptimize(){
     });
     pool.sort(function(a,b){return b.score-a.score;});
 
-    // Même optimiseur que l'analyse (Plan d'optimisation)
     var optResult=anaOptimize(scoredRows,pool.slice(),10);
 
-    // Convertir en swaps du builder
     var existCuts=new Set(_bldSwaps.map(function(s){return s.cut&&s.cut.name.toLowerCase();}));
     var existAdds=new Set(_bldSwaps.map(function(s){return s.add&&s.add.name.toLowerCase();}));
     optResult.swaps.forEach(function(sw){
@@ -12542,6 +12535,28 @@ function bldOptimize(){
     });
     bldRenderSwapsPanel();
     bldRenderOpt();
+  }
+
+  function _afterStaples(){
+    if(isCmd&&dCommander&&dCommander.name){
+      anaFetchEDHRECCommander(dCommander.name,fmt,function(edhrecFreq){
+        _anaCurrentEDHREC=edhrecFreq||null;
+        _runOptimize();
+      });
+    } else {
+      _anaCurrentEDHREC=null;
+      _runOptimize();
+    }
+  }
+
+  // Étape 1 : cartes du deck
+  anaFetchMissing(nls,fb,function(){
+    // Étape 2 : staples généraux pour enrichir le pool
+    var staples=isPauper?_anaPauperStaples:_anaStaples;
+    var stapleFb=staples.map(function(n){return {nl:n.toLowerCase(),name:n};});
+    var stapleNls=stapleFb.filter(function(s){return !_anaData[s.nl];}).map(function(s){return s.nl;});
+    if(stapleNls.length){anaFetchMissing(stapleNls,stapleFb,_afterStaples);}
+    else{_afterStaples();}
   });
 }
 
@@ -16270,7 +16285,6 @@ function _arPoolProcessMoxData(data,urlEl,msgEl){
   if(cmObj&&typeof cmObj==='object'){var fk=Object.keys(cmObj)[0];if(fk){var cn=_mxName(cmObj[fk]);if(cn)commanderName=cn.split(' // ')[0];}}
   if(boards.commanders||data.commanders)extractBoard(boards.commanders||data.commanders);
   if(boards.mainboard)extractBoard(boards.mainboard);else if(data.mainboard)extractBoard(data.mainboard);
-  if(boards.sideboard)extractBoard(boards.sideboard);else if(data.sideboard)extractBoard(data.sideboard);
   if(!lines.length){if(msgEl){msgEl.style.color='var(--rd2)';msgEl.textContent='❌ Deck vide ou format inattendu.';}return;}
   var raw=lines.join('\n');
   var cards=parseList(raw);
