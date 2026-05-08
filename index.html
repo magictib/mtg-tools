@@ -15854,14 +15854,14 @@ function anaRefreshMatrix(){
     // Étape 1 : matrice du deck actuel
     var matrixCurrent=archetypes.map(function(a){return {arch:a,wr:anaWinRate(libUser,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
     var avgCur=matrixCurrent.reduce(function(s,m){return s+m.wr;},0)/matrixCurrent.length;
-    // Mise à jour du badge avec le score simulé (remplace le score de composition statique)
+    // Mise à jour du badge simulation (le badge composition reste inchangé)
     (function(){
       var simScore=Math.min(100,Math.round(avgCur*120));
       var simGrade=anaGrade(simScore);
-      var _badge=document.getElementById('ana-grade-badge');
-      if(_badge){_badge.style.color=simGrade.col;_badge.style.borderColor=simGrade.col;_badge.textContent=simGrade.l;_badge.title=simScore+'/100 (simulé — '+Math.round(avgCur*100)+'% win rate)';}
-      var _scLine=document.getElementById('ana-score-headline');
-      if(_scLine){_scLine.innerHTML='<b style="color:'+simGrade.col+';font-size:20px">'+simScore+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score simulé ('+Math.round(avgCur*100)+'% win rate · composition '+overall+')</span>';}
+      var _simBadge=document.getElementById('ana-sim-badge');
+      if(_simBadge){_simBadge.style.color=simGrade.col;_simBadge.style.borderColor=simGrade.col;_simBadge.style.borderStyle='solid';_simBadge.textContent=simGrade.l;_simBadge.title=simScore+'/100 — Score simulé ('+Math.round(avgCur*100)+'% win rate)';}
+      var _simTxt=document.getElementById('ana-sim-score-text');
+      if(_simTxt){_simTxt.style.color=simGrade.col;_simTxt.style.fontStyle='normal';_simTxt.innerHTML='🎮 <b style="font-size:16px">'+simScore+'</b><span style="color:var(--tx3);font-weight:normal">/100</span> <span style="color:var(--tx3);font-size:10px">simulation ('+Math.round(avgCur*100)+'% win rate)</span>';}
     })();
     // Étape 2 : tester TOUS les swaps avec les mêmes archétypes/runs que la matrice affichée
     var _libOptAll=_rawSwaps.length?_anaApplyOptToLib(libUser,_rawSwaps):null;
@@ -16121,7 +16121,14 @@ function anaRender(deckId){
   // === Header HTML (réutilisé selon présence commandant) ===
   var _hdr='<div class="card">';
   _hdr+='<div class="ana-deck-header">';
-  _hdr+='<div class="ana-grade-badge" id="ana-grade-badge" style="color:'+grade.col+';border-color:'+grade.col+';background:rgba(0,0,0,.4)" title="'+overall+'/100 (composition)">'+grade.l+'</div>';
+  _hdr+='<div style="display:flex;flex-direction:column;align-items:center;gap:3px">';
+  _hdr+='<div class="ana-grade-badge" id="ana-grade-badge" style="width:76px;height:76px;font-size:34px;color:'+grade.col+';border-color:'+grade.col+';background:rgba(0,0,0,.4)" title="'+overall+'/100 — Score de composition (construction du deck)">'+grade.l+'</div>';
+  _hdr+='<div style="font-size:9px;color:var(--tx3);letter-spacing:.06em;font-family:Goudy Mediaeval,serif">COMPOSITION</div>';
+  _hdr+='</div>';
+  _hdr+='<div style="display:flex;flex-direction:column;align-items:center;gap:3px">';
+  _hdr+='<div class="ana-grade-badge" id="ana-sim-badge" style="width:76px;height:76px;font-size:34px;color:var(--tx3);border-color:var(--tx3);border-style:dashed;background:rgba(0,0,0,.3)" title="Simulation en cours…">…</div>';
+  _hdr+='<div style="font-size:9px;color:var(--tx3);letter-spacing:.06em;font-family:Goudy Mediaeval,serif">SIMULATION</div>';
+  _hdr+='</div>';
   _hdr+='<div class="ana-deck-info">';
   _hdr+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
   _hdr+='<div class="ana-deck-meta">'+(fmt?fmt.toUpperCase():'Format libre')+' · '+totalCards+' cartes · '+ciHtml;
@@ -16187,7 +16194,10 @@ function anaRender(deckId){
   _hdr+='</div>'; // ana-deck-meta
   _hdr+='</div>'; // ana-deck-info
   _hdr+='</div>'; // ana-deck-header
-  _hdr+='<div id="ana-score-headline" style="margin-top:6px;font-size:11px"><b style="color:'+grade.col+';font-size:20px">'+overall+'</b><span style="color:var(--tx3)">/100</span><span style="color:var(--tx2);margin-left:8px;font-style:italic">Score de composition · simulation en cours…</span></div>';
+  _hdr+='<div id="ana-score-headline" style="margin-top:6px;font-size:11px;display:flex;flex-wrap:wrap;gap:12px;align-items:baseline">';
+  _hdr+='<span>🏗 <b style="color:'+grade.col+';font-size:16px">'+overall+'</b><span style="color:var(--tx3)">/100</span> <span style="color:var(--tx3);font-size:10px">composition</span></span>';
+  _hdr+='<span id="ana-sim-score-text" style="color:var(--tx3);font-size:10px;font-style:italic">🎮 simulation en cours…</span>';
+  _hdr+='</div>';
   if(unanalyzed>0){
     var notAnalyzed=rows.filter(function(r){return !r.inCache;}).map(function(r){return esc(r.card.name);});
     _hdr+='<div style="margin-top:6px;color:#f5b95b;font-size:10px">⚠ '+unanalyzed+' carte(s) non identifiée(s) sur Scryfall — non comptabilisées :</div>';
