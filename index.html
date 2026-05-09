@@ -16127,13 +16127,20 @@ function anaRender(deckId){
   // remplit les catégories qu'elle remplace dans les decks à commandant synergique.
   var _sc=Object.assign({},counts);
   var _th2=_anaCurrentThemes||{};
-  // Draw surplus → wincon (draw-damage : Queza, Niv-Mizzet…)
-  if((_th2.draw||1)>=1.5&&counts.draw>targets.draw[0]){
-    var _dFactor=(_th2.draw||1)>=2.0?0.5:0.3;
-    _sc.wincon+=Math.round((counts.draw-targets.draw[0])*_dFactor);
+  var _drawMult=_th2.draw||1;
+  if(_drawMult>=2.0){
+    // Le commandant draw-matters EST le win-con → minimum 1 wincon implicite même si 0 dans le deck
+    _sc.wincon=Math.max(_sc.wincon,1);
+    // Toute pioche au-delà de 70 % de la borne basse compte comme wincon implicite
+    var _dThresh=Math.floor(targets.draw[0]*0.7);
+    if(counts.draw>_dThresh)_sc.wincon+=Math.round((counts.draw-_dThresh)*0.5);
+  }else if(_drawMult>=1.5&&counts.draw>targets.draw[0]){
+    _sc.wincon+=Math.round((counts.draw-targets.draw[0])*0.3);
   }
   // Ramp surplus → wincon (ramp-damage : Omnath…)
   if((_th2.ramp||1)>=1.5&&counts.ramp>targets.ramp[0])_sc.wincon+=Math.round((counts.ramp-targets.ramp[0])*0.4);
+  // Sacrifice/drain → wincon implicite (Aristocrates : le moteur sacrifice EST le wincon)
+  if((_th2.sacrifice||1)>=2.0)_sc.wincon=Math.max(_sc.wincon,1);
   // Interaction surplus → wincon (contrôle : interaction = win condition implicite)
   if((_th2.interaction||1)>=2.0&&counts.interaction>targets.interaction[0])_sc.wincon+=Math.round((counts.interaction-targets.interaction[0])*0.3);
   var subScores={
