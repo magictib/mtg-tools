@@ -13717,6 +13717,37 @@ function _anaCmdNavPrint(deckId,dir){
   if(el)el.src=prints[idx].img;
   if(lbl)lbl.textContent=prints[idx].set+' ('+(idx+1)+'/'+prints.length+')';
 }
+function _anaSwapReason(meta,themes){
+  if(!meta||!meta.oracleText)return'';
+  var o=meta.oracleText.toLowerCase();var th=themes||{};
+  if((th.sweeper||0)>1){
+    if(/indestructible|deathtouch|regenerate/.test(o))return'💥 survie au sweeper';
+    if(/lifelink/.test(o))return'💥 lifelink sweeper';
+    if(/when.*creature.*dies|whenever.*creature.*dies/.test(o))return'💥 death trigger';
+  }
+  if((th.protection||0)>1.5){
+    if(/hexproof|shroud|indestructible|regenerate/.test(o))return'🛡 protection';
+    if(/dies.*return.*hand|when.*dies.*return/.test(o))return'🛡 anti-taxe';
+  }
+  if((th.draw||0)>1.3&&(meta.tags&&meta.tags.draw>=0.5))return'📖 pioche';
+  if((th.ramp||0)>1.3&&(meta.tags&&meta.tags.ramp>=0.5))return'🌱 ramp';
+  if((th.sacrifice||0)>1.5&&/sacrifice|when.*dies/.test(o))return'🔪 sacrifice';
+  if((th.lifegain||0)>1.5&&/gain.*life|lifelink/.test(o))return'❤ gain de vie';
+  if((th.graveyard||0)>1.5&&/graveyard|flashback|unearth/.test(o))return'💀 cimetière';
+  return'';
+}
+function _anaSetAllSwaps(deckId,val){
+  var swaps=(_anaState&&_anaState.optResult&&_anaState.optResult.swaps)||[];
+  if(!_anaCheckedSwaps[deckId])_anaCheckedSwaps[deckId]={};
+  swaps.forEach(function(sw,i){_anaCheckedSwaps[deckId][i]=val;});
+  try{anaRender(deckId);}catch(e){}
+}
+function _anaSetAllMatrixSwaps(deckId,val){
+  var rows=_anaMatrixData[deckId]||[];
+  if(!_anaMatrixChecked[deckId])_anaMatrixChecked[deckId]={};
+  rows.forEach(function(row,i){_anaMatrixChecked[deckId][i]=val;});
+  try{anaRender(deckId);}catch(e){}
+}
 function _anaToggleMatrixSwap(deckId,idx){
   if(!_anaMatrixChecked[deckId])_anaMatrixChecked[deckId]={};
   _anaMatrixChecked[deckId][idx]=!_anaMatrixChecked[deckId][idx];
@@ -16013,40 +16044,7 @@ function anaWinRate(libA,libBOrFn,runs,opts){
   return wins/runs;
 }
 
-/* ----- Simulation contre un deck specifique (fetch + match) ----- */
-function anaRunVsDeck(myDeckId){
-  var sel=document.getElementById('ana-vs-deck');var res=document.getElementById('ana-vs-result');
-  if(!sel||!res)return;
-  var oppId=sel.value;
-  var oppDeck=_anaGetDeck(oppId);if(!oppDeck||!oppDeck.cards){res.textContent='❌ Deck adverse introuvable';return;}
-  var myDeck=_anaGetDeck(myDeckId);if(!myDeck){res.textContent='❌ Deck source introuvable';return;}
-  res.style.color='var(--tx3)';res.innerHTML='⏳ Récupération des données du deck adverse…';
-  var oppNls=oppDeck.cards.map(function(c){return c.nl;});
-  var fb=oppDeck.cards.slice();
-  if(oppDeck.commander&&oppDeck.commander.name){oppNls.push(oppDeck.commander.name.toLowerCase());fb.push({nl:oppDeck.commander.name.toLowerCase(),name:oppDeck.commander.name});}
-  anaFetchMissing(oppNls,fb,function(){
-    var libA=_anaBuildSimLib(myDeck);
-    var libB=_anaBuildSimLib(oppDeck);
-    if(libA.length<20||libB.length<20){
-      res.style.color='#e07070';
-      res.textContent='⚠ Pas assez de cartes en cache pour simuler ('+libA.length+' vs '+libB.length+' identifiées).';
-      return;
-    }
-    var _vsFmt=myDeck.format||'';
-    var _vsBase=anaIsCommanderFormat(_vsFmt)?(_anaSimMode==='duel'?{startLife:20,maxTurns:16}:{startLife:40,maxTurns:20}):{startLife:20,maxTurns:12};
-    var _vsCmd=_anaExtractCmd(myDeck);var _vsOppCmd=_anaExtractCmd(oppDeck);
-    var _vsOpts=Object.assign({},_vsBase,_vsCmd?{cmdA:_vsCmd}:{},_vsOppCmd?{cmdB:_vsOppCmd}:{});
-    res.innerHTML='⏳ Simulation 50 parties…';
-    setTimeout(function(){
-      var wr=anaWinRate(libA,libB,50,_vsOpts);
-      var pctV=Math.round(wr*100);
-      var col=pctV>=60?'#78c890':pctV>=45?'#5b8cf5':pctV>=30?'#f5b95b':'#e07070';
-      var verdict=pctV>=60?'Matchup favorable':pctV>=45?'Matchup équilibré':pctV>=30?'Matchup défavorable':'Matchup très défavorable';
-      res.style.color=col;
-      res.innerHTML='<b style="font-size:18px">'+pctV+'%</b> de victoires sur 50 parties — <i>'+verdict+'</i><br><span style="font-size:10px;color:var(--tx3)">vs '+esc(oppDeck.name||'Deck')+' ('+libB.length+' cartes simulées)</span>';
-    },50);
-  });
-}
+/* ----- Optimisation complete (jusqu'a plus de gain) — anaRunVsDeck supprimé ----- */
 
 /* ----- Optimisation complete (jusqu'a plus de gain) ----- */
 function anaFullOptimize(scoredRows,pool,maxIter){
@@ -16859,6 +16857,15 @@ function anaRender(deckId){
   }
   _hdr+='</div>'; // header card
 
+  // Couverture thématique : % cartes non-terrain avec synergie ≥ 1 dans le plan de jeu
+  var _synCardN=0,_nonLandN=0;
+  rows.forEach(function(r){
+    if(!r.meta||!r.meta.tags||r.meta.tags.isLand)return;
+    var qty=r.card.qty||1;_nonLandN+=qty;
+    if(_anaThemeSynergyScore(r.meta,_anaCurrentThemes)>=1)_synCardN+=qty;
+  });
+  var _thCovPct=_nonLandN>0?Math.round((_synCardN/_nonLandN)*100):0;
+
   // === Panel de scores (colonne droite) ===
   var _subCatDef=[{k:'draw',l:'Pioche'},{k:'ramp',l:'Ramp'},{k:'land',l:'Mana base'},{k:'removal',l:'Removal'},{k:'interaction',l:'Interact.'},{k:'wincon',l:'Menaces'}];
   var _scorePanel='<div class="card" style="min-width:0;padding:12px 10px">';
@@ -16894,6 +16901,18 @@ function anaRender(deckId){
   _scorePanel+='<div id="ana-sim-bar" style="width:0%;height:100%;background:var(--tx3);border-radius:3px;transition:width .8s ease"></div></div>';
   _scorePanel+='<div id="ana-sim-score-text" style="font-size:9px;color:var(--tx3);font-style:italic">en cours de calcul…</div>';
   _scorePanel+='</div>';
+  // ── Synergie plan de jeu ──
+  if((_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length)||(_anaQState[deckId]&&(_anaQState[deckId].role||(_anaQState[deckId].synergies&&_anaQState[deckId].synergies.length)))){
+    var _covCol=_thCovPct>=60?'#78c890':_thCovPct>=35?'#f5b95b':'#e07070';
+    _scorePanel+='<div style="height:.5px;background:var(--bd2);margin:8px 0"></div>';
+    _scorePanel+='<div style="text-align:center">';
+    _scorePanel+='<div style="font-size:8px;color:var(--tx3);letter-spacing:.1em;font-family:Goudy Mediaeval,serif;margin-bottom:4px" title="Proportion de cartes (hors terrains) qui synergisent avec le plan de jeu actif">SYNERGIE PLAN</div>';
+    _scorePanel+='<div style="font-size:26px;line-height:1;font-weight:bold;color:'+_covCol+'">'+_thCovPct+'%</div>';
+    _scorePanel+='<div style="height:4px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin:4px 0">';
+    _scorePanel+='<div style="width:'+_thCovPct+'%;height:100%;background:'+_covCol+';border-radius:3px;transition:width .6s ease"></div></div>';
+    _scorePanel+='<div style="font-size:8.5px;color:var(--tx3)">'+_synCardN+'/'+_nonLandN+' cartes synergiques</div>';
+    _scorePanel+='</div>';
+  }
   _scorePanel+='</div>';
 
   // === Mise en page finale : avec ou sans commandant ===
@@ -16931,6 +16950,25 @@ function anaRender(deckId){
     }
     _cmdCard+='</div></div>';
   }
+  // === Banner plan de jeu (si questionnaire rempli ou thème auto-détecté) ===
+  var _qsBanner=_anaQState[deckId]||{};
+  var _roleMap={commander:{l:'⚔ Mon commandant',c:'#c9a84c'},creatures:{l:'👊 Créatures',c:'#78c890'},combo:{l:'💥 Combo',c:'#c95bf5'},control:{l:'🌊 Contrôle',c:'#5b8cf5'}};
+  var _hasBanner=_qsBanner.role||(_qsBanner.synergies&&_qsBanner.synergies.length)||(_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length);
+  if(_hasBanner){
+    html+='<div style="padding:7px 12px;background:rgba(201,168,76,.07);border:.5px solid rgba(201,168,76,.22);border-radius:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px">';
+    html+='<span style="font-size:9px;color:var(--tx3);letter-spacing:.08em;font-family:Goudy Mediaeval,serif;flex-shrink:0">PLAN DE JEU</span>';
+    var _ri=_roleMap[_qsBanner.role||''];
+    if(_ri)html+='<span style="padding:2px 10px;border-radius:12px;font-size:11px;background:rgba(201,168,76,.15);color:'+_ri.c+';border:.5px solid '+_ri.c+'">'+_ri.l+'</span>';
+    (_qsBanner.synergies||[]).forEach(function(s){
+      var opt=_anaQSynOpts.filter(function(o){return o.k===s;})[0];
+      if(opt)html+='<span style="padding:2px 8px;border-radius:12px;font-size:10px;background:rgba(255,255,255,.05);color:var(--tx2);border:.5px solid var(--bd2)">'+opt.ico+' '+opt.fr+'</span>';
+    });
+    if(!_qsBanner.role&&(!_qsBanner.synergies||!_qsBanner.synergies.length)&&_anaCurrentThemes.labels){
+      _anaCurrentThemes.labels.forEach(function(l){html+='<span style="padding:2px 8px;border-radius:12px;font-size:10px;background:rgba(91,140,245,.1);color:#5b8cf5;border:.5px solid rgba(91,140,245,.35)">'+l+'</span>';});
+    }
+    html+='</div>';
+  }
+
   if(_cmdNameVis){
     // 2-col : commandant (240px) | header + [type+courbe empilés | score]
     html+='<div style="display:grid;grid-template-columns:minmax(0,240px) 1fr;gap:10px;align-items:stretch">';
@@ -17122,17 +17160,24 @@ function anaRender(deckId){
           html+='<span style="font-size:10px;color:var(--tx3);font-style:italic">Lancez la simulation principale pour débloquer WR</span>';
         }
         html+='</div>';
+        html+='<div style="display:flex;gap:6px;margin-bottom:6px">';
+        html+='<button onclick="_anaSetAllMatrixSwaps(\''+deckId+'\',true)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(201,168,76,.15);color:var(--gold2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☑ Tout cocher</button>';
+        html+='<button onclick="_anaSetAllMatrixSwaps(\''+deckId+'\',false)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(255,255,255,.06);color:var(--tx3);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☐ Tout décocher</button>';
+        html+='</div>';
+        html+='<div style="max-height:300px;overflow-y:auto;padding-right:2px;scrollbar-width:thin">';
         html+='<div style="display:grid;grid-template-columns:18px 1fr 34px 52px 46px;gap:2px 4px;font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;padding:2px 0;border-bottom:.5px solid var(--bd2);margin-bottom:2px">';
         html+='<div></div><div>SWAP</div><div style="text-align:center">ΔCMC</div><div style="text-align:center">COMPO</div><div style="text-align:center">VICTOIRE</div></div>';
         _matRows.forEach(function(row,i){
           var chk=(_anaMatrixChecked[deckId]&&_anaMatrixChecked[deckId][i])?'checked':'';
           var dcCol=row.deltaCompo>5?'#78c890':row.deltaCompo>2?'var(--gold2)':'var(--tx2)';
           var cmcCol=row.deltaCmc<0?'#78c890':row.deltaCmc>0?'#e07070':'var(--tx3)';
+          var addMeta=_anaData[row.add.nl]||{};
+          var reason=_anaSwapReason(addMeta,_anaCurrentThemes);
           html+='<div style="display:grid;grid-template-columns:18px 1fr 34px 52px 46px;gap:2px 4px;align-items:center;padding:3px 0;border-bottom:.5px solid var(--bd2)">';
           html+='<input type="checkbox" '+chk+' onchange="_anaToggleMatrixSwap(\''+deckId+'\','+i+')" style="margin:0;cursor:pointer;accent-color:var(--gold2)">';
           html+='<div style="font-size:10px;overflow:hidden;min-width:0">';
           html+='<div style="color:#e07070;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">– '+esc(row.cut.name)+'</div>';
-          html+='<div style="color:var(--gold2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">+ '+esc(row.add.name)+'</div>';
+          html+='<div style="color:var(--gold2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">+ '+esc(row.add.name)+(reason?' <span style="font-size:8.5px;color:#5b8cf5;background:rgba(91,140,245,.12);padding:0 4px;border-radius:6px">'+reason+'</span>':'')+'</div>';
           html+='</div>';
           html+='<div style="text-align:center;font-size:10px;color:'+cmcCol+'">'+(row.deltaCmc>0?'+':'')+row.deltaCmc+'</div>';
           html+='<div style="text-align:center;font-size:10px"><b style="color:'+dcCol+'">'+(row.deltaCompo>0?'+':'')+row.deltaCompo+'</b><span style="color:var(--tx3);font-size:9px"> ('+row.projScore+')</span></div>';
@@ -17146,7 +17191,8 @@ function anaRender(deckId){
           }
           html+='</div>';
         });
-        html+='<div id="ana-mproj-'+deckId+'" style="margin-top:8px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
+        html+='</div>';
+        html+='<div id="ana-mproj-'+deckId+'" style="margin-top:6px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
         html+='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';
         html+='</div>';
       }
@@ -17155,14 +17201,21 @@ function anaRender(deckId){
       if(!optResult.swaps.length){
         html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap n\'améliore le deck à partir du pool disponible.</div>';
       } else {
+        html+='<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">';
+        html+='<button onclick="_anaSetAllSwaps(\''+deckId+'\',true)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(201,168,76,.15);color:var(--gold2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☑ Tout cocher</button>';
+        html+='<button onclick="_anaSetAllSwaps(\''+deckId+'\',false)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(255,255,255,.06);color:var(--tx3);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☐ Tout décocher</button>';
+        html+='</div>';
+        html+='<div style="max-height:280px;overflow-y:auto;padding-right:2px;scrollbar-width:thin">';
         if(_anaViewMode.opt==='image'){
           optResult.swaps.forEach(function(sw,i){
             var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
             var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
+            var reason=_anaSwapReason(addMeta,_anaCurrentThemes);
             html+='<div style="padding:10px 0;border-bottom:.5px solid var(--bd2)">';
             html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
             html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="margin:0;cursor:pointer;accent-color:var(--gold2)">';
             html+='<span style="color:var(--tx3);font-size:10px">Étape '+(i+1)+' · gain +'+sw.gain.toFixed(2)+'</span>';
+            if(reason)html+='<span style="font-size:9px;color:#5b8cf5;background:rgba(91,140,245,.12);padding:1px 6px;border-radius:8px;border:.5px solid rgba(91,140,245,.3)">'+reason+'</span>';
             html+='</div>';
             html+='<div class="ana-swap-img">';
             html+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+imgCard(sw.cut.name,cutMeta,sw.cutScore.toFixed(1),'#e07070')+'</div>';
@@ -17173,23 +17226,25 @@ function anaRender(deckId){
         } else {
           html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">';
           optResult.swaps.forEach(function(sw,i){
+            var addMeta=_anaData[sw.add.nl]||{};
             var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
+            var reason=_anaSwapReason(addMeta,_anaCurrentThemes);
             html+='<div style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:.5px solid var(--bd2);flex-wrap:wrap;min-width:0">';
             html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="flex-shrink:0;margin:0;cursor:pointer;accent-color:var(--gold2)">';
             html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">'+(i+1)+'.</span>';
-            html+='<span style="color:#e07070;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:82px">'+esc(sw.cut.name)+'</span>';
-            html+='<span style="color:var(--tx3);font-size:8.5px;flex-shrink:0">('+sw.cutScore.toFixed(1)+')</span>';
+            html+='<span style="color:#e07070;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:76px">'+esc(sw.cut.name)+'</span>';
             html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">→</span>';
-            html+='<span style="color:var(--gold2);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:82px">'+esc(sw.add.name)+'</span>';
-            html+='<span style="color:var(--tx3);font-size:8.5px;flex-shrink:0">('+sw.addScore.toFixed(1)+')</span>';
+            html+='<span style="color:var(--gold2);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:76px">'+esc(sw.add.name)+'</span>';
+            if(reason)html+='<span style="font-size:8.5px;color:#5b8cf5;background:rgba(91,140,245,.12);padding:0 5px;border-radius:8px;white-space:nowrap">'+reason+'</span>';
             html+='<span style="margin-left:auto;color:var(--gold2);font-size:9.5px;flex-shrink:0;font-weight:bold">+'+sw.gain.toFixed(2)+'</span>';
             html+='</div>';
           });
           html+='</div>';
         }
+        html+='</div>';
         var _chkN=0,_chkG=0;
         if(_anaCheckedSwaps[deckId]){optResult.swaps.forEach(function(sw,i){if(_anaCheckedSwaps[deckId][i]){_chkN++;_chkG+=sw.gain;}});}
-        html+='<div id="ana-proj-'+deckId+'" style="margin-top:8px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
+        html+='<div id="ana-proj-'+deckId+'" style="margin-top:6px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
         if(_chkN){
           var _chkProj=Math.min(100,Math.round(overall+_chkG));var _chkGr=anaGrade(_chkProj);
           html+='<b style="color:var(--tx2)">'+_chkN+' swap'+(_chkN>1?'s':'')+' cochés</b> · +'+_chkG.toFixed(1)+' pts · Projeté : <b style="color:'+_chkGr.col+'">'+_chkProj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+_chkGr.l+'</span>';
@@ -17267,42 +17322,6 @@ function anaRender(deckId){
     html+='</div>';
   }
 
-  // === Win rate vs deck selectionne ===
-  html+='<div class="card"><div class="lbl">🆚 Win rate vs un deck spécifique</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Sélectionne un de tes decks ou d\'un ami, puis lance la simulation (les cartes du deck adverse doivent être dans le cache d\'analyse).</div>';
-  // Build options : decks propres + decks amis
-  var _vsOpts=[];
-  Object.keys(decks||{}).forEach(function(id){
-    var d=decks[id];if(!d||!d.cards||!d.cards.length||id===deckId)return;
-    _vsOpts.push({id:id,label:(d.name||'Sans nom')+(d.format?' ['+d.format+']':''),owner:d.ownerUid===userId?'Mes decks':null});
-  });
-  Object.keys(_epDecks||{}).forEach(function(uid){
-    var friendName=(_friends||[]).filter(function(f){return f.uid===uid;})[0];
-    var ownerLabel=friendName?(friendName.name||'Ami'):'Ami';
-    Object.keys(_epDecks[uid]||{}).forEach(function(did){
-      var d=_epDecks[uid][did];if(!d||!d.cards||!d.cards.length)return;
-      _vsOpts.push({id:'ep:'+uid+':'+did,label:(d.name||'Sans nom')+(d.format?' ['+d.format+']':''),owner:ownerLabel});
-    });
-  });
-  if(!_vsOpts.length){
-    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun autre deck disponible.</div>';
-  } else {
-    _vsOpts.sort(function(a,b){return a.label.localeCompare(b.label);});
-    html+='<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">';
-    html+='<select id="ana-vs-deck" class="psel" style="flex:1;min-width:200px">';
-    var _vsByOwner={};
-    _vsOpts.forEach(function(o){var k=o.owner||'Mes decks';if(!_vsByOwner[k])_vsByOwner[k]=[];_vsByOwner[k].push(o);});
-    Object.keys(_vsByOwner).forEach(function(owner){
-      html+='<optgroup label="'+esc(owner)+'">';
-      _vsByOwner[owner].forEach(function(o){html+='<option value="'+o.id+'">'+esc(o.label)+'</option>';});
-      html+='</optgroup>';
-    });
-    html+='</select>';
-    html+='<button class="btn btnp btnsm" onclick="anaRunVsDeck(\''+deckId+'\')">⚔ Simuler 50 parties</button>';
-    html+='</div>';
-    html+='<div id="ana-vs-result" style="margin-top:10px;font-size:12px;color:var(--tx3);font-style:italic">— Pas encore simulé —</div>';
-  }
-  html+='</div>';
 
   _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
   document.getElementById('ana-results').innerHTML=html;
