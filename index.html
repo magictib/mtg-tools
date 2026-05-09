@@ -13671,15 +13671,41 @@ var _anaCheckedSwaps={};
 function _anaToggleSwap(deckId,idx){
   if(!_anaCheckedSwaps[deckId])_anaCheckedSwaps[deckId]={};
   _anaCheckedSwaps[deckId][idx]=!_anaCheckedSwaps[deckId][idx];
-  var el=document.getElementById('ana-proj-'+deckId);
-  if(!el||!_anaState)return;
+  if(!_anaState)return;
   var swaps=(_anaState.optResult&&_anaState.optResult.swaps)||[];
   var base=_anaState.overall||0;
   var n=0,g=0;
   swaps.forEach(function(sw,i){if(_anaCheckedSwaps[deckId][i]){n++;g+=sw.gain;}});
   var proj=Math.min(100,Math.round(base+g));
-  var gr=anaGrade(proj);
-  el.innerHTML=n?'<b style="color:var(--tx2)">'+n+' swap'+(n>1?'s':'')+' cochés</b> · +'+g.toFixed(1)+' pts · Projeté : <b style="color:'+gr.col+'">'+proj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+gr.l+'</span>':'<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';
+  var gr=n?anaGrade(proj):anaGrade(base);
+  var disp=n?proj:base;
+  // Badge COMPOSITION
+  var badge=document.getElementById('ana-grade-badge');
+  if(badge){badge.style.color=gr.col;badge.textContent=gr.l;}
+  var scoreNum=document.getElementById('ana-score-num');
+  if(scoreNum)scoreNum.innerHTML='<b style="color:'+gr.col+'">'+disp+'</b><span style="color:var(--tx3);font-size:10px">/100</span>';
+  var scoreBar=document.getElementById('ana-score-bar');
+  if(scoreBar){scoreBar.style.width=disp+'%';scoreBar.style.background=gr.col;}
+  // Badge POTENTIEL (estimation proportionnelle si simScore disponible)
+  var simBase=_anaState.simScore||0;
+  if(simBase>0){
+    var projSim=n?Math.min(100,Math.round(simBase+g*0.8)):simBase;
+    var simGr=anaGrade(projSim);
+    var simBadge=document.getElementById('ana-sim-badge');
+    if(simBadge){simBadge.style.color=simGr.col;simBadge.textContent=simGr.l;}
+    var simNum=document.getElementById('ana-sim-score-num');
+    if(simNum)simNum.innerHTML='<b style="color:'+simGr.col+'">'+projSim+'</b><span style="color:var(--tx3);font-size:11px">/100</span>';
+    var simBar=document.getElementById('ana-sim-bar');
+    if(simBar){simBar.style.width=projSim+'%';simBar.style.background=simGr.col;}
+  }
+  // Projection textuelle
+  var el=document.getElementById('ana-proj-'+deckId);
+  if(!el)return;
+  if(!n){el.innerHTML='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';return;}
+  var txt='<b style="color:var(--tx2)">'+n+' swap'+(n>1?'s':'')+' cochés</b>';
+  txt+=' · Compo : <b style="color:'+gr.col+'">'+proj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+gr.l+'</span>';
+  if(simBase>0){var ps=Math.min(100,Math.round(simBase+g*0.8));var sg=anaGrade(ps);txt+=' · Victoire : <b style="color:'+sg.col+'">~'+ps+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+sg.l+'</span>';}
+  el.innerHTML=txt;
 }
 function _anaSetDisplayMode(deckId,mode){
   _anaDisplayMode[deckId]=mode;
@@ -16046,6 +16072,7 @@ function anaRefreshMatrix(){
     // Mise à jour du badge simulation (le badge composition reste inchangé)
     (function(){
       var simScore=Math.min(100,Math.round(avgCur*120));
+      if(_anaState)_anaState.simScore=simScore;
       var simGrade=anaGrade(simScore);
       var _simBadge=document.getElementById('ana-sim-badge');
       if(_simBadge){_simBadge.style.color=simGrade.col;_simBadge.textContent=simGrade.l;}
@@ -16400,9 +16427,9 @@ function anaRender(deckId){
   _scorePanel+='<div style="text-align:center">';
   _scorePanel+='<div style="font-size:8px;color:var(--tx3);letter-spacing:.1em;font-family:Goudy Mediaeval,serif;margin-bottom:4px">COMPOSITION</div>';
   _scorePanel+='<div id="ana-grade-badge" style="font-size:40px;line-height:1;font-weight:bold;color:'+grade.col+'">'+grade.l+'</div>';
-  _scorePanel+='<div style="margin:4px 0;font-size:12px"><b style="color:'+grade.col+'">'+overall+'</b><span style="color:var(--tx3);font-size:10px">/100</span></div>';
+  _scorePanel+='<div id="ana-score-num" style="margin:4px 0;font-size:12px"><b style="color:'+grade.col+'">'+overall+'</b><span style="color:var(--tx3);font-size:10px">/100</span></div>';
   _scorePanel+='<div style="height:4px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-bottom:8px">';
-  _scorePanel+='<div style="width:'+overall+'%;height:100%;background:'+grade.col+';border-radius:3px"></div></div>';
+  _scorePanel+='<div id="ana-score-bar" style="width:'+overall+'%;height:100%;background:'+grade.col+';border-radius:3px"></div></div>';
   _subCatDef.forEach(function(sc){
     var sv=Math.round(subScores[sc.k]||0);
     var col=sv>=80?'#78c890':sv>=60?'#f5b95b':'#e07070';
@@ -16636,8 +16663,12 @@ function anaRender(deckId){
       if(_anaViewMode.opt==='image'){
         optResult.swaps.forEach(function(sw,i){
           var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
+          var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
           html+='<div style="padding:10px 0;border-bottom:.5px solid var(--bd2)">';
-          html+='<div style="color:var(--tx3);font-size:10px;margin-bottom:6px">Étape '+(i+1)+' · gain +'+sw.gain.toFixed(2)+'</div>';
+          html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+          html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="margin:0;cursor:pointer;accent-color:var(--gold2)">';
+          html+='<span style="color:var(--tx3);font-size:10px">Étape '+(i+1)+' · gain +'+sw.gain.toFixed(2)+'</span>';
+          html+='</div>';
           html+='<div class="ana-swap-img">';
           html+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+imgCard(sw.cut.name,cutMeta,sw.cutScore.toFixed(1),'#e07070')+'</div>';
           html+='<div class="ana-swap-arrow">→</div>';
