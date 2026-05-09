@@ -13654,9 +13654,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v23: regenerate/blink/dies-to-hand protection tags
-  if((__aP.__version||0)<23){
-    _anaData={__version:23};
+  // Migration v24: flying/reach/menace/trample tags added
+  if((__aP.__version||0)<24){
+    _anaData={__version:24};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13664,7 +13664,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=23;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=24;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -13734,6 +13734,11 @@ function _anaSwapReason(meta,themes){
   if((th.sacrifice||0)>1.5&&/sacrifice|when.*dies/.test(o))return'🔪 sacrifice';
   if((th.lifegain||0)>1.5&&/gain.*life|lifelink/.test(o))return'❤ gain de vie';
   if((th.graveyard||0)>1.5&&/graveyard|flashback|unearth/.test(o))return'💀 cimetière';
+  if((th.wincon||1)>1.1){
+    if(meta.tags&&meta.tags.flying)return'🦅 vol';
+    if(meta.tags&&meta.tags.menace)return'⚔ menace';
+    if(meta.tags&&meta.tags.reach)return'🏹 atteinte';
+  }
   return'';
 }
 function _anaSetAllSwaps(deckId,val){
@@ -14270,6 +14275,11 @@ function anaInferTags(meta){
   // Mot-clé sur la carte elle-même (moins utile pour protéger le commandant)
   var kws=((meta.keywords||[]).join(' ')).toLowerCase();
   if(/hexproof|shroud|indestructible/.test(kws))protection+=0.3;
+  // Évasion — détection depuis les keywords Scryfall ou oracle
+  var flying=(kws.indexOf('flying')>=0||/\bflying\b/.test(oracle))?1:0;
+  var reach=(kws.indexOf('reach')>=0||/\breach\b/.test(oracle))?1:0;
+  var menace=(kws.indexOf('menace')>=0||/\bmenace\b/.test(oracle))?1:0;
+  var trample=(kws.indexOf('trample')>=0||/\btrample\b/.test(oracle))?1:0;
   // Equipement/Aura conférant hexproof ou shroud (ex: Whispersilk Cloak, Swiftfoot Boots, Clout of Dominus)
   if(/equipped creature (?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.2;
   if(/enchanted creature[^.]*(?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.0;
@@ -14347,7 +14357,7 @@ function anaInferTags(meta){
   var freeCast=/you may pay \d+ life rather than pay (this spell's|its) mana cost/.test(oracle)?1:0;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant),lifelink_grant:r(lifelink_grant),manarock:manarock,freeCast:freeCast};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant),lifelink_grant:r(lifelink_grant),manarock:manarock,freeCast:freeCast,flying:flying,reach:reach,menace:menace,trample:trample};
 }
 
 /* ----- Helpers ----- */
@@ -14710,6 +14720,10 @@ function anaCardScore(meta){
   base+=_anaAntiSynergyPenalty(meta,th);
   // Plancher mana rocks : infrastructure toujours utile, jamais en-dessous de ce seuil
   if(t.manarock){var mrFloor=(t.ramp>=2.0)?5.5:4.5;if(base<mrFloor)base=mrFloor;}
+  // Évasion : vol > atteinte > rien (bonus amplifié en plan combat, défensif sinon)
+  if(t.flying)base+=(th.wincon||1)>1.1?1.0:0.4;
+  if(t.reach)base+=0.25;  // peut bloquer les créatures volantes, valeur défensive universelle
+  if((th.wincon||1)>1.1){if(t.menace)base+=0.5;if(t.trample)base+=0.35;}
   return base;
 }
 
@@ -14839,6 +14853,7 @@ var _COMMANDER_THEME_RULES=[
   // Muldrotha-type : jouer des permanents depuis le cimetière (play…from…graveyard)
   {p:/you may play.*from (your |a )?graveyard|play up to one.*from (your |a )?graveyard|play.*permanent card.*from (your |a )?graveyard/i, m:{graveyard:2.5,sacrifice:1.8,protection:1.6}, label:'Muldrotha-type'},
   {p:/mill|put.*(?:from )?(?:your )?library.*graveyard/i,      m:{draw:1.4,graveyard:1.4,mill:2.0}, label:'Mill'},
+  {p:/return target creature card from (a |an |any )?graveyard to the battlefield|put target creature.*graveyard.*onto the battlefield/i, m:{graveyard:2.5,wincon:1.8}, label:'Réanimation'},
   // Filtration / pseudo-pioche
   {p:/surveil|connive|explore|cycling/i,                       m:{draw:1.4},              label:'Filtration'},
   // Défausse — triggers (Nekusar, Syr Konrad…)
@@ -15140,6 +15155,9 @@ function _anaQAutoFill(autoThemes){
   ['sweeper','lifegain','ramp','draw','sacrifice','graveyard','enchantment','artifact','counters','discard','tokens','mill'].forEach(function(k){
     if((autoThemes[k]||0)>=1.5)qs.synergies.push(k);
   });
+  var _lbs=autoThemes.labels||[];
+  if(_lbs.indexOf('Spellslinger')>=0||_lbs.indexOf('Untap-spellslinger')>=0)qs.synergies.push('spellslinger');
+  if(_lbs.indexOf('Réanimation')>=0)qs.synergies.push('reanimate');
   return qs;
 }
 function _anaQToThemes(qs,autoThemes){
@@ -15181,6 +15199,8 @@ function _anaQToThemes(qs,autoThemes){
   if(syn.indexOf('stax')>=0){th.interaction=Math.max(th.interaction||1,2.0);}
   if(syn.indexOf('lands')>=0){th.ramp=Math.max(th.ramp||1,2.0);}
   if(syn.indexOf('mill')>=0){th.wincon=Math.max(th.wincon||1,2.5);th.interaction=Math.max(th.interaction||1,1.5);}
+  if(syn.indexOf('spellslinger')>=0){th.draw=Math.max(th.draw||1,2.0);th.wincon=Math.max(th.wincon||1,1.8);}
+  if(syn.indexOf('reanimate')>=0){th.graveyard=Math.max(th.graveyard||1,2.5);th.wincon=Math.max(th.wincon||1,2.0);}
   return th;
 }
 function _anaQSetRole(deckId,role){
@@ -15231,6 +15251,8 @@ var _anaQSynOpts=[
   {k:'lands',ico:'🌍',fr:'Landfall / Terrains',hint:'Poser des terrains déclenche des effets'},
   {k:'discard',ico:'🃏',fr:'Défausse',hint:'Se défausser déclenche des effets (madness, etc.)'},
   {k:'mill',ico:'📚',fr:'Meule',hint:'Meuler les adversaires comme condition de victoire (ex : Soaring Thought-Thief)'},
+  {k:'spellslinger',ico:'🌩',fr:'Sorts / Spellslinger',hint:'Lancer des instants/rituels déclenche des effets (Guttersnipe, Mizzix, Kalamax…)'},
+  {k:'reanimate',ico:'💫',fr:'Réanimation',hint:'Tricher des grosses créatures depuis le cimetière (Meren, Karador, Reanimate…)'},
 ];
 function _anaQRefreshUI(deckId){
   var qs=_anaQState[deckId]||_anaQDefaultState();
