@@ -13674,11 +13674,36 @@ function _anaToggleSwap(deckId,idx){
   if(!_anaState)return;
   var swaps=(_anaState.optResult&&_anaState.optResult.swaps)||[];
   var base=_anaState.overall||0;
-  var n=0,g=0;
-  swaps.forEach(function(sw,i){if(_anaCheckedSwaps[deckId][i]){n++;g+=sw.gain;}});
-  var proj=Math.min(100,Math.round(base+g));
-  var gr=n?anaGrade(proj):anaGrade(base);
-  var disp=n?proj:base;
+  var n=0;
+  // Recomputer les counts par catégorie après application des swaps cochés
+  var projCounts=Object.assign({},_anaState.counts);
+  swaps.forEach(function(sw,i){
+    if(!_anaCheckedSwaps[deckId][i])return;
+    n++;
+    var cutRoles=anaRoles(_anaData[sw.cut.nl]||{});
+    var addRoles=anaRoles(_anaData[sw.add.nl]||{});
+    ['land','ramp','draw','removal','interaction','wincon'].forEach(function(k){
+      projCounts[k]=(projCounts[k]||0)-(cutRoles[k]||0)+(addRoles[k]||0);
+    });
+  });
+  // Réappliquer les ajustements _sc (même logique que anaRender)
+  var targets=_anaState.targets;var weights=_anaState.weights;
+  var _th2=_anaCurrentThemes||{};var _drawMult=_th2.draw||1;
+  var _sc=Object.assign({},projCounts);
+  if(_drawMult>=2.0){
+    _sc.wincon=Math.max(_sc.wincon,1);
+    var _dThresh=Math.floor(targets.draw[0]*0.7);
+    if(projCounts.draw>_dThresh){var _wb=Math.round((projCounts.draw-_dThresh)*0.3);_sc.wincon=Math.min(_sc.wincon+_wb,targets.wincon[1]);}
+  }else if(_drawMult>=1.5&&projCounts.draw>targets.draw[0]){
+    _sc.wincon=Math.min(_sc.wincon+Math.round((projCounts.draw-targets.draw[0])*0.3),targets.wincon[1]);
+  }
+  if((_th2.ramp||1)>=1.5&&projCounts.ramp>targets.ramp[0])_sc.wincon+=Math.round((projCounts.ramp-targets.ramp[0])*0.4);
+  if((_th2.sacrifice||1)>=2.0)_sc.wincon=Math.max(_sc.wincon,1);
+  if((_th2.interaction||1)>=2.0&&projCounts.interaction>targets.interaction[0])_sc.wincon+=Math.round((projCounts.interaction-targets.interaction[0])*0.3);
+  var pSS={land:anaCatScore(_sc.land,targets.land),ramp:anaCatScore(_sc.ramp,targets.ramp),draw:anaCatScore(_sc.draw,targets.draw),removal:anaCatScore(_sc.removal,targets.removal),interaction:anaCatScore(_sc.interaction,targets.interaction),wincon:anaCatScore(_sc.wincon,targets.wincon)};
+  var projOverall=0;Object.keys(weights).forEach(function(k){projOverall+=(pSS[k]||0)*(weights[k]||0);});
+  projOverall=Math.min(100,Math.round(projOverall));
+  var disp=n?projOverall:base;var gr=anaGrade(disp);
   // Badge COMPOSITION
   var badge=document.getElementById('ana-grade-badge');
   if(badge){badge.style.color=gr.col;badge.textContent=gr.l;}
@@ -13686,10 +13711,11 @@ function _anaToggleSwap(deckId,idx){
   if(scoreNum)scoreNum.innerHTML='<b style="color:'+gr.col+'">'+disp+'</b><span style="color:var(--tx3);font-size:10px">/100</span>';
   var scoreBar=document.getElementById('ana-score-bar');
   if(scoreBar){scoreBar.style.width=disp+'%';scoreBar.style.background=gr.col;}
-  // Badge POTENTIEL (estimation proportionnelle si simScore disponible)
+  // Badge POTENTIEL (estimation proportionnelle sur le gain compo réel)
   var simBase=_anaState.simScore||0;
   if(simBase>0){
-    var projSim=n?Math.min(100,Math.round(simBase+g*0.8)):simBase;
+    var gain=n?projOverall-base:0;
+    var projSim=Math.min(100,Math.round(simBase+gain*0.8));
     var simGr=anaGrade(projSim);
     var simBadge=document.getElementById('ana-sim-badge');
     if(simBadge){simBadge.style.color=simGr.col;simBadge.textContent=simGr.l;}
@@ -13703,8 +13729,8 @@ function _anaToggleSwap(deckId,idx){
   if(!el)return;
   if(!n){el.innerHTML='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';return;}
   var txt='<b style="color:var(--tx2)">'+n+' swap'+(n>1?'s':'')+' cochés</b>';
-  txt+=' · Compo : <b style="color:'+gr.col+'">'+proj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+gr.l+'</span>';
-  if(simBase>0){var ps=Math.min(100,Math.round(simBase+g*0.8));var sg=anaGrade(ps);txt+=' · Victoire : <b style="color:'+sg.col+'">~'+ps+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+sg.l+'</span>';}
+  txt+=' · Compo : <b style="color:'+gr.col+'">'+projOverall+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+gr.l+'</span>';
+  if(simBase>0){var gain2=projOverall-base;var ps=Math.min(100,Math.round(simBase+gain2*0.8));var sg=anaGrade(ps);txt+=' · Victoire : <b style="color:'+sg.col+'">~'+ps+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+sg.l+'</span>';}
   el.innerHTML=txt;
 }
 function _anaSetDisplayMode(deckId,mode){
