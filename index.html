@@ -14664,6 +14664,30 @@ var _COMMANDER_THEME_RULES=[
    m:{ramp:1.4,draw:1.2}, label:'Cost-reduction-creature'},
 ];
 
+// Pills prédéfinis pour saisie manuelle des capacités commandant (fallback Scryfall)
+var _ANA_ORACLE_PILLS=[
+  {label:'Pioche trigger',            icon:'📚', key:'draw-trigger',   themes:{draw:2.5}},
+  {label:'Pioche passive',            icon:'📖', key:'draw-passive',   themes:{draw:1.6}},
+  {label:'Flash / Instant-speed',     icon:'⚡', key:'flash-matters',  themes:{draw:2.0,interaction:1.8,protection:1.5}},
+  {label:'Sacrifice / Aristocrates',  icon:'💀', key:'sacrifice',      themes:{sacrifice:2.0,wincon:1.8}},
+  {label:'ETB + Gain de vie',         icon:'❤️', key:'etb-lifegain',   themes:{sacrifice:1.5,lifegain:1.6}},
+  {label:'Drain (mort → vie perdue)', icon:'🩸', key:'death-drain',    themes:{sacrifice:2.0,wincon:1.8,lifegain:1.3}},
+  {label:'Cimetière / Récursion',     icon:'⚰️', key:'graveyard',      themes:{graveyard:2.0,draw:1.4}},
+  {label:'Réanimateur ETB',           icon:'🔄', key:'reanimate',      themes:{graveyard:1.8,draw:1.3}},
+  {label:'Tap-damage',                icon:'🎯', key:'tap-damage',     themes:{protection:2.5,wincon:1.5}},
+  {label:'Compteurs +1/+1',           icon:'⬆️', key:'counters',       themes:{counters:1.5,wincon:1.4}},
+  {label:'Ramp / Landfall',           icon:'🌱', key:'ramp',           themes:{ramp:1.8}},
+  {label:'Contrôle / Interaction',    icon:'🛡️', key:'control',        themes:{interaction:2.0}},
+  {label:'Enchantements',             icon:'✨', key:'enchantments',   themes:{enchantment:1.5,wincon:1.3}},
+  {label:'Artefacts',                 icon:'🔩', key:'artifacts',      themes:{artifact:1.3,wincon:1.2}},
+  {label:'Jetons',                    icon:'🪖', key:'tokens',         themes:{wincon:1.3}},
+  {label:'Voltron / Combat',          icon:'⚔️', key:'voltron',        themes:{wincon:1.5,protection:1.3}},
+  {label:'Scry',                      icon:'🔮', key:'scry',           themes:{draw:1.4}},
+  {label:'Défausse',                  icon:'🗑️', key:'discard',        themes:{discard:1.5,draw:1.4}},
+  {label:'Gain de vie trigger',       icon:'💗', key:'lifegain',       themes:{draw:1.4,lifegain:1.4}},
+  {label:'Réduction de coût',         icon:'💰', key:'cost-reduction', themes:{ramp:1.4,draw:1.2}},
+];
+
 // Mapping keywords officiels Scryfall (card.keywords[]) → thèmes
 var _SCRYFALL_KEYWORD_THEMES={
   'Madness':    {m:{discard:1.5},            label:'Madness'},
@@ -14755,6 +14779,57 @@ var _anaThemeMeta=[
   {k:'sweeper',     fr:'Dégâts AoE / Ping',   ico:'💥'}
 ];
 function _anaSaveUserThemes(){try{localStorage.setItem('mtg_ana_themes',JSON.stringify(_anaUserThemesData));}catch(e){}}
+
+// Persistence de l'oracle text saisi manuellement (fallback quand Scryfall échoue)
+var _anaCmdManualOracle={};
+try{var __cmo=localStorage.getItem('mtg_cmd_manual_oracle');if(__cmo){var __cmoP=JSON.parse(__cmo);if(__cmoP&&typeof __cmoP==='object')_anaCmdManualOracle=__cmoP;}}catch(e){}
+function _anaSaveCmdManualOracle(){try{localStorage.setItem('mtg_cmd_manual_oracle',JSON.stringify(_anaCmdManualOracle));}catch(e){}}
+
+function _anaPillToggle(btn){
+  var on=btn.dataset.active==='1';
+  if(on){btn.dataset.active='0';btn.style.borderColor='#444';btn.style.color='#888';btn.style.background='transparent';}
+  else{btn.dataset.active='1';btn.style.borderColor='#c9a227';btn.style.color='#c9a227';btn.style.background='rgba(201,162,39,.12)';}
+}
+function _anaRestoreOracleFallback(deckId){
+  var fb=document.getElementById('ana-oracle-fb');if(!fb)return;
+  var saved=_anaCmdManualOracle[deckId];if(!saved)return;
+  var pills=saved.pills||[];
+  fb.querySelectorAll('.ana-pill').forEach(function(btn){
+    if(pills.indexOf(btn.dataset.key)>=0){
+      btn.dataset.active='1';btn.style.borderColor='#c9a227';btn.style.color='#c9a227';btn.style.background='rgba(201,162,39,.12)';
+    }
+  });
+  var ta=document.getElementById('ana-oracle-txt');if(ta&&saved.text)ta.value=saved.text;
+}
+function anaApplyManualOracle(deckId){
+  var fb=document.getElementById('ana-oracle-fb');if(!fb)return;
+  var selectedKeys=[];
+  fb.querySelectorAll('.ana-pill[data-active="1"]').forEach(function(btn){selectedKeys.push(btn.dataset.key);});
+  var txt=((document.getElementById('ana-oracle-txt')||{}).value||'').trim();
+  _anaCmdManualOracle[deckId]={pills:selectedKeys,text:txt};
+  _anaSaveCmdManualOracle();
+  var m={};
+  function bump(k,v){if((m[k]||0)<v)m[k]=v;}
+  selectedKeys.forEach(function(key){
+    for(var i=0;i<_ANA_ORACLE_PILLS.length;i++){
+      if(_ANA_ORACLE_PILLS[i].key===key){
+        Object.keys(_ANA_ORACLE_PILLS[i].themes).forEach(function(k){bump(k,_ANA_ORACLE_PILLS[i].themes[k]);});break;
+      }
+    }
+  });
+  if(txt){
+    var oracle=txt.toLowerCase();
+    _COMMANDER_THEME_RULES.forEach(function(rule){if(rule.p.test(oracle))Object.keys(rule.m).forEach(function(k){bump(k,rule.m[k]);});});
+  }
+  var defs={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,sweeper:0};
+  var override={};
+  Object.keys(m).forEach(function(k){if(m[k]!==defs[k])override[k]=m[k];});
+  if(Object.keys(override).length){
+    _anaUserThemesData[deckId]=Object.assign(_anaUserThemesData[deckId]||{},override);
+    _anaSaveUserThemes();
+  }
+  anaRender(deckId);
+}
 function _anaGetEffectiveThemes(deckId,autoThemes){
   var ov=_anaUserThemesData[deckId];
   if(!ov||!Object.keys(ov).length)return autoThemes;
@@ -16289,7 +16364,18 @@ function anaRender(deckId){
     if(_cmdMeta.oracleText){
       html+='<div style="font-size:11px;color:var(--tx2);line-height:1.6;white-space:pre-line;border-left:2px solid var(--ac);padding-left:10px;text-align:left" data-oracle-nl="'+esc(_cmdMetaNl)+'">'+esc(_cmdMeta.oracleText)+'</div>';
     } else {
-      html+='<div style="font-size:11px;color:var(--tx3);font-style:italic" data-oracle-nl="'+esc(_cmdMetaNl)+'">Texte oracle non disponible.</div>';
+      // Fallback interactif : pills + texte libre quand Scryfall n'a pas retourné l'oracle
+      html+='<div id="ana-oracle-fb" style="text-align:left;padding-top:4px">';
+      html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px">Oracle text indisponible — coche les capacités du commandant :</div>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">';
+      _ANA_ORACLE_PILLS.forEach(function(p){
+        html+='<button class="ana-pill" data-key="'+esc(p.key)+'" data-active="0" onclick="_anaPillToggle(this)" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:12px;font-size:9.5px;cursor:pointer;border:1px solid #444;color:#888;background:transparent;font-family:inherit">'+p.icon+' '+esc(p.label)+'</button>';
+      });
+      html+='</div>';
+      html+='<div style="font-size:9px;color:var(--tx3);text-align:center;margin:4px 0">— ou colle l\'oracle text anglais (depuis Scryfall) —</div>';
+      html+='<textarea id="ana-oracle-txt" placeholder="Ex: Whenever you cast a spell during an opponent\'s turn, you may pay 1 life. If you do, draw a card." style="width:100%;min-height:52px;box-sizing:border-box;background:var(--s1);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:6px;font-size:10px;resize:vertical;font-family:inherit;margin-top:2px"></textarea>';
+      html+='<button onclick="anaApplyManualOracle(\''+deckId+'\')" style="margin-top:6px;width:100%;padding:6px;background:var(--gold2);color:#000;border:none;border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:11px;cursor:pointer;font-weight:bold;letter-spacing:.04em">✓ Appliquer l\'analyse</button>';
+      html+='</div>';
     }
     html+='</div></div>'; // fin carte commandant
     html+='<div style="display:flex;flex-direction:column;gap:12px">'+_hdr+_tcRow+'</div>';
@@ -16587,6 +16673,7 @@ function anaRender(deckId){
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
+  (function(_dId){setTimeout(function(){_anaRestoreOracleFallback(_dId);},0);})(deckId);
 }
 
 // ===== POOL DE DECKS + META ANALYTICS =====
