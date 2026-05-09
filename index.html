@@ -13665,6 +13665,13 @@ function anaSetView(section,mode){
   var deckId=document.getElementById('ana-deck-sel').value;
   if(deckId&&_anaState)anaRender(deckId);
 }
+var _anaDisplayMode={};
+try{var __aDM=localStorage.getItem('mtg_ana_dmode');if(__aDM)_anaDisplayMode=JSON.parse(__aDM)||{};}catch(e){}
+function _anaSetDisplayMode(deckId,mode){
+  _anaDisplayMode[deckId]=mode;
+  try{localStorage.setItem('mtg_ana_dmode',JSON.stringify(_anaDisplayMode));}catch(e){}
+  if(_anaState)anaRender(deckId);
+}
 
 // Préférence GLOBALE de langue (utilisée pour les images Scryfall partout)
 // _cardImg(cardOrName, size, name) -> URL d'image localisee (lang utilisateur)
@@ -14120,6 +14127,8 @@ function anaInferTags(meta){
   millPat.forEach(function(m){var w=m.replace(/mills? /,'').replace(/ cards?/,'').trim();mill+=(nMap[w]||5);});
   if(/put the top (\w+) cards? of (target|each|any|an opponent)/.test(oracle)){var mm=oracle.match(/put the top (\w+) cards?/);if(mm)mill+=(nMap[mm[1]]||5);}
   if(/traumatize|mill half|top half/.test(oracle))mill+=20;
+  // Mouture massive = condition de victoire potentielle (Archive Trap, Maddening Cacophony, Traumatize…)
+  if(mill>=10)wincon+=1.5;else if(mill>=5)wincon+=0.8;
   // Réanimation : retourne une créature du cimetière sur le champ de bataille
   if(/return target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard to the battlefield|put target creature card from (a |an |any |your )?(opponent.?s? |player.?s? |their )?graveyard onto the battlefield/.test(oracle))reanimate=1;
   // Bornage
@@ -14199,6 +14208,8 @@ function anaTargets(fmt,totalCards,themes){
     if(interactMult>=2.0){
       base.interaction=[12,18];base.removal=[9,14];if(base.wincon[1]>5)base.wincon=[2,5];
     } else if(interactMult>=1.5&&base.interaction[1]<12){base.interaction=[10,14];}
+    // Flash-matters (draw-on-interact) : chaque instant = trigger pioche → interaction massive = normale et souhaitée
+    if(drawMult>=2.0&&interactMult>=1.5&&base.interaction[1]<20){base.interaction=[18,30];}
     // Sacrifice/aristocrats (Korvold, Muldrotha…) : le moteur = win condition
     if(sacrificeMult>=2.0){base.removal=[4,8];if(base.wincon[1]>5)base.wincon=[2,5];}
     else if(sacrificeMult>=1.5&&base.wincon[1]>5)base.wincon=[2,5];
@@ -16567,74 +16578,89 @@ function anaRender(deckId){
   }
   html+='</div></div>';
 
-  // === Suggestions ===
-  html+='<div class="card"><div class="ana-section-head"><div class="lbl">💡 Suggestions d\'ajout</div>'+viewToggle('sugg')+'</div>';
-  var sourceLbl=edhrecFreq?'EDHREC ('+(deck.commander&&deck.commander.name?esc(deck.commander.name):'commandant')+')':'matrice locale ('+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+')';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Score boosté par la synergie · source : '+sourceLbl+(edhrecFreq?' 🔗':'')+(isPauper?' · 🔒 Filtre Pauper actif (commons uniquement)':'')+'</div>';
+  // === Suggestions + Plan (mode toggle : Composition vs Simulation) ===
+  var _dMode=_anaDisplayMode[deckId]||'compo';
+  var _optPool=suggPool.slice();
+  var fullOpt=anaScoreOptimize(nonLandRows,_optPool,weights,targets,60);
+  var _modeToggle='<div style="display:inline-flex;border:.5px solid var(--bd);border-radius:20px;overflow:hidden">'
+    +'<button onclick="_anaSetDisplayMode(\''+deckId+'\',\'compo\')" style="padding:3px 10px;font-size:10px;border:none;cursor:pointer;font-family:\'Goudy Mediaeval\',serif;background:'+(_dMode==='compo'?'rgba(201,168,76,.15)':'transparent')+';color:'+(_dMode==='compo'?'var(--gold2)':'var(--tx3)')+'" title="Suggestions basées sur les cibles théoriques de composition">🎯 Compo</button>'
+    +'<button onclick="_anaSetDisplayMode(\''+deckId+'\',\'perf\')" style="padding:3px 10px;font-size:10px;border:none;cursor:pointer;font-family:\'Goudy Mediaeval\',serif;background:'+(_dMode==='perf'?'rgba(91,140,245,.15)':'transparent')+';color:'+(_dMode==='perf'?'#5b8cf5':'var(--tx3)')+'" title="Swaps validés uniquement par simulation de parties">⚡ Sim.</button>'
+    +'</div>';
   function synergyBadge(s){
-    var syn=s.synergy||0;
-    if(syn<0.05)return '';
-    var pct=Math.round(syn*100);
-    var isEd=s.source==='edhrec';
-    var col=syn>=0.5?'#78c890':syn>=0.25?'#5b8cf5':'#aaa';
-    var ico=isEd?'🔗':'⚡';
+    var syn=s.synergy||0;if(syn<0.05)return '';
+    var pct=Math.round(syn*100);var isEd=s.source==='edhrec';
+    var col=syn>=0.5?'#78c890':syn>=0.25?'#5b8cf5':'#aaa';var ico=isEd?'🔗':'⚡';
     var hint=isEd?'EDHREC : présent dans '+pct+'% des decks de ce commandant'+(s.edhrecSyn?' (synergy '+(s.edhrecSyn>0?'+':'')+s.edhrecSyn.toFixed(2)+')':''):'Synergie locale : '+pct+'% des decks '+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label;
     return ' <span style="font-size:9px;color:'+col+';background:rgba(0,0,0,.3);padding:1px 5px;border-radius:8px;border:.5px solid '+col+'" title="'+hint+'">'+ico+pct+'%</span>';
   }
-  if(!topSuggestions.length){
-    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune suggestion compatible avec l\'identité couleur du deck.</div>';
-  } else if(_anaViewMode.sugg==='image'){
-    html+='<div class="ana-img-grid">';
-    topSuggestions.forEach(function(s){
-      var pct=Math.round((s.synergy||0)*100);
-      var ico=s.source==='edhrec'?'🔗':'⚡';
-      var ov='<div class="ana-img-roles">'+roleHints(anaRoles(s.meta))+(pct>=5?' <span style="color:#78c890">'+ico+pct+'%</span>':'')+'</div>';
-      html+=imgCard(s.name,s.meta,'+'+s.score.toFixed(1),'var(--gold2)',ov);
-    });
+
+  if(_dMode==='perf'){
+    // MODE SIMULATION : une seule section, swaps validés par simulation = source de vérité unique
+    html+='<div class="card">';
+    html+='<div class="ana-section-head"><div class="lbl">⚡ Swaps validés par simulation</div>'+_modeToggle+'</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Seuls les swaps qui n\'empirent pas le win rate réel sont proposés'+(_anaOptMode==='collection'?' · pool limité à ta collection ('+_optPool.length+' cartes)':'')+'.</div>';
+    if(!fullOpt.swaps.length){
+      html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le deck est déjà optimal vis-à-vis du pool disponible.</div>';
+    } else {
+      html+='<div id="ana-opt-validated-body"><div style="color:var(--tx3);font-size:11px;font-style:italic;padding:8px 0">⏳ Validation des swaps par simulation en cours…</div></div>';
+    }
     html+='</div>';
   } else {
-    topSuggestions.forEach(function(s,i){
-      var firstType=(s.meta.typeLine||'').split(' — ')[0];
-      html+='<div class="ana-card-row">';
-      html+='<div>'+(i+1)+'. '+esc(s.name)+synergyBadge(s)+' <span style="color:var(--tx3);font-size:10px">'+(firstType?esc(firstType)+' · ':'')+'CMC '+(s.meta.cmc||0)+' '+roleHints(anaRoles(s.meta))+(s.pending?' · ⏳':'')+'</span></div>';
-      html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">+'+s.score.toFixed(1)+'</div>';
-      html+='</div>';
-    });
-  }
-  html+='</div>';
-
-  // === Plan d'optimisation ===
-  html+='<div class="card"><div class="ana-section-head"><div class="lbl">⚡ Plan d\'optimisation auto</div>'+viewToggle('opt')+'</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">10 swaps max, basé sur les suggestions ci-dessus</div>';
-  if(!optResult.swaps.length){
-    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap n\'améliore le deck à partir du pool disponible.</div>';
-  } else {
-    var totalGain=optResult.swaps.reduce(function(s,sw){return s+sw.gain;},0);
-    if(_anaViewMode.opt==='image'){
-      optResult.swaps.forEach(function(sw,i){
-        var cutMeta=_anaData[sw.cut.nl]||{};
-        var addMeta=_anaData[sw.add.nl]||{};
-        html+='<div style="padding:10px 0;border-bottom:.5px solid var(--bd2)">';
-        html+='<div style="color:var(--tx3);font-size:10px;margin-bottom:6px">Étape '+(i+1)+' · gain +'+sw.gain.toFixed(2)+'</div>';
-        html+='<div class="ana-swap-img">';
-        html+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+imgCard(sw.cut.name,cutMeta,sw.cutScore.toFixed(1),'#e07070')+'</div>';
-        html+='<div class="ana-swap-arrow">→</div>';
-        html+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+imgCard(sw.add.name,addMeta,sw.addScore.toFixed(1),'var(--gold2)')+'</div>';
-        html+='</div></div>';
+    // MODE COMPOSITION : suggestions théoriques + plan greedy (non validés par simulation)
+    html+='<div class="card"><div class="ana-section-head"><div class="lbl">💡 Suggestions d\'ajout</div><div style="display:flex;gap:6px;align-items:center">'+_modeToggle+viewToggle('sugg')+'</div></div>';
+    var sourceLbl=edhrecFreq?'EDHREC ('+(deck.commander&&deck.commander.name?esc(deck.commander.name):'commandant')+')':'matrice locale ('+(_ARCH_LABELS[detectedArch]||{label:detectedArch}).label+')';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Score boosté par la synergie · source : '+sourceLbl+(edhrecFreq?' 🔗':'')+(isPauper?' · 🔒 Filtre Pauper actif (commons uniquement)':'')+'</div>';
+    if(!topSuggestions.length){
+      html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucune suggestion compatible avec l\'identité couleur du deck.</div>';
+    } else if(_anaViewMode.sugg==='image'){
+      html+='<div class="ana-img-grid">';
+      topSuggestions.forEach(function(s){
+        var pct=Math.round((s.synergy||0)*100);var ico=s.source==='edhrec'?'🔗':'⚡';
+        var ov='<div class="ana-img-roles">'+roleHints(anaRoles(s.meta))+(pct>=5?' <span style="color:#78c890">'+ico+pct+'%</span>':'')+'</div>';
+        html+=imgCard(s.name,s.meta,'+'+s.score.toFixed(1),'var(--gold2)',ov);
       });
+      html+='</div>';
     } else {
-      optResult.swaps.forEach(function(sw,i){
-        html+='<div class="ana-swap-row">';
-        html+='<div style="color:var(--tx3);font-size:10px;margin-bottom:2px">Étape '+(i+1)+'</div>';
-        html+='<div><span style="color:#e07070">– '+esc(sw.cut.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
-        html+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span></div>';
-        html+='<div style="font-size:10px;color:var(--gold2);margin-top:2px">Gain : +'+sw.gain.toFixed(2)+'</div>';
+      topSuggestions.forEach(function(s,i){
+        var firstType=(s.meta.typeLine||'').split(' — ')[0];
+        html+='<div class="ana-card-row">';
+        html+='<div>'+(i+1)+'. '+esc(s.name)+synergyBadge(s)+' <span style="color:var(--tx3);font-size:10px">'+(firstType?esc(firstType)+' · ':'')+'CMC '+(s.meta.cmc||0)+' '+roleHints(anaRoles(s.meta))+(s.pending?' · ⏳':'')+'</span></div>';
+        html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">+'+s.score.toFixed(1)+'</div>';
         html+='</div>';
       });
     }
-    html+='<div style="padding-top:10px;font-size:13px;color:var(--gold2)"><b>Gain total estimé : +'+totalGain.toFixed(2)+'</b></div>';
+    html+='</div>';
+    html+='<div class="card"><div class="ana-section-head"><div class="lbl">⚡ Plan d\'optimisation (compo)</div>'+viewToggle('opt')+'</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">10 swaps max, basé sur les scores de composition — non validés par simulation</div>';
+    if(!optResult.swaps.length){
+      html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap n\'améliore le deck à partir du pool disponible.</div>';
+    } else {
+      var totalGain=optResult.swaps.reduce(function(s,sw){return s+sw.gain;},0);
+      if(_anaViewMode.opt==='image'){
+        optResult.swaps.forEach(function(sw,i){
+          var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
+          html+='<div style="padding:10px 0;border-bottom:.5px solid var(--bd2)">';
+          html+='<div style="color:var(--tx3);font-size:10px;margin-bottom:6px">Étape '+(i+1)+' · gain +'+sw.gain.toFixed(2)+'</div>';
+          html+='<div class="ana-swap-img">';
+          html+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+imgCard(sw.cut.name,cutMeta,sw.cutScore.toFixed(1),'#e07070')+'</div>';
+          html+='<div class="ana-swap-arrow">→</div>';
+          html+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+imgCard(sw.add.name,addMeta,sw.addScore.toFixed(1),'var(--gold2)')+'</div>';
+          html+='</div></div>';
+        });
+      } else {
+        optResult.swaps.forEach(function(sw,i){
+          html+='<div class="ana-swap-row">';
+          html+='<div style="color:var(--tx3);font-size:10px;margin-bottom:2px">Étape '+(i+1)+'</div>';
+          html+='<div><span style="color:#e07070">– '+esc(sw.cut.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
+          html+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span> <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span></div>';
+          html+='<div style="font-size:10px;color:var(--gold2);margin-top:2px">Gain : +'+sw.gain.toFixed(2)+'</div>';
+          html+='</div>';
+        });
+      }
+      html+='<div style="padding-top:10px;font-size:13px;color:var(--gold2)"><b>Gain total estimé : +'+totalGain.toFixed(2)+'</b></div>';
+    }
+    html+='</div>';
   }
-  html+='</div>';
 
   // === Simulation de main ===
   var simBox=_anaSimBox,pct=_anaPct,tStr=_anaTStr;
@@ -16678,18 +16704,18 @@ function anaRender(deckId){
     html+='</div>';
   }
 
-  // === Proposition deck 100% ===
-  var _optPool=suggPool.slice(); // déjà filtré si mode collection
-  var fullOpt=anaScoreOptimize(nonLandRows,_optPool,weights,targets,60);
-  html+='<div class="card" id="ana-opt-card">';
-  html+='<div class="lbl">🏆 Proposition de deck à 100%</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Swaps validés par simulation — seuls les changements qui n\'empirent pas le win rate réel sont proposés.'+(_anaOptMode==='collection'?' · Pool limité à ta collection ('+_optPool.length+' cartes disponibles).':'')+'</div>';
-  if(!fullOpt.swaps.length){
-    html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le deck est déjà optimal vis-à-vis du pool de suggestions disponible.</div>';
-  } else {
-    html+='<div id="ana-opt-validated-body"><div style="color:var(--tx3);font-size:11px;font-style:italic;padding:8px 0">⏳ Validation des swaps par simulation en cours…</div></div>';
+  // === Proposition deck 100% (mode Composition uniquement — en mode Simulation c'est dans la section ci-dessus) ===
+  if(_dMode!=='perf'){
+    html+='<div class="card">';
+    html+='<div class="lbl">🏆 Proposition de deck à 100% (simulation)</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Swaps validés par simulation — seuls les changements qui n\'empirent pas le win rate réel sont proposés.'+(_anaOptMode==='collection'?' · Pool limité à ta collection ('+_optPool.length+' cartes disponibles).':'')+'</div>';
+    if(!fullOpt.swaps.length){
+      html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le deck est déjà optimal vis-à-vis du pool de suggestions disponible.</div>';
+    } else {
+      html+='<div id="ana-opt-validated-body"><div style="color:var(--tx3);font-size:11px;font-style:italic;padding:8px 0">⏳ Validation des swaps par simulation en cours…</div></div>';
+    }
+    html+='</div>';
   }
-  html+='</div>';
 
   // === Matrice de matchups (style metagame) ===
   var libUser=_anaBuildSimLib(deck);
