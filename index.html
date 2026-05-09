@@ -12698,7 +12698,14 @@ function bldOptimize(){
     });
     pool.sort(function(a,b){return b.score-a.score;});
 
-    var optResult=anaOptimize(scoredRows,pool.slice(),10);
+    // Calcul counts/targets/avgCmc pour l'algorithme d'optimisation
+    var _bldCounts={land:0,ramp:0,draw:0,removal:0,interaction:0,wincon:0};
+    bldMain.forEach(function(c){var nl=c.nl||stripDFC(c.name||'').toLowerCase();var meta=_anaData[nl];if(!meta||!meta.tags)return;var rl=anaRoles(meta);var qty=c.qty||1;['land','ramp','draw','removal','interaction','wincon'].forEach(function(k){_bldCounts[k]+=(rl[k]||0)*qty;});});
+    var _bldTargets=anaTargets(fmt,totalCards,_anaCurrentThemes);
+    var _bldCmcSum=0,_bldCmcN=0;
+    bldMain.forEach(function(c){var nl=c.nl||stripDFC(c.name||'').toLowerCase();var meta=_anaData[nl];if(meta&&!meta.isLand){_bldCmcSum+=(meta.cmc||0)*(c.qty||1);_bldCmcN+=c.qty||1;}});
+    var _bldAvgCmc=_bldCmcN?_bldCmcSum/_bldCmcN:0;
+    var optResult=anaOptimize(scoredRows,pool.slice(),10,_bldCounts,_bldTargets,_bldAvgCmc);
 
     var existCuts=new Set(_bldSwaps.map(function(s){return s.cut&&s.cut.name.toLowerCase();}));
     var existAdds=new Set(_bldSwaps.map(function(s){return s.add&&s.add.name.toLowerCase();}));
@@ -16035,24 +16042,97 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
 }
 
 /* ----- Optimisation ----- */
-function anaOptimize(scoredRows,pool,iterations){
-  iterations=iterations||5;var current=scoredRows.slice();var poolCopy=pool.slice();var swaps=[];
-  for(var i=0;i<iterations;i++){
+function anaOptimize(scoredRows,pool,maxSwaps,counts,targets,avgCmc){
+  maxSwaps=maxSwaps||10;
+  var current=scoredRows.slice();var poolCopy=pool.slice();var swaps=[];
+  // Helpers
+  function _cardType(meta){
+    var tl=(meta&&meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('creature')>=0)return 'creature';
+    if(tl.indexOf('instant')>=0)return 'instant';
+    if(tl.indexOf('sorcery')>=0)return 'sorcery';
+    if(tl.indexOf('enchantment')>=0)return 'enchantment';
+    if(tl.indexOf('artifact')>=0)return 'artifact';
+    if(tl.indexOf('planeswalker')>=0)return 'planeswalker';
+    return 'other';
+  }
+  function _primaryRole(roles){
+    var best=null,bestVal=0.3;
+    ['wincon','draw','ramp','removal','interaction'].forEach(function(k){if((roles[k]||0)>bestVal){bestVal=roles[k];best=k;}});
+    return best;
+  }
+  // Pénalité CMC : réduite si le deck a beaucoup de ramp, augmentée si la courbe est déjà haute
+  var rampFactor=counts&&targets?Math.min(0.4,(counts.ramp||0)/Math.max(1,(targets.ramp||[4,8])[1])):0;
+  var cmcHeavy=avgCmc?Math.max(0,(avgCmc-3.0)*0.15):0;
+  var cmcPenRate=1.5-rampFactor+cmcHeavy;
+  // Suivi des counts pour rescoring après chaque swap
+  var projCounts=counts?Object.assign({},counts):null;
+  // Score ajusté selon la demande courante par catégorie
+  function _adjScore(meta,roles){
+    var base=anaCardScore(meta);
+    if(!projCounts||!targets)return base;
+    var bonus=0;
+    ['draw','ramp','removal','interaction','wincon'].forEach(function(k){
+      var c=roles[k]||0;if(!c)return;
+      var gap=(targets[k]?targets[k][0]:0)-(projCounts[k]||0);
+      if(gap>0)bonus+=c*Math.min(gap,5)*0.4;       // catégorie sous la cible → bonus
+      else if(gap<-2)bonus+=c*Math.max(gap,-5)*0.25; // catégorie en excès → malus
+    });
+    return Math.max(0,base+bonus);
+  }
+  function _effGain(addScore,cutScore,addCmc,cutCmc){
+    var delta=(addCmc||0)-(cutCmc||0);
+    return addScore-cutScore-(delta>0?delta*cmcPenRate:0);
+  }
+  // Pré-calcul des rôles du pool (stable entre itérations)
+  var poolRoles=poolCopy.map(function(s){return anaRoles(s.meta||{});});
+  for(var iter=0;iter<maxSwaps;iter++){
+    // Rescorer le deck courant (tient compte des counts mis à jour)
+    current=current.map(function(r){
+      var rl=r.roles||anaRoles(r.meta);
+      return Object.assign({},r,{roles:rl,score:_adjScore(r.meta,rl)});
+    });
     var _mrC=current.filter(function(r){return r.meta&&r.meta.tags&&r.meta.tags.manarock;}).length;
     var nonLand=current.filter(function(r){
-      if(r.meta.tags&&r.meta.tags.isLand)return false;
-      if(r.meta&&r.meta.tags&&r.meta.tags.manarock&&_mrC<=6)return false;
+      if(!r.meta.tags||r.meta.tags.isLand)return false;
+      if(r.meta.tags.manarock&&_mrC<=6)return false;
       return true;
     });
-    if(!nonLand.length)break;
-    var weak=nonLand.reduce(function(min,c){return c.score<min.score?c:min;});
-    if(!poolCopy.length)break;
-    var bestPool=poolCopy.reduce(function(max,c){return c.score>max.score?c:max;});
-    if(bestPool.score<=weak.score)break;
-    var gain=bestPool.score-weak.score;
-    swaps.push({cut:weak.card,cutScore:weak.score,add:{name:bestPool.name,nl:bestPool.nl,meta:bestPool.meta},addScore:bestPool.score,gain:gain});
-    current=current.filter(function(r){return r.card.nl!==weak.card.nl;});
-    poolCopy=poolCopy.filter(function(c){return c.nl!==bestPool.nl;});
+    if(!nonLand.length||!poolCopy.length)break;
+    var sortedWeak=nonLand.slice().sort(function(a,b){return a.score-b.score;});
+    var bestSwap=null;
+    // Phases : 1=même type+rôle, 2=même rôle, 3=rééquilibrage libre
+    for(var phase=1;phase<=3;phase++){
+      var phBest=null,phGain=0.1;
+      sortedWeak.forEach(function(cutRow){
+        var cutType=_cardType(cutRow.meta);
+        var cutRole=_primaryRole(cutRow.roles);
+        var cutCmc=cutRow.meta.cmc||0;
+        poolCopy.forEach(function(addCand,pi){
+          var addMeta=addCand.meta||{};var addRl=poolRoles[pi];
+          var addType=_cardType(addMeta);var addRole=_primaryRole(addRl);
+          if(phase===1&&!(addType===cutType&&addRole&&addRole===cutRole))return;
+          if(phase===2&&!(addRole&&addRole===cutRole))return;
+          var addScore=_adjScore(addMeta,addRl);
+          var gain=_effGain(addScore,cutRow.score,addMeta.cmc||0,cutCmc);
+          if(gain>phGain){phGain=gain;phBest={cutRow:cutRow,addCand:addCand,addScore:addScore,gain:gain,phase:phase,pi:pi};}
+        });
+      });
+      if(phBest){bestSwap=phBest;break;}
+    }
+    if(!bestSwap)break;
+    var sw=bestSwap;
+    swaps.push({cut:sw.cutRow.card,cutScore:sw.cutRow.score,add:{name:sw.addCand.name,nl:sw.addCand.nl,meta:sw.addCand.meta},addScore:sw.addCand.score,gain:Math.round(sw.gain*100)/100,phase:sw.phase});
+    // Mettre à jour projCounts
+    if(projCounts){
+      var cRl=sw.cutRow.roles;var aRl=poolRoles[sw.pi];
+      ['land','ramp','draw','removal','interaction','wincon'].forEach(function(k){projCounts[k]=(projCounts[k]||0)-(cRl[k]||0)+(aRl[k]||0);});
+    }
+    // Mettre à jour current et pool
+    current=current.filter(function(r){return r.card.nl!==sw.cutRow.card.nl;});
+    current.push({card:{name:sw.addCand.name,nl:sw.addCand.nl,qty:1},meta:sw.addCand.meta,roles:poolRoles[sw.pi],score:sw.addScore,inCache:true});
+    poolCopy=poolCopy.filter(function(c,pi){return pi!==sw.pi;});
+    poolRoles=poolRoles.filter(function(_,pi){return pi!==sw.pi;});
   }
   return {swaps:swaps};
 }
@@ -16351,7 +16431,7 @@ function anaRender(deckId){
   var topSuggestions=suggPool.slice(0,10);
 
   // Plan d'optimisation
-  var optResult=anaOptimize(nonLandRows,suggPool.slice(),10);
+  var optResult=anaOptimize(nonLandRows,suggPool.slice(),10,counts,targets,avgCmc);
 
   // ===== HTML =====
   var html='';
