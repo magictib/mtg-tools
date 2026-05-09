@@ -14012,6 +14012,9 @@ function anaInferTags(meta){
   var upTo=oracle.match(/draws? up to (\w+) cards?/);     // "draw up to two cards"
   if(upTo)draw+=(nMap[upTo[1]]||2);
   if(/draws? cards/i.test(oracle)&&!dm.length&&draw<1)draw+=1; // fallback générique
+  if(/draws? (an? )?additional cards?/i.test(oracle))draw+=1;   // Howling Mine, Dictate of Kruphix
+  if(/put (one|two|three) of them into your hand/i.test(oracle))draw+=0.7; // Impulse-type
+  if(/put one pile into your hand/i.test(oracle))draw+=0.8;     // Fact or Fiction
   if(/scry \d+/.test(oracle))draw+=0.3;
   if(oracle.indexOf('surveil')>=0)draw+=0.3;
   if(/look at the top/.test(oracle))draw+=0.2;
@@ -16159,6 +16162,7 @@ function anaRender(deckId){
   var overall=0;Object.keys(weights).forEach(function(k){overall+=subScores[k]*weights[k];});
   overall=Math.round(overall);
   var grade=anaGrade(overall);
+  console.log('[Ana] themes.draw='+(_anaCurrentThemes.draw||1).toFixed(2)+' counts='+JSON.stringify(counts)+' targets='+JSON.stringify({draw:targets.draw,wincon:targets.wincon})+' subScores='+JSON.stringify(subScores)+' overall='+overall);
 
   // Top / bottom non-land (commandants exclus)
   // Collecte tous les noms de commandants possibles (deck.commander + cards sec=Commander)
@@ -16363,13 +16367,18 @@ function anaRender(deckId){
   _subCatDef.forEach(function(sc){
     var sv=Math.round(subScores[sc.k]||0);
     var col=sv>=80?'#78c890':sv>=60?'#f5b95b':'#e07070';
-    _scorePanel+='<div style="display:flex;align-items:center;gap:3px;margin-bottom:3px">';
+    var _cnt=_sc[sc.k]||0;var _tlo=targets[sc.k][0];var _thi=targets[sc.k][1];
+    var _tip=sc.l+' : '+_cnt+' cartes (cible '+_tlo+'–'+_thi+')';
+    _scorePanel+='<div style="display:flex;align-items:center;gap:3px;margin-bottom:3px" title="'+_tip+'">';
     _scorePanel+='<span style="font-size:7.5px;color:var(--tx3);width:44px;text-align:right;flex-shrink:0">'+sc.l+'</span>';
     _scorePanel+='<div style="flex:1;height:3px;background:rgba(255,255,255,.06);border-radius:1.5px;overflow:hidden"><div style="width:'+sv+'%;height:100%;background:'+col+'"></div></div>';
-    _scorePanel+='<span style="font-size:7.5px;color:'+col+';width:22px;flex-shrink:0;text-align:right">'+sv+'</span>';
+    _scorePanel+='<span style="font-size:7.5px;color:'+col+';width:26px;flex-shrink:0;text-align:right" title="'+_tip+'">'+_cnt+'/'+_tlo+'</span>';
     _scorePanel+='</div>';
   });
   _scorePanel+='</div>';
+  // Theme debug hint (visible si le commandant n'est pas détecté correctement)
+  var _thLabels=(_anaCurrentThemes.labels||[]).slice(0,2);
+  if(_thLabels.length){_scorePanel+='<div style="font-size:7px;color:var(--tx3);text-align:center;margin-top:2px;opacity:.7">'+_thLabels.join(' · ')+'</div>';}
   _scorePanel+='<div style="height:.5px;background:var(--bd2);margin:10px 0"></div>';
   // ── Potentiel ──
   _scorePanel+='<div style="text-align:center">';
