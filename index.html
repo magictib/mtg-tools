@@ -10372,9 +10372,22 @@ function cmdSlug(name){
 function searchCmd(){
   var name=document.getElementById('cmdsrch').value.trim();
   var isCmd=CMD_FORMATS_WITH_CMDR.indexOf(cmdFmt)>=0;
+  var isPDH=cmdFmt==='paupercommander';
+  // PDH : Scryfall reconnaît 'pauper' mais pas toujours 'paupercommander' — on utilise 'pauper'
+  var sfFmt=isPDH?'pauper':cmdFmt;
   var q='';
-  if(isCmd) q+='is:commander ';
-  q+='legal:'+cmdFmt+' ';
+  if(isCmd){
+    if(isPDH){
+      // PDH : commandant = créature uncommon du pool pauper (pas de tag is:commander)
+      q+='t:creature rarity:uncommon ';
+    } else if(!name){
+      // Commander / Oathbreaker sans nom : is:commander pour ne montrer que les commandants légaux
+      q+='is:commander ';
+    }
+    // Avec un nom saisi : on retire is:commander pour trouver aussi les cartes non-légendaires
+    // (ex: cartes PDH cherchées dans le mauvais format, sous-formats avec règles maison)
+  }
+  q+='legal:'+sfFmt+' ';
   if(cmdRarity) q+='rarity:'+cmdRarity+' ';
   if(cmdColors.size>0){
     if(cmdColors.has('C')){q+='id=C ';}
