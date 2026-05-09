@@ -13678,6 +13678,53 @@ function anaSetView(section,mode){
 var _anaDisplayMode={};
 try{var __aDM=localStorage.getItem('mtg_ana_dmode');if(__aDM)_anaDisplayMode=JSON.parse(__aDM)||{};}catch(e){}
 var _anaCheckedSwaps={};
+var _anaMatrixData={};
+var _anaMatrixChecked={};
+var _anaMatrixSimDone={};
+var _anaMatrixSortWr={};
+function _anaToggleMatrixSwap(deckId,idx){
+  if(!_anaMatrixChecked[deckId])_anaMatrixChecked[deckId]={};
+  _anaMatrixChecked[deckId][idx]=!_anaMatrixChecked[deckId][idx];
+  if(!_anaState)return;
+  var rows=_anaMatrixData[deckId]||[];
+  var base=_anaState.overall||0;
+  var n=0;
+  var projCounts=Object.assign({},_anaState.counts);
+  rows.forEach(function(row,i){
+    if(!_anaMatrixChecked[deckId][i])return;
+    n++;
+    var cutRoles=anaRoles(_anaData[row.cut.nl]||{});
+    var addRoles=anaRoles(_anaData[row.add.nl]||{});
+    ['land','ramp','draw','removal','interaction','wincon'].forEach(function(k){
+      projCounts[k]=(projCounts[k]||0)-(cutRoles[k]||0)+(addRoles[k]||0);
+    });
+  });
+  var targets=_anaState.targets;var weights=_anaState.weights;
+  var _th2=_anaCurrentThemes||{};var _drawMult=_th2.draw||1;
+  var _sc=Object.assign({},projCounts);
+  if(_drawMult>=2.0){
+    _sc.wincon=Math.max(_sc.wincon,1);
+    var _dThresh=Math.floor(targets.draw[0]*0.7);
+    if(projCounts.draw>_dThresh){var _wb=Math.round((projCounts.draw-_dThresh)*0.3);_sc.wincon=Math.min(_sc.wincon+_wb,targets.wincon[1]);}
+  }else if(_drawMult>=1.5&&projCounts.draw>targets.draw[0]){
+    _sc.wincon=Math.min(_sc.wincon+Math.round((projCounts.draw-targets.draw[0])*0.3),targets.wincon[1]);
+  }
+  if((_th2.ramp||1)>=1.5&&projCounts.ramp>targets.ramp[0])_sc.wincon+=Math.round((projCounts.ramp-targets.ramp[0])*0.4);
+  if((_th2.sacrifice||1)>=2.0)_sc.wincon=Math.max(_sc.wincon,1);
+  if((_th2.interaction||1)>=2.0&&projCounts.interaction>targets.interaction[0])_sc.wincon+=Math.round((projCounts.interaction-targets.interaction[0])*0.3);
+  var pSS={land:anaCatScore(_sc.land,targets.land),ramp:anaCatScore(_sc.ramp,targets.ramp),draw:anaCatScore(_sc.draw,targets.draw),removal:anaCatScore(_sc.removal,targets.removal),interaction:anaCatScore(_sc.interaction,targets.interaction),wincon:anaCatScore(_sc.wincon,targets.wincon)};
+  var projOverall=0;Object.keys(weights).forEach(function(k){projOverall+=(pSS[k]||0)*(weights[k]||0);});
+  projOverall=Math.min(100,Math.round(projOverall));
+  var disp=n?projOverall:base;var gr=anaGrade(disp);
+  var el=document.getElementById('ana-mproj-'+deckId);
+  if(!el)return;
+  if(!n){el.innerHTML='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';return;}
+  var txt='<b style="color:var(--tx2)">'+n+' swap'+(n>1?'s':'')+' cochés</b>';
+  txt+=' · Compo : <b style="color:'+gr.col+'">'+projOverall+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+gr.l+'</span>';
+  var simBase=_anaState.simScore||0;
+  if(simBase>0){var gain2=projOverall-base;var ps=Math.min(100,Math.round(simBase+gain2*0.8));var sg=anaGrade(ps);txt+=' · Victoire : <b style="color:'+sg.col+'">~'+ps+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+sg.l+'</span>';}
+  el.innerHTML=txt;
+}
 function _anaToggleSwap(deckId,idx){
   if(!_anaCheckedSwaps[deckId])_anaCheckedSwaps[deckId]={};
   _anaCheckedSwaps[deckId][idx]=!_anaCheckedSwaps[deckId][idx];
@@ -16137,6 +16184,83 @@ function anaOptimize(scoredRows,pool,maxSwaps,counts,targets,avgCmc){
   return {swaps:swaps};
 }
 
+/* ----- Matrice exhaustive deck × pool ----- */
+function _anaComputeSwapMatrix(nonLandRows,pool,counts,targets,weights,baseScore){
+  var rows=[];
+  var th=_anaCurrentThemes||{};var drawMult=th.draw||1;
+  var cats=['land','ramp','draw','removal','interaction','wincon'];
+  var poolRoles=pool.map(function(s){return anaRoles(s.meta||{});});
+  nonLandRows.forEach(function(cutRow){
+    var cutRl=cutRow.roles||anaRoles(cutRow.meta||{});
+    var cutCmc=cutRow.meta&&cutRow.meta.cmc||0;
+    pool.forEach(function(addCand,pi){
+      if(cutRow.card.nl===addCand.nl)return;
+      var addRl=poolRoles[pi];
+      var pc={};
+      cats.forEach(function(k){pc[k]=(counts[k]||0)-(cutRl[k]||0)+(addRl[k]||0);});
+      var _sc=Object.assign({},pc);
+      if(drawMult>=2.0){
+        _sc.wincon=Math.max(_sc.wincon,1);
+        var dThresh=Math.floor(targets.draw[0]*0.7);
+        if(pc.draw>dThresh){var wb=Math.round((pc.draw-dThresh)*0.3);_sc.wincon=Math.min(_sc.wincon+wb,targets.wincon[1]);}
+      }else if(drawMult>=1.5&&pc.draw>targets.draw[0]){
+        _sc.wincon=Math.min(_sc.wincon+Math.round((pc.draw-targets.draw[0])*0.3),targets.wincon[1]);
+      }
+      if((th.ramp||1)>=1.5&&pc.ramp>targets.ramp[0])_sc.wincon+=Math.round((pc.ramp-targets.ramp[0])*0.4);
+      if((th.sacrifice||1)>=2.0)_sc.wincon=Math.max(_sc.wincon,1);
+      if((th.interaction||1)>=2.0&&pc.interaction>targets.interaction[0])_sc.wincon+=Math.round((pc.interaction-targets.interaction[0])*0.3);
+      var pSS={land:anaCatScore(_sc.land,targets.land),ramp:anaCatScore(_sc.ramp,targets.ramp),draw:anaCatScore(_sc.draw,targets.draw),removal:anaCatScore(_sc.removal,targets.removal),interaction:anaCatScore(_sc.interaction,targets.interaction),wincon:anaCatScore(_sc.wincon,targets.wincon)};
+      var projOverall=0;Object.keys(weights).forEach(function(k){projOverall+=(pSS[k]||0)*(weights[k]||0);});
+      projOverall=Math.min(100,Math.round(projOverall));
+      var deltaCompo=projOverall-baseScore;
+      if(deltaCompo<=0)return;
+      var addMeta=addCand.meta||{};
+      rows.push({
+        cut:{name:cutRow.card.name,nl:cutRow.card.nl,meta:cutRow.meta||{}},
+        add:{name:addCand.name,nl:addCand.nl,meta:addMeta},
+        deltaCompo:deltaCompo,projScore:projOverall,
+        deltaCmc:(addMeta.cmc||0)-cutCmc,
+        wr:null,wrDelta:null
+      });
+    });
+  });
+  rows.sort(function(a,b){return b.deltaCompo-a.deltaCompo;});
+  return rows.slice(0,50);
+}
+function _anaSimSwapMatrix(deckId){
+  if(!_anaState||!_anaState.libUser)return;
+  var rows=_anaMatrixData[deckId];
+  if(!rows||!rows.length)return;
+  var libUser=_anaState.libUser;
+  var avgCur=_anaState.avgCur||0;
+  var archetypes=_anaState.archetypes;
+  var simOpts=_anaState.simOpts;
+  var arcSz=_anaState.arcSz||40;
+  if(!archetypes||!simOpts){var btn2=document.getElementById('ana-msim-'+deckId);if(btn2){btn2.disabled=false;btn2.textContent='⚡ Simuler WR';}return;}
+  var simRuns=40;
+  var top=rows.slice(0,20);
+  var i=0;
+  function step(){
+    if(i>=top.length){
+      _anaMatrixSimDone[deckId]=true;
+      var btn=document.getElementById('ana-msim-'+deckId);
+      if(btn){btn.style.background='var(--s3)';btn.style.color='var(--tx2)';btn.textContent='✓ WR simulé';btn.disabled=true;}
+      return;
+    }
+    var row=top[i];
+    var libMod=_anaApplyOptToLib(libUser,[{cut:{nl:row.cut.nl,name:row.cut.name},add:{nl:row.add.nl,name:row.add.name,meta:row.add.meta}}]);
+    var avgMod=archetypes.reduce(function(s,a){return s+anaWinRate(libMod,function(){return _archetypeDeck(a.key,arcSz);},simRuns,simOpts);},0)/archetypes.length;
+    row.wr=avgMod;row.wrDelta=Math.round((avgMod-avgCur)*100);
+    var cell=document.getElementById('ana-mwr-'+deckId+'-'+i);
+    if(cell){
+      var col=row.wrDelta>4?'#78c890':row.wrDelta<-4?'#e07070':'var(--tx2)';
+      cell.style.color=col;cell.textContent=(row.wrDelta>=0?'+':'')+row.wrDelta+'%';
+    }
+    i++;setTimeout(step,0);
+  }
+  setTimeout(step,0);
+}
+
 /* ----- Toggle mode simulation matrice ----- */
 function setAnaSimMode(mode){
   _anaSimMode=mode;
@@ -16181,7 +16305,7 @@ function anaRefreshMatrix(){
     // Mise à jour du badge simulation (le badge composition reste inchangé)
     (function(){
       var simScore=Math.min(100,Math.round(avgCur*120));
-      if(_anaState)_anaState.simScore=simScore;
+      if(_anaState){_anaState.simScore=simScore;_anaState.avgCur=avgCur;_anaState.archetypes=archetypes;_anaState.simOpts=_simOpts;_anaState.arcSz=_arcSz;}
       var simGrade=anaGrade(simScore);
       var _simBadge=document.getElementById('ana-sim-badge');
       if(_simBadge){_simBadge.style.color=simGrade.col;_simBadge.textContent=simGrade.l;}
@@ -16665,10 +16789,10 @@ function anaRender(deckId){
   function roleHints(rl){var h=[];if(rl.ramp)h.push('🌳');if(rl.draw)h.push('📚');if(rl.removal)h.push('🔥');if(rl.interaction)h.push('🛡');if(rl.wincon)h.push('💀');return h.join(' ');}
   function viewToggle(sec){
     var v=_anaViewMode[sec]||'list';
-    return '<div class="ana-view-toggle">'+
-      '<button class="'+(v==='list'?'active':'')+'" onclick="anaSetView(\''+sec+'\',\'list\')">📋 Liste</button>'+
-      '<button class="'+(v==='image'?'active':'')+'" onclick="anaSetView(\''+sec+'\',\'image\')">🖼 Image</button>'+
-      '</div>';
+    var btns='<button class="'+(v==='list'?'active':'')+'" onclick="anaSetView(\''+sec+'\',\'list\')">📋 Liste</button>'+
+      '<button class="'+(v==='image'?'active':'')+'" onclick="anaSetView(\''+sec+'\',\'image\')">🖼 Image</button>';
+    if(sec==='opt')btns+='<button class="'+(v==='matrix'?'active':'')+'" onclick="anaSetView(\''+sec+'\',\'matrix\')">📊 Matrice</button>';
+    return '<div class="ana-view-toggle">'+btns+'</div>';
   }
   function imgCard(name,meta,scoreStr,scoreCol,extraOverlay){
     var img=anaImageUrl(name,meta);
@@ -16763,54 +16887,106 @@ function anaRender(deckId){
     }
     html+='</div>';
   } else {
-    // MODE COMPOSITION : plan greedy (non validés par simulation)
+    // MODE COMPOSITION : plan greedy ou matrice exhaustive
     html+='<div class="card"><div class="ana-section-head"><div class="lbl">⚡ Plan d\'optimisation (compo)</div>'+viewToggle('opt')+'</div>';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">10 swaps max, basé sur les scores de composition — non validés par simulation</div>';
-    if(!optResult.swaps.length){
-      html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap n\'améliore le deck à partir du pool disponible.</div>';
-    } else {
-      if(_anaViewMode.opt==='image'){
-        optResult.swaps.forEach(function(sw,i){
-          var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
-          var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
-          html+='<div style="padding:10px 0;border-bottom:.5px solid var(--bd2)">';
-          html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
-          html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="margin:0;cursor:pointer;accent-color:var(--gold2)">';
-          html+='<span style="color:var(--tx3);font-size:10px">Étape '+(i+1)+' · gain +'+sw.gain.toFixed(2)+'</span>';
-          html+='</div>';
-          html+='<div class="ana-swap-img">';
-          html+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+imgCard(sw.cut.name,cutMeta,sw.cutScore.toFixed(1),'#e07070')+'</div>';
-          html+='<div class="ana-swap-arrow">→</div>';
-          html+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+imgCard(sw.add.name,addMeta,sw.addScore.toFixed(1),'var(--gold2)')+'</div>';
-          html+='</div></div>';
-        });
+    if(_anaViewMode.opt==='matrix'){
+      // Matrice exhaustive : tous les swaps deck × pool avec ΔCompo > 0
+      var _oldWrMap={};
+      if(_anaMatrixData[deckId]){_anaMatrixData[deckId].forEach(function(row){if(row.wr!==null)_oldWrMap[row.cut.nl+'→'+row.add.nl]={wr:row.wr,wrDelta:row.wrDelta};});}
+      var _matRows=_anaComputeSwapMatrix(nonLandRows,_optPool,counts,targets,weights,overall);
+      _matRows.forEach(function(row){var k=row.cut.nl+'→'+row.add.nl;if(_oldWrMap[k]){row.wr=_oldWrMap[k].wr;row.wrDelta=_oldWrMap[k].wrDelta;}});
+      _anaMatrixData[deckId]=_matRows;
+      if(!_matRows.length){
+        html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap disponible dans le pool améliore la composition.</div>';
       } else {
-        html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">';
-        optResult.swaps.forEach(function(sw,i){
-          var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
-          html+='<div style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:.5px solid var(--bd2);flex-wrap:wrap;min-width:0">';
-          html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="flex-shrink:0;margin:0;cursor:pointer;accent-color:var(--gold2)">';
-          html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">'+(i+1)+'.</span>';
-          html+='<span style="color:#e07070;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:82px">'+esc(sw.cut.name)+'</span>';
-          html+='<span style="color:var(--tx3);font-size:8.5px;flex-shrink:0">('+sw.cutScore.toFixed(1)+')</span>';
-          html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">→</span>';
-          html+='<span style="color:var(--gold2);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:82px">'+esc(sw.add.name)+'</span>';
-          html+='<span style="color:var(--tx3);font-size:8.5px;flex-shrink:0">('+sw.addScore.toFixed(1)+')</span>';
-          html+='<span style="margin-left:auto;color:var(--gold2);font-size:9.5px;flex-shrink:0;font-weight:bold">+'+sw.gain.toFixed(2)+'</span>';
+        var _simReady=!!(_anaState&&_anaState.archetypes&&_anaState.simOpts);
+        var _simDone=!!_anaMatrixSimDone[deckId];
+        html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">';
+        html+='<span style="font-size:10px;color:var(--tx3)">'+_matRows.length+' swap'+((_matRows.length>1)?'s':'')+' analysés</span>';
+        if(_simDone){
+          html+='<span style="font-size:10px;color:#78c890">✓ WR simulé (top 20)</span>';
+        } else if(_simReady){
+          html+='<button id="ana-msim-'+deckId+'" onclick="_anaSimSwapMatrix(\''+deckId+'\');this.disabled=true;this.textContent=\'⏳ Simulation…\'" style="font-size:10px;padding:2px 10px;border:none;border-radius:10px;background:var(--gold2);color:#1a1206;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">⚡ Simuler WR</button>';
+        } else {
+          html+='<span style="font-size:10px;color:var(--tx3);font-style:italic">Lancez la simulation principale pour débloquer WR</span>';
+        }
+        html+='</div>';
+        html+='<div style="display:grid;grid-template-columns:18px 1fr 34px 52px 46px;gap:2px 4px;font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;padding:2px 0;border-bottom:.5px solid var(--bd2);margin-bottom:2px">';
+        html+='<div></div><div>SWAP</div><div style="text-align:center">ΔCMC</div><div style="text-align:center">COMPO</div><div style="text-align:center">VICTOIRE</div></div>';
+        _matRows.forEach(function(row,i){
+          var chk=(_anaMatrixChecked[deckId]&&_anaMatrixChecked[deckId][i])?'checked':'';
+          var dcCol=row.deltaCompo>5?'#78c890':row.deltaCompo>2?'var(--gold2)':'var(--tx2)';
+          var cmcCol=row.deltaCmc<0?'#78c890':row.deltaCmc>0?'#e07070':'var(--tx3)';
+          html+='<div style="display:grid;grid-template-columns:18px 1fr 34px 52px 46px;gap:2px 4px;align-items:center;padding:3px 0;border-bottom:.5px solid var(--bd2)">';
+          html+='<input type="checkbox" '+chk+' onchange="_anaToggleMatrixSwap(\''+deckId+'\','+i+')" style="margin:0;cursor:pointer;accent-color:var(--gold2)">';
+          html+='<div style="font-size:10px;overflow:hidden;min-width:0">';
+          html+='<div style="color:#e07070;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">– '+esc(row.cut.name)+'</div>';
+          html+='<div style="color:var(--gold2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">+ '+esc(row.add.name)+'</div>';
+          html+='</div>';
+          html+='<div style="text-align:center;font-size:10px;color:'+cmcCol+'">'+(row.deltaCmc>0?'+':'')+row.deltaCmc+'</div>';
+          html+='<div style="text-align:center;font-size:10px"><b style="color:'+dcCol+'">'+(row.deltaCompo>0?'+':'')+row.deltaCompo+'</b><span style="color:var(--tx3);font-size:9px"> ('+row.projScore+')</span></div>';
+          if(i>=20){
+            html+='<div style="text-align:center;font-size:10px;color:var(--tx3)">–</div>';
+          } else if(row.wr!==null){
+            var wrCol=row.wrDelta>4?'#78c890':row.wrDelta<-4?'#e07070':'var(--tx2)';
+            html+='<div style="text-align:center;font-size:10px;color:'+wrCol+'">'+(row.wrDelta>=0?'+':'')+row.wrDelta+'%</div>';
+          } else {
+            html+='<div style="text-align:center;font-size:10px"><span id="ana-mwr-'+deckId+'-'+i+'" style="color:var(--tx3)">…</span></div>';
+          }
           html+='</div>';
         });
+        html+='<div id="ana-mproj-'+deckId+'" style="margin-top:8px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
+        html+='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';
         html+='</div>';
       }
-      var _chkN=0,_chkG=0;
-      if(_anaCheckedSwaps[deckId]){optResult.swaps.forEach(function(sw,i){if(_anaCheckedSwaps[deckId][i]){_chkN++;_chkG+=sw.gain;}});}
-      html+='<div id="ana-proj-'+deckId+'" style="margin-top:8px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
-      if(_chkN){
-        var _chkProj=Math.min(100,Math.round(overall+_chkG));var _chkGr=anaGrade(_chkProj);
-        html+='<b style="color:var(--tx2)">'+_chkN+' swap'+(_chkN>1?'s':'')+' cochés</b> · +'+_chkG.toFixed(1)+' pts · Projeté : <b style="color:'+_chkGr.col+'">'+_chkProj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+_chkGr.l+'</span>';
+    } else {
+      html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">10 swaps max, basé sur les scores de composition — non validés par simulation</div>';
+      if(!optResult.swaps.length){
+        html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun swap n\'améliore le deck à partir du pool disponible.</div>';
       } else {
-        html+='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';
+        if(_anaViewMode.opt==='image'){
+          optResult.swaps.forEach(function(sw,i){
+            var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
+            var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
+            html+='<div style="padding:10px 0;border-bottom:.5px solid var(--bd2)">';
+            html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+            html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="margin:0;cursor:pointer;accent-color:var(--gold2)">';
+            html+='<span style="color:var(--tx3);font-size:10px">Étape '+(i+1)+' · gain +'+sw.gain.toFixed(2)+'</span>';
+            html+='</div>';
+            html+='<div class="ana-swap-img">';
+            html+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+imgCard(sw.cut.name,cutMeta,sw.cutScore.toFixed(1),'#e07070')+'</div>';
+            html+='<div class="ana-swap-arrow">→</div>';
+            html+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+imgCard(sw.add.name,addMeta,sw.addScore.toFixed(1),'var(--gold2)')+'</div>';
+            html+='</div></div>';
+          });
+        } else {
+          html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">';
+          optResult.swaps.forEach(function(sw,i){
+            var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
+            html+='<div style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:.5px solid var(--bd2);flex-wrap:wrap;min-width:0">';
+            html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="flex-shrink:0;margin:0;cursor:pointer;accent-color:var(--gold2)">';
+            html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">'+(i+1)+'.</span>';
+            html+='<span style="color:#e07070;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:82px">'+esc(sw.cut.name)+'</span>';
+            html+='<span style="color:var(--tx3);font-size:8.5px;flex-shrink:0">('+sw.cutScore.toFixed(1)+')</span>';
+            html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">→</span>';
+            html+='<span style="color:var(--gold2);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:82px">'+esc(sw.add.name)+'</span>';
+            html+='<span style="color:var(--tx3);font-size:8.5px;flex-shrink:0">('+sw.addScore.toFixed(1)+')</span>';
+            html+='<span style="margin-left:auto;color:var(--gold2);font-size:9.5px;flex-shrink:0;font-weight:bold">+'+sw.gain.toFixed(2)+'</span>';
+            html+='</div>';
+          });
+          html+='</div>';
+        }
+        var _chkN=0,_chkG=0;
+        if(_anaCheckedSwaps[deckId]){optResult.swaps.forEach(function(sw,i){if(_anaCheckedSwaps[deckId][i]){_chkN++;_chkG+=sw.gain;}});}
+        html+='<div id="ana-proj-'+deckId+'" style="margin-top:8px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
+        if(_chkN){
+          var _chkProj=Math.min(100,Math.round(overall+_chkG));var _chkGr=anaGrade(_chkProj);
+          html+='<b style="color:var(--tx2)">'+_chkN+' swap'+(_chkN>1?'s':'')+' cochés</b> · +'+_chkG.toFixed(1)+' pts · Projeté : <b style="color:'+_chkGr.col+'">'+_chkProj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+_chkGr.l+'</span>';
+        } else {
+          html+='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';
+        }
+        html+='</div>';
       }
-      html+='</div>';
     }
     html+='</div>';
   }
