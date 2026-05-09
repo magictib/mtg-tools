@@ -16481,17 +16481,20 @@ function anaRender(deckId){
   if(_thLbls)html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">⚡ Cibles ajustées pour ce commandant ('+_thLbls.join(', ')+') — marqueurs = fourchette cible.</div>';
   else html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Les marqueurs dorés indiquent la fourchette cible recommandée.</div>';
   subDef.forEach(function(s){
-    var sc=subScores[s.k]||0;var v=counts[s.k];var rg=targets[s.k];
-    var maxScale=Math.max(rg[1]*1.7,v*1.1,12);
-    var pct=Math.min(100,(v/maxScale)*100);
+    var sc=subScores[s.k]||0;var v=counts[s.k];var va=Math.round(_sc[s.k]||0);var rg=targets[s.k];
+    // Bar + status basés sur _sc (valeur ajustée = cohérent avec le score affiché)
+    var maxScale=Math.max(rg[1]*1.7,va*1.1,12);
+    var pct=Math.min(100,(va/maxScale)*100);
     var loPct=(rg[0]/maxScale)*100;var hiPct=(rg[1]/maxScale)*100;
     var statusText,statusCol;
-    if(v<rg[0]){statusText='Insuffisant';statusCol='#e07070';}
-    else if(v<=rg[1]){statusText='Optimal';statusCol='#78c890';}
-    else if(v<=rg[1]*1.5){statusText='Léger excès';statusCol='#f5b95b';}
+    if(va<rg[0]){statusText='Insuffisant';statusCol='#e07070';}
+    else if(va<=rg[1]){statusText='Optimal';statusCol='#78c890';}
+    else if(va<=rg[1]*1.5){statusText='Léger excès';statusCol='#f5b95b';}
     else{statusText='Sur-investi';statusCol='#e07070';}
     var wv=Math.round(wCounts[s.k]);var wDiff=v>0?Math.abs(wv-v)/v:0;
-    var wStr=wDiff>0.1?'<span title="Comptage pondéré par synergie" style="color:'+(wv<v?'#e07070':'#78c890')+';font-size:9px"> ('+wv+')</span>':'';
+    // Indicateur d'ajustement commandant (ex: 6 →3 quand _sc≠counts)
+    var adjStr=Math.abs(va-v)>0.5?'<span title="Valeur effective prise en compte dans le score (ajustement commandant)" style="color:#aaa;font-size:9px"> →'+va+'</span>':'';
+    var wStr=(wDiff>0.1&&Math.abs(wv-va)>0.5)?'<span title="Comptage pondéré par synergie" style="color:'+(wv<va?'#e07070':'#78c890')+';font-size:9px"> ('+wv+')</span>':'';
     html+='<div class="ana-cat-row">';
     html+='<div style="font-size:15px;line-height:1;text-align:center">'+s.ico+'</div>';
     html+='<div>'+s.label+'</div>';
@@ -16501,7 +16504,7 @@ function anaRender(deckId){
     if(rg[0]>0)html+='<div class="target" style="left:'+loPct+'%"></div>';
     html+='<div class="target" style="left:'+hiPct+'%"></div>';
     html+='</div>';
-    html+='<div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--tx2)"><b>'+v+'</b>'+wStr+'<span style="color:var(--tx3)"> /'+rg[0]+'-'+rg[1]+'</span></div>';
+    html+='<div style="font-variant-numeric:tabular-nums;font-size:10px;color:var(--tx2)"><b>'+v+'</b>'+adjStr+wStr+'<span style="color:var(--tx3)"> /'+rg[0]+'-'+rg[1]+'</span></div>';
     html+='<div class="ana-cat-status" style="color:'+statusCol+'">'+statusText+'</div>';
     html+='</div>';
   });
