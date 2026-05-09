@@ -15168,17 +15168,34 @@ function _anaAutoQuestionnaire(){
 }
 function _anaQAutoFill(autoThemes){
   var qs=_anaQDefaultState();
-  if((autoThemes.protection||0)>=2.0)qs.role='commander';
-  else if((autoThemes.wincon||1)>=2.0||(autoThemes.sacrifice||1)>=2.0)qs.role='combo';
+  var _lbs=autoThemes.labels||[];
+  // Labels qui indiquent que le commandant EST la condition de victoire principale
+  // (ne pas se fier uniquement à la protection, beaucoup de commandants-wincon n'ont pas ce pattern)
+  var _cmdIsWincon=
+    _lbs.indexOf('Pioche-trigger')>=0||      // Queza, Nekusar, Niv-Mizzet : drain/dégâts sur pioche
+    _lbs.indexOf('Tap-damage')>=0||          // Gelectrode, Niv-Mizzet Firemind : {T} deals damage
+    _lbs.indexOf('Untap-spellslinger')>=0||  // commandants qui se dégagent sur sort
+    _lbs.indexOf('Muldrotha-type')>=0||      // Muldrotha : jouer depuis le cimetière = moteur
+    _lbs.indexOf('ETB-matters')>=0||         // Yarok, Brago, Emiel : double/reset ETBs
+    _lbs.indexOf('Infect')>=0||              // commandants infect (doivent attaquer pour gagner)
+    _lbs.indexOf('Sacrifice-counters')>=0||  // Korvold, Juri : grandissent sur sacrifice
+    _lbs.indexOf('Sacrifice-draw')>=0||      // Korvold : pioche + grandit sur sacrifice
+    _lbs.indexOf('Extra-tours')>=0||         // commandants qui prennent des tours supplémentaires
+    _lbs.indexOf('Défausse-compteurs')>=0||  // Lotleth Troll type : commandant + discard = moteur
+    (autoThemes.protection||0)>=2.0;         // commandants avec {T}: ability (protection haute auto-détectée)
+  // Rôle principal
+  if(_cmdIsWincon)qs.role='commander';
   else if((autoThemes.interaction||1)>=2.0)qs.role='control';
+  else if((autoThemes.wincon||1)>=2.0)qs.role='combo';
   else qs.role='creatures';
-  if((autoThemes.protection||0)>=2.5)qs.cmdDep='critical';
-  else if((autoThemes.protection||0)>=1.5)qs.cmdDep='important';
+  // Dépendance commandant : si le commandant EST la condition de victoire → indispensable
+  if(_cmdIsWincon||(autoThemes.protection||0)>=2.5)qs.cmdDep='critical';
+  else if((autoThemes.protection||0)>=1.5||(autoThemes.wincon||1)>=1.8)qs.cmdDep='important';
   else qs.cmdDep='accessory';
+  // Synergies numériques
   ['sweeper','lifegain','ramp','draw','sacrifice','graveyard','enchantment','artifact','counters','discard','tokens','mill'].forEach(function(k){
     if((autoThemes[k]||0)>=1.5)qs.synergies.push(k);
   });
-  var _lbs=autoThemes.labels||[];
   if(_lbs.indexOf('Spellslinger')>=0||_lbs.indexOf('Untap-spellslinger')>=0||_lbs.indexOf('Flash-matters')>=0)qs.synergies.push('spellslinger');
   if(_lbs.indexOf('Réanimation')>=0)qs.synergies.push('reanimate');
   if(_lbs.indexOf('ETB-matters')>=0)qs.synergies.push('etb');
@@ -15345,6 +15362,11 @@ function anaShowPreEditor(noToggle){
   var hasOv=Object.keys(ov).length>0;
   var notCached=!autoThemes._debug||autoThemes._debug.indexOf('ok')<0;
   if(!_anaQState[deckId])_anaQState[deckId]=_anaQAutoFill(autoThemes);
+  // Revalider si le rôle par défaut 'creatures' semble incohérent avec le commandant détecté
+  else if(_anaQState[deckId].role==='creatures'&&autoThemes._debug&&autoThemes._debug.indexOf('ok')>=0){
+    var _recheck=_anaQAutoFill(autoThemes);
+    if(_recheck.role!=='creatures'){_anaQState[deckId].role=_recheck.role;_anaQState[deckId].cmdDep=_recheck.cmdDep;}
+  }
   var qs=_anaQState[deckId];
   var qThemes=_anaQToThemes(qs,autoThemes);
   var cur=hasOv?Object.assign({},qThemes,ov):qThemes;
