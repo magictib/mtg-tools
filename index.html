@@ -13654,9 +13654,9 @@ var _anaPauperStaples=[
 
 // Restaurer le cache au chargement
 try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(__aR);if(__aP&&typeof __aP==='object'){
-  // Migration v22: lifelink_grant tag, death triggers sweeper, lifegain pour AoE-upkeep-sweeper
-  if((__aP.__version||0)<22){
-    _anaData={__version:22};
+  // Migration v23: regenerate/blink/dies-to-hand protection tags
+  if((__aP.__version||0)<23){
+    _anaData={__version:23};
     try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}
   } else {
     // Migration classique: invalider les entrees sans imageUri
@@ -13664,7 +13664,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
     _anaData=__aP;
   }
 }}}catch(e){}
-function _anaSaveCache(){_anaData.__version=22;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
+function _anaSaveCache(){_anaData.__version=23;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
@@ -13682,6 +13682,41 @@ var _anaMatrixData={};
 var _anaMatrixChecked={};
 var _anaMatrixSimDone={};
 var _anaMatrixSortWr={};
+var _anaCmdPrints={};
+var _anaCmdPrintIdx={};
+function _anaFetchCmdPrints(deckId,cardName){
+  if(_anaCmdPrints[deckId]!==undefined)return;
+  _anaCmdPrints[deckId]=null;
+  fetch('https://api.scryfall.com/cards/search?q=%21%22'+encodeURIComponent(cardName)+'%22&unique=prints&order=released&dir=desc')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(!d.data||!d.data.length)return;
+      var prints=d.data.map(function(c){
+        var img=c.image_uris?c.image_uris.normal:(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris?c.card_faces[0].image_uris.normal:'');
+        return {img:img,set:c.set_name||c.set||''};
+      }).filter(function(p){return !!p.img;});
+      if(!prints.length)return;
+      _anaCmdPrints[deckId]=prints;
+      if(prints.length<2)return;
+      var prev=document.getElementById('ana-cmd-prev-'+deckId);
+      var next=document.getElementById('ana-cmd-next-'+deckId);
+      var lbl=document.getElementById('ana-cmd-lbl-'+deckId);
+      if(prev)prev.style.display='';
+      if(next)next.style.display='';
+      var idx=_anaCmdPrintIdx[deckId]||0;
+      if(lbl)lbl.textContent=prints[idx].set+' (1/'+prints.length+')';
+    }).catch(function(){_anaCmdPrints[deckId]=null;});
+}
+function _anaCmdNavPrint(deckId,dir){
+  var prints=_anaCmdPrints[deckId];
+  if(!prints||!prints.length)return;
+  var idx=((_anaCmdPrintIdx[deckId]||0)+dir+prints.length)%prints.length;
+  _anaCmdPrintIdx[deckId]=idx;
+  var el=document.getElementById('ana-cmd-img-'+deckId);
+  var lbl=document.getElementById('ana-cmd-lbl-'+deckId);
+  if(el)el.src=prints[idx].img;
+  if(lbl)lbl.textContent=prints[idx].set+' ('+(idx+1)+'/'+prints.length+')';
+}
 function _anaToggleMatrixSwap(deckId,idx){
   if(!_anaMatrixChecked[deckId])_anaMatrixChecked[deckId]={};
   _anaMatrixChecked[deckId][idx]=!_anaMatrixChecked[deckId][idx];
@@ -14210,6 +14245,15 @@ function anaInferTags(meta){
   // Equipement/Aura conférant l'indestructible
   if(/equipped creature (?:has|gains?) indestructible/.test(oracle))protection+=0.8;
   if(/enchanted creature[^.]*(?:has|gains?) indestructible/.test(oracle))protection+=0.7;
+  // Régénération — empêche la destruction (pas l'exil), protège des pings répétés et des suppression ordinaires
+  if(/target creature (gains? )?regenerate|grants? regenerate to target/.test(oracle))protection+=0.8;
+  if(/creatures (you control )?(have|gain|can) regenerate/.test(oracle))protection+=1.0;
+  if(/equipped creature (has|gains?) regenerate/.test(oracle))protection+=0.8;
+  if(/enchanted creature[^.]*regenerate/.test(oracle))protection+=0.7;
+  // "When this creature dies, return it to its owner's hand" — toute destruction/exil évite la taxe commandant
+  if(/when this creature dies,? return it to (its|your|their) (owner.s )?hand/.test(oracle))protection+=0.8;
+  // Blink/flicker — exile + retour = protège contre tout remove + efface les enchantements malédictions
+  if(/exile target (creature|permanent)[^.]*return (it|that card) (to|onto) the battlefield/.test(oracle))protection+=0.7;
   // Dégager une créature (synergy forte avec commandants à ability de tap — ex: Freed from the Real)
   if(/untap enchanted creature/.test(oracle)){interaction+=0.8;untap_creature=1.0;}
   if(/(?:you may )?untap target creature/.test(oracle)){interaction+=0.5;untap_creature=Math.max(untap_creature,0.7);}
@@ -16104,8 +16148,13 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/target creature (gains?|gets?) indestructible/.test(o))s+=4;
     if(/target creature (gains?|gets?) deathtouch/.test(o))s+=3;
     if(/target creature (gains?|gets?) lifelink/.test(o))s+=3;
-    if(/\bregenerate\b/.test(o))s+=2;
+    // Régénération : le commandant survit à ses propres pings + suppression ordinaire (pas exile)
+    if(/\bregenerate\b/.test(o))s+=6;
     if(/\bdeathtouch\b/.test(o))s+=2;
+    // "Dies, return to hand" : évite toute suppression ET la taxe commandant
+    if(/when this creature dies,? return it to (its|your|their) (owner.s )?hand/.test(o))s+=5;
+    // Blink/flicker : protège contre removal + efface les enchantements malédictions
+    if(/exile target (creature|permanent)[^.]*return (it|that card) (to|onto) the battlefield/.test(o))s+=5;
     // Proliferate : amplifie les effets accumulés tour après tour
     if(/proliferate/.test(o))s+=4;
   }
@@ -16854,7 +16903,12 @@ function anaRender(deckId){
   if(_cmdNameVis){
     _cmdCard='<div class="card" style="display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center">';
     if(_cmdImgUrl){
-      _cmdCard+='<img src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:100%;max-width:200px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.7);cursor:zoom-in" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=this.src;z.style.display=\'flex\'">';
+      _cmdCard+='<div style="position:relative;display:inline-block;width:100%;max-width:200px">';
+      _cmdCard+='<button id="ana-cmd-prev-'+deckId+'" onclick="_anaCmdNavPrint(\''+deckId+'\',-1)" style="display:none;position:absolute;left:-13px;top:50%;transform:translateY(-50%);z-index:2;background:rgba(0,0,0,.75);color:#fff;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:11px;line-height:1;padding:0">◀</button>';
+      _cmdCard+='<img id="ana-cmd-img-'+deckId+'" src="'+esc(_cmdImgUrl)+'" alt="'+esc(_cmdNameVis)+'" style="width:100%;max-width:200px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.7);cursor:zoom-in;display:block" onclick="var z=document.getElementById(\'ana-zoom\');z.querySelector(\'img\').src=this.src;z.style.display=\'flex\'">';
+      _cmdCard+='<button id="ana-cmd-next-'+deckId+'" onclick="_anaCmdNavPrint(\''+deckId+'\',1)" style="display:none;position:absolute;right:-13px;top:50%;transform:translateY(-50%);z-index:2;background:rgba(0,0,0,.75);color:#fff;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:11px;line-height:1;padding:0">▶</button>';
+      _cmdCard+='<div id="ana-cmd-lbl-'+deckId+'" style="font-size:9px;color:var(--tx3);text-align:center;margin-top:3px;min-height:12px"></div>';
+      _cmdCard+='</div>';
     }
     _cmdCard+='<div style="width:100%">';
     _cmdCard+='<div class="lbl" style="margin-bottom:4px">👑 '+esc(_cmdNameVis)+'</div>';
@@ -17255,6 +17309,7 @@ function anaRender(deckId){
   document.getElementById('ana-results').style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
   (function(_dId){setTimeout(function(){_anaRestoreOracleFallback(_dId);},0);})(deckId);
+  if(_cmdNameVis&&_cmdImgUrl)(function(_dId,_nm){setTimeout(function(){_anaFetchCmdPrints(_dId,_nm);},80);})(deckId,_cmdNameVis);
 }
 
 // ===== POOL DE DECKS + META ANALYTICS =====
