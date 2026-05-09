@@ -14442,6 +14442,11 @@ function anaTargets(fmt,totalCards,themes){
     // protectionMult élevé = voltron-discard (Lotleth-type : commander IS le wincon)
     // sinon = discard-token/valeur (Hashaton-type : tokens = wincons dédiés)
     if(discardMult>=1.5){base.draw=[6,10];base.wincon=(protectionMult>=1.5)?[2,5]:[6,11];base.interaction=[10,15];}
+    // Speed & interaction from questionnaire
+    var _speed=th._speed||'mid';var _interact=th._interact||'balanced';
+    if(_speed==='fast'){base.land=[34,36];base.ramp=[Math.max(6,base.ramp[0]-2),Math.max(8,base.ramp[1]-2)];}
+    else if(_speed==='slow'){base.land=[37,40];}
+    if(_interact==='focused'){base.removal=[Math.max(4,base.removal[0]-1),Math.max(7,base.removal[1]-2)];base.interaction=[Math.max(5,base.interaction[0]-1),Math.max(8,base.interaction[1]-2)];}
     return base;
   }
   return {land:[22,25],ramp:[0,4],draw:[5,10],removal:[5,10],interaction:[6,10],wincon:[4,8]};
@@ -15115,6 +15120,7 @@ function _anaResetThemes(deckId){
 }
 /* ----- Questionnaire pré-analyse ----- */
 var _anaQState={};
+function _anaQDefaultState(){return {role:null,role2:null,cmdDep:'important',speed:'mid',interaction:'balanced',synergies:[]};}
 function _anaAutoQuestionnaire(){
   var deckId=document.getElementById('ana-deck-sel').value;
   var panel=document.getElementById('ana-pretheme');
@@ -15123,12 +15129,15 @@ function _anaAutoQuestionnaire(){
   anaShowPreEditor(true);
 }
 function _anaQAutoFill(autoThemes){
-  var qs={role:null,synergies:[]};
+  var qs=_anaQDefaultState();
   if((autoThemes.protection||0)>=2.0)qs.role='commander';
   else if((autoThemes.wincon||1)>=2.0||(autoThemes.sacrifice||1)>=2.0)qs.role='combo';
   else if((autoThemes.interaction||1)>=2.0)qs.role='control';
   else qs.role='creatures';
-  ['sweeper','lifegain','ramp','draw','sacrifice','graveyard','enchantment','artifact','counters','discard'].forEach(function(k){
+  if((autoThemes.protection||0)>=2.5)qs.cmdDep='critical';
+  else if((autoThemes.protection||0)>=1.5)qs.cmdDep='important';
+  else qs.cmdDep='accessory';
+  ['sweeper','lifegain','ramp','draw','sacrifice','graveyard','enchantment','artifact','counters','discard','tokens'].forEach(function(k){
     if((autoThemes[k]||0)>=1.5)qs.synergies.push(k);
   });
   return qs;
@@ -15136,61 +15145,124 @@ function _anaQAutoFill(autoThemes){
 function _anaQToThemes(qs,autoThemes){
   var defs={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,sweeper:0};
   var th={};Object.keys(defs).forEach(function(k){th[k]=Math.max(defs[k],(autoThemes[k]||0));});
+  // Plan A
   var role=qs.role||'creatures';
   if(role==='commander'){th.protection=Math.max(th.protection,2.5);}
   else if(role==='combo'){th.wincon=Math.max(th.wincon,2.0);th.draw=Math.max(th.draw,1.8);}
   else if(role==='control'){th.interaction=Math.max(th.interaction,2.0);th.removal=Math.max(th.removal,1.5);th.draw=Math.max(th.draw,1.5);}
   else if(role==='creatures'){th.wincon=Math.max(th.wincon,1.3);}
-  var synVals={sweeper:2.5,lifegain:2.0,ramp:2.0,draw:2.0,sacrifice:2.0,graveyard:2.0,enchantment:2.0,artifact:2.0,counters:2.0,discard:2.0};
+  // Plan B (poids secondaire, ~60% du plan A)
+  var role2=qs.role2||null;
+  if(role2&&role2!==role){
+    if(role2==='commander')th.protection=Math.max(th.protection,1.5);
+    else if(role2==='combo'){th.wincon=Math.max(th.wincon,1.5);th.draw=Math.max(th.draw,1.4);}
+    else if(role2==='control'){th.interaction=Math.max(th.interaction,1.5);th.removal=Math.max(th.removal,1.3);}
+    else if(role2==='creatures')th.wincon=Math.max(th.wincon,1.2);
+  }
+  // Dépendance commandant
+  var cmdDepMap={critical:3.0,important:2.0,accessory:1.0};
+  th.protection=Math.max(th.protection,cmdDepMap[qs.cmdDep||'important']||2.0);
+  // Vitesse
+  th._speed=qs.speed||'mid';
+  if(qs.speed==='slow')th.ramp=Math.max(th.ramp||1,2.0);
+  else if(qs.speed==='fast')th.ramp=Math.min(th.ramp||1,1.3);
+  // Interaction voulue
+  th._interact=qs.interaction||'balanced';
+  if(qs.interaction==='control'){th.removal=Math.max(th.removal||1,2.0);th.interaction=Math.max(th.interaction||1,2.0);}
+  else if(qs.interaction==='focused'){th.removal=Math.min(th.removal||1,1.3);th.interaction=Math.min(th.interaction||1,1.3);}
+  // Synergies numériques
+  var synVals={sweeper:2.5,lifegain:2.0,ramp:2.0,draw:2.0,sacrifice:2.0,graveyard:2.0,enchantment:2.0,artifact:2.0,counters:2.0,discard:2.0,tokens:2.0};
   (qs.synergies||[]).forEach(function(s){if(synVals[s])th[s]=Math.max(th[s]||0,synVals[s]);});
+  // Synergies à effet custom
+  var syn=qs.synergies||[];
+  if(syn.indexOf('voltron')>=0){th.protection=Math.max(th.protection||0,3.0);}
+  if(syn.indexOf('flicker')>=0){th.protection=Math.max(th.protection||0,1.5);th.draw=Math.max(th.draw||1,1.5);}
+  if(syn.indexOf('tribal')>=0){th.wincon=Math.max(th.wincon||1,1.8);}
+  if(syn.indexOf('stax')>=0){th.interaction=Math.max(th.interaction||1,2.0);}
+  if(syn.indexOf('lands')>=0){th.ramp=Math.max(th.ramp||1,2.0);}
   return th;
 }
 function _anaQSetRole(deckId,role){
-  if(!_anaQState[deckId])_anaQState[deckId]={role:null,synergies:[]};
+  if(!_anaQState[deckId])_anaQState[deckId]=_anaQDefaultState();
   _anaQState[deckId].role=role;
+  if(_anaQState[deckId].role2===role)_anaQState[deckId].role2=null;
   _anaQRefreshUI(deckId);
 }
+function _anaQSetRole2(deckId,role){
+  if(!_anaQState[deckId])_anaQState[deckId]=_anaQDefaultState();
+  if(_anaQState[deckId].role===role)return;
+  _anaQState[deckId].role2=(_anaQState[deckId].role2===role)?null:role;
+  _anaQRefreshUI(deckId);
+}
+function _anaQSetCmdDep(deckId,val){
+  if(!_anaQState[deckId])_anaQState[deckId]=_anaQDefaultState();
+  _anaQState[deckId].cmdDep=val;_anaQRefreshUI(deckId);
+}
+function _anaQSetSpeed(deckId,val){
+  if(!_anaQState[deckId])_anaQState[deckId]=_anaQDefaultState();
+  _anaQState[deckId].speed=val;_anaQRefreshUI(deckId);
+}
+function _anaQSetInteract(deckId,val){
+  if(!_anaQState[deckId])_anaQState[deckId]=_anaQDefaultState();
+  _anaQState[deckId].interaction=val;_anaQRefreshUI(deckId);
+}
 function _anaQToggleSyn(deckId,syn){
-  if(!_anaQState[deckId])_anaQState[deckId]={role:null,synergies:[]};
+  if(!_anaQState[deckId])_anaQState[deckId]=_anaQDefaultState();
   var idx=_anaQState[deckId].synergies.indexOf(syn);
   if(idx>=0)_anaQState[deckId].synergies.splice(idx,1);else _anaQState[deckId].synergies.push(syn);
   _anaQRefreshUI(deckId);
 }
 var _anaQSynOpts=[
-  {k:'sweeper',ico:'💥',fr:'Deathtouch / Ping AoE'},
-  {k:'draw',ico:'📖',fr:'Pioche intensive'},
-  {k:'ramp',ico:'🌱',fr:'Ramp massif'},
-  {k:'sacrifice',ico:'🔪',fr:'Sacrifice / Aristocrats'},
-  {k:'graveyard',ico:'💀',fr:'Cimetière'},
-  {k:'lifegain',ico:'❤',fr:'Gain de vie'},
-  {k:'enchantment',ico:'✨',fr:'Enchantements'},
-  {k:'artifact',ico:'⚙',fr:'Artefacts'},
-  {k:'counters',ico:'⬆',fr:'Marqueurs +1/+1'},
-  {k:'discard',ico:'🃏',fr:'Défausse'}
+  {k:'sweeper',ico:'💥',fr:'Ping AoE / Deathtouch',hint:'Commandant qui blesse tout le board chaque tour'},
+  {k:'tokens',ico:'🪙',fr:'Génération de tokens',hint:'Créer beaucoup de petites créatures pour submerger'},
+  {k:'draw',ico:'📖',fr:'Pioche intensive',hint:'Piocher massivement est central au plan'},
+  {k:'ramp',ico:'🌱',fr:'Ramp accéléré',hint:'Poser beaucoup de mana très tôt'},
+  {k:'sacrifice',ico:'🔪',fr:'Sacrifice / Aristocrats',hint:'Sacrifier des créatures déclenche des effets'},
+  {k:'graveyard',ico:'💀',fr:'Cimetière',hint:'Flashback, réanimation, exploitation du cimetière'},
+  {k:'lifegain',ico:'❤',fr:'Gain de vie',hint:'Gagner de la vie déclenche des payoffs'},
+  {k:'counters',ico:'⬆',fr:'Marqueurs +1/+1',hint:'Poser des marqueurs fait grossir les créatures'},
+  {k:'voltron',ico:'⚡',fr:'Voltron',hint:'Équiper/enchanter le commandant pour le rendre dévastateur'},
+  {k:'flicker',ico:'🌀',fr:'Blink / Clignoter',hint:'Exiler et faire revenir ses créatures (ETB répétés)'},
+  {k:'tribal',ico:'🧬',fr:'Tribal',hint:'Type de créature synergique (elfes, zombies, vampires…)'},
+  {k:'enchantment',ico:'✨',fr:'Enchantements',hint:'Enchantements synergiques ou commandant lié'},
+  {k:'artifact',ico:'⚙',fr:'Artefacts',hint:'Artefacts synergiques ou commandant lié'},
+  {k:'stax',ico:'⛓',fr:'Stax / Taxe',hint:'Ralentir les adversaires, taxer les sorts'},
+  {k:'lands',ico:'🌍',fr:'Landfall / Terrains',hint:'Poser des terrains déclenche des effets'},
+  {k:'discard',ico:'🃏',fr:'Défausse',hint:'Se défausser déclenche des effets (madness, etc.)'},
 ];
 function _anaQRefreshUI(deckId){
-  var qs=_anaQState[deckId]||{role:null,synergies:[]};
+  var qs=_anaQState[deckId]||_anaQDefaultState();
   var deck=_anaGetDeck(deckId);if(!deck)return;
   var autoThemes=_anaCommanderThemes(deck);
   var th=_anaQToThemes(qs,autoThemes);
-  // Refresh role chips
-  ['commander','creatures','combo','control'].forEach(function(r){
-    var btn=document.getElementById('qrole-'+deckId+'-'+r);if(!btn)return;
-    var active=qs.role===r;
-    btn.style.border='.5px solid '+(active?'var(--gold2)':'var(--bd2)');
-    btn.style.background=active?'rgba(201,168,76,.22)':'var(--s2)';
-    btn.style.color=active?'var(--gold2)':'var(--tx3)';
+  function setChip(id,active,col){
+    var el=document.getElementById(id);if(!el)return;
+    var c=col||'var(--gold2)';
+    el.style.borderColor=active?c:'var(--bd2)';
+    el.style.background=active?(col?'rgba(91,140,245,.15)':'rgba(201,168,76,.18)'):'var(--s2)';
+    el.style.color=active?c:'var(--tx3)';
+  }
+  var roles=['commander','creatures','combo','control'];
+  roles.forEach(function(r){setChip('qrole-'+deckId+'-'+r,qs.role===r);});
+  roles.forEach(function(r){
+    var el=document.getElementById('qrole2-'+deckId+'-'+r);if(!el)return;
+    var dis=qs.role===r;var act=qs.role2===r&&!dis;
+    el.style.borderColor=act?'#5b8cf5':'var(--bd2)';
+    el.style.background=act?'rgba(91,140,245,.15)':'var(--s2)';
+    el.style.color=dis?'var(--s3)':act?'#8ab0ff':'var(--tx3)';
+    el.style.opacity=dis?'0.25':'1';el.style.cursor=dis?'default':'pointer';
   });
-  // Refresh synergy chips
+  ['critical','important','accessory'].forEach(function(v){setChip('qcdep-'+deckId+'-'+v,(qs.cmdDep||'important')===v);});
+  ['fast','mid','slow'].forEach(function(v){setChip('qspd-'+deckId+'-'+v,(qs.speed||'mid')===v);});
+  ['focused','balanced','control'].forEach(function(v){setChip('qint-'+deckId+'-'+v,(qs.interaction||'balanced')===v);});
   _anaQSynOpts.forEach(function(s){
     var btn=document.getElementById('qsyn-'+deckId+'-'+s.k);if(!btn)return;
     var active=qs.synergies.indexOf(s.k)>=0;
-    btn.style.border='.5px solid '+(active?'var(--gold2)':'var(--bd2)');
+    btn.style.borderColor=active?'var(--gold2)':'var(--bd2)';
     btn.style.background=active?'rgba(201,168,76,.15)':'var(--s2)';
     btn.style.color=active?'var(--gold2)':'var(--tx3)';
     btn.textContent=(active?'✓ ':'')+s.ico+' '+s.fr;
   });
-  // Update sliders
   _anaThemeMeta.forEach(function(tm){
     var el=document.getElementById('pre-th-'+tm.k);
     var disp=document.getElementById('pre-thv-'+tm.k);
@@ -15210,69 +15282,163 @@ function anaShowPreEditor(noToggle){
   var ov=_anaUserThemesData[deckId]||{};
   var hasOv=Object.keys(ov).length>0;
   var notCached=!autoThemes._debug||autoThemes._debug.indexOf('ok')<0;
-  // Auto-fill questionnaire state from commander themes if not already set
   if(!_anaQState[deckId])_anaQState[deckId]=_anaQAutoFill(autoThemes);
   var qs=_anaQState[deckId];
-  // Compute slider values from questionnaire answers (overridden by manual ov if present)
   var qThemes=_anaQToThemes(qs,autoThemes);
   var cur=hasOv?Object.assign({},qThemes,ov):qThemes;
-  var html='<div style="margin-bottom:10px;padding:12px 14px;background:var(--s3);border-radius:10px;border:1px solid var(--bd2)">';
+
+  var html='<div style="margin-bottom:10px;padding:14px 16px;background:var(--s3);border-radius:12px;border:1px solid var(--bd2)">';
+
   // Header
-  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
-  html+='<span style="font-size:12px;font-weight:bold;color:var(--tx2);font-family:\'Goudy Mediaeval\',serif">🎯 Plan de jeu — '+esc(deck.name||'Deck')+'</span>';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+  html+='<span style="font-size:13px;font-weight:bold;color:var(--tx2);font-family:\'Goudy Mediaeval\',serif">🎯 Plan de jeu — '+esc(deck.name||'Deck')+'</span>';
   if(hasOv)html+='<span style="font-size:9px;padding:2px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
   html+='</div>';
+
+  // Info banner
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:12px;padding:8px 10px;background:rgba(91,140,245,.07);border-radius:8px;border:.5px solid rgba(91,140,245,.2)">💡 Répondez aux questions ci-dessous pour personnaliser l\'analyse selon votre plan de jeu réel. Plus vous êtes précis, plus les suggestions seront adaptées à votre stratégie.</div>';
+
   // Auto-detected labels
   if(notCached){
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">⚠ Commandant pas encore chargé — analyse une fois pour que les thèmes soient auto-détectés.</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">⚠ Commandant pas encore chargé — analysez une fois pour activer la détection automatique.</div>';
   } else if(autoThemes.labels&&autoThemes.labels.length){
-    html+='<div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:3px;align-items:center">';
-    html+='<span style="font-size:9px;color:var(--tx3)">🤖 Auto :</span>';
+    html+='<div style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:3px;align-items:center">';
+    html+='<span style="font-size:9px;color:var(--tx3)">🤖 Thèmes auto-détectés :</span>';
     autoThemes.labels.forEach(function(l){html+='<span style="font-size:9px;padding:2px 6px;background:rgba(91,140,245,.1);border:.5px solid #5b8cf5;border-radius:8px;color:#8ab0ff">'+esc(l)+'</span>';});
     html+='</div>';
   }
-  // Q1: Comment gagnez-vous ?
-  html+='<div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:5px">Comment gagnez-vous ?</div>';
+
+  // Q1: Plan A
   var roles=[
-    {k:'commander',ico:'⚔',fr:'Mon commandant',hint:'Le commandant EST le moteur de victoire — protection prioritaire'},
-    {k:'creatures',ico:'👊',fr:'Créatures',hint:'Victoire par dommages de combat'},
-    {k:'combo',ico:'💥',fr:'Combo',hint:'Enchaînement de pièces pour gagner d\'un coup'},
-    {k:'control',ico:'🌊',fr:'Contrôle',hint:'Interaction massive, gagner dans la durée'}
+    {k:'commander',ico:'⚔',fr:'Mon commandant',desc:'Le commandant est le moteur principal. Sa protection et son retour en jeu sont prioritaires.'},
+    {k:'creatures',ico:'👊',fr:'Créatures & combat',desc:'Victoire par dommages de combat, masse de créatures ou attaque large.'},
+    {k:'combo',ico:'💥',fr:'Combo',desc:'Enchaîner des pièces pour gagner d\'un coup, souvent en fin de partie.'},
+    {k:'control',ico:'🌊',fr:'Contrôle',desc:'Beaucoup d\'interactions et de pioche. Gagner dans la durée en épuisant les adversaires.'}
   ];
-  html+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">';
+  html+='<div style="font-size:12px;font-weight:bold;color:var(--tx2);margin-bottom:2px">1 · Comment gagnez-vous principalement ? <span style="font-weight:normal;font-size:10px;color:var(--tx3)">(Plan A)</span></div>';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">Votre stratégie de victoire principale. L\'analyse favorisera les cartes qui servent ce plan.</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">';
   roles.forEach(function(r){
     var active=qs.role===r.k;
-    html+='<button id="qrole-'+deckId+'-'+r.k+'" onclick="_anaQSetRole(\''+deckId+'\',\''+r.k+'\')" title="'+esc(r.hint)+'" ';
-    html+='style="padding:5px 10px;font-size:11px;border-radius:20px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.22)':'var(--s2)')+';color:'+(active?'var(--gold2)':'var(--tx3)')+';font-family:\'Goudy Mediaeval\',serif">';
-    html+=r.ico+' '+r.fr+'</button>';
+    html+='<button id="qrole-'+deckId+'-'+r.k+'" onclick="_anaQSetRole(\''+deckId+'\',\''+r.k+'\')" ';
+    html+='style="padding:8px 10px;text-align:left;border-radius:9px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+    html+='<div style="font-size:16px;margin-bottom:3px">'+r.ico+'</div>';
+    html+='<div style="font-size:11px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+r.fr+'</div>';
+    html+='<div style="font-size:9px;color:var(--tx3);margin-top:3px;line-height:1.35">'+r.desc+'</div>';
+    html+='</button>';
   });
   html+='</div>';
-  // Q2: Synergies importantes
-  html+='<div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:5px">Synergies importantes</div>';
-  html+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">';
+
+  // Q2: Plan B
+  html+='<div style="font-size:12px;font-weight:bold;color:var(--tx2);margin-bottom:2px">2 · Avez-vous un plan B ? <span style="font-weight:normal;font-size:10px;color:var(--tx3)">(optionnel)</span></div>';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">Stratégie secondaire si le plan A est bloqué. Sera boostée à ~60 % du plan A. L\'option déjà choisie en plan A est grisée.</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">';
+  roles.forEach(function(r){
+    var dis=qs.role===r.k;
+    var active=qs.role2===r.k&&!dis;
+    html+='<button id="qrole2-'+deckId+'-'+r.k+'" onclick="_anaQSetRole2(\''+deckId+'\',\''+r.k+'\')" ';
+    html+='style="padding:8px 10px;text-align:left;border-radius:9px;cursor:'+(dis?'default':'pointer')+';border:.5px solid '+(active?'#5b8cf5':'var(--bd2)')+';background:'+(active?'rgba(91,140,245,.15)':'var(--s2)')+';opacity:'+(dis?'0.28':'1')+';">';
+    html+='<div style="font-size:16px;margin-bottom:3px">'+r.ico+'</div>';
+    html+='<div style="font-size:11px;font-weight:bold;color:'+(active?'#8ab0ff':'var(--tx2)')+'">'+r.fr+'</div>';
+    html+='<div style="font-size:9px;color:var(--tx3);margin-top:3px;line-height:1.35">'+r.desc+'</div>';
+    html+='</button>';
+  });
+  html+='</div>';
+
+  // Q3/Q4/Q5: 3-column grid
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">';
+
+  // Q3: Commander dependency
+  var cdeps=[
+    {k:'critical',fr:'⭐ Indispensable',desc:'Sans lui le deck ne fonctionne pas'},
+    {k:'important',fr:'✓ Important',desc:'Utile mais le deck survit sans lui'},
+    {k:'accessory',fr:'○ Accessoire',desc:'Le deck gagne facilement sans lui'}
+  ];
+  html+='<div><div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:2px">3 · Commandant</div>';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:6px">À quel point en avez-vous besoin ?</div>';
+  cdeps.forEach(function(v){
+    var active=(qs.cmdDep||'important')===v.k;
+    html+='<button id="qcdep-'+deckId+'-'+v.k+'" onclick="_anaQSetCmdDep(\''+deckId+'\',\''+v.k+'\')" ';
+    html+='style="width:100%;display:block;padding:6px 8px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+    html+='<div style="font-size:10px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
+    html+='<div style="font-size:8px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
+    html+='</button>';
+  });
+  html+='</div>';
+
+  // Q4: Speed
+  var speeds=[
+    {k:'fast',fr:'⚡ Rapide',desc:'Victoire attendue avant le tour 7'},
+    {k:'mid',fr:'⚖ Milieu',desc:'Victoire autour des tours 8-11'},
+    {k:'slow',fr:'🐢 Long',desc:'Victoire en fin de partie (12+)'}
+  ];
+  html+='<div><div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:2px">4 · Vitesse</div>';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:6px">À quel tour visez-vous la victoire ?</div>';
+  speeds.forEach(function(v){
+    var active=(qs.speed||'mid')===v.k;
+    html+='<button id="qspd-'+deckId+'-'+v.k+'" onclick="_anaQSetSpeed(\''+deckId+'\',\''+v.k+'\')" ';
+    html+='style="width:100%;display:block;padding:6px 8px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+    html+='<div style="font-size:10px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
+    html+='<div style="font-size:8px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
+    html+='</button>';
+  });
+  html+='</div>';
+
+  // Q5: Interaction
+  var ints=[
+    {k:'focused',fr:'🎯 Ciblé',desc:'Peu de réponses, deck très linéaire et direct'},
+    {k:'balanced',fr:'⚖ Équilibré',desc:'Quelques réponses sans dénaturer le plan'},
+    {k:'control',fr:'🌊 Contrôle',desc:'Beaucoup de réponses, perturber activement'}
+  ];
+  html+='<div><div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:2px">5 · Interaction</div>';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:6px">Quel niveau d\'interaction voulez-vous ?</div>';
+  ints.forEach(function(v){
+    var active=(qs.interaction||'balanced')===v.k;
+    html+='<button id="qint-'+deckId+'-'+v.k+'" onclick="_anaQSetInteract(\''+deckId+'\',\''+v.k+'\')" ';
+    html+='style="width:100%;display:block;padding:6px 8px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+    html+='<div style="font-size:10px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
+    html+='<div style="font-size:8px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
+    html+='</button>';
+  });
+  html+='</div>';
+
+  html+='</div>'; // end 3-col grid
+
+  // Q6: Synergies
+  html+='<div style="font-size:12px;font-weight:bold;color:var(--tx2);margin-bottom:2px">6 · Synergies du deck</div>';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">Cochez toutes les mécaniques importantes dans votre deck. Plusieurs choix possibles. Survolez pour la description.</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">';
   _anaQSynOpts.forEach(function(s){
     var active=qs.synergies.indexOf(s.k)>=0;
-    html+='<button id="qsyn-'+deckId+'-'+s.k+'" onclick="_anaQToggleSyn(\''+deckId+'\',\''+s.k+'\')" ';
-    html+='style="padding:4px 9px;font-size:10px;border-radius:16px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(active?'var(--gold2)':'var(--tx3)')+';font-family:\'Goudy Mediaeval\',serif">';
+    html+='<button id="qsyn-'+deckId+'-'+s.k+'" onclick="_anaQToggleSyn(\''+deckId+'\',\''+s.k+'\')" title="'+esc(s.hint)+'" ';
+    html+='style="padding:5px 10px;font-size:11px;border-radius:16px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(active?'var(--gold2)':'var(--tx3)')+';">';
     html+=(active?'✓ ':'')+s.ico+' '+s.fr+'</button>';
   });
   html+='</div>';
-  // Fine-tuning sliders
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;border-top:.5px solid var(--bd2);padding-top:8px">⚙ Fine-tuning · 1.0 = neutre · 2.0 = important · 3.0 = central</div>';
+
+  // Fine-tuning sliders in <details>
+  html+='<details style="margin-bottom:12px">';
+  html+='<summary style="font-size:10px;color:var(--tx3);cursor:pointer;padding:4px 0;user-select:none">⚙ Fine-tuning avancé <span style="font-size:9px;opacity:.6">(optionnel · pour utilisateurs avancés)</span></summary>';
+  html+='<div style="margin-top:8px;padding:10px;background:var(--s2);border-radius:8px;border:.5px solid var(--bd2)">';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">1.0 = neutre · 2.0 = important · 3.0 = central. Les valeurs sont auto-calculées depuis vos réponses — ne modifiez que si les suggestions ne correspondent pas.</div>';
   _anaThemeMeta.forEach(function(tm){
     var val=parseFloat(cur[tm.k]||0).toFixed(1);
     html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">';
-    html+='<span style="width:155px;font-size:11px;color:var(--tx2)">'+tm.ico+' '+tm.fr+'</span>';
+    html+='<span style="width:140px;font-size:10px;color:var(--tx2)">'+tm.ico+' '+tm.fr+'</span>';
     html+='<input type="range" min="0" max="3" step="0.1" value="'+val+'" id="pre-th-'+tm.k+'" oninput="document.getElementById(\'pre-thv-'+tm.k+'\').textContent=parseFloat(this.value).toFixed(1)" style="flex:1">';
-    html+='<span id="pre-thv-'+tm.k+'" style="width:28px;text-align:right;font-size:11px;color:var(--gold2)">'+val+'</span>';
+    html+='<span id="pre-thv-'+tm.k+'" style="width:28px;text-align:right;font-size:10px;color:var(--gold2)">'+val+'</span>';
     html+='</div>';
   });
+  html+='</div></details>';
+
   // Buttons
-  html+='<div style="display:flex;gap:6px;margin-top:12px">';
-  html+='<button onclick="_anaApplyPreTheme(\''+deckId+'\')" style="flex:1;padding:8px;background:var(--gold2);color:#000;border:none;border-radius:7px;font-family:\'Goudy Mediaeval\',serif;font-size:12px;cursor:pointer;font-weight:bold">✓ Enregistrer</button>';
-  if(hasOv)html+='<button onclick="_anaResetPreTheme(\''+deckId+'\')" style="padding:8px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:7px;font-size:11px;cursor:pointer">↩ Auto</button>';
-  html+='<button onclick="document.getElementById(\'ana-pretheme\').style.display=\'none\'" style="padding:8px 12px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:7px;font-size:11px;cursor:pointer">✕</button>';
-  html+='</div></div>';
+  html+='<div style="display:flex;gap:6px">';
+  html+='<button onclick="_anaApplyPreTheme(\''+deckId+'\')" style="flex:1;padding:9px;background:var(--gold2);color:#000;border:none;border-radius:8px;font-family:\'Goudy Mediaeval\',serif;font-size:12px;cursor:pointer;font-weight:bold">✓ Enregistrer & analyser</button>';
+  if(hasOv)html+='<button onclick="_anaResetPreTheme(\''+deckId+'\')" style="padding:9px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:8px;font-size:11px;cursor:pointer" title="Réinitialiser aux valeurs auto">↩ Auto</button>';
+  html+='<button onclick="document.getElementById(\'ana-pretheme\').style.display=\'none\'" style="padding:9px 12px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:8px;font-size:11px;cursor:pointer" title="Fermer sans sauvegarder">✕</button>';
+  html+='</div>';
+
+  html+='</div>';
   panel.innerHTML=html;panel.dataset.deck=deckId;panel.style.display='block';
 }
 function _anaApplyPreTheme(deckId){
@@ -16952,13 +17118,30 @@ function anaRender(deckId){
   }
   // === Banner plan de jeu (si questionnaire rempli ou thème auto-détecté) ===
   var _qsBanner=_anaQState[deckId]||{};
-  var _roleMap={commander:{l:'⚔ Mon commandant',c:'#c9a84c'},creatures:{l:'👊 Créatures',c:'#78c890'},combo:{l:'💥 Combo',c:'#c95bf5'},control:{l:'🌊 Contrôle',c:'#5b8cf5'}};
+  var _roleMap={commander:{l:'⚔ Mon commandant',c:'#c9a84c'},creatures:{l:'👊 Créatures & combat',c:'#78c890'},combo:{l:'💥 Combo',c:'#c95bf5'},control:{l:'🌊 Contrôle',c:'#5b8cf5'}};
   var _hasBanner=_qsBanner.role||(_qsBanner.synergies&&_qsBanner.synergies.length)||(_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length);
   if(_hasBanner){
-    html+='<div style="padding:7px 12px;background:rgba(201,168,76,.07);border:.5px solid rgba(201,168,76,.22);border-radius:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px">';
+    html+='<div style="padding:8px 12px;background:rgba(201,168,76,.07);border:.5px solid rgba(201,168,76,.22);border-radius:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">';
     html+='<span style="font-size:9px;color:var(--tx3);letter-spacing:.08em;font-family:Goudy Mediaeval,serif;flex-shrink:0">PLAN DE JEU</span>';
+    // Plan A
     var _ri=_roleMap[_qsBanner.role||''];
     if(_ri)html+='<span style="padding:2px 10px;border-radius:12px;font-size:11px;background:rgba(201,168,76,.15);color:'+_ri.c+';border:.5px solid '+_ri.c+'">'+_ri.l+'</span>';
+    // Plan B
+    var _ri2=_qsBanner.role2?_roleMap[_qsBanner.role2]:null;
+    if(_ri2)html+='<span style="padding:2px 8px;border-radius:12px;font-size:10px;background:rgba(91,140,245,.12);color:#8ab0ff;border:.5px solid #5b8cf5" title="Plan B">+ '+_ri2.l+'</span>';
+    // Commander dependency
+    var _cdMap={critical:'⭐ Indispensable',important:'✓ Important',accessory:'○ Accessoire'};
+    var _cdVal=_cdMap[_qsBanner.cmdDep||'important'];
+    if(_cdVal&&_qsBanner.role)html+='<span style="padding:2px 8px;border-radius:12px;font-size:9px;background:rgba(255,255,255,.04);color:var(--tx3);border:.5px solid var(--bd2)">Cmd: '+_cdVal+'</span>';
+    // Speed
+    var _spdMap={fast:'⚡ Rapide',mid:'⚖ Milieu',slow:'🐢 Long'};
+    var _spdVal=_spdMap[_qsBanner.speed||'mid'];
+    if(_spdVal&&_qsBanner.role)html+='<span style="padding:2px 8px;border-radius:12px;font-size:9px;background:rgba(255,255,255,.04);color:var(--tx3);border:.5px solid var(--bd2)">'+_spdVal+'</span>';
+    // Interaction
+    var _intMap={focused:'🎯 Ciblé',balanced:'⚖ Équilibré',control:'🌊 Contrôle'};
+    var _intVal=_intMap[_qsBanner.interaction||'balanced'];
+    if(_intVal&&_qsBanner.role&&_qsBanner.interaction&&_qsBanner.interaction!=='balanced')html+='<span style="padding:2px 8px;border-radius:12px;font-size:9px;background:rgba(255,255,255,.04);color:var(--tx3);border:.5px solid var(--bd2)">'+_intVal+'</span>';
+    // Synergies
     (_qsBanner.synergies||[]).forEach(function(s){
       var opt=_anaQSynOpts.filter(function(o){return o.k===s;})[0];
       if(opt)html+='<span style="padding:2px 8px;border-radius:12px;font-size:10px;background:rgba(255,255,255,.05);color:var(--tx2);border:.5px solid var(--bd2)">'+opt.ico+' '+opt.fr+'</span>';
