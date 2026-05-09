@@ -13739,6 +13739,12 @@ function _anaSwapReason(meta,themes){
     if(meta.tags&&meta.tags.menace)return'⚔ menace';
     if(meta.tags&&meta.tags.reach)return'🏹 atteinte';
   }
+  if(th._infect&&/\binfect\b|\btoxic [1-9]/i.test(o))return'☠ infect';
+  if(th._infect&&/proliferate/.test(o))return'☠ prolifère';
+  if(th._etb&&/when[^.]*enters the battlefield/i.test(o))return'🔄 ETB';
+  if(th._clone&&/copy|clone|become a copy/i.test(o))return'👥 copie';
+  if(th._pillowfort&&/can't attack you|must pay|prison/i.test(o))return'🏰 défense';
+  if(th._extraturn&&/extra turn/i.test(o))return'⏰ tour sup.';
   return'';
 }
 function _anaSetAllSwaps(deckId,val){
@@ -14280,6 +14286,8 @@ function anaInferTags(meta){
   var reach=(kws.indexOf('reach')>=0||/\breach\b/.test(oracle))?1:0;
   var menace=(kws.indexOf('menace')>=0||/\bmenace\b/.test(oracle))?1:0;
   var trample=(kws.indexOf('trample')>=0||/\btrample\b/.test(oracle))?1:0;
+  var infect=(kws.indexOf('infect')>=0||/\btoxic [1-9]/i.test(oracle))?1:0;
+  var etb_trigger=/when(ever)? [^.]*enters the battlefield/i.test(oracle)?1:0;
   // Equipement/Aura conférant hexproof ou shroud (ex: Whispersilk Cloak, Swiftfoot Boots, Clout of Dominus)
   if(/equipped creature (?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.2;
   if(/enchanted creature[^.]*(?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.0;
@@ -14357,7 +14365,7 @@ function anaInferTags(meta){
   var freeCast=/you may pay \d+ life rather than pay (this spell's|its) mana cost/.test(oracle)?1:0;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant),lifelink_grant:r(lifelink_grant),manarock:manarock,freeCast:freeCast,flying:flying,reach:reach,menace:menace,trample:trample};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant),lifelink_grant:r(lifelink_grant),manarock:manarock,freeCast:freeCast,flying:flying,reach:reach,menace:menace,trample:trample,infect:infect,etb_trigger:etb_trigger};
 }
 
 /* ----- Helpers ----- */
@@ -14722,8 +14730,12 @@ function anaCardScore(meta){
   if(t.manarock){var mrFloor=(t.ramp>=2.0)?5.5:4.5;if(base<mrFloor)base=mrFloor;}
   // Évasion : vol > atteinte > rien (bonus amplifié en plan combat, défensif sinon)
   if(t.flying)base+=(th.wincon||1)>1.1?1.0:0.4;
-  if(t.reach)base+=0.25;  // peut bloquer les créatures volantes, valeur défensive universelle
+  if(t.reach)base+=0.25;
   if((th.wincon||1)>1.1){if(t.menace)base+=0.5;if(t.trample)base+=0.35;}
+  // Infect : créature centrale dans un deck poison
+  if(t.infect&&(th._infect||false))base+=3.0;
+  // ETB matters : créatures avec ETB trigger sont les moteurs du deck
+  if(t.etb_trigger&&(th._etb||false))base+=2.0;
   return base;
 }
 
@@ -14848,6 +14860,17 @@ var _COMMANDER_THEME_RULES=[
   {p:/whenever you cast (an )?(instant|sorcery|noncreature)/i, m:{draw:1.6},              label:'Spellslinger'},
   {p:/copy that (spell|instant|sorcery)/i,                     m:{draw:1.4},              label:'Spell-copy'},
   {p:/prowess/i,                                               m:{wincon:1.3},            label:'Prowess'},
+  // ETB matters
+  {p:/whenever (a |another )?creature (enters the battlefield under your control|you control enters)/i, m:{wincon:1.6,draw:1.3}, label:'ETB-matters'},
+  // Infect / Toxic
+  {p:/\binfect\b/i,                                            m:{wincon:3.0,protection:2.5}, label:'Infect'},
+  {p:/toxic [1-9]/i,                                           m:{wincon:2.5,protection:2.0}, label:'Infect'},
+  // Copie
+  {p:/you may have.*become a copy|create a token that'?s? a copy|copy target (permanent|creature|spell)/i, m:{wincon:1.5,draw:1.3}, label:'Clone'},
+  // Tours supplémentaires
+  {p:/take (an?|an? extra) turn after this one|takes (an?|an? extra) turn/i, m:{wincon:2.5}, label:'Extra-tours'},
+  // Pillowfort
+  {p:/creatures can't attack you unless|attacking you must pay|each creature (that )?(attacks you|attacking you)/i, m:{interaction:2.0,protection:1.5}, label:'Pillowfort'},
   // Cimetière
   {p:/return.*from.*graveyard|cast.*from.*graveyard|flashback|jump-start|delve|escape|disturb/i, m:{draw:1.5,graveyard:1.5}, label:'Graveyard'},
   // Muldrotha-type : jouer des permanents depuis le cimetière (play…from…graveyard)
@@ -15156,8 +15179,13 @@ function _anaQAutoFill(autoThemes){
     if((autoThemes[k]||0)>=1.5)qs.synergies.push(k);
   });
   var _lbs=autoThemes.labels||[];
-  if(_lbs.indexOf('Spellslinger')>=0||_lbs.indexOf('Untap-spellslinger')>=0)qs.synergies.push('spellslinger');
+  if(_lbs.indexOf('Spellslinger')>=0||_lbs.indexOf('Untap-spellslinger')>=0||_lbs.indexOf('Flash-matters')>=0)qs.synergies.push('spellslinger');
   if(_lbs.indexOf('Réanimation')>=0)qs.synergies.push('reanimate');
+  if(_lbs.indexOf('ETB-matters')>=0)qs.synergies.push('etb');
+  if(_lbs.indexOf('Infect')>=0)qs.synergies.push('infect');
+  if(_lbs.indexOf('Clone')>=0)qs.synergies.push('clone');
+  if(_lbs.indexOf('Pillowfort')>=0)qs.synergies.push('pillowfort');
+  if(_lbs.indexOf('Extra-tours')>=0)qs.synergies.push('extraturn');
   return qs;
 }
 function _anaQToThemes(qs,autoThemes){
@@ -15201,6 +15229,11 @@ function _anaQToThemes(qs,autoThemes){
   if(syn.indexOf('mill')>=0){th.wincon=Math.max(th.wincon||1,2.5);th.interaction=Math.max(th.interaction||1,1.5);}
   if(syn.indexOf('spellslinger')>=0){th.draw=Math.max(th.draw||1,2.0);th.wincon=Math.max(th.wincon||1,1.8);}
   if(syn.indexOf('reanimate')>=0){th.graveyard=Math.max(th.graveyard||1,2.5);th.wincon=Math.max(th.wincon||1,2.0);}
+  if(syn.indexOf('etb')>=0){th.wincon=Math.max(th.wincon||1,1.5);th.draw=Math.max(th.draw||1,1.3);th._etb=true;}
+  if(syn.indexOf('infect')>=0){th.wincon=Math.max(th.wincon||1,3.0);th.protection=Math.max(th.protection||0,2.5);th._infect=true;}
+  if(syn.indexOf('clone')>=0){th.wincon=Math.max(th.wincon||1,1.5);th.draw=Math.max(th.draw||1,1.3);th._clone=true;}
+  if(syn.indexOf('pillowfort')>=0){th.interaction=Math.max(th.interaction||1,2.0);th.protection=Math.max(th.protection||0,1.5);th._pillowfort=true;}
+  if(syn.indexOf('extraturn')>=0){th.wincon=Math.max(th.wincon||1,2.5);th.draw=Math.max(th.draw||1,1.5);th._extraturn=true;}
   return th;
 }
 function _anaQSetRole(deckId,role){
@@ -15253,6 +15286,11 @@ var _anaQSynOpts=[
   {k:'mill',ico:'📚',fr:'Meule',hint:'Meuler les adversaires comme condition de victoire (ex : Soaring Thought-Thief)'},
   {k:'spellslinger',ico:'🌩',fr:'Sorts / Spellslinger',hint:'Lancer des instants/rituels déclenche des effets (Guttersnipe, Mizzix, Kalamax…)'},
   {k:'reanimate',ico:'💫',fr:'Réanimation',hint:'Tricher des grosses créatures depuis le cimetière (Meren, Karador, Reanimate…)'},
+  {k:'etb',ico:'🔄',fr:'Entrée en jeu (ETB)',hint:'Les créatures ont de puissants effets en entrant en jeu — Yarok, Panharmonicon, Brago…'},
+  {k:'infect',ico:'☠',fr:'Infect / Poison',hint:'Victoire via 10 marqueurs poison — créatures infect/toxic, proliférer les compteurs'},
+  {k:'clone',ico:'👥',fr:'Copie / Clones',hint:'Copier des sorts ou des permanents — Riku, Sakashima, Orvar, Kalamax…'},
+  {k:'pillowfort',ico:'🏰',fr:'Pillowfort',hint:'Enchantements défensifs qui taxent ou interdisent les attaques — Ghostly Prison, Propaganda…'},
+  {k:'extraturn',ico:'⏰',fr:'Tours supplémentaires',hint:'Prendre des tours en plus pour gagner avant que les adversaires ne répondent'},
 ];
 function _anaQRefreshUI(deckId){
   var qs=_anaQState[deckId]||_anaQDefaultState();
@@ -16421,6 +16459,49 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/untap target creature/.test(o))s+=5;
     if(/equipped creature[^.]*(?:hexproof|shroud)|enchanted creature[^.]*(?:hexproof|shroud)/.test(o))s+=4;
     if(/equipped creature[^.]*indestructible|enchanted creature[^.]*indestructible/.test(o))s+=3;
+  }
+  // ETB matters (Yarok, Panharmonicon, Brago…)
+  if(th._etb){
+    if(/whenever (a |another )?creature (enters the battlefield under your control|you control enters)/i.test(o))s+=9;
+    if(/each creature.*enters the battlefield.*trigger|triggered ability.*enters the battlefield/i.test(o))s+=8;
+    if(/when.*enters the battlefield[^.]*draw|when.*enters[^.]*create.*token/i.test(o))s+=5;
+    if(/when[^.]*enters the battlefield/i.test(o))s+=3;  // n'importe quel ETB
+    if(/flicker|blink|exile.*return.*battlefield/i.test(o))s+=6;  // relancer les ETB
+  }
+  // Infect / Poison (victoire via 10 marqueurs poison)
+  if(th._infect){
+    if(/\binfect\b/i.test(o))s+=10;
+    if(/toxic [1-9]/i.test(o))s+=8;
+    if(/proliferate/.test(o))s+=8;  // propage les marqueurs poison
+    if(/poison counter/i.test(o))s+=5;
+    if(/\+1\/\+1 counter/i.test(o)&&/\binfect\b/i.test(o))s+=4;  // infect + counters
+    if(/trample|flying|menace/.test(o))s+=3;  // évasion cruciale pour passer en combat
+  }
+  // Copie / Clone (Riku, Orvar, Kalamax, Sakashima…)
+  if(th._clone){
+    if(/you may have.*become a copy|becomes a copy/i.test(o))s+=9;
+    if(/create a token that'?s? a copy/i.test(o))s+=8;
+    if(/copy target (permanent|creature|spell|instant|sorcery)/i.test(o))s+=7;
+    if(/copy of (that|a|target)/i.test(o))s+=6;
+    if(/copy each/i.test(o))s+=8;
+    if(/\bclone\b|\bduplicate\b/i.test(o))s+=5;
+  }
+  // Pillowfort (Ghostly Prison, Propaganda, Sphere of Safety…)
+  if(th._pillowfort){
+    if(/creatures can't attack you unless.*pay|attacking you must pay/i.test(o))s+=9;
+    if(/each creature (that )?attacks you/i.test(o))s+=8;
+    if(/can't attack you if/i.test(o))s+=7;
+    if(/prevent all (combat )?damage (that would be )?dealt to you/i.test(o))s+=6;
+    if(/can't attack players who control enchantments|can't attack you/i.test(o))s+=7;
+    if(/enchantment.*enters[^.]*counter|whenever you gain life/i.test(o)&&t.indexOf('enchant')>=0)s+=4;
+  }
+  // Tours supplémentaires (Time Warp, Temporal Manipulation, Nexus of Fate…)
+  if(th._extraturn){
+    if(/take an? extra turn after this one/i.test(o))s+=12;
+    if(/take (two|three|\d) extra turns/i.test(o))s+=15;
+    if(/each (other )?player (skips|loses) (their|a) (next )?(?:untap step|draw step|main phase)/i.test(o))s+=8;
+    if(/rebound/.test(o))s+=4;  // rejouer un sort d'extra-tour = double valeur
+    if(/can't cast spells from their hand during other players' turns/i.test(o))s+=5;
   }
   return s;
 }
