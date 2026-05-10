@@ -16372,16 +16372,17 @@ function _castPriority(c,opp,turn,self){
   return 30;
 }
 function _applySpell(c,self,opp){
-  // Counterspell : contre le dernier sort casté — si c'est le commandant, taxe++
+  // === Sorts purs (instantanés / éphémères sans présence permanente) ===
+  // Counterspell : contre le dernier sort casté
   if(c.roles.counter&&opp.lastCast){
     var lc=opp.lastCast;
     var idx=opp.bf.indexOf(lc);
     if(idx>=0)opp.bf.splice(idx,1);
-    if(lc.isCommander)opp.cmdTax++; // retour en command zone, taxe +2 au prochain lancer
+    if(lc.isCommander)opp.cmdTax++;
     opp.lastCast=null;
     return;
   }
-  // Wrath : kill toutes les créatures — le commandant retourne en command zone avec taxe
+  // Wrath : détruit toutes les créatures
   if(c.roles.wrath){
     if(opp.cmd&&opp.bf.some(function(x){return x===opp.cmd;}))opp.cmdTax++;
     if(self.cmd&&self.bf.some(function(x){return x===self.cmd;}))self.cmdTax++;
@@ -16389,51 +16390,63 @@ function _applySpell(c,self,opp){
     self.bf=self.bf.filter(function(x){return !(x.roles&&x.roles.creature);});
     return;
   }
-  // Removal : kill la plus grosse menace — si c'est le commandant, taxe++
+
+  // === Principe général : une créature ENTRE TOUJOURS sur le champ de bataille ===
+  // Ses effets supplémentaires (ETB removal, ETB draw, ETB ramp…) s'appliquent EN PLUS.
+  var isCreature=!!(c.roles.creature||c.roles.wincon);
+  if(isCreature){
+    c.justCast=true;self.bf.push(c);self.lastCast=c;
+    // ETB-drain du commandant (Purphoros, Wayta…)
+    if(!c.isCommander&&self.cmd&&self.cmd.cmdPassive&&self.cmd.cmdPassive.etbDrain&&self.bf.some(function(x){return x===self.cmd;}))
+      opp.life-=self.cmd.cmdPassive.etbDrain;
+  }
+
+  // === Effets additionnels — appliqués que ce soit une créature ou un sort ===
+
+  // Removal ETB (Ravenous Chupacabra, Reclamation Sage…) ou sort de destruction
   if(c.roles.removal){
     var threats=opp.bf.filter(function(x){return x.roles.creature||x.roles.wincon;});
     if(threats.length){
       var best=threats.reduce(function(mx,x){return (x.power||0)+(x.roles.wincon?5:0)>(mx.power||0)+(mx.roles.wincon?5:0)?x:mx;});
-      var i=opp.bf.indexOf(best);
-      if(i>=0){opp.bf.splice(i,1);if(best.isCommander)opp.cmdTax++;}
-    } else if(c.faceDmg){opp.life-=c.faceDmg;}
-    return;
+      var ri=opp.bf.indexOf(best);
+      if(ri>=0){opp.bf.splice(ri,1);if(best.isCommander)opp.cmdTax++;}
+    } else if(c.faceDmg&&!isCreature){opp.life-=c.faceDmg;}
+    if(!isCreature)return;
   }
-  if(c.roles.ramp){self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});return;}
-  if(c.roles.mill){
+
+  // Ramp ETB (Wood Elves, Solemn Simulacrum…) ou sort de ramp
+  if(c.roles.ramp){
+    self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});
+    if(!isCreature)return;
+  }
+
+  // Mill (non-créature uniquement — le mill est rarement une ETB créature simple)
+  if(c.roles.mill&&!isCreature){
     var mn=Math.min(c.millAmt||8,opp.lib.length);
     opp.lib.splice(0,mn);
     return;
   }
-  if(c.roles.reanimate){
-    // Simule la réanimation : pose une grosse créature depuis le cimetière
+
+  // Réanimation (sort non-créature)
+  if(c.roles.reanimate&&!isCreature){
     self.bf.push({cmc:5,isLand:false,roles:{creature:1,wincon:1},power:5,toughness:5,reanimated:true});
     return;
   }
+
+  // Pioche ETB (Notion Thief, Jace's Archivist, Consecrated Sphinx…) ou sort de pioche
   if(c.roles.draw){
-    // Créature avec effet de pioche (Jace's Archivist, Notion Thief…) : posée sur le champ ET draw
-    if(c.roles.creature||c.roles.wincon){
-      c.justCast=true;self.bf.push(c);self.lastCast=c;
-      if(!c.isCommander&&self.cmd&&self.cmd.cmdPassive&&self.cmd.cmdPassive.etbDrain&&self.bf.some(function(x){return x===self.cmd;}))
-        opp.life-=self.cmd.cmdPassive.etbDrain;
-    }
     var draws=2;
     _matchDraw(self,draws);
-    // Passive drain du commandant : Queza, Nekusar, Niv-Mizzet…
+    // Drain passif du commandant : Queza, Nekusar, Niv-Mizzet…
     if(self.cmd&&self.cmd.cmdPassive&&self.bf.some(function(x){return x===self.cmd;})){
       if(self.cmd.cmdPassive.drawDrain)opp.life-=draws;
       if(self.cmd.cmdPassive.drawLifegain)self.life+=draws;
     }
-    return;
+    if(!isCreature)return;
   }
-  if(c.roles.creature||c.roles.wincon){
-    c.justCast=true;self.bf.push(c);self.lastCast=c;
-    // ETB-drain du commandant : Purphoros, Wayta… (exclut l'entrée du commandant lui-même)
-    if(!c.isCommander&&self.cmd&&self.cmd.cmdPassive&&self.cmd.cmdPassive.etbDrain&&self.bf.some(function(x){return x===self.cmd;}))
-      opp.life-=self.cmd.cmdPassive.etbDrain;
-    return;
-  }
-  if(c.faceDmg){opp.life-=c.faceDmg;return;}
+
+  if(isCreature)return;
+  if(c.faceDmg){opp.life-=c.faceDmg;}
 }
 function _matchTurn(self,opp,turn,onPlay){
   if(!(turn===1&&onPlay)){
