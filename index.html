@@ -445,6 +445,11 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 #bld-left::-webkit-scrollbar-track{background:transparent}
 #bld-left::-webkit-scrollbar-thumb{background:rgba(201,168,76,.35);border-radius:99px}
 #bld-left::-webkit-scrollbar-thumb:hover{background:rgba(201,168,76,.6)}
+.thin-scroll{scrollbar-width:thin;scrollbar-color:rgba(201,168,76,.35) transparent}
+.thin-scroll::-webkit-scrollbar{width:4px}
+.thin-scroll::-webkit-scrollbar-track{background:transparent}
+.thin-scroll::-webkit-scrollbar-thumb{background:rgba(201,168,76,.35);border-radius:99px}
+.thin-scroll::-webkit-scrollbar-thumb:hover{background:rgba(201,168,76,.6)}
 #bld-right{flex:1 1 0;min-width:0}
 #bld-left>.card,#bld-right>.card{margin-bottom:8px}
 #bld-drag-overlay{position:fixed;bottom:0;left:0;right:0;z-index:9900;display:flex;justify-content:center;align-items:center;padding:12px 20px 24px;background:linear-gradient(0deg,rgba(8,5,2,.96) 60%,transparent 100%);pointer-events:none;opacity:0;transition:opacity .15s}
@@ -1586,6 +1591,18 @@ body.mana-cursor{cursor:none}
       <div id="smart-content"></div>
     </div>
   </div>
+
+  <!-- Swaps depuis l'onglet Analyse -->
+  <div id="deck-ana-swaps-panel" style="display:none;margin-top:12px">
+    <div class="card">
+      <div class="row" style="margin-bottom:.75rem">
+        <div class="lbl" style="margin-bottom:0">⚡ Plan d'optimisation (depuis Analyse)</div>
+        <button class="btn btnsm btnrd" onclick="_deckClearAnaSwaps()" style="margin-left:auto">✕ Fermer</button>
+      </div>
+      <div style="font-size:.76rem;color:var(--tx3);margin-bottom:.6rem;font-style:italic">Swaps cochés dans l'onglet Analyse — appliquez-les manuellement dans l'éditeur ci-dessus.</div>
+      <div id="deck-ana-swaps-list"></div>
+    </div>
+  </div>
   </div>
 </div>
 </div>
@@ -1868,10 +1885,10 @@ body.mana-cursor{cursor:none}
 </div><!-- /cmd-cols -->
 </div><!-- /bld-cmd-zone -->
 
-<div id="bld-cols" style="display:none">
-<div style="margin-bottom:8px">
+<div id="bld-back-row" style="display:none;margin-bottom:8px">
   <button class="btn btnsm" onclick="_bldBackToWizard()">← Retour</button>
 </div>
+<div id="bld-cols" style="display:none">
 <div id="bld-left">
   <!-- Setup : format + charger deck -->
   <div class="card" style="margin-bottom:8px">
@@ -4081,9 +4098,11 @@ function _bldRefreshView(){
   var wiz=document.getElementById('bld-wizard');
   var cmd=document.getElementById('bld-cmd-zone');
   var cols=document.getElementById('bld-cols');
+  var backRow=document.getElementById('bld-back-row');
   if(wiz)wiz.style.display=_bldView==='wizard'?'block':'none';
   if(cmd)cmd.style.display=_bldView==='cmd'?'block':'none';
   if(cols)cols.style.display=_bldView==='builder'?'flex':'none';
+  if(backRow)backRow.style.display=_bldView==='builder'?'block':'none';
   if(_bldView==='wizard')bldInitEntryDeckSel();
 }
 function _bldEntryCmd(title){
@@ -14006,15 +14025,50 @@ function _anaToggleSwap(deckId,idx){
   var el=document.getElementById('ana-proj-'+deckId);
   if(!el)return;
   if(!n){el.innerHTML='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';return;}
-  var txt='<b style="color:var(--tx2)">'+n+' swap'+(n>1?'s':'')+' cochés</b>';
+  var txt='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  txt+='<span><b style="color:var(--tx2)">'+n+' swap'+(n>1?'s':'')+' cochés</b>';
   txt+=' · Compo : <b style="color:'+gr.col+'">'+projOverall+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+gr.l+'</span>';
   if(simBase>0){var gain2=projOverall-base;var ps=Math.min(100,Math.round(simBase+gain2*0.8));var sg=anaGrade(ps);txt+=' · Victoire : <b style="color:'+sg.col+'">~'+ps+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+sg.l+'</span>';}
+  txt+='</span>';
+  txt+='<button class="btn btnsm btnp" style="margin-left:auto;font-size:.72rem" onclick="anaSendSwapsToDeck(\''+deckId+'\')">→ Onglet Deck</button>';
+  txt+='</div>';
   el.innerHTML=txt;
 }
 function _anaSetDisplayMode(deckId,mode){
   _anaDisplayMode[deckId]=mode;
   try{localStorage.setItem('mtg_ana_dmode',JSON.stringify(_anaDisplayMode));}catch(e){}
   if(_anaState)anaRender(deckId);
+}
+var _deckPendingSwaps=[];
+function anaSendSwapsToDeck(deckId){
+  var swaps=(_anaState&&_anaState.optResult&&_anaState.optResult.swaps)||[];
+  var checked=_anaCheckedSwaps[deckId]||{};
+  _deckPendingSwaps=swaps.filter(function(sw,i){return checked[i];});
+  if(!_deckPendingSwaps.length)return;
+  goTab('deck');
+  _renderDeckAnaSwaps();
+}
+function _renderDeckAnaSwaps(){
+  var panel=document.getElementById('deck-ana-swaps-panel');
+  var list=document.getElementById('deck-ana-swaps-list');
+  if(!panel||!list)return;
+  if(!_deckPendingSwaps.length){panel.style.display='none';return;}
+  panel.style.display='block';
+  var html='';
+  _deckPendingSwaps.forEach(function(sw){
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:.5px solid var(--bd2)">';
+    html+='<span style="flex:1;color:var(--rd2)">— '+esc(sw.cut.name)+'</span>';
+    html+='<span style="color:var(--gold2)">→</span>';
+    html+='<span style="flex:1;color:#78c890">+ '+esc(sw.add.name)+'</span>';
+    html+='<span style="font-size:9px;color:var(--gold2);flex-shrink:0">+'+sw.gain.toFixed(2)+'</span>';
+    html+='</div>';
+  });
+  list.innerHTML=html;
+}
+function _deckClearAnaSwaps(){
+  _deckPendingSwaps=[];
+  var panel=document.getElementById('deck-ana-swaps-panel');
+  if(panel)panel.style.display='none';
 }
 
 // Préférence GLOBALE de langue (utilisée pour les images Scryfall partout)
@@ -17023,6 +17077,17 @@ function anaRefreshMatrix(){
 }
 
 /* ----- Render Mythic Tools+ style ----- */
+function anaResetAnalysis(){
+  _anaState=null;
+  _anaCheckedSwaps={};
+  _anaMatrixChecked={};
+  var res=document.getElementById('ana-results');
+  if(res){res.style.display='none';res.innerHTML='';}
+  var st=document.getElementById('ana-status');
+  if(st)st.textContent='';
+  var pt=document.getElementById('ana-pretheme');
+  if(pt)pt.style.display='none';
+}
 function anaRender(deckId){
   var deck=_anaGetDeck(deckId);if(!deck)return;
   // Themes du commandant : auto-détection puis application des overrides utilisateur
@@ -17208,6 +17273,7 @@ function anaRender(deckId){
 
   // ===== HTML =====
   var html='';
+  html+='<div style="margin-bottom:10px"><button class="btn btnsm" onclick="anaResetAnalysis()">← Réinitialiser</button></div>';
   var ciHtml=(deckCi||[]).map(function(c){return '<span class="ana-mini-pip pip-'+c+'">'+c+'</span>';}).join('');
   if(!ciHtml)ciHtml='<span style="font-size:10px;color:var(--tx3)">incolore</span>';
 
@@ -17626,7 +17692,7 @@ function anaRender(deckId){
         html+='<button onclick="_anaSetAllMatrixSwaps(\''+deckId+'\',true)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(201,168,76,.15);color:var(--gold2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☑ Tout cocher</button>';
         html+='<button onclick="_anaSetAllMatrixSwaps(\''+deckId+'\',false)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(255,255,255,.06);color:var(--tx3);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☐ Tout décocher</button>';
         html+='</div>';
-        html+='<div style="max-height:300px;overflow-y:auto;padding-right:2px;scrollbar-width:thin">';
+        html+='<div class="thin-scroll" style="max-height:300px;overflow-y:auto;padding-right:2px">';
         html+='<div style="display:grid;grid-template-columns:18px 1fr 34px 52px 46px;gap:2px 4px;font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;padding:2px 0;border-bottom:.5px solid var(--bd2);margin-bottom:2px">';
         html+='<div></div><div>SWAP</div><div style="text-align:center">ΔCMC</div><div style="text-align:center">COMPO</div><div style="text-align:center">VICTOIRE</div></div>';
         _matRows.forEach(function(row,i){
@@ -17667,7 +17733,7 @@ function anaRender(deckId){
         html+='<button onclick="_anaSetAllSwaps(\''+deckId+'\',true)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(201,168,76,.15);color:var(--gold2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☑ Tout cocher</button>';
         html+='<button onclick="_anaSetAllSwaps(\''+deckId+'\',false)" style="font-size:10px;padding:2px 9px;border:none;border-radius:10px;background:rgba(255,255,255,.06);color:var(--tx3);cursor:pointer;font-family:\'Goudy Mediaeval\',serif">☐ Tout décocher</button>';
         html+='</div>';
-        html+='<div style="max-height:280px;overflow-y:auto;padding-right:2px;scrollbar-width:thin">';
+        html+='<div class="thin-scroll" style="max-height:280px;overflow-y:auto;padding-right:2px">';
         if(_anaViewMode.opt==='image'){
           optResult.swaps.forEach(function(sw,i){
             var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
@@ -17709,7 +17775,10 @@ function anaRender(deckId){
         html+='<div id="ana-proj-'+deckId+'" style="margin-top:6px;font-size:11px;padding:6px 0;border-top:.5px solid var(--bd2)">';
         if(_chkN){
           var _chkProj=Math.min(100,Math.round(overall+_chkG));var _chkGr=anaGrade(_chkProj);
-          html+='<b style="color:var(--tx2)">'+_chkN+' swap'+(_chkN>1?'s':'')+' cochés</b> · +'+_chkG.toFixed(1)+' pts · Projeté : <b style="color:'+_chkGr.col+'">'+_chkProj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+_chkGr.l+'</span>';
+          html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+          html+='<span><b style="color:var(--tx2)">'+_chkN+' swap'+(_chkN>1?'s':'')+' cochés</b> · +'+_chkG.toFixed(1)+' pts · Projeté : <b style="color:'+_chkGr.col+'">'+_chkProj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+_chkGr.l+'</span></span>';
+          html+='<button class="btn btnsm btnp" style="margin-left:auto;font-size:.72rem" onclick="anaSendSwapsToDeck(\''+deckId+'\')">→ Onglet Deck</button>';
+          html+='</div>';
         } else {
           html+='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';
         }
