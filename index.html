@@ -916,6 +916,8 @@ body.mana-cursor{cursor:none}
 .bld-row:hover{background:rgba(255,255,255,.04)}
 .bld-row.bld-banned{border-left:2.5px solid var(--rd2);padding-left:5px;background:rgba(200,72,72,.06)}
 .bld-row.bld-notlegal{opacity:.45}
+.bld-row.bld-done{opacity:.45}
+.bld-row.bld-done .bld-cname{text-decoration:line-through;color:var(--tx3)}
 .bld-row.bld-drag-over{border-top:2px solid var(--gold2);background:rgba(201,168,76,.08)}
 .bld-drop-zone{min-height:36px;border-radius:6px;transition:background .1s}
 .bld-drop-zone.bld-dz-active{background:rgba(201,168,76,.06);outline:1.5px dashed rgba(201,168,76,.35)}
@@ -1185,8 +1187,7 @@ body.mana-cursor{cursor:none}
   <button class="tab-btn" id="tb-build" onclick="goTab('build')">⚒ Créer</button>
   <button class="tab-btn" id="tb-deck" onclick="goTab('deck')">♠ Deck</button>
   <button class="tab-btn" id="tb-analyse" onclick="goTab('analyse');anaInit()">📊 Analyse</button>
-  <button class="tab-btn" id="tb-game" onclick="goTab('game');initSetupDecks()">⚔ Parties</button>
-  <button class="tab-btn" id="tb-arena" onclick="goTab('arena');arPopulateSel()">⚡ Arène</button>
+  <button class="tab-btn" id="tb-arena" onclick="goTab('arena')">⚡ Arène</button>
   <button class="tab-btn" id="tb-scry" onclick="goTab('scry');loadScryfallSets()">🔮 Biblio</button>
   <button class="tab-btn" id="tb-trade" onclick="goTab('trade');renderTradePage()">⚖ Échanges</button>
   <button class="tab-btn" id="tb-conv" onclick="goTab('conv')">⇄ Conv.</button>
@@ -1923,11 +1924,12 @@ body.mana-cursor{cursor:none}
   <div class="card" id="bld-deckcard" style="display:none">
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem;flex-wrap:wrap">
       <div class="lbl" style="margin-bottom:0">Deck — <span id="bld-main-n">0</span></div>
-      <div style="display:flex;gap:3px;margin-left:auto">
+      <div style="display:flex;gap:3px;margin-left:auto;flex-wrap:wrap;align-items:center">
         <button class="dm active" id="bld-sort-type" onclick="setBldSort('type',this)">Type</button>
         <button class="dm" id="bld-sort-cmc" onclick="setBldSort('cmc',this)">CMC</button>
         <button class="dm" id="bld-sort-name" onclick="setBldSort('name',this)">Nom</button>
         <button class="dm" id="bld-sort-color" onclick="setBldSort('color',this)">Couleur</button>
+        <button class="dm" id="bld-uncheck-all" onclick="bldClearChecks()" title="Tout décocher" style="border-color:rgba(100,100,120,.4);color:var(--tx3)">☐ Tout décocher</button>
       </div>
     </div>
     <div id="bld-legality-warn" style="display:none;margin-bottom:.6rem"></div>
@@ -2118,298 +2120,6 @@ body.mana-cursor{cursor:none}
 <div id="bld-ghost"><img id="bld-ghost-img" src="" alt=""></div>
 </div>
 
-<!-- PARTIES -->
-<div class="page" id="pg-game">
-
-  <!-- Testeur de main -->
-  <div class="card" id="ht-panel">
-    <div class="row" style="margin-bottom:8px">
-      <div class="lbl" style="margin-bottom:0">🃏 Testeur de main</div>
-      <button class="btn btnsm" id="ht-close-btn" onclick="htReset(true)" style="display:none;color:var(--tx3)">✕ Fermer</button>
-    </div>
-    <div id="ht-setup-bar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <select id="ht-deck-sel" style="flex:1;min-width:140px;font-size:.82rem;padding:4px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-        <option value="">— Choisir un deck —</option>
-      </select>
-      <button class="btn btnsm btnp" onclick="htStart()">▶ Tester</button>
-    </div>
-    <div id="ht-active" style="display:none;margin-top:10px">
-      <!-- Barre d'info -->
-      <div class="ht-info-bar">
-        <div class="ht-stat"><strong id="ht-s-turn">1</strong><span>Tour</span></div>
-        <div style="width:.5px;height:28px;background:var(--bd);margin:0 2px"></div>
-        <div class="ht-stat"><strong id="ht-s-lib">—</strong><span>Biblio</span></div>
-        <div class="ht-stat"><strong id="ht-s-hand">0</strong><span>Main</span></div>
-        <div class="ht-stat"><strong id="ht-s-field">0</strong><span>Champ</span></div>
-        <div class="ht-stat"><strong id="ht-s-grave">0</strong><span>Cimetière</span></div>
-        <div style="flex:1"></div>
-        <button class="btn btnsm" onclick="htDraw(1)" id="ht-draw-btn">Piocher</button>
-        <button class="btn btnsm" onclick="htNextTurn()" id="ht-nextturn-btn">Tour +1</button>
-        <button class="btn btnsm" onclick="htMulligan()" id="ht-mul-btn">Mulligan <span id="ht-mul-cnt" style="opacity:.7">(0)</span></button>
-      </div>
-      <!-- Phase mulligan -->
-      <div class="ht-mul-bar" id="ht-mul-bar" style="display:none">
-        <span>Sélectionnez <strong id="ht-mul-need" style="color:var(--rd2)">1</strong> carte(s) à remettre sous la bibliothèque</span>
-        <button class="btn btnsm btnp" onclick="htConfirmMul()" id="ht-mul-confirm" disabled>Valider (0/<span id="ht-mul-need2">1</span>)</button>
-        <button class="btn btnsm" onclick="htCancelMul()">Annuler</button>
-      </div>
-      <!-- Main -->
-      <div class="ht-zone">
-        <div class="ht-zone-lbl">MAIN <b id="ht-lbl-hand"></b></div>
-        <div class="ht-cards" id="ht-hand-cards"><div class="ht-empty">Vide</div></div>
-      </div>
-      <!-- Champ de bataille -->
-      <div class="ht-zone">
-        <div class="ht-zone-lbl">CHAMP DE BATAILLE <b id="ht-lbl-field"></b></div>
-        <div class="ht-cards" id="ht-field-cards"><div class="ht-empty">Vide</div></div>
-      </div>
-      <!-- Cimetière -->
-      <div class="ht-zone">
-        <div class="ht-zone-lbl">CIMETIÈRE <b id="ht-lbl-grave"></b></div>
-        <div class="ht-cards" id="ht-grave-cards"><div class="ht-empty">Vide</div></div>
-      </div>
-      <!-- Exil -->
-      <div class="ht-zone" id="ht-exile-zone" style="display:none">
-        <div class="ht-zone-lbl">EXIL <b id="ht-lbl-exile"></b></div>
-        <div class="ht-cards" id="ht-exile-cards"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Setup nouvelle partie -->
-  <div class="card" id="game-setup">
-    <div class="lbl">Nouvelle partie</div>
-    <div style="margin-bottom:10px">
-      <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">FORMAT</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap" id="game-fmt-btns">
-        <button class="dm active" onclick="setGameFmt('commander',40,this)">Commander (40)</button>
-        <button class="dm" onclick="setGameFmt('brawl',25,this)">Brawl (25)</button>
-        <button class="dm" onclick="setGameFmt('paupercommander',40,this)">Pauper Cdr (40)</button>
-        <button class="dm" onclick="setGameFmt('standard',20,this)">Standard (20)</button>
-        <button class="dm" onclick="setGameFmt('draft',20,this)">Draft (20)</button>
-        <button class="dm" onclick="setGameFmt('pauper',20,this)">Pauper (20)</button>
-        <button class="dm" onclick="setGameFmt('sealed',20,this)">Scellé (20)</button>
-      </div>
-    </div>
-    <div style="margin-bottom:10px">
-      <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">JOUEURS — Deck · Couleurs · Image de fond</div>
-      <!-- Profil 0 : vous -->
-      <div class="gsetup-prow" id="gsetup-row0">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="0"> <input type="text" id="gsetup-name0" class="gp-name-inp" value="—"></label>
-        <select class="gsetup-deck" id="gsetup-deck0" onchange="applyDeckColors(0,this.value)"><option value="">— Aucun deck —</option></select>
-        <div style="display:flex;gap:3px" id="gsetup-colors0">
-          <button class="gcolor-btn" onclick="toggleSetupColor(0,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(0,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(0,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(0,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(0,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
-        </div>
-        <button class="gimg-btn" id="gimg-btn0" onclick="pickPlayerBg(0)" title="Image de fond">🖼</button>
-        <button class="gimg-btn" id="gimg-rm0" style="display:none;color:var(--rd2)" onclick="removePlayerBg(0)" title="Supprimer l'image">✕</button>
-        <input type="file" id="gimg-file0" accept="image/*" style="display:none" onchange="handleBgFile(0,this)">
-      </div>
-      <div id="gsetup-cmd-row0" style="display:none;padding:0 0 6px 82px">
-        <input type="text" id="gsetup-cmd0" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
-      </div>
-      <!-- Profil 1 : extra -->
-      <div class="gsetup-prow" id="gsetup-row1" style="display:none">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="1"> <input type="text" id="gsetup-name1" class="gp-name-inp" value="—"></label>
-        <select class="gsetup-deck" id="gsetup-deck1" onchange="applyDeckColors(1,this.value)"><option value="">— Aucun deck —</option></select>
-        <div style="display:flex;gap:3px" id="gsetup-colors1">
-          <button class="gcolor-btn" onclick="toggleSetupColor(1,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(1,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(1,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(1,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(1,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
-        </div>
-        <button class="gimg-btn" id="gimg-btn1" onclick="pickPlayerBg(1)" title="Image de fond">🖼</button>
-        <button class="gimg-btn" id="gimg-rm1" style="display:none;color:var(--rd2)" onclick="removePlayerBg(1)" title="Supprimer l'image">✕</button>
-        <input type="file" id="gimg-file1" accept="image/*" style="display:none" onchange="handleBgFile(1,this)">
-      </div>
-      <div id="gsetup-cmd-row1" style="display:none;padding:0 0 6px 82px">
-        <input type="text" id="gsetup-cmd1" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
-      </div>
-      <!-- Profil 2 : extra -->
-      <div class="gsetup-prow" id="gsetup-row2" style="display:none">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="2"> <input type="text" id="gsetup-name2" class="gp-name-inp" value="—"></label>
-        <select class="gsetup-deck" id="gsetup-deck2" onchange="applyDeckColors(2,this.value)"><option value="">— Aucun deck —</option></select>
-        <div style="display:flex;gap:3px" id="gsetup-colors2">
-          <button class="gcolor-btn" onclick="toggleSetupColor(2,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(2,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(2,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(2,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(2,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
-        </div>
-        <button class="gimg-btn" id="gimg-btn2" onclick="pickPlayerBg(2)" title="Image de fond">🖼</button>
-        <button class="gimg-btn" id="gimg-rm2" style="display:none;color:var(--rd2)" onclick="removePlayerBg(2)" title="Supprimer l'image">✕</button>
-        <input type="file" id="gimg-file2" accept="image/*" style="display:none" onchange="handleBgFile(2,this)">
-      </div>
-      <div id="gsetup-cmd-row2" style="display:none;padding:0 0 6px 82px">
-        <input type="text" id="gsetup-cmd2" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
-      </div>
-      <!-- Profil 3 : extra -->
-      <div class="gsetup-prow" id="gsetup-row3" style="display:none">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="3"> <input type="text" id="gsetup-name3" class="gp-name-inp" value="—"></label>
-        <select class="gsetup-deck" id="gsetup-deck3" onchange="applyDeckColors(3,this.value)"><option value="">— Aucun deck —</option></select>
-        <div style="display:flex;gap:3px" id="gsetup-colors3">
-          <button class="gcolor-btn" onclick="toggleSetupColor(3,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(3,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(3,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(3,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(3,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
-        </div>
-        <button class="gimg-btn" id="gimg-btn3" onclick="pickPlayerBg(3)" title="Image de fond">🖼</button>
-        <button class="gimg-btn" id="gimg-rm3" style="display:none;color:var(--rd2)" onclick="removePlayerBg(3)" title="Supprimer l'image">✕</button>
-        <input type="file" id="gimg-file3" accept="image/*" style="display:none" onchange="handleBgFile(3,this)">
-      </div>
-      <div id="gsetup-cmd-row3" style="display:none;padding:0 0 6px 82px">
-        <input type="text" id="gsetup-cmd3" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
-      </div>
-      <!-- Joueur invité (nom libre, sans profil) -->
-      <div class="gsetup-prow" id="gsetup-row4">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="4">
-          <input type="text" id="game-extra-name" placeholder="Joueur invité..." style="flex:1;font-size:.82rem;padding:3px 6px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;max-width:90px"></label>
-        <div style="display:flex;gap:3px" id="gsetup-colors4">
-          <button class="gcolor-btn" onclick="toggleSetupColor(4,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(4,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(4,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(4,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
-          <button class="gcolor-btn" onclick="toggleSetupColor(4,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
-        </div>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-      <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em">PV DE DÉPART</div>
-      <input type="number" id="game-startlife" value="40" min="1" max="999" style="width:70px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.9rem;outline:none;text-align:center">
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-      <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em">MODE</div>
-      <div style="display:flex;gap:4px" id="game-bo-btns">
-        <button class="dm active" onclick="setBoMode('bo1',this)">BO1</button>
-        <button class="dm" onclick="setBoMode('bo3',this)">BO3</button>
-        <button class="dm" onclick="setBoMode('bo5',this)">BO5</button>
-      </div>
-    </div>
-    <button class="btn btnp" onclick="startGame()">▶ Démarrer la partie</button>
-  </div>
-
-  <!-- Compteur de vie actif -->
-  <div id="game-active" style="display:none">
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;align-items:center">
-      <button class="btn btnsm" onclick="toggleCmdDmg()">⚔ Cdr dmg</button>
-      <button class="btn btnsm" onclick="toggleDicePanel()">🎲</button>
-      <button class="btn btnsm btnrd" onclick="endGame(null)" style="margin-left:auto">🏁 Fin</button>
-      <button class="btn btnsm" onclick="cancelGame()" style="border-color:var(--tx3);color:var(--tx3)">✕ Annuler</button>
-    </div>
-    <div id="dice-panel" style="display:none" class="dice-panel">
-      <div class="dice-row">
-        <button class="btn btnsm" onclick="rollDice(6)">🎲 D6</button>
-        <button class="btn btnsm" onclick="rollDice(20)">🎲 D20</button>
-        <button class="btn btnsm" onclick="flipCoin()">🪙 Pile/Face</button>
-        <button class="btn btnsm btnp" onclick="pickFirstPlayer()">▶ 1er joueur</button>
-      </div>
-      <div id="dice-result" class="dice-result" style="display:none"></div>
-    </div>
-    <div id="bo-info-bar" style="display:none;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:.8rem;display:flex;align-items:center;gap:8px">
-      <span id="bo-mode-lbl" style="font-family:'Goudy Mediaeval',serif;font-size:.72rem;color:var(--ac2)"></span>
-      <span id="bo-round-lbl" style="color:var(--tx3)"></span>
-      <span style="flex:1"></span>
-      <span id="bo-score-lbl" style="font-weight:700;letter-spacing:.04em"></span>
-    </div>
-    <div id="game-players-grid"></div>
-    <div class="card" style="margin-top:8px;display:none" id="cmd-dmg-card">
-      <div id="cmd-dmg-section"></div>
-    </div>
-  </div>
-
-  <!-- Stats -->
-  <div class="card">
-    <div class="lbl">Statistiques</div>
-    <div id="game-stats" style="margin-bottom:4px"></div>
-  </div>
-
-  <!-- Historique -->
-  <div class="card">
-    <div class="row" style="margin-bottom:.5rem">
-      <div class="lbl" style="margin-bottom:0">Historique</div>
-      <button class="btn btnsm btnp" onclick="toggleManualGame()">+ Saisir</button>
-      <button class="btn btnsm btnrd" onclick="clearGames()" style="display:none" id="game-clear-btn">Tout effacer</button>
-    </div>
-    <!-- Formulaire saisie manuelle -->
-    <div id="manual-game-form" style="display:none;background:var(--s2);border-radius:8px;padding:12px;margin-bottom:10px;border:.5px solid var(--bd2)">
-      <div id="mg-form-title" style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">SAISIE MANUELLE</div>
-      <div style="margin-bottom:6px">
-        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Format</div>
-        <select id="mg-fmt" style="font-size:.82rem;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
-          <option value="commander">Commander</option><option value="brawl">Brawl</option>
-          <option value="paupercommander">Pauper Cdr</option><option value="standard">Standard</option>
-          <option value="draft">Draft</option><option value="pauper">Pauper</option><option value="sealed">Scellé</option>
-        </select>
-      </div>
-      <div style="margin-bottom:6px">
-        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Mode</div>
-        <div style="display:flex;gap:4px" id="mg-bo-btns">
-          <button class="dm active" onclick="setMgBo('bo1',this)">BO1</button>
-          <button class="dm" onclick="setMgBo('bo3',this)">BO3</button>
-          <button class="dm" onclick="setMgBo('bo5',this)">BO5</button>
-        </div>
-      </div>
-      <div style="margin-bottom:6px">
-        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Joueurs & decks joués</div>
-        <div style="display:flex;flex-direction:column;gap:0" id="mg-players">
-          <div id="mg-prow0" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="0"> <span id="mg-player-name0">—</span></label>
-            <select id="mg-deck0" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(0,this.value)"><option value="">— Aucun deck —</option></select>
-            <div id="mg-colors0" style="display:flex;gap:2px;flex-shrink:0"></div>
-            <input type="number" id="mg-bscore0" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
-          </div>
-          <div id="mg-cmd-row0" style="display:none;padding-left:74px;margin-bottom:5px">
-            <input type="text" id="mg-cmd0" placeholder="Commandant..." class="mg-cmd-in" style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
-          </div>
-          <div id="mg-prow1" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="1"> <span id="mg-player-name1">—</span></label>
-            <select id="mg-deck1" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(1,this.value)"><option value="">— Aucun deck —</option></select>
-            <div id="mg-colors1" style="display:flex;gap:2px;flex-shrink:0"></div>
-            <input type="number" id="mg-bscore1" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
-          </div>
-          <div id="mg-cmd-row1" style="display:none;padding-left:74px;margin-bottom:5px">
-            <input type="text" id="mg-cmd1" placeholder="Commandant..." class="mg-cmd-in" style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
-          </div>
-          <div id="mg-prow2" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="2"> <span id="mg-player-name2">—</span></label>
-            <select id="mg-deck2" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(2,this.value)"><option value="">— Aucun deck —</option></select>
-            <div id="mg-colors2" style="display:flex;gap:2px;flex-shrink:0"></div>
-            <input type="number" id="mg-bscore2" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
-          </div>
-          <div id="mg-cmd-row2" style="display:none;padding-left:74px;margin-bottom:5px">
-            <input type="text" id="mg-cmd2" placeholder="Commandant..." class="mg-cmd-in" style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="3"> <input type="text" id="mg-extra-name" placeholder="Autre joueur..." style="width:100px;font-size:.78rem;padding:2px 5px;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)"></label>
-            <input type="number" id="mg-bscore3" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
-          </div>
-        </div>
-      </div>
-      <div style="margin-bottom:6px">
-        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Vainqueur</div>
-        <select id="mg-winner" style="font-size:.82rem;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
-          <option value="">— Pas de vainqueur —</option>
-          <option value="x">Autre joueur (ci-dessus)</option>
-        </select>
-      </div>
-      <div style="margin-bottom:8px">
-        <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Date</div>
-        <input type="date" id="mg-date" style="font-size:.82rem;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
-      </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btnp btnsm" id="mg-save-btn" onclick="saveManualGame()">✓ Enregistrer</button>
-        <button class="btn btnsm" onclick="toggleManualGame()">Annuler</button>
-      </div>
-    </div>
-    <div id="game-history" style="max-height:340px;overflow-y:auto"></div>
-  </div>
-
-</div>
 
 <!-- RÈGLES -->
 <div class="page" id="pg-rules">
@@ -2525,89 +2235,403 @@ body.mana-cursor{cursor:none}
   </div>
 </div>
 
-<!-- ARÈNE — page de setup -->
+<!-- ARÈNE -->
 <div class="page" id="pg-arena">
-  <div style="max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
-    <div class="card">
-      <div class="lbl">🎮 Arène de test</div>
-      <p style="font-size:.83rem;color:var(--tx2);margin-bottom:14px;line-height:1.6">Testez votre deck sous tous les angles.</p>
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-        <div style="flex:1">
-          <div class="lbl" style="margin-bottom:4px">Profil</div>
-          <select id="ar-setup-prof" onchange="arFilterDecksByProf()" style="width:100%;font-size:.85rem;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-            <option value="">— Tous —</option>
-          </select>
-        </div>
-        <div style="flex:2">
-          <div class="lbl" style="margin-bottom:4px">Deck</div>
-          <select id="ar-setup-deck" style="width:100%;font-size:.85rem;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-            <option value="">— Choisir un deck —</option>
-          </select>
-        </div>
-      </div>
-      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-        <div style="flex:1;min-width:90px">
-          <div class="lbl" style="margin-bottom:4px">Points de vie</div>
-          <input type="number" id="ar-setup-life" value="40" min="1" max="999" style="width:100%;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;outline:none;text-align:center">
-        </div>
-        <div style="flex:1;min-width:90px">
-          <div class="lbl" style="margin-bottom:4px">Langue des cartes</div>
-          <select id="ar-setup-lang" style="width:100%;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;outline:none">
-            <option value="en">English</option>
-            <option value="fr" selected>Français</option>
-            <option value="de">Deutsch</option>
-            <option value="es">Español</option>
-            <option value="it">Italiano</option>
-            <option value="pt">Português</option>
-            <option value="ja">日本語</option>
-            <option value="ko">한국어</option>
-            <option value="ru">Русский</option>
-            <option value="zhs">简体中文</option>
-          </select>
+  <!-- Barre de mode -->
+  <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px" id="ar-mode-bar">
+    <button class="dm active" id="ar-mode-counter" onclick="arSetMode('counter')">⚔ Compteur</button>
+    <button class="dm" id="ar-mode-history" onclick="arSetMode('history')">📋 Historique</button>
+    <button class="dm" id="ar-mode-online" onclick="arSetMode('online')">🌐 Jouer</button>
+    <button class="dm" id="ar-mode-hand" onclick="arSetMode('hand')">🃏 Test de main</button>
+    <button class="dm" id="ar-mode-stats" onclick="arSetMode('stats')">📊 Stats</button>
+  </div>
+
+  <!-- Panel: Compteur physique -->
+  <div id="ar-panel-counter">
+    <!-- Setup nouvelle partie -->
+    <div class="card" id="game-setup">
+      <div class="lbl">Nouvelle partie</div>
+      <div style="margin-bottom:10px">
+        <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">FORMAT</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap" id="game-fmt-btns">
+          <button class="dm active" onclick="setGameFmt('commander',40,this)">Commander (40)</button>
+          <button class="dm" onclick="setGameFmt('brawl',25,this)">Brawl (25)</button>
+          <button class="dm" onclick="setGameFmt('paupercommander',40,this)">Pauper Cdr (40)</button>
+          <button class="dm" onclick="setGameFmt('standard',20,this)">Standard (20)</button>
+          <button class="dm" onclick="setGameFmt('draft',20,this)">Draft (20)</button>
+          <button class="dm" onclick="setGameFmt('pauper',20,this)">Pauper (20)</button>
+          <button class="dm" onclick="setGameFmt('sealed',20,this)">Scellé (20)</button>
         </div>
       </div>
-      <button class="btn btnp" onclick="arOpen()" style="width:100%;padding:10px;font-size:.9rem">▶ Lancer (solo)</button>
-      <div id="ar-setup-msg" style="margin-top:8px;font-size:.78rem;color:var(--rd2);min-height:1rem"></div>
-      <div style="margin-top:12px;border-top:.5px solid var(--bd);padding-top:10px">
-        <div class="lbl" style="margin-bottom:6px;font-size:.78rem">🎮 Partie 2 joueurs (en ligne)</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn" onclick="arCreateRoom()" style="flex:1;min-width:100px;font-size:.78rem">Créer une partie</button>
-          <div style="display:flex;gap:4px;flex:1;min-width:100px">
-            <input type="text" id="ar-room-code-in" placeholder="Code (6 car.)" maxlength="6" style="flex:1;font-size:.78rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;text-transform:uppercase">
-            <button class="btn" onclick="arJoinRoom()" style="font-size:.78rem">Rejoindre</button>
+      <div style="margin-bottom:10px">
+        <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:4px">JOUEURS — Deck · Couleurs · Image de fond</div>
+        <!-- Profil 0 : vous -->
+        <div class="gsetup-prow" id="gsetup-row0">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="0"> <input type="text" id="gsetup-name0" class="gp-name-inp" value="—"></label>
+          <select class="gsetup-deck" id="gsetup-deck0" onchange="applyDeckColors(0,this.value)"><option value="">— Aucun deck —</option></select>
+          <div style="display:flex;gap:3px" id="gsetup-colors0">
+            <button class="gcolor-btn" onclick="toggleSetupColor(0,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(0,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(0,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(0,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(0,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
+          </div>
+          <button class="gimg-btn" id="gimg-btn0" onclick="pickPlayerBg(0)" title="Image de fond">🖼</button>
+          <button class="gimg-btn" id="gimg-rm0" style="display:none;color:var(--rd2)" onclick="removePlayerBg(0)" title="Supprimer l'image">✕</button>
+          <input type="file" id="gimg-file0" accept="image/*" style="display:none" onchange="handleBgFile(0,this)">
+        </div>
+        <div id="gsetup-cmd-row0" style="display:none;padding:0 0 6px 82px">
+          <input type="text" id="gsetup-cmd0" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+        </div>
+        <!-- Profil 1 : extra -->
+        <div class="gsetup-prow" id="gsetup-row1" style="display:none">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="1"> <input type="text" id="gsetup-name1" class="gp-name-inp" value="—"></label>
+          <select class="gsetup-deck" id="gsetup-deck1" onchange="applyDeckColors(1,this.value)"><option value="">— Aucun deck —</option></select>
+          <div style="display:flex;gap:3px" id="gsetup-colors1">
+            <button class="gcolor-btn" onclick="toggleSetupColor(1,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(1,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(1,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(1,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(1,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
+          </div>
+          <button class="gimg-btn" id="gimg-btn1" onclick="pickPlayerBg(1)" title="Image de fond">🖼</button>
+          <button class="gimg-btn" id="gimg-rm1" style="display:none;color:var(--rd2)" onclick="removePlayerBg(1)" title="Supprimer l'image">✕</button>
+          <input type="file" id="gimg-file1" accept="image/*" style="display:none" onchange="handleBgFile(1,this)">
+        </div>
+        <div id="gsetup-cmd-row1" style="display:none;padding:0 0 6px 82px">
+          <input type="text" id="gsetup-cmd1" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+        </div>
+        <!-- Profil 2 : extra -->
+        <div class="gsetup-prow" id="gsetup-row2" style="display:none">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="2"> <input type="text" id="gsetup-name2" class="gp-name-inp" value="—"></label>
+          <select class="gsetup-deck" id="gsetup-deck2" onchange="applyDeckColors(2,this.value)"><option value="">— Aucun deck —</option></select>
+          <div style="display:flex;gap:3px" id="gsetup-colors2">
+            <button class="gcolor-btn" onclick="toggleSetupColor(2,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(2,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(2,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(2,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(2,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
+          </div>
+          <button class="gimg-btn" id="gimg-btn2" onclick="pickPlayerBg(2)" title="Image de fond">🖼</button>
+          <button class="gimg-btn" id="gimg-rm2" style="display:none;color:var(--rd2)" onclick="removePlayerBg(2)" title="Supprimer l'image">✕</button>
+          <input type="file" id="gimg-file2" accept="image/*" style="display:none" onchange="handleBgFile(2,this)">
+        </div>
+        <div id="gsetup-cmd-row2" style="display:none;padding:0 0 6px 82px">
+          <input type="text" id="gsetup-cmd2" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+        </div>
+        <!-- Profil 3 : extra -->
+        <div class="gsetup-prow" id="gsetup-row3" style="display:none">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="3"> <input type="text" id="gsetup-name3" class="gp-name-inp" value="—"></label>
+          <select class="gsetup-deck" id="gsetup-deck3" onchange="applyDeckColors(3,this.value)"><option value="">— Aucun deck —</option></select>
+          <div style="display:flex;gap:3px" id="gsetup-colors3">
+            <button class="gcolor-btn" onclick="toggleSetupColor(3,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(3,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(3,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(3,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(3,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
+          </div>
+          <button class="gimg-btn" id="gimg-btn3" onclick="pickPlayerBg(3)" title="Image de fond">🖼</button>
+          <button class="gimg-btn" id="gimg-rm3" style="display:none;color:var(--rd2)" onclick="removePlayerBg(3)" title="Supprimer l'image">✕</button>
+          <input type="file" id="gimg-file3" accept="image/*" style="display:none" onchange="handleBgFile(3,this)">
+        </div>
+        <div id="gsetup-cmd-row3" style="display:none;padding:0 0 6px 82px">
+          <input type="text" id="gsetup-cmd3" placeholder="Commandant..." style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+        </div>
+        <!-- Joueur invité (nom libre, sans profil) -->
+        <div class="gsetup-prow" id="gsetup-row4">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.83rem;cursor:pointer;min-width:76px"><input type="checkbox" class="gp-chk" value="4">
+            <input type="text" id="game-extra-name" placeholder="Joueur invité..." style="flex:1;font-size:.82rem;padding:3px 6px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;max-width:90px"></label>
+          <div style="display:flex;gap:3px" id="gsetup-colors4">
+            <button class="gcolor-btn" onclick="toggleSetupColor(4,'W',this)" title="Blanc"><i class="ms ms-w ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(4,'U',this)" title="Bleu"><i class="ms ms-u ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(4,'B',this)" title="Noir"><i class="ms ms-b ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(4,'R',this)" title="Rouge"><i class="ms ms-r ms-cost"></i></button>
+            <button class="gcolor-btn" onclick="toggleSetupColor(4,'G',this)" title="Vert"><i class="ms ms-g ms-cost"></i></button>
           </div>
         </div>
-        <div id="ar-room-status" style="font-size:.74rem;color:var(--tx2);margin-top:5px;min-height:1.1em"></div>
       </div>
-      <div style="margin-top:12px;border-top:.5px solid var(--bd);padding-top:10px">
-        <div class="lbl" style="margin-bottom:8px;font-size:.78rem">🤖 Vs Intelligence Artificielle</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:120px">
-            <div style="font-size:.74rem;color:var(--tx3);margin-bottom:3px">Deck du bot</div>
-            <select id="ar-bot-deck" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-              <option value="">— Deck du bot —</option>
-            </select>
-          </div>
-          <div style="flex:1;min-width:100px">
-            <div style="font-size:.74rem;color:var(--tx3);margin-bottom:3px">Difficulté</div>
-            <select id="ar-bot-diff" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
-              <option value="novice">Novice</option>
-              <option value="intermediate" selected>Intermédiaire</option>
-              <option value="expert">Expert</option>
-            </select>
-          </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em">PV DE DÉPART</div>
+        <input type="number" id="game-startlife" value="40" min="1" max="999" style="width:70px;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.9rem;outline:none;text-align:center">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em">MODE</div>
+        <div style="display:flex;gap:4px" id="game-bo-btns">
+          <button class="dm active" onclick="setBoMode('bo1',this)">BO1</button>
+          <button class="dm" onclick="setBoMode('bo3',this)">BO3</button>
+          <button class="dm" onclick="setBoMode('bo5',this)">BO5</button>
         </div>
-        <button class="btn" onclick="arStartVsBot()" style="width:100%;padding:9px;font-size:.88rem;border-color:rgba(80,140,255,.5);color:#88aaff">🤖 Lancer vs IA</button>
-        <div id="ar-bot-setup-msg" style="margin-top:5px;font-size:.75rem;color:var(--tx3);min-height:1rem"></div>
+      </div>
+      <button class="btn btnp" onclick="startGame()">▶ Démarrer la partie</button>
+    </div>
+
+    <!-- Compteur de vie actif -->
+    <div id="game-active" style="display:none">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;align-items:center">
+        <button class="btn btnsm" onclick="toggleCmdDmg()">⚔ Cdr dmg</button>
+        <button class="btn btnsm" onclick="toggleDicePanel()">🎲</button>
+        <button class="btn btnsm btnrd" onclick="endGame(null)" style="margin-left:auto">🏁 Fin</button>
+        <button class="btn btnsm" onclick="cancelGame()" style="border-color:var(--tx3);color:var(--tx3)">✕ Annuler</button>
+      </div>
+      <div id="dice-panel" style="display:none" class="dice-panel">
+        <div class="dice-row">
+          <button class="btn btnsm" onclick="rollDice(6)">🎲 D6</button>
+          <button class="btn btnsm" onclick="rollDice(20)">🎲 D20</button>
+          <button class="btn btnsm" onclick="flipCoin()">🪙 Pile/Face</button>
+          <button class="btn btnsm btnp" onclick="pickFirstPlayer()">▶ 1er joueur</button>
+        </div>
+        <div id="dice-result" class="dice-result" style="display:none"></div>
+      </div>
+      <div id="bo-info-bar" style="display:none;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;padding:6px 10px;margin-bottom:6px;font-size:.8rem;display:flex;align-items:center;gap:8px">
+        <span id="bo-mode-lbl" style="font-family:'Goudy Mediaeval',serif;font-size:.72rem;color:var(--ac2)"></span>
+        <span id="bo-round-lbl" style="color:var(--tx3)"></span>
+        <span style="flex:1"></span>
+        <span id="bo-score-lbl" style="font-weight:700;letter-spacing:.04em"></span>
+      </div>
+      <div id="game-players-grid"></div>
+      <div class="card" style="margin-top:8px;display:none" id="cmd-dmg-card">
+        <div id="cmd-dmg-section"></div>
       </div>
     </div>
-    <!-- Ranking & Stats -->
-    <div class="card" id="ar-stats-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div class="lbl" style="margin-bottom:0">📊 Ranking — Parties test</div>
-        <button class="btn btnsm btnrd" onclick="arClearStats()" style="font-size:.68rem">Réinitialiser</button>
+  </div>
+
+  <!-- Panel: Historique -->
+  <div id="ar-panel-history" style="display:none">
+    <!-- Stats -->
+    <div class="card">
+      <div class="lbl">Statistiques</div>
+      <div id="game-stats" style="margin-bottom:4px"></div>
+    </div>
+
+    <!-- Historique -->
+    <div class="card">
+      <div class="row" style="margin-bottom:.5rem">
+        <div class="lbl" style="margin-bottom:0">Historique</div>
+        <button class="btn btnsm btnp" onclick="toggleManualGame()">+ Saisir</button>
+        <button class="btn btnsm btnrd" onclick="clearGames()" style="display:none" id="game-clear-btn">Tout effacer</button>
       </div>
-      <div id="ar-stats-section"><div style="color:var(--tx3);font-style:italic;font-size:.82rem">Aucune partie enregistrée</div></div>
+      <!-- Formulaire saisie manuelle -->
+      <div id="manual-game-form" style="display:none;background:var(--s2);border-radius:8px;padding:12px;margin-bottom:10px;border:.5px solid var(--bd2)">
+        <div id="mg-form-title" style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">SAISIE MANUELLE</div>
+        <div style="margin-bottom:6px">
+          <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Format</div>
+          <select id="mg-fmt" style="font-size:.82rem;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
+            <option value="commander">Commander</option><option value="brawl">Brawl</option>
+            <option value="paupercommander">Pauper Cdr</option><option value="standard">Standard</option>
+            <option value="draft">Draft</option><option value="pauper">Pauper</option><option value="sealed">Scellé</option>
+          </select>
+        </div>
+        <div style="margin-bottom:6px">
+          <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Mode</div>
+          <div style="display:flex;gap:4px" id="mg-bo-btns">
+            <button class="dm active" onclick="setMgBo('bo1',this)">BO1</button>
+            <button class="dm" onclick="setMgBo('bo3',this)">BO3</button>
+            <button class="dm" onclick="setMgBo('bo5',this)">BO5</button>
+          </div>
+        </div>
+        <div style="margin-bottom:6px">
+          <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Joueurs & decks joués</div>
+          <div style="display:flex;flex-direction:column;gap:0" id="mg-players">
+            <div id="mg-prow0" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="0"> <span id="mg-player-name0">—</span></label>
+              <select id="mg-deck0" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(0,this.value)"><option value="">— Aucun deck —</option></select>
+              <div id="mg-colors0" style="display:flex;gap:2px;flex-shrink:0"></div>
+              <input type="number" id="mg-bscore0" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
+            </div>
+            <div id="mg-cmd-row0" style="display:none;padding-left:74px;margin-bottom:5px">
+              <input type="text" id="mg-cmd0" placeholder="Commandant..." class="mg-cmd-in" style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+            </div>
+            <div id="mg-prow1" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="1"> <span id="mg-player-name1">—</span></label>
+              <select id="mg-deck1" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(1,this.value)"><option value="">— Aucun deck —</option></select>
+              <div id="mg-colors1" style="display:flex;gap:2px;flex-shrink:0"></div>
+              <input type="number" id="mg-bscore1" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
+            </div>
+            <div id="mg-cmd-row1" style="display:none;padding-left:74px;margin-bottom:5px">
+              <input type="text" id="mg-cmd1" placeholder="Commandant..." class="mg-cmd-in" style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+            </div>
+            <div id="mg-prow2" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;min-width:70px"><input type="checkbox" class="mg-pchk" value="2"> <span id="mg-player-name2">—</span></label>
+              <select id="mg-deck2" class="gsetup-deck" style="flex:1;max-width:none" onchange="mgApplyDeckColors(2,this.value)"><option value="">— Aucun deck —</option></select>
+              <div id="mg-colors2" style="display:flex;gap:2px;flex-shrink:0"></div>
+              <input type="number" id="mg-bscore2" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
+            </div>
+            <div id="mg-cmd-row2" style="display:none;padding-left:74px;margin-bottom:5px">
+              <input type="text" id="mg-cmd2" placeholder="Commandant..." class="mg-cmd-in" style="font-size:.8rem;padding:3px 8px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;width:100%;box-sizing:border-box">
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:.82rem"><input type="checkbox" class="mg-pchk" value="3"> <input type="text" id="mg-extra-name" placeholder="Autre joueur..." style="width:100px;font-size:.78rem;padding:2px 5px;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)"></label>
+              <input type="number" id="mg-bscore3" class="mg-boscore-in" min="0" max="5" value="0" style="display:none;width:36px;padding:2px 4px;font-size:.8rem;text-align:center;background:var(--s1);border:.5px solid var(--bd2);border-radius:4px;color:var(--tx)">
+            </div>
+          </div>
+        </div>
+        <div style="margin-bottom:6px">
+          <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Vainqueur</div>
+          <select id="mg-winner" style="font-size:.82rem;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
+            <option value="">— Pas de vainqueur —</option>
+            <option value="x">Autre joueur (ci-dessus)</option>
+          </select>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:.75rem;color:var(--tx2);margin-bottom:3px">Date</div>
+          <input type="date" id="mg-date" style="font-size:.82rem;padding:4px 8px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btnp btnsm" id="mg-save-btn" onclick="saveManualGame()">✓ Enregistrer</button>
+          <button class="btn btnsm" onclick="toggleManualGame()">Annuler</button>
+        </div>
+      </div>
+      <div id="game-history" style="max-height:340px;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <!-- Panel: Jouer (solo / en ligne / vs IA) -->
+  <div id="ar-panel-online" style="display:none">
+    <div style="max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="lbl">🎮 Arène de test</div>
+        <p style="font-size:.83rem;color:var(--tx2);margin-bottom:14px;line-height:1.6">Testez votre deck sous tous les angles.</p>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="flex:1">
+            <div class="lbl" style="margin-bottom:4px">Profil</div>
+            <select id="ar-setup-prof" onchange="arFilterDecksByProf()" style="width:100%;font-size:.85rem;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+              <option value="">— Tous —</option>
+            </select>
+          </div>
+          <div style="flex:2">
+            <div class="lbl" style="margin-bottom:4px">Deck</div>
+            <select id="ar-setup-deck" style="width:100%;font-size:.85rem;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+              <option value="">— Choisir un deck —</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:90px">
+            <div class="lbl" style="margin-bottom:4px">Points de vie</div>
+            <input type="number" id="ar-setup-life" value="40" min="1" max="999" style="width:100%;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;outline:none;text-align:center">
+          </div>
+          <div style="flex:1;min-width:90px">
+            <div class="lbl" style="margin-bottom:4px">Langue des cartes</div>
+            <select id="ar-setup-lang" style="width:100%;padding:6px 10px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;outline:none">
+              <option value="en">English</option>
+              <option value="fr" selected>Français</option>
+              <option value="de">Deutsch</option>
+              <option value="es">Español</option>
+              <option value="it">Italiano</option>
+              <option value="pt">Português</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="ru">Русский</option>
+              <option value="zhs">简体中文</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btnp" onclick="arOpen()" style="width:100%;padding:10px;font-size:.9rem">▶ Lancer (solo)</button>
+        <div id="ar-setup-msg" style="margin-top:8px;font-size:.78rem;color:var(--rd2);min-height:1rem"></div>
+        <div style="margin-top:12px;border-top:.5px solid var(--bd);padding-top:10px">
+          <div class="lbl" style="margin-bottom:6px;font-size:.78rem">🎮 Partie 2 joueurs (en ligne)</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn" onclick="arCreateRoom()" style="flex:1;min-width:100px;font-size:.78rem">Créer une partie</button>
+            <div style="display:flex;gap:4px;flex:1;min-width:100px">
+              <input type="text" id="ar-room-code-in" placeholder="Code (6 car.)" maxlength="6" style="flex:1;font-size:.78rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;text-transform:uppercase">
+              <button class="btn" onclick="arJoinRoom()" style="font-size:.78rem">Rejoindre</button>
+            </div>
+          </div>
+          <div id="ar-room-status" style="font-size:.74rem;color:var(--tx2);margin-top:5px;min-height:1.1em"></div>
+        </div>
+        <div style="margin-top:12px;border-top:.5px solid var(--bd);padding-top:10px">
+          <div class="lbl" style="margin-bottom:8px;font-size:.78rem">🤖 Vs Intelligence Artificielle</div>
+          <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+            <div style="flex:1;min-width:120px">
+              <div style="font-size:.74rem;color:var(--tx3);margin-bottom:3px">Deck du bot</div>
+              <select id="ar-bot-deck" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+                <option value="">— Deck du bot —</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:100px">
+              <div style="font-size:.74rem;color:var(--tx3);margin-bottom:3px">Difficulté</div>
+              <select id="ar-bot-diff" style="width:100%;font-size:.82rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+                <option value="novice">Novice</option>
+                <option value="intermediate" selected>Intermédiaire</option>
+                <option value="expert">Expert</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn" onclick="arStartVsBot()" style="width:100%;padding:9px;font-size:.88rem;border-color:rgba(80,140,255,.5);color:#88aaff">🤖 Lancer vs IA</button>
+          <div id="ar-bot-setup-msg" style="margin-top:5px;font-size:.75rem;color:var(--tx3);min-height:1rem"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel: Testeur de main -->
+  <div id="ar-panel-hand" style="display:none">
+    <div class="card" id="ht-panel">
+      <div class="row" style="margin-bottom:8px">
+        <div class="lbl" style="margin-bottom:0">🃏 Testeur de main</div>
+        <button class="btn btnsm" id="ht-close-btn" onclick="htReset(true)" style="display:none;color:var(--tx3)">✕ Fermer</button>
+      </div>
+      <div id="ht-setup-bar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select id="ht-deck-sel" style="flex:1;min-width:140px;font-size:.82rem;padding:4px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+          <option value="">— Choisir un deck —</option>
+        </select>
+        <button class="btn btnsm btnp" onclick="htStart()">▶ Tester</button>
+      </div>
+      <div id="ht-active" style="display:none;margin-top:10px">
+        <!-- Barre d'info -->
+        <div class="ht-info-bar">
+          <div class="ht-stat"><strong id="ht-s-turn">1</strong><span>Tour</span></div>
+          <div style="width:.5px;height:28px;background:var(--bd);margin:0 2px"></div>
+          <div class="ht-stat"><strong id="ht-s-lib">—</strong><span>Biblio</span></div>
+          <div class="ht-stat"><strong id="ht-s-hand">0</strong><span>Main</span></div>
+          <div class="ht-stat"><strong id="ht-s-field">0</strong><span>Champ</span></div>
+          <div class="ht-stat"><strong id="ht-s-grave">0</strong><span>Cimetière</span></div>
+          <div style="flex:1"></div>
+          <button class="btn btnsm" onclick="htDraw(1)" id="ht-draw-btn">Piocher</button>
+          <button class="btn btnsm" onclick="htNextTurn()" id="ht-nextturn-btn">Tour +1</button>
+          <button class="btn btnsm" onclick="htMulligan()" id="ht-mul-btn">Mulligan <span id="ht-mul-cnt" style="opacity:.7">(0)</span></button>
+        </div>
+        <!-- Phase mulligan -->
+        <div class="ht-mul-bar" id="ht-mul-bar" style="display:none">
+          <span>Sélectionnez <strong id="ht-mul-need" style="color:var(--rd2)">1</strong> carte(s) à remettre sous la bibliothèque</span>
+          <button class="btn btnsm btnp" onclick="htConfirmMul()" id="ht-mul-confirm" disabled>Valider (0/<span id="ht-mul-need2">1</span>)</button>
+          <button class="btn btnsm" onclick="htCancelMul()">Annuler</button>
+        </div>
+        <!-- Main -->
+        <div class="ht-zone">
+          <div class="ht-zone-lbl">MAIN <b id="ht-lbl-hand"></b></div>
+          <div class="ht-cards" id="ht-hand-cards"><div class="ht-empty">Vide</div></div>
+        </div>
+        <!-- Champ de bataille -->
+        <div class="ht-zone">
+          <div class="ht-zone-lbl">CHAMP DE BATAILLE <b id="ht-lbl-field"></b></div>
+          <div class="ht-cards" id="ht-field-cards"><div class="ht-empty">Vide</div></div>
+        </div>
+        <!-- Cimetière -->
+        <div class="ht-zone">
+          <div class="ht-zone-lbl">CIMETIÈRE <b id="ht-lbl-grave"></b></div>
+          <div class="ht-cards" id="ht-grave-cards"><div class="ht-empty">Vide</div></div>
+        </div>
+        <!-- Exil -->
+        <div class="ht-zone" id="ht-exile-zone" style="display:none">
+          <div class="ht-zone-lbl">EXIL <b id="ht-lbl-exile"></b></div>
+          <div class="ht-cards" id="ht-exile-cards"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel: Stats -->
+  <div id="ar-panel-stats" style="display:none">
+    <div style="max-width:560px;margin:0 auto">
+      <!-- Ranking & Stats -->
+      <div class="card" id="ar-stats-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="lbl" style="margin-bottom:0">📊 Ranking — Parties test</div>
+          <button class="btn btnsm btnrd" onclick="arClearStats()" style="font-size:.68rem">Réinitialiser</button>
+        </div>
+        <div id="ar-stats-section"><div style="color:var(--tx3);font-style:italic;font-size:.82rem">Aucune partie enregistrée</div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -4066,9 +4090,10 @@ function goTab(id) {
   var pg=document.getElementById('pg-'+id);if(pg)pg.classList.add('active');
   var tb=document.getElementById('tb-'+id);if(tb)tb.classList.add('active');
   // Sync profiles for the new context
-  var ctxMap={coll:'coll',deck:'deck',build:'build',game:'game',trade:'trade'};
+  var ctxMap={coll:'coll',deck:'deck',build:'build',arena:'game',trade:'trade'};
   var ctx=ctxMap[id];
   if(ctx){_syncProfsForCtx(ctx);_refreshTradeAndGame();}
+  if(id==='arena'){arSetMode(_arMode||'counter');}
   if(id==='deck'){
     renderProfSlots('deck','prof-grid-deck');_renderDeckListHeader();renderDBar();
     if(actDeck&&decks[actDeck]){
@@ -4086,6 +4111,7 @@ function goTab(id) {
 
 // ===== BUILD WIZARD =====
 var _bldView='wizard'; // 'wizard' | 'cmd' | 'builder'
+var _bldChecked={};
 var _BLD_THEME_QUERIES={
   tokens:      'is:commander (o:"create a" o:"token")',
   sacrifice:   'is:commander (o:"sacrifice" o:"whenever")',
@@ -4129,9 +4155,17 @@ function _bldEntryCmd(title){
   _bldRefreshView();
   if(!_cmdSearched){_cmdSearched=true;searchCmd();}
 }
+function bldToggleCheck(name){
+  if(_bldChecked[name])delete _bldChecked[name];else _bldChecked[name]=1;
+  renderBldDecks();
+}
+function bldClearChecks(){
+  _bldChecked={};renderBldDecks();
+}
+
 function _bldEntryBlank(){
   bldCurDeckId=null;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
-  _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;dCommander=null;
+  _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;dCommander=null;_bldChecked={};
   renderBldDecks();renderBldStats();_bldShowBuilder();
 }
 function _bldBackToWizard(){_bldView='wizard';_bldRefreshView();}
@@ -6863,6 +6897,20 @@ function _arLoadImg(name,el){
 
 var _arRating=0;
 
+var _arMode='counter';
+function arSetMode(mode){
+  _arMode=mode;
+  ['counter','history','online','hand','stats'].forEach(function(m){
+    var p=document.getElementById('ar-panel-'+m);
+    if(p)p.style.display=m===mode?'':'none';
+    var b=document.getElementById('ar-mode-'+m);
+    if(b){if(m===mode)b.classList.add('active');else b.classList.remove('active');}
+  });
+  if(mode==='counter')initSetupDecks();
+  if(mode==='online')arPopulateSel();
+  if(mode==='hand')htPopulateSel();
+}
+
 function arPopulateSel(){
   arPoolLoad();arPoolRender();
   var profSel=document.getElementById('ar-setup-prof');
@@ -8239,7 +8287,7 @@ function arSendCodeNotif(toUid,toName,code,btn){
 function _arJoinFromNotif(code){
   var inp=document.getElementById('ar-room-code-in');
   if(inp)inp.value=code;
-  goTab('arena');arPopulateSel();
+  goTab('arena');arSetMode('online');
   closeHub();
   setTimeout(function(){arJoinRoom();},200);
 }
@@ -12144,7 +12192,7 @@ function bldLoadSelectedDeck(){
   var id=sel.value;var dk=decks[id];if(!dk)return;
   bldCurDeckId=id;
   bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
-  _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;
+  _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;_bldChecked={};
   var _optcard=document.getElementById('bld-optcard');if(_optcard)_optcard.style.display='none';
   bldRenderSwapsPanel();
   var fmtSel=document.getElementById('bld-fmt-sel');
@@ -12640,10 +12688,12 @@ function renderBldDecks(){
     var banStatus=bldGetBanStatus(c);
     var banCls=banStatus==='banned'?' bld-banned':banStatus==='notlegal'?' bld-notlegal':'';
     var banBadge=banStatus==='banned'?'<span class="bld-ban-badge">BANNI</span>':'';
-    return '<div class="bld-row'+banCls+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\''+section+'\')" style="touch-action:none;user-select:none;cursor:grab">'
+    var _chk=_bldChecked[c.name];
+    return '<div class="bld-row'+banCls+(_chk?' bld-done':'')+'" onpointerdown="bldPtrDown(event,\''+nm+'\',\''+section+'\')" style="touch-action:none;user-select:none;cursor:grab">'
+      +'<input type="checkbox" class="bld-chk" onpointerdown="event.stopPropagation()" onchange="bldToggleCheck(\''+nm+'\')" '+(_chk?'checked':'')+' style="flex-shrink:0;cursor:pointer;accent-color:var(--ac);margin:0">'
       +'<span class="bld-deck-drag-h" draggable="true" data-n="'+esc(c.name)+'" ondragstart="bldDeckToDragStart(event,this.dataset.n)" onpointerdown="event.stopPropagation()" title="Glisser vers un slot COUPER">⠿</span>'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+c.qty+'</span>'
-      +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx);font-size:.82rem">'+esc(c.name)+'</span>'
+      +'<span class="bld-cname" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx);font-size:.82rem">'+esc(c.name)+'</span>'
       +banBadge
       +(c.rarity?'<span style="font-size:.6rem;padding:1px 4px;border-radius:999px;background:rgba(100,100,120,.1);color:'+(rc[c.rarity]||'var(--tx3)')+';border:.5px solid var(--bd)">'+({common:'C',uncommon:'U',rare:'R',mythic:'M'}[c.rarity]||'?')+'</span>':'')
       +(c.cmc!=null&&c.type&&c.type.indexOf('Land')<0?'<span style="font-size:.66rem;color:var(--tx3);min-width:14px;text-align:right">'+c.cmc+'</span>':'')
