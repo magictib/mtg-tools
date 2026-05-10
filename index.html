@@ -1639,6 +1639,9 @@ body.mana-cursor{cursor:none}
     <div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">🌐 La langue des images est définie dans <b>Mes préférences</b> (icône ✎ en haut à droite).</div>
     <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic;min-height:1em"></div>
     <div id="ana-missing-wrap" style="display:none;margin-top:6px;font-size:.74rem;color:var(--tx3);line-height:1.8;flex-wrap:wrap;gap:4px"></div>
+    <div id="ana-reset-row" style="display:none;margin-top:10px">
+      <button class="btn btnrd" onclick="anaResetAnalysis()" style="width:100%;padding:9px;font-size:.82rem">← Nouvelle analyse</button>
+    </div>
   </div>
   <div id="ana-results" style="display:none"></div>
 </div>
@@ -12151,6 +12154,11 @@ function bldLoadSelectedDeck(){
       else target.push({name:c.name,qty:c.qty,cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}});
     });
     renderBldDecks();renderBldStats();_bldShowBuilder();
+    if(_bldPendingAnaSwaps&&_bldPendingAnaSwaps.length){
+      _bldSwaps=_bldPendingAnaSwaps.map(function(sw){var am=_anaData[sw.add.nl]||{};return{cut:{name:sw.cut.name,nl:sw.cut.nl},add:{name:sw.add.name,nl:sw.add.nl,qty:1,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||''},applied:false,suggested:true};});
+      _bldPendingAnaSwaps=null;
+      bldRenderSwapsPanel();
+    }
   }
   if(!missing.length){afterFetch();return;}
   // Scryfall collection batch par tranches de 75
@@ -12786,6 +12794,7 @@ var _bldSwaps=[];
 var _bldSugs=[];
 var _bldOptTab='sugs';
 var _bldSwapSel=null;
+var _bldPendingAnaSwaps=null;
 var _bldDragIdx=-1;
 var _bldTouchDragIdx=-1;
 var _bldCardDrag=null;
@@ -14030,7 +14039,10 @@ function _anaToggleSwap(deckId,idx){
   txt+=' · Compo : <b style="color:'+gr.col+'">'+projOverall+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+gr.l+'</span>';
   if(simBase>0){var gain2=projOverall-base;var ps=Math.min(100,Math.round(simBase+gain2*0.8));var sg=anaGrade(ps);txt+=' · Victoire : <b style="color:'+sg.col+'">~'+ps+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+sg.l+'</span>';}
   txt+='</span>';
-  txt+='<button class="btn btnsm btnp" style="margin-left:auto;font-size:.72rem" onclick="anaSendSwapsToDeck(\''+deckId+'\')">→ Onglet Deck</button>';
+  txt+='<div style="display:flex;gap:4px;margin-left:auto">';
+  txt+='<button class="btn btnsm btnp" style="font-size:.72rem" onclick="anaSendSwapsToDeck(\''+deckId+'\')">→ Deck</button>';
+  txt+='<button class="btn btnsm" style="font-size:.72rem;background:rgba(120,200,144,.15);color:#78c890;border:.5px solid rgba(120,200,144,.3)" onclick="anaSendSwapsToBuilder(\''+deckId+'\')">→ Créer</button>';
+  txt+='</div>';
   txt+='</div>';
   el.innerHTML=txt;
 }
@@ -14040,6 +14052,17 @@ function _anaSetDisplayMode(deckId,mode){
   if(_anaState)anaRender(deckId);
 }
 var _deckPendingSwaps=[];
+function anaSendSwapsToBuilder(deckId){
+  var swaps=(_anaState&&_anaState.optResult&&_anaState.optResult.swaps)||[];
+  var checked=_anaCheckedSwaps[deckId]||{};
+  var pending=swaps.filter(function(sw,i){return checked[i];});
+  if(!pending.length)return;
+  _bldPendingAnaSwaps=pending;
+  var mainSel=document.getElementById('bld-deck-sel');
+  if(mainSel)mainSel.value=deckId;
+  goTab('build');
+  bldLoadSelectedDeck();
+}
 function anaSendSwapsToDeck(deckId){
   var swaps=(_anaState&&_anaState.optResult&&_anaState.optResult.swaps)||[];
   var checked=_anaCheckedSwaps[deckId]||{};
@@ -17087,6 +17110,8 @@ function anaResetAnalysis(){
   if(st)st.textContent='';
   var pt=document.getElementById('ana-pretheme');
   if(pt)pt.style.display='none';
+  var rr=document.getElementById('ana-reset-row');
+  if(rr)rr.style.display='none';
 }
 function anaRender(deckId){
   var deck=_anaGetDeck(deckId);if(!deck)return;
@@ -17273,7 +17298,6 @@ function anaRender(deckId){
 
   // ===== HTML =====
   var html='';
-  html+='<div style="margin-bottom:10px"><button class="btn btnsm" onclick="anaResetAnalysis()">← Réinitialiser</button></div>';
   var ciHtml=(deckCi||[]).map(function(c){return '<span class="ana-mini-pip pip-'+c+'">'+c+'</span>';}).join('');
   if(!ciHtml)ciHtml='<span style="font-size:10px;color:var(--tx3)">incolore</span>';
 
@@ -17777,7 +17801,10 @@ function anaRender(deckId){
           var _chkProj=Math.min(100,Math.round(overall+_chkG));var _chkGr=anaGrade(_chkProj);
           html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
           html+='<span><b style="color:var(--tx2)">'+_chkN+' swap'+(_chkN>1?'s':'')+' cochés</b> · +'+_chkG.toFixed(1)+' pts · Projeté : <b style="color:'+_chkGr.col+'">'+_chkProj+'</b><span style="color:var(--tx3);font-size:10px"> /100 '+_chkGr.l+'</span></span>';
-          html+='<button class="btn btnsm btnp" style="margin-left:auto;font-size:.72rem" onclick="anaSendSwapsToDeck(\''+deckId+'\')">→ Onglet Deck</button>';
+          html+='<div style="display:flex;gap:4px;margin-left:auto">';
+          html+='<button class="btn btnsm btnp" style="font-size:.72rem" onclick="anaSendSwapsToDeck(\''+deckId+'\')">→ Deck</button>';
+          html+='<button class="btn btnsm" style="font-size:.72rem;background:rgba(120,200,144,.15);color:#78c890;border:.5px solid rgba(120,200,144,.3)" onclick="anaSendSwapsToBuilder(\''+deckId+'\')">→ Créer</button>';
+          html+='</div>';
           html+='</div>';
         } else {
           html+='<span style="color:var(--tx3);font-style:italic;font-size:10px">Cochez les swaps que vous comptez faire pour voir le score projeté</span>';
@@ -17857,6 +17884,7 @@ function anaRender(deckId){
   _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
+  var _anaResetRow=document.getElementById('ana-reset-row');if(_anaResetRow)_anaResetRow.style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
   (function(_dId){setTimeout(function(){_anaRestoreOracleFallback(_dId);},0);})(deckId);
   if(_cmdNameVis&&_cmdImgUrl)(function(_dId,_nm){setTimeout(function(){_anaFetchCmdPrints(_dId,_nm);},80);})(deckId,_cmdNameVis);
