@@ -4069,7 +4069,14 @@ function goTab(id) {
   var ctxMap={coll:'coll',deck:'deck',build:'build',game:'game',trade:'trade'};
   var ctx=ctxMap[id];
   if(ctx){_syncProfsForCtx(ctx);_refreshTradeAndGame();}
-  if(id==='deck'){renderProfSlots('deck','prof-grid-deck');_renderDeckListHeader();}
+  if(id==='deck'){
+    renderProfSlots('deck','prof-grid-deck');_renderDeckListHeader();renderDBar();
+    if(actDeck&&decks[actDeck]){
+      var _dk=decks[actDeck];var _fr=_dk.rawName?parseList(_dk.rawName):null;
+      dCards=(_fr&&_fr.length)?_fr:(_dk.cards||[]);
+      renderDeck();
+    }
+  }
   if(id==='build'){_renderBuildCollBtns();bldInitDeckSel();bldRenderSwapsPanel();_bldRefreshView();}
   if(_userLang&&_userLang!=='en'){
     var _pg=document.getElementById('pg-'+id);
@@ -12188,6 +12195,10 @@ function bldSaveDeck(){
   var raw=mainLines.join('\n')+(sideLines.length?'\n// Sideboard\n'+sideLines.join('\n'):'');
   if(bldCurDeckId&&decks[bldCurDeckId]){
     decks[bldCurDeckId]=Object.assign({},decks[bldCurDeckId],{rawName:raw,cards:bldMain.slice(),format:bldFormat||decks[bldCurDeckId].format||null,updatedAt:Date.now()});
+    // Synchronise dCards si ce deck est aussi actif dans l'onglet Deck
+    if(actDeck===bldCurDeckId){
+      var _fr=parseList(raw);dCards=(_fr&&_fr.length)?_fr:bldMain.slice();
+    }
     saveDecks();alert('Deck "'+decks[bldCurDeckId].name+'" mis à jour !');bldInitDeckSel();
     return;
   }
