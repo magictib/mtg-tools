@@ -1233,6 +1233,11 @@ body.mana-cursor{cursor:none}
               <select id="um-lang-sel" class="psel" style="width:100%;font-size:.82rem" onchange="setUserLang(this.value)"></select>
               <div style="font-size:.7rem;color:var(--tx3);margin-top:4px;line-height:1.4">Les cartes exclusives Commander (precons) sont souvent uniquement disponibles en anglais sur Scryfall, même si une autre langue est sélectionnée.</div>
               <button class="um-btn" id="um-pwa-install-btn" onclick="pwaInstallFromMenu();closeHub()" style="display:none;margin-top:8px">📲 Installer l'app (hors-ligne)</button>
+              <div id="um-desktop-app-row" style="display:none;margin-top:8px;padding:8px;background:rgba(201,168,76,.07);border:.5px solid rgba(201,168,76,.22);border-radius:8px">
+                <div style="font-size:.72rem;color:var(--gold2);font-weight:bold;margin-bottom:4px">Application bureau disponible</div>
+                <div style="font-size:.7rem;color:var(--tx3);margin-bottom:6px;line-height:1.4">Télécharge l'app Windows pour une expérience native avec mises à jour automatiques.</div>
+                <a href="https://github.com/magictib/mtg-tools/releases/latest/download/ManaLAB-Setup.exe" target="_blank" onclick="closeHub()" style="display:block;text-align:center;padding:6px;background:var(--gold2);color:#000;border-radius:6px;font-size:.78rem;font-weight:bold;text-decoration:none;font-family:'Goudy Mediaeval',serif">⬇ Télécharger ManaLAB.exe</a>
+              </div>
             </div>
             <button class="um-btn danger" onclick="openDeleteProfileOv()" style="margin-top:6px">🗑 Supprimer le profil</button>
             <button class="um-btn danger" onclick="authSignOut();closeHub()">⏻ Déconnexion</button>
@@ -18168,6 +18173,14 @@ function arPoolRender(){
   </div>
 </div>
 <script>
+// ===== Bouton téléchargement desktop (visible uniquement sur le web, pas dans l'app Electron) =====
+(function(){
+  if(!window.electronAPI){
+    var row=document.getElementById('um-desktop-app-row');
+    if(row)row.style.display='block';
+  }
+})();
+
 // ===== PWA install (uniquement dans le menu utilisateur, pas de banniere) =====
 var _pwaPrompt=null;
 function _pwaUpdateMenuBtn(){
@@ -18193,7 +18206,8 @@ window.addEventListener('appinstalled',function(){
   _pwaPrompt=null;
   _pwaUpdateMenuBtn();
 });
-if('serviceWorker' in navigator){
+// Pas de service worker en mode Electron (file://)
+if('serviceWorker' in navigator && !window.electronAPI){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('./sw.js').catch(function(e){
       console.warn('SW registration failed',e);
@@ -18202,5 +18216,56 @@ if('serviceWorker' in navigator){
 }
 </script>
 <div id="app-toast"></div>
+
+<!-- Bannière mise à jour Electron (invisible par défaut) -->
+<div id="electron-update-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(12,10,7,.96);border-top:.5px solid rgba(201,168,76,.35);padding:10px 16px;display:none;align-items:center;gap:10px;font-size:.82rem">
+  <span style="color:var(--gold2);font-weight:bold;flex-shrink:0">ManaLAB</span>
+  <span id="electron-update-msg" style="color:var(--tx2);flex:1"></span>
+  <div id="electron-update-progress" style="display:none;flex:1;max-width:160px">
+    <div style="height:4px;background:var(--s3);border-radius:2px;overflow:hidden">
+      <div id="electron-update-prog-bar" style="height:100%;background:var(--gold2);border-radius:2px;width:0%;transition:width .3s"></div>
+    </div>
+  </div>
+  <button id="electron-update-btn" style="display:none;padding:5px 12px;background:var(--gold2);color:#000;border:none;border-radius:6px;font-size:.78rem;font-weight:bold;cursor:pointer;font-family:'Goudy Mediaeval',serif" onclick="window.electronAPI.installUpdate()">Redémarrer</button>
+</div>
+
+<script>
+// ── Intégration Electron ──────────────────────────────────────
+(function(){
+  if(!window.electronAPI)return;
+
+  // Afficher le bouton de téléchargement dans les paramètres (pas nécessaire en mode desktop)
+  // mais montrer la version desktop dans les paramètres
+  var desktopRow=document.getElementById('um-desktop-app-row');
+  // En mode Electron, cacher le bouton téléchargement (déjà installé)
+  // et cacher le bouton PWA install (non applicable)
+  var pwaBtn=document.getElementById('um-pwa-install-btn');
+  if(pwaBtn)pwaBtn.style.display='none';
+
+  var bar=document.getElementById('electron-update-bar');
+  var msg=document.getElementById('electron-update-msg');
+  var prog=document.getElementById('electron-update-progress');
+  var progBar=document.getElementById('electron-update-prog-bar');
+  var btn=document.getElementById('electron-update-btn');
+
+  window.electronAPI.onUpdateAvailable(function(version){
+    msg.textContent='Mise à jour v'+version+' disponible — téléchargement en cours…';
+    bar.style.display='flex';
+    prog.style.display='block';
+  });
+
+  window.electronAPI.onUpdateProgress(function(percent){
+    progBar.style.width=percent+'%';
+    msg.textContent='Téléchargement… '+percent+'%';
+  });
+
+  window.electronAPI.onUpdateDownloaded(function(version){
+    msg.textContent='v'+version+' prête — redémarre pour installer.';
+    prog.style.display='none';
+    btn.style.display='block';
+    bar.style.display='flex';
+  });
+})();
+</script>
 </body>
 </html>
