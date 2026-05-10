@@ -1,13 +1,6 @@
 'use strict';
-const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
-const { autoUpdater } = require('electron-updater');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
-const log = require('electron-log');
-
-autoUpdater.logger = log;
-autoUpdater.logger.transports.file.level = 'info';
-autoUpdater.autoDownload = true;
-autoUpdater.autoInstallOnAppQuit = true;
 
 let mainWindow;
 
@@ -33,7 +26,6 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
 
-  // Ouvrir les liens externes dans le navigateur par défaut
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
@@ -48,12 +40,36 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+function initUpdater() {
+  // Lazy require : electron-updater a besoin que app soit prêt
+  const { autoUpdater } = require('electron-updater');
+  const log = require('electron-log');
+
+  autoUpdater.logger = log;
+  autoUpdater.logger.transports.file.level = 'info';
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    if (mainWindow) mainWindow.webContents.send('update-available', info.version);
+  });
+  autoUpdater.on('download-progress', (p) => {
+    if (mainWindow) mainWindow.webContents.send('update-progress', Math.round(p.percent));
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow) mainWindow.webContents.send('update-downloaded', info.version);
+  });
+  autoUpdater.on('error', (err) => log.error('updater:', err));
+
+  ipcMain.on('install-update', () => autoUpdater.quitAndInstall(false, true));
+  ipcMain.on('check-update',   () => autoUpdater.checkForUpdates());
+
+  setTimeout(() => autoUpdater.checkForUpdates(), 3000);
+}
+
 app.whenReady().then(() => {
   createWindow();
-  if (!isDev()) {
-    // Vérifier les mises à jour 3s après le démarrage
-    setTimeout(() => autoUpdater.checkForUpdates(), 3000);
-  }
+  if (!isDev()) initUpdater();
 });
 
 app.on('window-all-closed', () => {
@@ -62,33 +78,4 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
-
-// ── Auto-updater ──────────────────────────────────────────────
-autoUpdater.on('update-available', (info) => {
-  log.info('Mise à jour disponible :', info.version);
-  if (mainWindow) mainWindow.webContents.send('update-available', info.version);
-});
-
-autoUpdater.on('download-progress', (progress) => {
-  if (mainWindow) mainWindow.webContents.send('update-progress', Math.round(progress.percent));
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-  log.info('Mise à jour téléchargée :', info.version);
-  if (mainWindow) mainWindow.webContents.send('update-downloaded', info.version);
-});
-
-autoUpdater.on('error', (err) => {
-  log.error('Erreur auto-updater :', err);
-});
-
-// Installer la mise à jour sur demande de la page
-ipcMain.on('install-update', () => {
-  autoUpdater.quitAndInstall(false, true);
-});
-
-// Vérification manuelle depuis la page
-ipcMain.on('check-update', () => {
-  if (!isDev()) autoUpdater.checkForUpdates();
 });
