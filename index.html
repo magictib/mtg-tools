@@ -3283,6 +3283,7 @@ function authResetPw(){
 function authSignOut(){
   if(_notifUnsub){_notifUnsub();_notifUnsub=null;}
   if(_tradesUnsub){_tradesUnsub();_tradesUnsub=null;}
+  if(_decksUnsub){_decksUnsub();_decksUnsub=null;}
   firebase.auth().signOut();
 }
 
@@ -3594,6 +3595,7 @@ function removeFriend(friendUid){
 // ===== NOTIFICATIONS =====
 var _notifUnsub=null,_notifDocs=[],_currentUid=null;
 var _tradesUnsub=null,_firebaseTrades=[];
+var _decksUnsub=null;
 var _tradesProcessed=new Set(JSON.parse(localStorage.getItem('mtg_trades_processed')||'[]'));
 
 function initNotifications(uid){
@@ -4763,32 +4765,33 @@ function _migrateReparseDecks(dict){
 }
 function loadDecks(){
   loadDeckOrders();
+  // Affichage immédiat depuis le cache localStorage en attendant Firebase
   try{var s=localStorage.getItem('mtg_decks');if(s)decks=JSON.parse(s);}catch(e){decks={};}
   _migrateReparseDecks(decks);
-  renderDBar();
-  db.collection('users').doc(userId).collection('decks').get()
-    .then(function(snapshot){
-      if(!snapshot.empty){
-        var d={};
-        snapshot.forEach(function(doc){d[doc.id]=doc.data();});
-        _migrateReparseDecks(d);
-        // Supprimer les decks orphelins de l'ancien système 3-profils fixes
-        var orphanIds=Object.keys(d).filter(function(id){
-          var dk=d[id];return (dk.owner||0)>0&&!dk.ownerUid;
-        });
-        if(orphanIds.length){
-          var cleanBatch=db.batch();
-          var ref=db.collection('users').doc(userId).collection('decks');
-          orphanIds.forEach(function(id){cleanBatch.delete(ref.doc(id));delete d[id];});
-          cleanBatch.commit().catch(function(e){console.warn('cleanup orphan decks',e);});
-        }
-        decks=d;
-        try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
-        renderDBar();_refreshAllDeckSelects();
-      } else if(Object.keys(decks).length){
-        saveDecks(); // synchro locale → Firebase
+  renderDBar();_refreshAllDeckSelects();
+  // Listener temps réel Firebase — remplace le .get() one-shot
+  if(_decksUnsub){_decksUnsub();_decksUnsub=null;}
+  _decksUnsub=db.collection('users').doc(userId).collection('decks')
+    .onSnapshot(function(snapshot){
+      var d={};
+      snapshot.forEach(function(doc){d[doc.id]=doc.data();});
+      _migrateReparseDecks(d);
+      // Supprimer les decks orphelins de l'ancien système 3-profils fixes
+      var orphanIds=Object.keys(d).filter(function(id){
+        var dk=d[id];return (dk.owner||0)>0&&!dk.ownerUid;
+      });
+      if(orphanIds.length){
+        var cleanBatch=db.batch();
+        var ref=db.collection('users').doc(userId).collection('decks');
+        orphanIds.forEach(function(id){cleanBatch.delete(ref.doc(id));delete d[id];});
+        cleanBatch.commit().catch(function(e){console.warn('cleanup orphan decks',e);});
       }
-    }).catch(function(){});
+      // Si premiere sync et que Firestore est vide mais qu'on a des donnees locales, synchro
+      if(snapshot.empty&&Object.keys(decks).length){saveDecks();return;}
+      decks=d;
+      try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
+      renderDBar();_refreshAllDeckSelects();
+    },function(err){console.warn('decks listener',err);});
 }
 function _refreshAllDeckSelects(){
   // Analyse
