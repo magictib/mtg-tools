@@ -18368,28 +18368,57 @@ function metaFetchMeta(fmt){
     });
 }
 
+var _metaLastHtml=''; // debug : accessible depuis la console navigateur
 function metaParseFormat(html,fmt){
+  _metaLastHtml=html;
   var result=[];var seen={};
-  // Regex sur le HTML brut — plus fiable que DOMParser sur une structure inconnue
-  var re=/href="archetype\?a=(\d+)&(?:amp;)?meta=(\d+)&(?:amp;)?f=([A-Za-z]+)"[^>]*>([^<]+)<\/a>/gi;
+  // Regex permissive : guillemets simples ou doubles, slash optionnel, &amp; ou &
+  var re=/href=["']([^"']*archetype\?a=(\d+)[^"']*)["']/gi;
   var m;
   while((m=re.exec(html))!==null){
-    var a=m[1],meta=m[2],f=m[3],name=m[4].trim();
-    if(!name||seen[a])continue;
+    var fullHref=m[1],a=m[2];
+    if(seen[a])continue;
+    var metaM=fullHref.match(/meta=(\d+)/i);
+    var fM=fullHref.match(/[?&]f=([A-Za-z]+)/i);
+    if(!metaM||!fM)continue;
+    var meta=metaM[1],f=fM[1];
     seen[a]=1;
-    // Chercher le % dans les 300 caractères APRÈS le lien, avant le prochain lien
-    var after=html.substr(m.index+m[0].length,300);
-    var nl=after.indexOf('archetype?a=');if(nl>0)after=after.substr(0,nl);
-    var pm=after.match(/(\d+(?:\.\d+)?)\s*%/);
-    var pct=pm?parseFloat(pm[1]):0;
-    // Catégorie : chercher le dernier mot-clé catégorie dans les 1000 chars AVANT
+    // Nom : texte entre > et </a> après le href
+    var afterHref=html.substr(m.index+m[0].length,300);
+    var nameM=afterHref.match(/>([^<]{1,60})<\/a>/);
+    var name=nameM?nameM[1].trim():'';
+    if(!name)continue;
+    // Pourcentage : dans les 300 chars après </a>, avant le prochain lien archetype
+    var closeA=html.indexOf('</a>',m.index+m[0].length);
+    var pct=0;
+    if(closeA>0){
+      var after=html.substr(closeA+4,300);
+      var nl=after.search(/archetype\?a=/i);if(nl>0)after=after.substr(0,nl);
+      var pm=after.match(/(\d+(?:\.\d+)?)\s*%/);
+      if(pm)pct=parseFloat(pm[1]);
+    }
+    // Catégorie : dernier mot-clé catégorie dans les 1000 chars AVANT
     var before=html.substr(Math.max(0,m.index-1000),1000).toUpperCase();
-    var cat='Other';
-    var bestPos=-1;
+    var cat='Other';var bestPos=-1;
     [{k:'AGGRO',v:'Aggro'},{k:'CONTROL',v:'Control'},{k:'COMBO',v:'Combo'},{k:'MIDRANGE',v:'Midrange'}].forEach(function(c){
       var idx=before.lastIndexOf(c.k);if(idx>bestPos){bestPos=idx;cat=c.v;}
     });
     result.push({a:a,meta:meta,f:f,name:name,pct:pct,cat:cat,colors:metaColorsFromName(name)});
+  }
+  // Fallback si 0 résultats : essayer avec DOMParser (cas href avec attrs avant)
+  if(!result.length){
+    try{
+      var doc=new DOMParser().parseFromString(html,'text/html');
+      doc.querySelectorAll('a').forEach(function(link){
+        var href=link.getAttribute('href')||'';
+        if(href.indexOf('archetype')<0||href.indexOf('a=')<0)return;
+        var aM=href.match(/a=(\d+)/),metaM2=href.match(/meta=(\d+)/),fM2=href.match(/[?&]f=([A-Za-z]+)/i);
+        if(!aM||!metaM2||!fM2)return;
+        var a2=aM[1];if(seen[a2])return;seen[a2]=1;
+        var name2=(link.textContent||'').trim();if(!name2)return;
+        result.push({a:a2,meta:metaM2[1],f:fM2[1],name:name2,pct:0,cat:'Other',colors:metaColorsFromName(name2)});
+      });
+    }catch(e){}
   }
   return result;
 }
