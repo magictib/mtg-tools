@@ -18623,17 +18623,30 @@ function metaCardTipShow(name,e){
   if(typeof _arImgCache!=='undefined'&&_arImgCache[k]){_metaImgCache[k]=_arImgCache[k];show(_metaImgCache[k]);return;}
   // Cache analyse
   if(typeof _anaData!=='undefined'&&_anaData[k]&&_anaData[k].imageUri){_metaImgCache[k]=_anaData[k].imageUri;show(_metaImgCache[k]);return;}
-  // Fetch Scryfall avec délai 300ms pour éviter les requêtes inutiles
+  // Fetch Scryfall avec délai 300ms — images normal, langue utilisateur
   _metaTipTO=setTimeout(function(){
-    fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name))
-      .then(function(r){return r.json();})
-      .then(function(card){
-        var src=(card.card_faces&&card.card_faces[0].image_uris
-          ?card.card_faces[0].image_uris.normal
-          :(card.image_uris?card.image_uris.normal:''));
-        if(src){_metaImgCache[k]=src;show(src);}
+    var lang=(typeof _userLang!=='undefined'&&_userLang)||_arLang||'en';
+    function getImg(d){
+      return (d.image_uris&&d.image_uris.normal)
+        ||(d.card_faces&&d.card_faces[0]&&d.card_faces[0].image_uris&&d.card_faces[0].image_uris.normal)
+        ||'';
+    }
+    function getEn(){
+      fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name))
+        .then(function(r){return r.json();})
+        .then(function(card){var src=getImg(card);if(src){_metaImgCache[k]=src;show(src);}})
+        .catch(function(){});
+    }
+    if(!lang||lang==='en'){getEn();return;}
+    // Chercher impression dans la langue choisie
+    fetch('https://api.scryfall.com/cards/search?q=%21'+encodeURIComponent('"'+name+'"')+'+lang%3A'+encodeURIComponent(lang)+'&unique=prints&order=released&dir=desc')
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){
+        if(!d||!d.data||!d.data.length){getEn();return;}
+        var src=getImg(d.data[0]);
+        if(src){_metaImgCache[k]=src;show(src);}else getEn();
       })
-      .catch(function(){});
+      .catch(function(){getEn();});
   },300);
 }
 function metaCardTipHide(){
