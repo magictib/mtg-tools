@@ -2264,6 +2264,7 @@ body.mana-cursor{cursor:none}
           <button class="btn btnsm" onclick="tourClearKey()" style="margin-left:auto;font-size:.68rem;color:var(--tx3)">✏ Changer clé</button>
         </div>
       </div>
+      <div id="tour-nokey" style="display:none;color:var(--tx3);font-style:italic;font-size:.82rem;padding:1rem">Module non disponible — clé API non configurée (contactez l'administrateur).</div>
       <div id="tour-loading" style="display:none;text-align:center;color:var(--tx3);font-size:.82rem;padding:2rem">Chargement...</div>
       <div id="tour-results"></div>
     </div><!-- /meta-tour-sec -->
@@ -18522,27 +18523,44 @@ function metaSetFmt(fmt){
 var _TOUR_FMT={PAU:'Pauper',MO:'Modern',PI:'Pioneer',ST:'Standard',LE:'Legacy',VI:'Vintage',cEDH:'cEDH',EDH:'Commander',PREM:'Premodern'};
 var _tourLastData=null;
 
+var _TOUR_PROXIES=[
+  '',                                         // direct (Electron)
+  'https://corsproxy.io/?',                   // proxy 1
+  'https://api.codetabs.com/v1/proxy?quest='  // proxy 2
+];
 function _tourFetch(method,path,body){
   var key=localStorage.getItem('ml_topdeck_key')||'';
-  return fetch('https://topdeck.gg/api'+path,{
-    method:method||'GET',
-    headers:{'Authorization':key,'Content-Type':'application/json'},
-    body:body?JSON.stringify(body):undefined
-  }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
+  var target='https://topdeck.gg/api'+path;
+  function tryP(i){
+    if(i>=_TOUR_PROXIES.length)return Promise.reject(new Error('Tous les proxies ont échoué'));
+    var url=_TOUR_PROXIES[i]+(i>0?encodeURIComponent(target):target);
+    return fetch(url,{
+      method:method||'GET',
+      headers:{'Authorization':key,'Content-Type':'application/json'},
+      body:body?JSON.stringify(body):undefined
+    }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .catch(function(e){if(i===0)return tryP(1);throw e;});
+  }
+  return tryP(0);
 }
 function tourSaveKey(){
+  if(_userRole!=='admin')return;
   var inp=document.getElementById('tour-key-in');
   if(!inp||!inp.value.trim())return;
   localStorage.setItem('ml_topdeck_key',inp.value.trim());
   tourInitUI();
 }
-function tourClearKey(){localStorage.removeItem('ml_topdeck_key');tourInitUI();}
+function tourClearKey(){if(_userRole!=='admin')return;localStorage.removeItem('ml_topdeck_key');tourInitUI();}
 function tourInitUI(){
   var hasKey=!!localStorage.getItem('ml_topdeck_key');
+  var isAdmin=_userRole==='admin';
   var setup=document.getElementById('tour-setup');
   var ctrl=document.getElementById('tour-controls');
-  if(setup)setup.style.display=hasKey?'none':'block';
+  var nokey=document.getElementById('tour-nokey');
+  // Seulement l'admin voit le formulaire de saisie
+  if(setup)setup.style.display=(isAdmin&&!hasKey)?'block':'none';
   if(ctrl)ctrl.style.display=hasKey?'block':'none';
+  if(nokey)nokey.style.display=(!hasKey&&!isAdmin)?'block':'none';
 }
 
 function tourLoad(){
@@ -18961,10 +18979,13 @@ function metaRenderMeta(archetypes){
   var content=document.getElementById('meta-content');if(!content)return;
   if(!archetypes.length){
     var dbgLen=_metaLastHtml?_metaLastHtml.length:0;
-    var dbgSnip=_metaLastHtml?_metaLastHtml.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').substring(0,300):'';
-    console.log('[Méta] 0 archétype — HTML reçu: '+dbgLen+' chars');
-    console.log('[Méta] Début du contenu texte:',dbgSnip);
-    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1.5rem 0">Aucun archétype trouvé pour ce format.<br><span style="font-size:.7rem;opacity:.7">HTML reçu: '+dbgLen+' chars — console F12 → coller <code>_metaLastHtml.substring(0,500)</code> pour diagnostiquer.</span></div>';
+    var dbgArchN=((_metaLastHtml||'').match(/href=["'][^"']*archetype[^"']*["']/gi)||[]).length;
+    var dbgSnip=_metaLastHtml?_metaLastHtml.substring(0,300).replace(/</g,'&lt;'):'';
+    console.log('[Méta] 0 archétype — HTML:',dbgLen,'chars, hrefs archetype:',dbgArchN);
+    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1rem 0">Aucun archétype trouvé pour ce format.'
+      +'<br><span style="font-size:.7rem;opacity:.7">HTML reçu: '+dbgLen+' chars · hrefs "archetype" trouvés: '+dbgArchN+'</span>'
+      +(dbgLen>0?'<details style="margin-top:6px"><summary style="cursor:pointer;font-size:.7rem;color:var(--ac)">Afficher les 300 premiers caractères</summary><pre style="font-size:.6rem;white-space:pre-wrap;word-break:break-all;color:var(--tx3);margin-top:4px;max-height:160px;overflow:auto">'+dbgSnip+'</pre></details>':'')
+      +'</div>';
     return;
   }
   var maxPct=Math.max.apply(null,archetypes.map(function(a){return a.pct||0;}));if(!maxPct)maxPct=1;
