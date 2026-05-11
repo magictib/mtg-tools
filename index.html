@@ -4294,20 +4294,49 @@ function _bldEntryBlank(){
 function _bldStartBlank(){
   bldCurDeckId=null;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
   _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;dCommander=null;_bldChecked={};
+  bldSetFormat(_blankFmt);
   var ta=document.getElementById('bld-blank-import');
   var txt=ta?ta.value.trim():'';
+  var parsed=[];
   if(txt){
     var inSide=false;
     txt.split('\n').forEach(function(line){
       line=line.trim();if(!line)return;
       if(/^sideboard/i.test(line)){inSide=true;return;}
-      var m=line.match(/^(\d+)\s+(.+)$/);if(!m)return;
-      var card={name:m[2].trim(),qty:parseInt(m[1]),cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}};
-      if(inSide)bldSide.push(card);else bldMain.push(card);
+      var lm=line.match(/^(\d+)\s+(.+)$/);if(!lm)return;
+      parsed.push({name:lm[2].trim(),qty:parseInt(lm[1]),side:inSide});
     });
   }
-  bldSetFormat(_blankFmt);
-  renderBldDecks();renderBldStats();_bldShowBuilder();
+  if(!parsed.length){renderBldDecks();renderBldStats();_bldShowBuilder();return;}
+  // Batch fetch Scryfall pour enrichir les cartes (même logique que bldLoadSelectedDeck)
+  var names=parsed.map(function(c){return c.name;});
+  var missing=names.filter(function(n){return !bldData[n.toLowerCase()];});
+  function afterFetch(){
+    parsed.forEach(function(c){
+      var d=bldData[c.name.toLowerCase()];
+      var card;
+      if(d){card=Object.assign({},d,{qty:c.qty});}
+      else{
+        var nl=stripDFC(c.name||'').toLowerCase();
+        var am=_anaData[nl];
+        if(am)card={name:c.name,qty:c.qty,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||'',legalities:{}};
+        else card={name:c.name,qty:c.qty,cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}};
+      }
+      if(c.side)bldSide.push(card);else bldMain.push(card);
+    });
+    renderBldDecks();renderBldStats();_bldShowBuilder();
+  }
+  if(!missing.length){afterFetch();return;}
+  var _batches=[];for(var _bi=0;_bi<missing.length;_bi+=75)_batches.push(missing.slice(_bi,_bi+75));
+  function _nextBatch(){
+    if(!_batches.length){afterFetch();return;}
+    var ids=_batches.shift().map(function(n){return{name:n};});
+    fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:ids})})
+      .then(function(r){return r.json();})
+      .then(function(data){(data.data||[]).forEach(function(c){bldData[bldCardObj(c).name.toLowerCase()]=bldCardObj(c);});_nextBatch();})
+      .catch(function(){_nextBatch();});
+  }
+  _nextBatch();
 }
 function _bldBackToWizard(){_bldView='wizard';_bldRefreshView();}
 function _bldShowBuilder(){_bldView='builder';_bldRefreshView();}
@@ -18467,12 +18496,17 @@ function metaParseFormat(html,fmt){
   var result=[];var seenA={};
   // === Passe 1 : regex sur HTML brut — positions, noms, %, params ===
   var rawItems=[];
-  var re=/href=["']([^"']*archetype\?a=(\d+)[^"']*)["']/gi;var m;
+  // Diagnostic : compter les href "archetype" pour aider au debug
+  var _dbgArch=(html.match(/href=["'][^"']*archetype[^"']*["']/gi)||[]);
+  console.log('[Méta] href archetype trouvés:',_dbgArch.length,_dbgArch.slice(0,3));
+  // Regex permissif : href contenant "archetype" + param a= (ordre variable, &amp; décodé)
+  var re=/href=["']([^"']*archetype[^"']*)["']/gi;var m;
   while((m=re.exec(html))!==null){
-    var a=m[2];if(seenA[a])continue;seenA[a]=1;
-    var href=m[1];
-    var metaM=href.match(/meta=(\d+)/i);
-    var fM=href.match(/[?&]f=([A-Za-z]+)/i);
+    var href=m[1].replace(/&amp;/gi,'&');
+    var aM=href.match(/[?&]a=(\d+)/);if(!aM)continue;
+    var a=aM[1];if(seenA[a])continue;seenA[a]=1;
+    var metaM=href.match(/[?&]meta=(\d+)/i);
+    var fM=href.match(/[?&]f=([A-Za-z0-9]+)/i);
     var meta=metaM?metaM[1]:'0';
     var f=fM?fM[1]:fmt;
     // Nom : texte entre > et </a>
