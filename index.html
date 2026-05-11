@@ -2194,8 +2194,11 @@ body.mana-cursor{cursor:none}
       <button class="meta-fmt-btn" id="mfb-EDH" onclick="metaSetFmt('EDH')">Duel Cdr</button>
       <button class="meta-fmt-btn" id="mfb-PREM" onclick="metaSetFmt('PREM')">Premodern</button>
     </div>
-    <!-- Source -->
-    <div style="font-size:.68rem;color:var(--tx3);margin-bottom:12px">Source : <a href="https://mtgtop8.com" target="_blank" style="color:var(--ac);text-decoration:none">mtgtop8.com</a> — 2 dernières semaines</div>
+    <!-- Source + sélecteur de période -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="font-size:.68rem;color:var(--tx3)">Source : <a href="https://mtgtop8.com" target="_blank" style="color:var(--ac);text-decoration:none">mtgtop8.com</a></div>
+      <div id="meta-period-sel" style="display:none"></div>
+    </div>
     <!-- État chargement / erreur -->
     <div id="meta-loading" style="display:none;text-align:center;color:var(--tx3);font-size:.82rem;padding:2rem">Chargement...</div>
     <div id="meta-error" style="display:none;color:var(--rd2);font-size:.82rem;padding:.5rem;background:rgba(200,60,60,.08);border-radius:8px;border:.5px solid rgba(200,60,60,.3)"></div>
@@ -18402,6 +18405,13 @@ function _metaFetch(url){
         if(!r.ok)throw new Error('HTTP '+r.status);
         return r.text();
       })
+      .then(function(text){
+        // Certains proxies retournent du JSON {contents:...} même sur /raw
+        if(text&&text.trimStart().charAt(0)==='{'){
+          try{var j=JSON.parse(text);if(j.contents)return j.contents;}catch(e){}
+        }
+        return text;
+      })
       .catch(function(){return tryProxy(i+1);});
   }
   return tryProxy(0);
@@ -18458,7 +18468,7 @@ function metaSetFmt(fmt){
 }
 
 var _metaTopCards=[];
-function metaFetchMeta(fmt){
+function metaFetchMeta(fmt,metaId){
   var loading=document.getElementById('meta-loading');
   var err=document.getElementById('meta-error');
   var content=document.getElementById('meta-content');
@@ -18466,18 +18476,25 @@ function metaFetchMeta(fmt){
   if(err)err.style.display='none';
   if(content)content.innerHTML='';
   _metaTopCards=[];
-  var url='https://mtgtop8.com/format?f='+fmt;
+  var url='https://mtgtop8.com/format?f='+fmt+(metaId?'&meta='+metaId:'');
   _metaFetch(url)
     .then(function(html){
       if(loading)loading.style.display='none';
+      // Parse periods pour le sélecteur (avant les archétypes)
+      var periods=metaParsePeriods(html);
+      metaRenderPeriodSel(periods,metaId||null);
       _metaArchetypes=metaParseFormat(html,fmt);
-      // Essaie aussi d'extraire les top cards depuis la même page
       _metaTopCards=metaParseTopCards(html);
+      // Si aucun archétype et qu'on a des périodes, relancer avec la 1ère période
+      if(!_metaArchetypes.length&&periods.length&&!metaId){
+        console.log('[Méta] Aucun archétype sans meta=, relance avec période:',periods[0]);
+        metaFetchMeta(fmt,periods[0].id);
+        return;
+      }
       metaRenderMeta(_metaArchetypes);
-      // Fetch séparé topcards si on a un meta ID
-      var metaId=_metaArchetypes.length&&_metaArchetypes[0].meta!=='0'?_metaArchetypes[0].meta:null;
-      if(metaId){
-        _metaFetch('https://mtgtop8.com/topcards?f='+fmt+'&meta='+metaId+'&a=0')
+      var _mid=_metaArchetypes.length&&_metaArchetypes[0].meta!=='0'?_metaArchetypes[0].meta:(metaId||null);
+      if(_mid){
+        _metaFetch('https://mtgtop8.com/topcards?f='+fmt+'&meta='+_mid+'&a=0')
           .then(function(tcHtml){
             var tc=metaParseTopCards(tcHtml);
             if(tc.length>_metaTopCards.length){_metaTopCards=tc;metaRenderMeta(_metaArchetypes);}
@@ -18488,6 +18505,33 @@ function metaFetchMeta(fmt){
       if(loading)loading.style.display='none';
       if(err){err.style.display='block';err.textContent='Impossible de charger le méta ('+e.message+'). Vérifiez votre connexion.';}
     });
+}
+function metaParsePeriods(html){
+  var periods=[];var seen={};
+  // Cherche <option value="NUMBER">label</option> avec libellés de période
+  var re=/<option[^>]+value=["']?(\d+)["']?[^>]*>\s*([^<]{3,60}?)\s*<\/option>/gi;var m;
+  while((m=re.exec(html))!==null){
+    var id=m[1];var label=m[2].trim();var lw=label.toLowerCase();
+    if(!seen[id]&&(lw.indexOf('week')>=0||lw.indexOf('month')>=0||lw.indexOf('day')>=0||lw.indexOf('deck')>=0||lw.indexOf('tournament')>=0||lw.indexOf('event')>=0||/\b\d{4}\b/.test(label))){
+      seen[id]=1;periods.push({id:id,label:label});
+    }
+  }
+  return periods;
+}
+function metaRenderPeriodSel(periods,activeId){
+  var el=document.getElementById('meta-period-sel');if(!el)return;
+  if(!periods.length){el.style.display='none';return;}
+  el.style.display='';
+  var html='<select onchange="metaSetPeriod(this.value)" style="font-size:.75rem;padding:3px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none;cursor:pointer">';
+  periods.forEach(function(p){
+    html+='<option value="'+p.id+'"'+(p.id===String(activeId)?' selected':'')+'>'+p.label+'</option>';
+  });
+  html+='</select>';
+  el.innerHTML=html;
+}
+function metaSetPeriod(metaId){
+  metaCloseDl();
+  metaFetchMeta(_metaFmt,metaId);
 }
 
 var _metaLastHtml=''; // debug : accessible depuis la console navigateur
@@ -18607,8 +18651,10 @@ function metaRenderMeta(archetypes){
   var content=document.getElementById('meta-content');if(!content)return;
   if(!archetypes.length){
     var dbgLen=_metaLastHtml?_metaLastHtml.length:0;
-    console.log('[Méta] 0 archétype — HTML reçu: '+dbgLen+' chars. Inspecter _metaLastHtml pour voir le contenu.');
-    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1.5rem 0">Aucun archétype trouvé pour ce format.<br><span style="font-size:.7rem;opacity:.7">HTML reçu: '+dbgLen+' chars — ouvrir la console (F12) pour diagnostiquer.</span></div>';
+    var dbgSnip=_metaLastHtml?_metaLastHtml.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').substring(0,300):'';
+    console.log('[Méta] 0 archétype — HTML reçu: '+dbgLen+' chars');
+    console.log('[Méta] Début du contenu texte:',dbgSnip);
+    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1.5rem 0">Aucun archétype trouvé pour ce format.<br><span style="font-size:.7rem;opacity:.7">HTML reçu: '+dbgLen+' chars — console F12 → coller <code>_metaLastHtml.substring(0,500)</code> pour diagnostiquer.</span></div>';
     return;
   }
   var maxPct=Math.max.apply(null,archetypes.map(function(a){return a.pct||0;}));if(!maxPct)maxPct=1;
