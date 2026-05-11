@@ -918,6 +918,20 @@ body.mana-cursor{cursor:none}
 .bld-row.bld-notlegal{opacity:.45}
 .bld-row.bld-done{opacity:.45}
 .bld-row.bld-done .bld-cname{text-decoration:line-through;color:var(--tx3)}
+/* META */
+.meta-fmt-btn{padding:4px 11px;border-radius:6px;border:.5px solid var(--bd2);background:transparent;color:var(--tx2);cursor:pointer;font-size:.78rem;transition:all .15s;font-family:inherit}
+.meta-fmt-btn:hover{border-color:var(--ac);color:var(--tx)}
+.meta-fmt-btn.active{background:var(--ac);color:#0c0a07;border-color:var(--ac);font-weight:600}
+.meta-cat-hdr{font-size:9px;font-family:'Goudy Mediaeval',serif;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3);padding:8px 0 4px;border-bottom:.5px solid var(--bd);margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.meta-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:var(--s2);border:.5px solid var(--bd);margin-bottom:4px;cursor:pointer;transition:background .12s,border-color .12s}
+.meta-row:hover{background:var(--s3);border-color:rgba(201,168,76,.4)}
+.meta-row.meta-active{background:rgba(201,168,76,.1);border-color:rgba(201,168,76,.55)}
+.meta-pct-track{width:56px;height:4px;background:var(--s3);border-radius:999px;flex-shrink:0}
+.meta-pct-bar{height:4px;border-radius:999px;background:var(--ac)}
+.meta-pip{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;font-size:.58rem;font-weight:700;border:.5px solid rgba(255,255,255,.15);flex-shrink:0}
+.meta-cardlist{columns:2 180px;column-gap:14px;font-size:.78rem;line-height:1.8}
+.meta-card-row{display:flex;gap:5px;break-inside:avoid}
+.meta-section-lbl{font-size:.62rem;color:var(--tx3);letter-spacing:.1em;font-family:'Goudy Mediaeval',serif;text-transform:uppercase;padding:4px 0 2px;break-before:column}
 .bld-row.bld-drag-over{border-top:2px solid var(--gold2);background:rgba(201,168,76,.08)}
 .bld-drop-zone{min-height:36px;border-radius:6px;transition:background .1s}
 .bld-drop-zone.bld-dz-active{background:rgba(201,168,76,.06);outline:1.5px dashed rgba(201,168,76,.35)}
@@ -1188,6 +1202,7 @@ body.mana-cursor{cursor:none}
   <button class="tab-btn" id="tb-deck" onclick="goTab('deck')">♠ Deck</button>
   <button class="tab-btn" id="tb-analyse" onclick="goTab('analyse');anaInit()">📊 Analyse</button>
   <button class="tab-btn" id="tb-arena" onclick="goTab('arena')">⚡ Arène</button>
+  <button class="tab-btn" id="tb-meta" onclick="goTab('meta');metaInit()">🌐 Méta</button>
   <button class="tab-btn" id="tb-scry" onclick="goTab('scry');loadScryfallSets()">🔮 Biblio</button>
   <button class="tab-btn" id="tb-trade" onclick="goTab('trade');renderTradePage()">⚖ Échanges</button>
   <button class="tab-btn" id="tb-conv" onclick="goTab('conv')">⇄ Conv.</button>
@@ -2120,6 +2135,52 @@ body.mana-cursor{cursor:none}
 <div id="bld-ghost"><img id="bld-ghost-img" src="" alt=""></div>
 </div>
 
+
+<!-- META -->
+<div class="page" id="pg-meta">
+  <div style="max-width:740px;margin:0 auto">
+    <!-- Sélecteur de format -->
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="meta-fmt-btn active" id="mfb-PAU" onclick="metaSetFmt('PAU')">Pauper</button>
+      <button class="meta-fmt-btn" id="mfb-MO" onclick="metaSetFmt('MO')">Modern</button>
+      <button class="meta-fmt-btn" id="mfb-PI" onclick="metaSetFmt('PI')">Pioneer</button>
+      <button class="meta-fmt-btn" id="mfb-ST" onclick="metaSetFmt('ST')">Standard</button>
+      <button class="meta-fmt-btn" id="mfb-LE" onclick="metaSetFmt('LE')">Legacy</button>
+      <button class="meta-fmt-btn" id="mfb-VI" onclick="metaSetFmt('VI')">Vintage</button>
+      <button class="meta-fmt-btn" id="mfb-cEDH" onclick="metaSetFmt('cEDH')">cEDH</button>
+      <button class="meta-fmt-btn" id="mfb-EDH" onclick="metaSetFmt('EDH')">Duel Cdr</button>
+      <button class="meta-fmt-btn" id="mfb-PREM" onclick="metaSetFmt('PREM')">Premodern</button>
+    </div>
+    <!-- Source -->
+    <div style="font-size:.68rem;color:var(--tx3);margin-bottom:12px">Source : <a href="https://mtgtop8.com" target="_blank" style="color:var(--ac);text-decoration:none">mtgtop8.com</a> — 2 dernières semaines</div>
+    <!-- État chargement / erreur -->
+    <div id="meta-loading" style="display:none;text-align:center;color:var(--tx3);font-size:.82rem;padding:2rem">Chargement...</div>
+    <div id="meta-error" style="display:none;color:var(--rd2);font-size:.82rem;padding:.5rem;background:rgba(200,60,60,.08);border-radius:8px;border:.5px solid rgba(200,60,60,.3)"></div>
+    <!-- Table des archétypes -->
+    <div id="meta-content"></div>
+    <!-- Panel deck list (affiché quand on clique un archétype) -->
+    <div id="meta-dl-panel" style="display:none;margin-top:10px">
+      <div class="card" style="padding:10px 14px">
+        <!-- Titre + fermer -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div class="lbl" style="margin-bottom:0;flex:1" id="meta-dl-title">—</div>
+          <button class="btn btnsm" onclick="metaCloseDl()" style="color:var(--tx3);border-color:rgba(150,150,150,.3)">✕</button>
+        </div>
+        <!-- Navigation gauche / droite -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <button class="btn btnsm" id="meta-nav-prev" onclick="metaNavDeck(-1)" style="padding:4px 12px;font-size:.9rem">◀</button>
+          <div style="flex:1;text-align:center">
+            <div id="meta-nav-info" style="font-size:.75rem;color:var(--tx2)"></div>
+            <div id="meta-deck-meta" style="font-size:.7rem;color:var(--tx3);margin-top:2px"></div>
+          </div>
+          <button class="btn btnsm" id="meta-nav-next" onclick="metaNavDeck(1)" style="padding:4px 12px;font-size:.9rem">▶</button>
+        </div>
+        <!-- Contenu du deck -->
+        <div id="meta-deck-content" style="min-height:80px"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- RÈGLES -->
 <div class="page" id="pg-rules">
@@ -18210,6 +18271,266 @@ function arPoolRender(){
       +'<button class="btn btnsm btnrd" onclick="arPoolDelete(\''+d.id+'\')" style="padding:1px 7px;font-size:.65rem;flex-shrink:0">✕</button>'
       +'</div>';
   }).join('');
+}
+
+// ===== META (MTGTop8) =====
+var _metaFmt='PAU';
+var _metaArchetypes=[];
+var _metaDecks=[];
+var _metaDeckIdx=0;
+var _metaActiveA=null;
+var _metaLoaded=false;
+var _META_PROXY='https://corsproxy.io/?';
+
+var _META_COLORS={
+  'azorius':['W','U'],'dimir':['U','B'],'rakdos':['B','R'],'gruul':['R','G'],
+  'selesnya':['G','W'],'orzhov':['W','B'],'izzet':['U','R'],'golgari':['B','G'],
+  'simic':['G','U'],'boros':['R','W'],
+  'esper':['W','U','B'],'grixis':['U','B','R'],'jund':['B','R','G'],
+  'naya':['R','G','W'],'bant':['G','W','U'],
+  'mardu':['R','W','B'],'temur':['G','U','R'],'abzan':['W','B','G'],
+  'sultai':['B','G','U'],'jeskai':['U','R','W'],
+  'mono blue':['U'],'mono black':['B'],'mono red':['R'],'mono green':['G'],'mono white':['W'],
+  'uw ':['W','U'],'ur ':['U','R'],'ub ':['U','B'],'rg ':['R','G'],'bg ':['B','G'],
+  'rw ':['R','W'],'wb ':['W','B'],'ug ':['U','G'],'rb ':['B','R'],'gw ':['G','W'],
+  'burn':['R'],'elves':['G'],'faeries':['U','B'],'merfolk':['U'],
+  'storm':['U','R'],'urzatron':['C'],'tron':['C'],'affinity':['U','B','R'],
+  'blue':['U'],'black':['B'],'red':['R'],'green':['G'],'white':['W'],
+};
+var _META_PIP={
+  W:{bg:'#f0ead0',fg:'#3a2800',s:'W'},U:{bg:'#1a5fa0',fg:'#ddeeff',s:'U'},
+  B:{bg:'#1a1028',fg:'#d0a0ff',s:'B'},R:{bg:'#b03020',fg:'#ffe0d8',s:'R'},
+  G:{bg:'#1a5830',fg:'#c0ffcc',s:'G'},C:{bg:'#606070',fg:'#fff',s:'◇'}
+};
+
+function metaColorsFromName(name){
+  var n=(name||'').toLowerCase()+' ';
+  for(var k in _META_COLORS){if(n.indexOf(k)>=0)return _META_COLORS[k];}
+  var abbr=n.match(/^([wubrg]{2,4})\s/);
+  if(abbr){var s=abbr[1];var r=[];['w','u','b','r','g'].forEach(function(c){if(s.indexOf(c)>=0)r.push(c.toUpperCase());});return r;}
+  return [];
+}
+
+function metaColorPips(colors){
+  return (colors||[]).slice(0,5).map(function(c){
+    var p=_META_PIP[c]||{bg:'var(--s3)',fg:'var(--tx)',s:c};
+    return '<span class="meta-pip" style="background:'+p.bg+';color:'+p.fg+'">'+p.s+'</span>';
+  }).join('');
+}
+
+function metaInit(){
+  if(_metaLoaded)return;
+  _metaLoaded=true;
+  metaFetchMeta(_metaFmt);
+}
+
+function metaSetFmt(fmt){
+  _metaFmt=fmt;
+  document.querySelectorAll('.meta-fmt-btn').forEach(function(b){b.classList.remove('active');});
+  var ab=document.getElementById('mfb-'+fmt);if(ab)ab.classList.add('active');
+  metaCloseDl();
+  metaFetchMeta(fmt);
+}
+
+function metaFetchMeta(fmt){
+  var loading=document.getElementById('meta-loading');
+  var err=document.getElementById('meta-error');
+  var content=document.getElementById('meta-content');
+  if(loading)loading.style.display='block';
+  if(err)err.style.display='none';
+  if(content)content.innerHTML='';
+  var url='https://mtgtop8.com/format?f='+fmt;
+  fetch(_META_PROXY+encodeURIComponent(url))
+    .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
+    .then(function(html){
+      if(loading)loading.style.display='none';
+      _metaArchetypes=metaParseFormat(html,fmt);
+      metaRenderMeta(_metaArchetypes);
+    })
+    .catch(function(e){
+      if(loading)loading.style.display='none';
+      if(err){err.style.display='block';err.textContent='Impossible de charger le méta ('+e.message+'). Vérifiez votre connexion.';}
+    });
+}
+
+function metaParseFormat(html,fmt){
+  var parser=new DOMParser();
+  var doc=parser.parseFromString(html,'text/html');
+  var result=[];var seen={};
+  var links=doc.querySelectorAll('a[href*="archetype?a="]');
+  links.forEach(function(link){
+    var href=link.getAttribute('href')||'';
+    var m=href.match(/archetype\?a=(\d+)&(?:amp;)?meta=(\d+)&(?:amp;)?f=([A-Za-z]+)/i);
+    if(!m)return;
+    var name=(link.textContent||'').trim();
+    if(!name||seen[m[1]])return;
+    seen[m[1]]=1;
+    var row=link.closest('tr')||link.closest('div')||link.parentElement;
+    var pct=0;
+    if(row){var pm=(row.textContent||'').match(/(\d+(?:\.\d+)?)\s*%/);if(pm)pct=parseFloat(pm[1]);}
+    // Catégorie : remonter dans les tr précédents pour trouver un header
+    var cat='Other';
+    var tr=link.closest('tr');
+    if(tr){
+      var sib=tr.previousElementSibling;
+      while(sib){
+        var st=(sib.textContent||'').toUpperCase();
+        if(st.indexOf('AGGRO')>=0){cat='Aggro';break;}
+        if(st.indexOf('CONTROL')>=0){cat='Control';break;}
+        if(st.indexOf('COMBO')>=0){cat='Combo';break;}
+        if(st.indexOf('MIDRANGE')>=0){cat='Midrange';break;}
+        sib=sib.previousElementSibling;
+      }
+    }
+    result.push({a:m[1],meta:m[2],f:m[3],name:name,pct:pct,cat:cat,colors:metaColorsFromName(name)});
+  });
+  return result;
+}
+
+function metaRenderMeta(archetypes){
+  var content=document.getElementById('meta-content');if(!content)return;
+  if(!archetypes.length){
+    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1.5rem 0">Aucun archétype trouvé pour ce format.</div>';
+    return;
+  }
+  var maxPct=Math.max.apply(null,archetypes.map(function(a){return a.pct||0;}));if(!maxPct)maxPct=1;
+  var cats=['Aggro','Control','Combo','Midrange','Other'];
+  var groups={};cats.forEach(function(c){groups[c]=[];});
+  archetypes.forEach(function(a){var g=groups[a.cat];if(g)g.push(a);else groups['Other'].push(a);});
+  var catColors={Aggro:'#e06050',Control:'#5a9fd4',Combo:'#c090e0',Midrange:'#56b070',Other:'var(--tx3)'};
+  var html='';
+  cats.forEach(function(cat){
+    var grp=groups[cat];if(!grp||!grp.length)return;
+    var catPct=Math.round(grp.reduce(function(s,a){return s+(a.pct||0);},0));
+    html+='<div class="meta-cat-hdr"><span style="color:'+catColors[cat]+'">'+cat.toUpperCase()+'</span>';
+    if(catPct)html+='<span style="font-size:.7rem;font-weight:400;letter-spacing:0;color:var(--tx3)">'+catPct+'%</span>';
+    html+='</div>';
+    grp.forEach(function(arch){
+      var isActive=_metaActiveA===arch.a;
+      var pctW=maxPct?Math.round((arch.pct||0)/maxPct*100):0;
+      html+='<div class="meta-row'+(isActive?' meta-active':'')+'" onclick="metaClickArchetype(\''+arch.a+'\',\''+arch.meta+'\',\''+arch.f+'\','+JSON.stringify(arch.name)+')">'
+        +'<div style="display:flex;gap:2px;min-width:56px;flex-shrink:0">'+metaColorPips(arch.colors)+'</div>'
+        +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(arch.name)+'</div>'
+        +(arch.pct?'<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
+          +'<div class="meta-pct-track"><div class="meta-pct-bar" style="width:'+pctW+'%"></div></div>'
+          +'<span style="font-size:.72rem;color:var(--tx2);min-width:30px;text-align:right">'+arch.pct+'%</span>'
+          +'</div>':'')
+        +'</div>';
+    });
+    html+='<div style="height:8px"></div>';
+  });
+  content.innerHTML=html;
+}
+
+function metaClickArchetype(a,meta,fmt,name){
+  if(_metaActiveA===a){metaCloseDl();return;}
+  _metaActiveA=a;
+  metaRenderMeta(_metaArchetypes);
+  var panel=document.getElementById('meta-dl-panel');
+  var title=document.getElementById('meta-dl-title');
+  var content=document.getElementById('meta-deck-content');
+  var navInfo=document.getElementById('meta-nav-info');
+  var deckMeta=document.getElementById('meta-deck-meta');
+  if(panel)panel.style.display='block';
+  if(title)title.textContent=name;
+  if(content)content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem;padding:.5rem 0">Chargement des decks...</div>';
+  if(navInfo)navInfo.textContent='';
+  if(deckMeta)deckMeta.textContent='';
+  _metaDecks=[];_metaDeckIdx=0;
+  if(panel)setTimeout(function(){panel.scrollIntoView({behavior:'smooth',block:'nearest'});},120);
+  fetch(_META_PROXY+encodeURIComponent('https://mtgtop8.com/archetype?a='+a+'&meta='+meta+'&f='+fmt))
+    .then(function(r){return r.text();})
+    .then(function(html){
+      _metaDecks=metaParseArchetype(html);
+      _metaDeckIdx=0;
+      if(_metaDecks.length){metaLoadDeck(0);}
+      else{var c=document.getElementById('meta-deck-content');if(c)c.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem">Aucun deck trouvé.</div>';}
+    })
+    .catch(function(e){
+      var c=document.getElementById('meta-deck-content');
+      if(c)c.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Erreur: '+e.message+'</div>';
+    });
+}
+
+function metaParseArchetype(html){
+  var parser=new DOMParser();
+  var doc=parser.parseFromString(html,'text/html');
+  var result=[];var seen={};
+  var links=Array.from(doc.querySelectorAll('a[href]')).filter(function(l){
+    return /[?&]d=\d+/.test(l.getAttribute('href')||'');
+  });
+  links.forEach(function(link){
+    var href=link.getAttribute('href')||'';
+    var m=href.match(/e=(\d+)&(?:amp;)?d=(\d+)/);
+    if(!m)return;
+    var d=m[2];if(seen[d])return;seen[d]=1;
+    var row=link.closest('tr')||link.parentElement;
+    var rowTxt=row?(row.textContent||'').replace(/\s+/g,' ').trim():'';
+    var dateM=rowTxt.match(/\d{2}\/\d{2}\/\d{2,4}/);
+    var deckName=(link.textContent||'').trim()||'Deck #'+d;
+    // Cherche le nom du joueur et de l'event dans les td voisins
+    var player='';var event_='';
+    if(row&&row.querySelectorAll){
+      var tds=Array.from(row.querySelectorAll('td'));
+      if(tds.length>=2)player=(tds[0].textContent||'').trim();
+      if(tds.length>=3)event_=(tds[2].textContent||'').trim().substring(0,40);
+    }
+    result.push({e:m[1],d:d,name:deckName,player:player,event:event_,date:dateM?dateM[0]:''});
+  });
+  return result;
+}
+
+function metaNavDeck(dir){
+  if(!_metaDecks.length)return;
+  _metaDeckIdx=(_metaDeckIdx+dir+_metaDecks.length)%_metaDecks.length;
+  metaLoadDeck(_metaDeckIdx);
+}
+
+function metaLoadDeck(idx){
+  _metaDeckIdx=idx;
+  var dk=_metaDecks[idx];if(!dk)return;
+  var content=document.getElementById('meta-deck-content');
+  var navInfo=document.getElementById('meta-nav-info');
+  var deckMeta=document.getElementById('meta-deck-meta');
+  if(navInfo)navInfo.textContent=(idx+1)+' / '+_metaDecks.length;
+  var info='';
+  if(dk.player)info+=esc(dk.player);
+  if(dk.name&&dk.name!==dk.player)info+=(info?' — ':'')+esc(dk.name);
+  if(dk.event)info+=(info?' · ':'')+esc(dk.event);
+  if(dk.date)info+=(info?' · ':'')+esc(dk.date);
+  if(deckMeta)deckMeta.innerHTML=info;
+  if(content)content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem;padding:.5rem 0">Chargement...</div>';
+  fetch(_META_PROXY+encodeURIComponent('https://mtgtop8.com/mtgo?d='+dk.d))
+    .then(function(r){return r.text();})
+    .then(function(txt){if(content)content.innerHTML=metaRenderDeckTxt(txt);})
+    .catch(function(e){if(content)content.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Erreur: '+e.message+'</div>';});
+}
+
+function metaRenderDeckTxt(txt){
+  var lines=(txt||'').split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  var main=[],side=[];var inSide=false;
+  lines.forEach(function(l){
+    if(/^sideboard$/i.test(l)){inSide=true;return;}
+    var m=l.match(/^(\d+)\s+(.+)$/);
+    if(m)(inSide?side:main).push({qty:parseInt(m[1]),name:m[2]});
+  });
+  function cardLine(c){
+    return '<div class="meta-card-row"><span style="color:var(--gold2);min-width:18px;text-align:right;font-size:.76rem;flex-shrink:0">'+c.qty+'</span><span style="font-size:.79rem;color:var(--tx)">'+esc(c.name)+'</span></div>';
+  }
+  var total=main.reduce(function(s,c){return s+c.qty;},0);
+  var stotal=side.reduce(function(s,c){return s+c.qty;},0);
+  return '<div class="meta-cardlist">'
+    +'<div class="meta-section-lbl">Deck ('+total+')</div>'
+    +main.map(cardLine).join('')
+    +(side.length?'<div class="meta-section-lbl" style="margin-top:6px">Sideboard ('+stotal+')</div>'+side.map(cardLine).join(''):'')
+    +'</div>';
+}
+
+function metaCloseDl(){
+  _metaActiveA=null;
+  var panel=document.getElementById('meta-dl-panel');
+  if(panel)panel.style.display='none';
+  metaRenderMeta(_metaArchetypes);
 }
 
 </script>
