@@ -18636,9 +18636,43 @@ function tourRenderList(allData,fmt){
 }
 
 function tourGetArch(p){
+  if(p._arch)return p._arch; // enrichi par Moxfield
   if(p.deckObj){var d=p.deckObj;if(d.archetype)return d.archetype;if(d.name)return d.name;}
   if(p.archetype)return p.archetype;
   return null;
+}
+
+// Extrait l'ID Moxfield depuis une URL de decklist
+function _mxId(url){
+  if(!url)return null;
+  var m=(url||'').match(/moxfield\.com\/decks\/([A-Za-z0-9_\-]+)/);
+  return m?m[1]:null;
+}
+
+// Récupère les noms de decks Moxfield pour une liste de joueurs,
+// puis injecte p._arch = nom du deck sur chaque joueur
+function _enrichMoxfield(players, cb){
+  var ids=[];var idToPlayers={};
+  players.forEach(function(p){
+    var id=_mxId(p.decklist);
+    if(!id)return;
+    ids.push(id);
+    if(!idToPlayers[id])idToPlayers[id]=[];
+    idToPlayers[id].push(p);
+  });
+  if(!ids.length){cb();return;}
+  fetch('/api/tour',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mxIds:ids})
+  }).then(function(r){return r.json();})
+    .then(function(arr){
+      arr.forEach(function(item){
+        if(item.name&&idToPlayers[item.id]){
+          idToPlayers[item.id].forEach(function(p){p._arch=item.name;});
+        }
+      });
+      cb();
+    }).catch(function(){cb();});
 }
 
 function tourRenderArchTable(allData){
@@ -18693,8 +18727,17 @@ function tourShowDetail(tid){
 
   var renderDetail=function(rounds){
     var standings=t.standings.length?t.standings:t.embStandings;
+    // Collect all players from standings + rounds for Moxfield enrichment
+    var allPlayersMap={};
+    standings.forEach(function(p){if(p.id)allPlayersMap[p.id]=p;});
+    if(rounds){rounds.forEach(function(r){(r.tables||[]).forEach(function(tbl){(tbl.players||[]).forEach(function(p){if(p.id&&!allPlayersMap[p.id])allPlayersMap[p.id]=p;});});});}
+    var allPlayers=Object.values?Object.values(allPlayersMap):Object.keys(allPlayersMap).map(function(k){return allPlayersMap[k];});
+    // Enrich with Moxfield deck names, then render
+    if(loading){loading.style.display='block';loading.textContent='Récupération des decklists...';}
+    _enrichMoxfield(allPlayers,function(){
+    if(loading)loading.style.display='none';
     var playerArch={};var matrix={};
-    // Build archetype map from standings
+    // Build archetype map from standings (now with _arch injected)
     standings.forEach(function(p){var a=tourGetArch(p);if(a&&p.id)playerArch[p.id]=a;});
     // Build matchup matrix from rounds
     if(rounds&&rounds.length){
@@ -18765,6 +18808,7 @@ function tourShowDetail(tid){
     });
     html+='</tbody></table></div>';
     results.innerHTML=html;
+    });// fin _enrichMoxfield
   };
 
   // Fetch rounds + render
@@ -18772,10 +18816,8 @@ function tourShowDetail(tid){
   results.innerHTML='';
   _tourFetch('GET','/v2/tournaments/'+tid+'/rounds')
     .then(function(rounds){
-      if(loading)loading.style.display='none';
       renderDetail(Array.isArray(rounds)?rounds:[]);
     }).catch(function(){
-      if(loading)loading.style.display='none';
       renderDetail([]);
     });
 }
