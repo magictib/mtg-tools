@@ -18369,36 +18369,28 @@ function metaFetchMeta(fmt){
 }
 
 function metaParseFormat(html,fmt){
-  var parser=new DOMParser();
-  var doc=parser.parseFromString(html,'text/html');
   var result=[];var seen={};
-  var links=doc.querySelectorAll('a[href*="archetype?a="]');
-  links.forEach(function(link){
-    var href=link.getAttribute('href')||'';
-    var m=href.match(/archetype\?a=(\d+)&(?:amp;)?meta=(\d+)&(?:amp;)?f=([A-Za-z]+)/i);
-    if(!m)return;
-    var name=(link.textContent||'').trim();
-    if(!name||seen[m[1]])return;
-    seen[m[1]]=1;
-    var row=link.closest('tr')||link.closest('div')||link.parentElement;
-    var pct=0;
-    if(row){var pm=(row.textContent||'').match(/(\d+(?:\.\d+)?)\s*%/);if(pm)pct=parseFloat(pm[1]);}
-    // Catégorie : remonter dans les tr précédents pour trouver un header
+  // Regex sur le HTML brut — plus fiable que DOMParser sur une structure inconnue
+  var re=/href="archetype\?a=(\d+)&(?:amp;)?meta=(\d+)&(?:amp;)?f=([A-Za-z]+)"[^>]*>([^<]+)<\/a>/gi;
+  var m;
+  while((m=re.exec(html))!==null){
+    var a=m[1],meta=m[2],f=m[3],name=m[4].trim();
+    if(!name||seen[a])continue;
+    seen[a]=1;
+    // Chercher le % dans les 300 caractères APRÈS le lien, avant le prochain lien
+    var after=html.substr(m.index+m[0].length,300);
+    var nl=after.indexOf('archetype?a=');if(nl>0)after=after.substr(0,nl);
+    var pm=after.match(/(\d+(?:\.\d+)?)\s*%/);
+    var pct=pm?parseFloat(pm[1]):0;
+    // Catégorie : chercher le dernier mot-clé catégorie dans les 1000 chars AVANT
+    var before=html.substr(Math.max(0,m.index-1000),1000).toUpperCase();
     var cat='Other';
-    var tr=link.closest('tr');
-    if(tr){
-      var sib=tr.previousElementSibling;
-      while(sib){
-        var st=(sib.textContent||'').toUpperCase();
-        if(st.indexOf('AGGRO')>=0){cat='Aggro';break;}
-        if(st.indexOf('CONTROL')>=0){cat='Control';break;}
-        if(st.indexOf('COMBO')>=0){cat='Combo';break;}
-        if(st.indexOf('MIDRANGE')>=0){cat='Midrange';break;}
-        sib=sib.previousElementSibling;
-      }
-    }
-    result.push({a:m[1],meta:m[2],f:m[3],name:name,pct:pct,cat:cat,colors:metaColorsFromName(name)});
-  });
+    var bestPos=-1;
+    [{k:'AGGRO',v:'Aggro'},{k:'CONTROL',v:'Control'},{k:'COMBO',v:'Combo'},{k:'MIDRANGE',v:'Midrange'}].forEach(function(c){
+      var idx=before.lastIndexOf(c.k);if(idx>bestPos){bestPos=idx;cat=c.v;}
+    });
+    result.push({a:a,meta:meta,f:f,name:name,pct:pct,cat:cat,colors:metaColorsFromName(name)});
+  }
   return result;
 }
 
@@ -18420,10 +18412,11 @@ function metaRenderMeta(archetypes){
     html+='<div class="meta-cat-hdr"><span style="color:'+catColors[cat]+'">'+cat.toUpperCase()+'</span>';
     if(catPct)html+='<span style="font-size:.7rem;font-weight:400;letter-spacing:0;color:var(--tx3)">'+catPct+'%</span>';
     html+='</div>';
-    grp.forEach(function(arch){
+    grp.forEach(function(arch,_gi){
       var isActive=_metaActiveA===arch.a;
       var pctW=maxPct?Math.round((arch.pct||0)/maxPct*100):0;
-      html+='<div class="meta-row'+(isActive?' meta-active':'')+'" onclick="metaClickArchetype(\''+arch.a+'\',\''+arch.meta+'\',\''+arch.f+'\','+JSON.stringify(arch.name)+')">'
+      var globalIdx=_metaArchetypes.indexOf(arch);
+      html+='<div class="meta-row'+(isActive?' meta-active':'')+'" onclick="metaClickByIdx('+globalIdx+')">'
         +'<div style="display:flex;gap:2px;min-width:56px;flex-shrink:0">'+metaColorPips(arch.colors)+'</div>'
         +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(arch.name)+'</div>'
         +(arch.pct?'<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
@@ -18435,6 +18428,11 @@ function metaRenderMeta(archetypes){
     html+='<div style="height:8px"></div>';
   });
   content.innerHTML=html;
+}
+
+function metaClickByIdx(i){
+  var arch=_metaArchetypes[i];if(!arch)return;
+  metaClickArchetype(arch.a,arch.meta,arch.f,arch.name);
 }
 
 function metaClickArchetype(a,meta,fmt,name){
