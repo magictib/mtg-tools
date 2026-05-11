@@ -18526,6 +18526,11 @@ function metaParseArchetype(html){
   return result;
 }
 
+// Cache texte brut des decklists : clé = deck ID
+var _metaDeckCache={};
+// Cache images Scryfall pour le zoom hover : clé = nom en minuscules
+var _metaImgCache={};
+
 function metaNavDeck(dir){
   if(!_metaDecks.length)return;
   _metaDeckIdx=(_metaDeckIdx+dir+_metaDecks.length)%_metaDecks.length;
@@ -18545,10 +18550,34 @@ function metaLoadDeck(idx){
   if(dk.event)info+=(info?' · ':'')+esc(dk.event);
   if(dk.date)info+=(info?' · ':'')+esc(dk.date);
   if(deckMeta)deckMeta.innerHTML=info;
+  // Affichage instantané si déjà en cache
+  if(_metaDeckCache[dk.d]){
+    if(content)content.innerHTML=metaRenderDeckTxt(_metaDeckCache[dk.d]);
+    metaPreloadAdjacent(idx);
+    return;
+  }
   if(content)content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem;padding:.5rem 0">Chargement...</div>';
   _metaFetch('https://mtgtop8.com/mtgo?d='+dk.d)
-    .then(function(txt){if(content)content.innerHTML=metaRenderDeckTxt(txt);})
-    .catch(function(e){if(content)content.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Erreur: '+e.message+'</div>';});
+    .then(function(txt){
+      _metaDeckCache[dk.d]=txt;
+      // Afficher seulement si l'utilisateur est encore sur ce deck
+      if(_metaDeckIdx===idx&&content)content.innerHTML=metaRenderDeckTxt(txt);
+      metaPreloadAdjacent(idx);
+    })
+    .catch(function(e){if(_metaDeckIdx===idx&&content)content.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Erreur: '+e.message+'</div>';});
+}
+
+function metaPreloadAdjacent(idx){
+  // Précharge silencieusement les 2 suivants et 1 précédent
+  [-1,1,2,-2].forEach(function(offset){
+    var i=(idx+offset+_metaDecks.length)%_metaDecks.length;
+    var dk=_metaDecks[i];
+    if(dk&&!_metaDeckCache[dk.d]){
+      _metaFetch('https://mtgtop8.com/mtgo?d='+dk.d)
+        .then(function(txt){_metaDeckCache[dk.d]=txt;})
+        .catch(function(){});
+    }
+  });
 }
 
 function metaRenderDeckTxt(txt){
@@ -18560,7 +18589,11 @@ function metaRenderDeckTxt(txt){
     if(m)(inSide?side:main).push({qty:parseInt(m[1]),name:m[2]});
   });
   function cardLine(c){
-    return '<div class="meta-card-row"><span style="color:var(--gold2);min-width:18px;text-align:right;font-size:.76rem;flex-shrink:0">'+c.qty+'</span><span style="font-size:.79rem;color:var(--tx)">'+esc(c.name)+'</span></div>';
+    var nm=c.name.replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+    return '<div class="meta-card-row" onmouseenter="metaCardTipShow(\''+nm+'\',event)" onmouseleave="metaCardTipHide()">'
+      +'<span style="color:var(--gold2);min-width:18px;text-align:right;font-size:.76rem;flex-shrink:0">'+c.qty+'</span>'
+      +'<span style="font-size:.79rem;color:var(--tx)">'+esc(c.name)+'</span>'
+      +'</div>';
   }
   var total=main.reduce(function(s,c){return s+c.qty;},0);
   var stotal=side.reduce(function(s,c){return s+c.qty;},0);
@@ -18571,10 +18604,56 @@ function metaRenderDeckTxt(txt){
     +'</div>';
 }
 
+// ---- Zoom carte au survol ----
+var _metaTipTO=null;
+function metaCardTipShow(name,e){
+  clearTimeout(_metaTipTO);
+  var tip=document.getElementById('ctip');
+  var img=document.getElementById('ctipimg');
+  if(!tip||!img)return;
+  var k=name.toLowerCase();
+  function show(src){
+    img.src=src;
+    tip.style.display='block';
+    _metaTipPos(e);
+  }
+  // Cache hit
+  if(_metaImgCache[k]){show(_metaImgCache[k]);return;}
+  // Cache partagé arena
+  if(typeof _arImgCache!=='undefined'&&_arImgCache[k]){_metaImgCache[k]=_arImgCache[k];show(_metaImgCache[k]);return;}
+  // Cache analyse
+  if(typeof _anaData!=='undefined'&&_anaData[k]&&_anaData[k].imageUri){_metaImgCache[k]=_anaData[k].imageUri;show(_metaImgCache[k]);return;}
+  // Fetch Scryfall avec délai 300ms pour éviter les requêtes inutiles
+  _metaTipTO=setTimeout(function(){
+    fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name))
+      .then(function(r){return r.json();})
+      .then(function(card){
+        var src=(card.card_faces&&card.card_faces[0].image_uris
+          ?card.card_faces[0].image_uris.normal
+          :(card.image_uris?card.image_uris.normal:''));
+        if(src){_metaImgCache[k]=src;show(src);}
+      })
+      .catch(function(){});
+  },300);
+}
+function metaCardTipHide(){
+  clearTimeout(_metaTipTO);
+  var tip=document.getElementById('ctip');
+  if(tip)tip.style.display='none';
+}
+function _metaTipPos(e){
+  var tip=document.getElementById('ctip');if(!tip||tip.style.display==='none')return;
+  var x=e.clientX+18,y=e.clientY-60;
+  if(x+210>window.innerWidth-8)x=e.clientX-220;
+  if(y+295>window.innerHeight-8)y=window.innerHeight-300;
+  tip.style.left=Math.max(4,x)+'px';tip.style.top=Math.max(4,y)+'px';
+}
+
 function metaCloseDl(){
   _metaActiveA=null;
   var panel=document.getElementById('meta-dl-panel');
   if(panel)panel.style.display='none';
+  metaCardTipHide();
   metaRenderMeta(_metaArchetypes);
 }
 
