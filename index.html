@@ -18523,37 +18523,14 @@ function metaSetFmt(fmt){
 var _TOUR_FMT={PAU:'Pauper',MO:'Modern',PI:'Pioneer',ST:'Standard',LE:'Legacy',VI:'Vintage',cEDH:'cEDH',EDH:'Commander',PREM:'Premodern'};
 var _tourLastData=null;
 
-var _TOUR_PROXIES=[
-  '',                                         // direct (Electron)
-  'https://corsproxy.io/?',                   // proxy 1
-  'https://api.codetabs.com/v1/proxy?quest='  // proxy 2
-];
 function _tourFetch(method,path,body){
   var key=localStorage.getItem('ml_topdeck_key')||'';
-  var target='https://topdeck.gg/api'+path;
-  // In Electron: use IPC bridge (main process, no CORS restrictions)
-  if(window.electronAPI&&window.electronAPI.httpFetch){
-    return window.electronAPI.httpFetch({
-      method:method||'GET',url:target,
-      headers:{'Authorization':key,'Content-Type':'application/json'},
-      body:body?JSON.stringify(body):undefined
-    }).then(function(r){
-      if(r.status>=400)throw new Error('HTTP '+r.status);
-      return r.data;
-    });
-  }
-  // Browser: proxy cascade
-  function tryP(i){
-    if(i>=_TOUR_PROXIES.length)return Promise.reject(new Error('Tous les proxies ont échoué'));
-    var url=_TOUR_PROXIES[i]+(i>0?encodeURIComponent(target):target);
-    return fetch(url,{
-      method:method||'GET',
-      headers:{'Authorization':key,'Content-Type':'application/json'},
-      body:body?JSON.stringify(body):undefined
-    }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-      .catch(function(){return tryP(i+1);});
-  }
-  return tryP(0);
+  // Via le proxy Vercel serverless (même origine, pas de CORS)
+  return fetch('/api/tour',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tourPath:path,method:method||'GET',authKey:key,body:body||null})
+  }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
 }
 function tourSaveKey(){
   if(_userRole!=='admin')return;
