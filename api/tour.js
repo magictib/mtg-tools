@@ -1,14 +1,17 @@
 'use strict';
 const https = require('https');
 
+const ALLOWED_HOSTS = ['topdeck.gg', 'api.moxfield.com', 'www.mtgtop8.com'];
+
 function httpsGet(hostname, path, headers) {
   return new Promise((resolve, reject) => {
-    const req = https.request({ hostname, port: 443, path, method: 'GET', headers }, res => {
-      let raw = '';
-      res.on('data', c => raw += c);
+    const req = https.request({ hostname, port: 443, path, method: 'GET', headers: headers || {} }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(raw) }); }
-        catch(e) { resolve({ status: res.statusCode, data: raw }); }
+        const raw = Buffer.concat(chunks).toString('utf8');
+        try { resolve({ status: res.statusCode, data: JSON.parse(raw), raw }); }
+        catch(e) { resolve({ status: res.statusCode, data: null, raw }); }
       });
     });
     req.on('error', e => reject(e));
@@ -18,13 +21,14 @@ function httpsGet(hostname, path, headers) {
 
 function httpsPost(hostname, path, headers, body) {
   return new Promise((resolve, reject) => {
-    const opts = { hostname, port: 443, path, method: 'POST', headers };
+    const opts = { hostname, port: 443, path, method: 'POST', headers: headers || {} };
     const req = https.request(opts, res => {
-      let raw = '';
-      res.on('data', c => raw += c);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(raw) }); }
-        catch(e) { resolve({ status: res.statusCode, data: raw }); }
+        const raw = Buffer.concat(chunks).toString('utf8');
+        try { resolve({ status: res.statusCode, data: JSON.parse(raw), raw }); }
+        catch(e) { resolve({ status: res.statusCode, data: null, raw }); }
       });
     });
     req.on('error', e => reject(e));
@@ -45,7 +49,21 @@ module.exports = async (req, res) => {
   let payload;
   try { payload = JSON.parse(raw); } catch(e) { return res.status(400).json({ error: 'Invalid JSON' }); }
 
-  // ── Moxfield batch deck name fetch ────────────────────────────────────────
+  // ── HTML proxy (MTGTop8) ──────────────────────────────────────────────────
+  if (payload.htmlUrl) {
+    let u;
+    try { u = new URL(payload.htmlUrl); } catch(e) { return res.status(400).json({ error: 'Invalid URL' }); }
+    if (!ALLOWED_HOSTS.includes(u.hostname)) return res.status(403).json({ error: 'Host not allowed' });
+    const r = await httpsGet(u.hostname, u.pathname + u.search, {
+      'User-Agent': 'Mozilla/5.0 (compatible; ManaLAB/1.0)',
+      'Accept': 'text/html,*/*',
+    }).catch(e => ({ status: 502, raw: '' }));
+    res.status(r.status);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(r.raw);
+  }
+
+  // ── Moxfield batch deck names ─────────────────────────────────────────────
   if (payload.mxIds) {
     const ids = Array.isArray(payload.mxIds) ? payload.mxIds.slice(0, 60) : [];
     const results = await Promise.all(ids.map(async id => {
@@ -55,22 +73,18 @@ module.exports = async (req, res) => {
           'Accept': 'application/json',
         });
         return { id, name: (r.data && r.data.name) || null };
-      } catch(e) {
-        return { id, name: null };
-      }
+      } catch(e) { return { id, name: null }; }
     }));
     return res.json(results);
   }
 
-  // ── TopDeck.gg proxy ───────────────────────────────────────────────────────
+  // ── TopDeck.gg proxy ──────────────────────────────────────────────────────
   const { tourPath, method, authKey, body } = payload;
   if (!tourPath || !/^\/v2\//.test(tourPath)) return res.status(400).json({ error: 'Invalid path' });
-
   const r = await httpsPost('topdeck.gg', '/api' + tourPath, {
     'Authorization': authKey || '',
     'Content-Type': 'application/json',
-  }, body ? JSON.stringify(body) : undefined).catch(e => ({ status: 502, data: { error: e.message } }));
-
+  }, body ? JSON.stringify(body) : undefined).catch(e => ({ status: 502, raw: JSON.stringify({ error: e.message }) }));
   res.status(r.status);
-  return typeof r.data === 'string' ? res.send(r.data) : res.json(r.data);
+  return r.data ? res.json(r.data) : res.send(r.raw);
 };

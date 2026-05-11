@@ -2239,32 +2239,14 @@ body.mana-cursor{cursor:none}
     </div>
     </div><!-- /meta-meta-sec -->
 
-    <!-- === SECTION TOURNOIS (TopDeck.gg) === -->
+    <!-- === SECTION TOURNOIS (MTGTop8) === -->
     <div id="meta-tour-sec" style="display:none">
-      <!-- Clé API -->
-      <div id="tour-setup" style="display:none">
-        <div class="card" style="margin-bottom:10px">
-          <div class="lbl">Clé API TopDeck.gg <span style="font-weight:400;font-size:.75rem;color:var(--tx3)">— inscription gratuite sur <a href="https://topdeck.gg" target="_blank" style="color:var(--ac)">topdeck.gg</a></span></div>
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <input id="tour-key-in" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="flex:1;font-size:.78rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;font-family:monospace">
-            <button class="btn btnsm btnp" onclick="tourSaveKey()">Sauvegarder</button>
-          </div>
-        </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <select id="tour-period-sel" onchange="tourLoad()" style="font-size:.78rem;padding:4px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
+          <option value="">Toutes les périodes (récentes)</option>
+        </select>
+        <span style="font-size:.7rem;color:var(--tx3)">Source : MTGTop8</span>
       </div>
-      <!-- Contrôles -->
-      <div id="tour-controls" style="display:none">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-          <select id="tour-range-sel" style="font-size:.78rem;padding:4px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
-            <option value="90">3 derniers mois</option>
-            <option value="180" selected>6 mois</option>
-            <option value="365">1 an</option>
-            <option value="730">2 ans</option>
-          </select>
-          <button class="btn btnsm btnp" onclick="tourLoad()">Charger</button>
-          <button class="btn btnsm" onclick="tourClearKey()" style="margin-left:auto;font-size:.68rem;color:var(--tx3)">✏ Changer clé</button>
-        </div>
-      </div>
-      <div id="tour-nokey" style="display:none;color:var(--tx3);font-style:italic;font-size:.82rem;padding:1rem">Module non disponible — clé API non configurée (contactez l'administrateur).</div>
       <div id="tour-loading" style="display:none;text-align:center;color:var(--tx3);font-size:.82rem;padding:2rem">Chargement...</div>
       <div id="tour-results"></div>
     </div><!-- /meta-tour-sec -->
@@ -18509,7 +18491,7 @@ function metaSetMode(mode){
   if(ts)ts.style.display=mode==='tour'?'':'none';
   if(mb)mb.classList.toggle('active',mode==='meta');
   if(tb)tb.classList.toggle('active',mode==='tour');
-  if(mode==='tour')tourInitUI();
+  if(mode==='tour'&&!_tourEvents.length)tourLoad();
 }
 function metaSetFmt(fmt){
   _metaFmt=fmt;
@@ -18519,312 +18501,236 @@ function metaSetFmt(fmt){
   else{document.getElementById('tour-results').innerHTML='';}
 }
 
-// ===== TOURNOIS — TopDeck.gg API =====
-var _TOUR_FMT={PAU:'Pauper',MO:'Modern',PI:'Pioneer',ST:'Standard',LE:'Legacy',VI:'Vintage',cEDH:'cEDH',EDH:'Commander',PREM:'Premodern'};
-var _tourLastData=null;
+// ===== TOURNOIS — MTGTop8 =====
+var _tourEvents=[];var _tourEventDetails={};var _tourMetaId='';
 
-function _tourFetch(method,path,body){
-  var key=localStorage.getItem('ml_topdeck_key')||'';
-  // Via le proxy Vercel serverless (même origine, pas de CORS)
+// Proxy HTML vers MTGTop8 via serverless Vercel
+function _top8Fetch(url){
   return fetch('/api/tour',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({tourPath:path,method:method||'GET',authKey:key,body:body||null})
-  }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({htmlUrl:url})
+  }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();});
 }
-function tourSaveKey(){
-  if(_userRole!=='admin')return;
-  var inp=document.getElementById('tour-key-in');
-  if(!inp||!inp.value.trim())return;
-  localStorage.setItem('ml_topdeck_key',inp.value.trim());
-  tourInitUI();
-}
-function tourClearKey(){if(_userRole!=='admin')return;localStorage.removeItem('ml_topdeck_key');tourInitUI();}
-function tourInitUI(){
-  var hasKey=!!localStorage.getItem('ml_topdeck_key');
-  var isAdmin=_userRole==='admin';
-  var setup=document.getElementById('tour-setup');
-  var ctrl=document.getElementById('tour-controls');
-  var nokey=document.getElementById('tour-nokey');
-  // Seulement l'admin voit le formulaire de saisie
-  if(setup)setup.style.display=(isAdmin&&!hasKey)?'block':'none';
-  if(ctrl)ctrl.style.display=hasKey?'block':'none';
-  if(nokey)nokey.style.display=(!hasKey&&!isAdmin)?'block':'none';
-}
+function tourInitUI(){} // no-op (plus de clé API nécessaire)
 
+// ── Chargement de la liste des events MTGTop8 ────────────────────────────────
 function tourLoad(){
   var fmt=_metaFmt;
-  var tfmt=_TOUR_FMT[fmt]||fmt;
-  var days=parseInt((document.getElementById('tour-range-sel')||{value:'180'}).value)||180;
-  var now=Math.floor(Date.now()/1000);
-  var start=now-days*86400;
+  var sel=document.getElementById('tour-period-sel');
+  var metaId=sel?sel.value:'';
   var loading=document.getElementById('tour-loading');
   var results=document.getElementById('tour-results');
-  if(loading){loading.style.display='block';loading.textContent='Chargement des tournois...';}
+  if(loading){loading.style.display='block';loading.textContent='Chargement des événements...';}
   if(results)results.innerHTML='';
-  _tourFetch('POST','/v2/tournaments',{game:'Magic: The Gathering',format:tfmt,start:start,end:now})
-    .then(function(tours){
-      if(!Array.isArray(tours)||!tours.length){
-        if(loading)loading.style.display='none';
-        if(results)results.innerHTML='<div style="color:var(--tx3);font-style:italic;padding:1rem">Aucun tournoi trouvé pour '+tfmt+' dans cette période.</div>';
-        return;
-      }
-      if(loading)loading.textContent='Chargement classements... 0/'+tours.length;
-      var done=0;var allData=[];
-      var promises=tours.map(function(t){
-        var tid=t.TID;
-        return _tourFetch('GET','/v2/tournaments/'+tid+'/standings')
-          .then(function(st){
-            done++;if(loading)loading.textContent='Chargement classements... '+done+'/'+tours.length;
-            allData.push({
-              tid:tid,name:t.tournamentName||tid,date:t.startDate||0,
-              topCut:t.topCut||0,swissNum:t.swissNum||0,
-              location:(t.eventData&&t.eventData.city)||(t.eventData&&t.eventData.country)||'',
-              standings:Array.isArray(st)?st:[],
-              embStandings:Array.isArray(t.standings)?t.standings:[]
-            });
-          }).catch(function(){
-            done++;
-            allData.push({tid:tid,name:t.tournamentName||tid,date:t.startDate||0,
-              topCut:t.topCut||0,swissNum:t.swissNum||0,location:'',
-              standings:[],embStandings:Array.isArray(t.standings)?t.standings:[]});
-          });
+  _tourEvents=[];_tourEventDetails={};
+  var url='https://www.mtgtop8.com/format?f='+fmt+(metaId?'&meta='+metaId:'');
+  _top8Fetch(url).then(function(html){
+    // Remplir le sélecteur de périodes (1ère fois)
+    if(sel&&sel.options.length<=1){
+      var periods=metaParsePeriods(html);
+      periods.forEach(function(p){
+        var o=document.createElement('option');o.value=p.id;o.textContent=p.label;sel.appendChild(o);
       });
-      Promise.all(promises).then(function(){
-        if(loading)loading.style.display='none';
-        allData.sort(function(a,b){return b.date-a.date;});
-        _tourLastData=allData;
-        tourRenderList(allData,fmt);
-      });
-    }).catch(function(e){
-      if(loading)loading.style.display='none';
-      if(results)results.innerHTML='<div style="color:var(--rd2);padding:1rem">Erreur : '+(e.message||e)+'</div>';
-    });
+    }
+    var events=top8ParseEventList(html,fmt);
+    _tourEvents=events;
+    if(loading)loading.style.display='none';
+    if(!events.length){
+      results.innerHTML='<div style="color:var(--tx3);padding:1rem">Aucun événement trouvé.</div>';return;
+    }
+    // Afficher la liste immédiatement, puis charger les stats en arrière-plan
+    tourRenderEventList(events);
+    top8LoadStats(events.slice(0,20),fmt);
+  }).catch(function(e){
+    if(loading)loading.style.display='none';
+    if(results)results.innerHTML='<div style="color:var(--rd2);padding:1rem">Erreur : '+(e.message||e)+'</div>';
+  });
 }
 
-function tourRenderList(allData,fmt){
-  var results=document.getElementById('tour-results');if(!results)return;
-  var totalPlayers=allData.reduce(function(s,t){return s+(t.standings.length||t.embStandings.length);},0);
-  var withDecklists=allData.reduce(function(s,t){
-    return s+(t.standings.filter(function(p){return p.decklist;}).length);},0);
-  var hasArch=allData.some(function(t){
-    return t.standings.some(function(p){return p.deckObj&&(p.deckObj.archetype||p.deckObj.name);});
+// Parse la liste des events depuis la page format MTGTop8
+function top8ParseEventList(html,fmt){
+  var events=[];var seen={};
+  // Pattern: <tr class=hover_tr>...<td>icon</td><td><a href=event?e=NNN&f=FMT>Name</a> [@ <a>Location</a>]</td><td>stars</td><td>date</td>
+  var re=/class=hover_tr[\s\S]*?href=["']?event\?e=(\d+)&(?:amp;)?f=[A-Za-z0-9]+["']?>([^<]+)<\/a>([\s\S]*?)<td[^>]*align=right[^>]*class=S12[^>]*>([^<]+)<\/td>/gi;
+  var m;
+  while((m=re.exec(html))!==null){
+    var eid=m[1];if(seen[eid])continue;seen[eid]=1;
+    var name=m[2].trim();
+    var middle=m[3];
+    // Location: texte dans <a class=und ...>Location</a>
+    var locM=middle.match(/class=und[^>]*>([^<]{2,80})<\/a>/);
+    var loc=locM?locM[1].replace(/<[^>]+>/g,'').trim():'';
+    // Stars count
+    var stars=(middle.match(/star\.png/g)||[]).length;
+    // MTGO icon
+    var isOnline=/mtgo\.png/i.test(middle);
+    // Date DD/MM/YY
+    var date=m[4].replace(/[\s\xa0]+/g,'').trim();
+    events.push({eid:eid,name:name,loc:loc,date:date,stars:stars,isOnline:isOnline,fmt:fmt,standings:[]});
+  }
+  return events;
+}
+
+// Parse le classement d'un event MTGTop8
+function top8ParseEventDetail(html,eid,fmt){
+  var standings=[];var seen={};
+  // Pattern: <div style="width:42px;"...>RANK</div> suivi de <a href=?e=EID&d=DID&f=FMT>ARCH</a>
+  var re=/<div[^>]+width:42px[^>]*>\s*([^<]{1,8})<\/div>[\s\S]{0,500}?href=["']?\?e=\d+&(?:amp;)?d=(\d+)&(?:amp;)?f=[A-Za-z0-9]+["']?>([^<]+)<\/a>/gi;
+  var m;
+  while((m=re.exec(html))!==null){
+    var rank=m[1].replace(/&nbsp;/g,' ').trim();
+    var did=m[2];var arch=m[3].trim();
+    if(seen[did])continue;seen[did]=1;
+    // Décode le rang : "1" → 1, "3-4" → 3, "5-8" → 5
+    var rankNum=parseInt((rank.match(/\d+/)||['99'])[0]);
+    standings.push({rank:rank,rankNum:rankNum,did:did,arch:arch,eid:eid,fmt:fmt});
+  }
+  // Nb joueurs total (titre de la page)
+  var plM=html.match(/(\d+)\s+player/i);
+  var nbPlayers=plM?parseInt(plM[1]):null;
+  return {standings:standings,nbPlayers:nbPlayers};
+}
+
+// Calcule les stats par archétype sur un ensemble d'events
+function top8ComputeArchStats(events){
+  var stats={};
+  events.forEach(function(ev){
+    if(!ev.standings||!ev.standings.length)return;
+    var total=ev.nbPlayers||ev.standings[ev.standings.length-1].rankNum||ev.standings.length;
+    var topCutN=ev.standings.some(function(p){return p.rankNum<=4;})?Math.max(4,Math.ceil(total*0.125)):Math.ceil(total*0.25);
+    ev.standings.forEach(function(p){
+      var a=p.arch;if(!a)return;
+      if(!stats[a])stats[a]={app:0,top:0,top4:0,fin:0,win:0,events:0};
+      var s=stats[a];s.app++;
+      if(p.rankNum<=topCutN)s.top++;
+      if(p.rankNum<=4)s.top4++;
+      if(p.rankNum<=2)s.fin++;
+      if(p.rankNum===1)s.win++;
+    });
   });
-  var html='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:10px">'+allData.length+' tournois · '+totalPlayers+' joueurs';
-  if(withDecklists)html+=' · '+withDecklists+' decklists';
-  if(!hasArch)html+=' · <span style="color:rgba(201,168,76,.9)">Archétypes non taggés (decklists requis)</span>';
-  html+='</div>';
-  if(hasArch){html+=tourRenderArchTable(allData);html+=tourRenderMatrix(allData);}
-  html+='<div class="card" style="overflow-x:auto"><div class="lbl" style="margin-bottom:8px">Tournois récents</div>';
+  return stats;
+}
+
+// Charge les détails de N events en parallèle et met à jour les stats
+function top8LoadStats(events,fmt){
+  var done=0;var total=events.length;
+  var loading=document.getElementById('tour-loading');
+  if(loading){loading.style.display='block';loading.textContent='Stats... 0/'+total;}
+  var promises=events.map(function(ev){
+    if(_tourEventDetails[ev.eid])return Promise.resolve();
+    return _top8Fetch('https://www.mtgtop8.com/event?e='+ev.eid+'&f='+fmt)
+      .then(function(html){
+        var det=top8ParseEventDetail(html,ev.eid,fmt);
+        ev.standings=det.standings;
+        ev.nbPlayers=det.nbPlayers;
+        _tourEventDetails[ev.eid]=det;
+      }).catch(function(){});
+  });
+  // Mise à jour progressive toutes les 3 events
+  var interval=setInterval(function(){
+    done=events.filter(function(ev){return ev.standings&&ev.standings.length;}).length;
+    if(loading){
+      if(done<total)loading.textContent='Stats... '+done+'/'+total;
+      else{loading.style.display='none';clearInterval(interval);}
+    }
+    tourRenderStats();
+  },600);
+  Promise.all(promises).then(function(){
+    if(loading)loading.style.display='none';
+    clearInterval(interval);
+    tourRenderStats();
+  });
+}
+
+function tourRenderStats(){
+  var el=document.getElementById('tour-stats-block');if(!el)return;
+  var loaded=_tourEvents.filter(function(ev){return ev.standings&&ev.standings.length;});
+  if(!loaded.length){el.innerHTML='';return;}
+  var stats=top8ComputeArchStats(loaded);
+  var archs=Object.keys(stats).sort(function(a,b){return stats[b].win!==stats[a].win?stats[b].win-stats[a].win:stats[b].top-stats[a].top;});
+  var html='<div class="card" style="margin-bottom:10px;overflow-x:auto"><div class="lbl" style="margin-bottom:6px">Stats archétypes — '+loaded.length+' events analysés</div>';
   html+='<table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="color:var(--tx3)">';
-  html+='<th style="padding:4px 8px;text-align:left">Tournoi</th><th style="padding:4px 8px">Date</th><th style="padding:4px 8px;text-align:center">Joueurs</th><th style="padding:4px 8px;text-align:center">Top cut</th><th style="padding:4px 8px;text-align:center">Swiss</th><th style="padding:4px 8px;text-align:left">Lieu</th><th></th></tr></thead><tbody>';
-  allData.slice(0,50).forEach(function(t,i){
-    var date=t.date?new Date(t.date*1000).toLocaleDateString('fr-FR'):'—';
-    var players=t.standings.length||t.embStandings.length||'?';
-    var hasDk=t.standings.some(function(p){return p.decklist;});
-    html+='<tr style="border-top:.5px solid var(--bd);cursor:pointer'+(i%2?';background:var(--s2)':'')+'" onclick="tourShowDetail(\''+t.tid+'\')">';
-    html+='<td style="padding:5px 8px;font-weight:500">'+(t.name||t.tid)+(hasDk?' <span style="font-size:.6rem;color:var(--ac2)">📋</span>':'')+'</td>';
-    html+='<td style="padding:5px 8px;color:var(--tx3);white-space:nowrap">'+date+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center">'+players+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center">'+(t.topCut||'—')+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center">'+(t.swissNum||'—')+'</td>';
-    html+='<td style="padding:5px 8px;color:var(--tx3);font-size:.7rem">'+(t.location||'—')+'</td>';
-    html+='<td style="padding:5px 8px"><a href="https://topdeck.gg/t/'+t.tid+'" target="_blank" onclick="event.stopPropagation()" style="color:var(--ac);text-decoration:none;font-size:.7rem">↗</a></td></tr>';
+  html+='<th style="padding:4px 8px;text-align:left">Archétype</th><th style="padding:4px 8px;text-align:center" title="Apparitions">App.</th><th style="padding:4px 8px;text-align:center" title="Taux top cut">Top%</th><th style="padding:4px 8px;text-align:center">Top cut</th><th style="padding:4px 8px;text-align:center">Top 4</th><th style="padding:4px 8px;text-align:center">Finale</th><th style="padding:4px 8px;text-align:center">Victoires</th></tr></thead><tbody>';
+  archs.slice(0,30).forEach(function(a,i){
+    var s=stats[a];
+    var topPct=s.app>0?Math.round(s.top/s.app*100):0;
+    var tc=topPct>=25?'var(--gn)':topPct>=10?'var(--ac2)':'var(--tx3)';
+    html+='<tr style="border-top:.5px solid var(--bd)'+(i%2?';background:var(--s2)':'')+'">';
+    html+='<td style="padding:5px 8px;font-weight:500">'+a+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+s.app+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center;color:'+tc+';font-weight:600">'+topPct+'%</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+s.top+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+s.top4+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+s.fin+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+(s.win?'⭐'.repeat(Math.min(s.win,5))+'<span style="font-size:.65rem;color:var(--tx3);margin-left:2px">×'+s.win+'</span>':'—')+'</td></tr>';
+  });
+  el.innerHTML=html+'</tbody></table></div>';
+}
+
+function tourRenderEventList(events){
+  var results=document.getElementById('tour-results');if(!results)return;
+  var html='<div id="tour-stats-block"></div>';
+  html+='<div class="card" style="overflow-x:auto"><div class="lbl" style="margin-bottom:8px">Événements récents — '+events.length+' résultats</div>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="color:var(--tx3)">';
+  html+='<th style="padding:4px 6px;width:18px"></th><th style="padding:4px 8px;text-align:left">Événement</th><th style="padding:4px 8px;text-align:left">Lieu</th><th style="padding:4px 8px;text-align:center">Date</th><th style="padding:4px 8px;text-align:center">Imp.</th></tr></thead><tbody>';
+  events.forEach(function(ev,i){
+    var icon=ev.isOnline?'<span title="MTGO" style="color:#6090ff;font-size:.75rem">⬡</span>':'<span title="Papier" style="color:var(--tx3);font-size:.75rem">◻</span>';
+    var stars=ev.stars?'★'.repeat(ev.stars):'';
+    html+='<tr style="border-top:.5px solid var(--bd);cursor:pointer'+(i%2?';background:var(--s2)':'')+'" onclick="tourShowDetail('+ev.eid+',\''+ev.fmt+'\')">';
+    html+='<td style="padding:4px 6px;text-align:center">'+icon+'</td>';
+    html+='<td style="padding:5px 8px;font-weight:500">'+ev.name+'</td>';
+    html+='<td style="padding:5px 8px;color:var(--tx3);font-size:.72rem">'+(ev.loc||'—')+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3);white-space:nowrap">'+ev.date+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center;color:gold">'+stars+'</td></tr>';
   });
   html+='</tbody></table></div>';
   results.innerHTML=html;
 }
 
-function tourGetArch(p){
-  if(p._arch)return p._arch; // enrichi par Moxfield
-  if(p.deckObj){var d=p.deckObj;if(d.archetype)return d.archetype;if(d.name)return d.name;}
-  if(p.archetype)return p.archetype;
-  return null;
-}
-
-// Extrait l'ID Moxfield depuis une URL de decklist
-function _mxId(url){
-  if(!url)return null;
-  var m=(url||'').match(/moxfield\.com\/decks\/([A-Za-z0-9_\-]+)/);
-  return m?m[1]:null;
-}
-
-// Récupère les noms de decks Moxfield pour une liste de joueurs,
-// puis injecte p._arch = nom du deck sur chaque joueur
-function _enrichMoxfield(players, cb){
-  var ids=[];var idToPlayers={};
-  players.forEach(function(p){
-    var id=_mxId(p.decklist);
-    if(!id)return;
-    ids.push(id);
-    if(!idToPlayers[id])idToPlayers[id]=[];
-    idToPlayers[id].push(p);
-  });
-  if(!ids.length){cb();return;}
-  fetch('/api/tour',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({mxIds:ids})
-  }).then(function(r){return r.json();})
-    .then(function(arr){
-      arr.forEach(function(item){
-        if(item.name&&idToPlayers[item.id]){
-          idToPlayers[item.id].forEach(function(p){p._arch=item.name;});
-        }
-      });
-      cb();
-    }).catch(function(){cb();});
-}
-
-function tourRenderArchTable(allData){
-  var stats={};
-  allData.forEach(function(t){
-    var total=t.standings.length||1;
-    var topCut=t.topCut||Math.ceil(total*0.25)||1;
-    t.standings.forEach(function(p){
-      var a=tourGetArch(p);if(!a)return;
-      if(!stats[a])stats[a]={app:0,wrSum:0,top:0,top4:0,fin:0,win:0};
-      var s=stats[a];s.app++;s.wrSum+=p.winRate||0;
-      if(p.standing<=topCut)s.top++;
-      if(p.standing<=Math.max(1,Math.ceil(topCut/2)))s.top4++;
-      if(p.standing<=2)s.fin++;
-      if(p.standing===1)s.win++;
-    });
-  });
-  var archs=Object.keys(stats).sort(function(a,b){return(stats[b].wrSum/stats[b].app)-(stats[a].wrSum/stats[a].app);});
-  if(!archs.length)return '';
-  var html='<div class="card" style="margin-bottom:10px;overflow-x:auto"><div class="lbl" style="margin-bottom:8px">Performance par archétype</div>';
-  html+='<table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="color:var(--tx3)">';
-  html+='<th style="padding:4px 8px;text-align:left">Archétype</th><th style="padding:4px 8px;text-align:center">App.</th><th style="padding:4px 8px;text-align:center">Win%</th><th style="padding:4px 8px;text-align:center">Top cut</th><th style="padding:4px 8px;text-align:center">Top 4</th><th style="padding:4px 8px;text-align:center">Finale</th><th style="padding:4px 8px;text-align:center">🏆</th></tr></thead><tbody>';
-  archs.slice(0,25).forEach(function(a,i){
-    var s=stats[a];var wr=s.wrSum/s.app;
-    var wrc=wr>=0.55?'var(--gn)':wr<=0.45?'var(--rd2)':'var(--tx)';
-    html+='<tr style="border-top:.5px solid var(--bd)'+(i%2?';background:var(--s2)':'')+'">';
-    html+='<td style="padding:5px 8px;font-weight:500">'+a+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+s.app+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center;color:'+wrc+';font-weight:600">'+(wr*100).toFixed(1)+'%</td>';
-    html+='<td style="padding:5px 8px;text-align:center">'+s.top+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center">'+s.top4+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center">'+s.fin+'</td>';
-    html+='<td style="padding:5px 8px;text-align:center">'+(s.win?'⭐'.repeat(Math.min(s.win,5)):'—')+'</td></tr>';
-  });
-  return html+'</tbody></table></div>';
-}
-
-function tourRenderMatrix(allData){
-  var matrix={};var playerArch={};
-  allData.forEach(function(t){
-    t.standings.forEach(function(p){var a=tourGetArch(p);if(a&&p.id)playerArch[p.id]=a;});
-  });
-  // Matrix requires rounds — built when viewing detail; skip here
-  return '';
-}
-
-function tourShowDetail(tid){
-  var t=_tourLastData&&_tourLastData.find(function(x){return x.tid===tid;});
-  if(!t)return;
+function tourShowDetail(eid,fmt){
+  fmt=fmt||_metaFmt;
   var results=document.getElementById('tour-results');if(!results)return;
   var loading=document.getElementById('tour-loading');
-
-  var renderDetail=function(rounds){
-    var standings=t.standings.length?t.standings:t.embStandings;
-    // Collect all players from standings + rounds for Moxfield enrichment
-    var allPlayersMap={};
-    standings.forEach(function(p){if(p.id)allPlayersMap[p.id]=p;});
-    if(rounds){rounds.forEach(function(r){(r.tables||[]).forEach(function(tbl){(tbl.players||[]).forEach(function(p){if(p.id&&!allPlayersMap[p.id])allPlayersMap[p.id]=p;});});});}
-    var allPlayers=Object.values?Object.values(allPlayersMap):Object.keys(allPlayersMap).map(function(k){return allPlayersMap[k];});
-    // Enrich with Moxfield deck names, then render
-    if(loading){loading.style.display='block';loading.textContent='Récupération des decklists...';}
-    _enrichMoxfield(allPlayers,function(){
+  if(loading){loading.style.display='block';loading.textContent='Chargement de l\'événement...';}
+  results.innerHTML='';
+  // Utilise le cache si disponible
+  var cached=_tourEventDetails[eid];
+  var ev=_tourEvents.find(function(e){return String(e.eid)===String(eid);})||{eid:eid,name:'Event #'+eid,fmt:fmt};
+  function render(det){
     if(loading)loading.style.display='none';
-    var playerArch={};var matrix={};
-    // Build archetype map from standings (now with _arch injected)
-    standings.forEach(function(p){var a=tourGetArch(p);if(a&&p.id)playerArch[p.id]=a;});
-    // Build matchup matrix from rounds
-    if(rounds&&rounds.length){
-      rounds.forEach(function(round){
-        (round.tables||[]).forEach(function(tbl){
-          var ps=tbl.players||[];if(ps.length<2)return;
-          var a1=playerArch[ps[0].id];var a2=playerArch[ps[1].id];
-          if(!a1||!a2||a1===a2)return;
-          if(!matrix[a1])matrix[a1]={};if(!matrix[a1][a2])matrix[a1][a2]={w:0,n:0};
-          if(!matrix[a2])matrix[a2]={};if(!matrix[a2][a1])matrix[a2][a1]={w:0,n:0};
-          matrix[a1][a2].n++;matrix[a2][a1].n++;
-          if(tbl.winner_id===ps[0].id)matrix[a1][a2].w++;
-          else if(tbl.winner_id===ps[1].id)matrix[a2][a1].w++;
-        });
-      });
-    }
-    var date=t.date?new Date(t.date*1000).toLocaleDateString('fr-FR'):'—';
+    var st=det.standings||[];
+    // Top cut heuristique (16 si MTGO challenge, sinon top % selon nb joueurs)
+    var nb=det.nbPlayers||st.length;
+    var topN=nb>=32?Math.min(16,Math.ceil(nb*0.5)):Math.ceil(nb*0.25);
     var html='<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
     html+='<button class="btn btnsm" onclick="tourBackToList()">← Retour</button>';
-    html+='<span style="font-weight:600">'+t.name+'</span>';
-    html+='<span style="font-size:.72rem;color:var(--tx3)">'+date+'</span>';
-    if(t.location)html+='<span style="font-size:.72rem;color:var(--tx3)">· '+t.location+'</span>';
-    html+='<a href="https://topdeck.gg/t/'+tid+'" target="_blank" style="color:var(--ac);font-size:.72rem;text-decoration:none;margin-left:auto">↗ TopDeck.gg</a></div>';
-
-    // Matchup matrix if data available
-    var archList=Object.keys(matrix).filter(function(a){return Object.keys(matrix[a]).some(function(b){return matrix[a][b].n>=2;});});
-    if(archList.length>=2){
-      html+='<div class="card" style="margin-bottom:10px;overflow-x:auto"><div class="lbl" style="margin-bottom:8px">Matchups (% victoires, min 2 parties)</div>';
-      html+='<table style="font-size:.7rem;border-collapse:collapse"><tr><th style="padding:3px 6px;min-width:80px"></th>';
-      archList.slice(0,12).forEach(function(a){
-        var ab=a.length>9?a.substring(0,9)+'…':a;
-        html+='<th style="padding:3px 4px;color:var(--tx3);writing-mode:vertical-rl;height:55px;min-width:42px;text-align:left">'+ab+'</th>';
-      });
-      html+='</tr>';
-      archList.slice(0,12).forEach(function(ra){
-        var ab=ra.length>13?ra.substring(0,13)+'…':ra;
-        html+='<tr><td style="padding:3px 8px;font-weight:500;white-space:nowrap">'+ab+'</td>';
-        archList.slice(0,12).forEach(function(ca){
-          if(ra===ca){html+='<td style="padding:3px 4px;text-align:center;background:var(--s3)">—</td>';return;}
-          var m=matrix[ra]&&matrix[ra][ca];
-          if(!m||m.n<2){html+='<td style="padding:3px 4px;text-align:center;color:var(--tx3)">?</td>';return;}
-          var pct=Math.round(m.w/m.n*100);
-          var bg=pct>=55?'rgba(80,180,80,.18)':pct<=45?'rgba(200,60,60,.12)':'transparent';
-          html+='<td style="padding:3px 4px;text-align:center;background:'+bg+';border-radius:3px" title="'+m.w+'/'+m.n+'">'+pct+'%</td>';
-        });
-        html+='</tr>';
-      });
-      html+='</table></div>';
-    }
-
-    // Standings table
-    html+='<div class="card" style="overflow-x:auto"><div class="lbl" style="margin-bottom:6px">Classement — '+standings.length+' joueurs · Top cut : '+(t.topCut||'?')+'</div>';
+    html+='<span style="font-weight:600">'+(ev.name||'Event #'+eid)+'</span>';
+    if(ev.date)html+='<span style="font-size:.72rem;color:var(--tx3)">'+ev.date+'</span>';
+    if(ev.loc)html+='<span style="font-size:.72rem;color:var(--tx3)">· '+ev.loc+'</span>';
+    html+='<a href="https://www.mtgtop8.com/event?e='+eid+'&f='+fmt+'" target="_blank" style="color:var(--ac);font-size:.72rem;text-decoration:none;margin-left:auto">↗ MTGTop8</a></div>';
+    if(!st.length){html+='<div style="color:var(--tx3);font-style:italic;padding:1rem">Aucune donnée de standings disponible.</div>';results.innerHTML=html;return;}
+    html+='<div class="card" style="overflow-x:auto"><div class="lbl" style="margin-bottom:6px">Classement'+(nb?' — '+nb+' joueurs':'')+'</div>';
     html+='<table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="color:var(--tx3)">';
-    html+='<th style="padding:4px 8px;text-align:center">#</th><th style="padding:4px 8px;text-align:left">Joueur</th><th style="padding:4px 8px;text-align:left">Archétype</th><th style="padding:4px 8px;text-align:center">Pts</th><th style="padding:4px 8px;text-align:center">Win%</th><th style="padding:4px 8px;text-align:center">OWin%</th><th></th></tr></thead><tbody>';
-    standings.forEach(function(p,i){
-      var inTop=p.standing<=(t.topCut||Math.ceil(standings.length*0.25));
+    html+='<th style="padding:4px 8px;text-align:center">#</th><th style="padding:4px 8px;text-align:left">Archétype</th><th style="padding:4px 8px;text-align:center">Deck</th></tr></thead><tbody>';
+    st.forEach(function(p,i){
+      var inTop=p.rankNum<=topN;
       var bg=inTop?';background:rgba(201,168,76,.07)':(i%2?';background:var(--s2)':'');
-      var arch=tourGetArch(p)||'—';
+      var rankColor=p.rankNum===1?'gold':inTop?'var(--ac2)':'var(--tx3)';
       html+='<tr style="border-top:.5px solid var(--bd)'+bg+'">';
-      html+='<td style="padding:5px 8px;text-align:center;color:'+(p.standing===1?'gold':inTop?'var(--ac2)':'var(--tx3)')+';font-weight:'+(inTop?'700':'400')+'">'+p.standing+'</td>';
-      html+='<td style="padding:5px 8px">'+(p.name||'—')+'</td>';
-      html+='<td style="padding:5px 8px;font-size:.72rem;color:var(--tx2)">'+arch+'</td>';
-      html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+(p.points||'—')+'</td>';
-      var wr=p.winRate;
-      html+='<td style="padding:5px 8px;text-align:center;font-weight:600;color:'+(wr>=0.55?'var(--gn)':wr<=0.45?'var(--rd2)':'var(--tx)')+'">'+(wr!=null?(wr*100).toFixed(1)+'%':'—')+'</td>';
-      html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3);font-size:.7rem">'+(p.opponentWinRate?(p.opponentWinRate*100).toFixed(1)+'%':'—')+'</td>';
-      html+='<td style="padding:5px 8px">'+(p.decklist?'<a href="'+p.decklist+'" target="_blank" style="color:var(--ac);text-decoration:none;font-size:.7rem">📋</a>':'')+'</td></tr>';
+      html+='<td style="padding:5px 8px;text-align:center;color:'+rankColor+';font-weight:'+(inTop?'700':'400')+'">'+p.rank+'</td>';
+      html+='<td style="padding:5px 8px;font-weight:500">'+p.arch+'</td>';
+      html+='<td style="padding:5px 8px;text-align:center"><a href="https://www.mtgtop8.com/event?e='+eid+'&d='+p.did+'&f='+fmt+'" target="_blank" style="color:var(--ac);text-decoration:none;font-size:.7rem">📋</a></td></tr>';
     });
     html+='</tbody></table></div>';
     results.innerHTML=html;
-    });// fin _enrichMoxfield
-  };
-
-  // Fetch rounds + render
-  if(loading){loading.style.display='block';loading.textContent='Chargement des rondes...';}
-  results.innerHTML='';
-  _tourFetch('GET','/v2/tournaments/'+tid+'/rounds')
-    .then(function(rounds){
-      renderDetail(Array.isArray(rounds)?rounds:[]);
-    }).catch(function(){
-      renderDetail([]);
-    });
+  }
+  if(cached){render(cached);return;}
+  _top8Fetch('https://www.mtgtop8.com/event?e='+eid+'&f='+fmt)
+    .then(function(html){var det=top8ParseEventDetail(html,eid,fmt);_tourEventDetails[eid]=det;ev.standings=det.standings;ev.nbPlayers=det.nbPlayers;render(det);})
+    .catch(function(e){if(loading)loading.style.display='none';results.innerHTML='<div style="color:var(--rd2);padding:1rem">Erreur : '+(e.message||e)+'</div>';});
 }
 
-function tourBackToList(){if(_tourLastData)tourRenderList(_tourLastData,_metaFmt);}
-// pré-chargement clé API si déjà enregistrée
-setTimeout(function(){if(localStorage.getItem('ml_topdeck_key'))tourInitUI();},100);
+function tourBackToList(){tourRenderEventList(_tourEvents);tourRenderStats();}
 
 var _metaTopCards=[];
 function metaFetchMeta(fmt,metaId){
