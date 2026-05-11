@@ -18573,7 +18573,7 @@ function tourLoad(){
       if(results)results.innerHTML='<div style="color:var(--tx3);padding:1rem">Aucun événement trouvé.</div>';
       return;
     }
-    top8LoadStats(events.slice(0,20),fmt);
+    top8LoadStats(events,fmt);
   }).catch(function(e){
     if(loading)loading.style.display='none';
     if(results)results.innerHTML='<div style="color:var(--rd2);padding:1rem">Erreur : '+(e.message||e)+'</div>';
@@ -18715,8 +18715,9 @@ function tourRenderStats(){
     var avgTop4=(s.top4/nEvents).toFixed(2);
     var metaColor=parseFloat(metaPct)>=10?'var(--ac2)':parseFloat(metaPct)>=5?'var(--tx2)':'var(--tx3)';
     var topColor=topPct>=30?'var(--gn)':topPct>=15?'var(--ac2)':'var(--tx3)';
-    // Main row
-    html+='<tr id="tarch-row-'+i+'" style="border-top:.5px solid var(--bd);cursor:pointer'+(i%2?';background:var(--s2)':'')+'" onclick="tourToggleArch('+i+')">';
+    var nDecks=s.finishes.length;
+    // Main row — no full-row click, explicit button only
+    html+='<tr style="border-top:.5px solid var(--bd)'+(i%2?';background:var(--s2)':'')+'">';
     html+='<td style="padding:5px 8px;font-weight:500">'+a+'</td>';
     html+='<td style="padding:5px 6px;text-align:center;color:'+metaColor+'">'+metaPct+'%</td>';
     html+='<td style="padding:5px 6px;text-align:center;color:'+topColor+';font-weight:600">'+topPct+'%</td>';
@@ -18724,19 +18725,21 @@ function tourRenderStats(){
     html+='<td style="padding:5px 6px;text-align:center;color:var(--tx2)">'+avgTop4+'</td>';
     html+='<td style="padding:5px 6px;text-align:center">'+(s.fin||'—')+'</td>';
     html+='<td style="padding:5px 6px;text-align:center">'+(s.win?'⭐×'+s.win:'—')+'</td>';
-    html+='<td style="padding:4px 4px;text-align:center;font-size:.65rem;color:var(--tx3)" id="tarch-arr-'+i+'">▶</td>';
+    html+='<td style="padding:3px 4px;text-align:center"><button class="btn btnsm" id="tarch-arr-'+i+'" onclick="tourToggleArch('+i+')" style="font-size:.68rem;padding:2px 6px;white-space:nowrap">▶ '+nDecks+' decks</button></td>';
     html+='</tr>';
-    // Expandable detail row (hidden)
+    // Expandable detail row (hidden) — decks sorted by rank
     var finishes=s.finishes.slice().sort(function(x,y){return x.rankNum-y.rankNum;});
-    html+='<tr id="tarch-det-'+i+'" style="display:none"><td colspan="8" style="padding:0 0 8px 0;background:var(--s2)">';
-    html+='<div style="padding:6px 12px 4px;font-size:.71rem;color:var(--tx3)">'+s.app+' participations dans '+s.evCount+' tournois — conversion victoire : '+(s.app>0?Math.round(s.win/s.app*100):0)+'%</div>';
+    html+='<tr id="tarch-det-'+i+'" style="display:none"><td colspan="8" style="padding:0 0 10px 0;background:var(--s2)">';
+    html+='<div style="padding:6px 14px 5px;font-size:.72rem;color:var(--tx3)">';
+    html+=nDecks+' versions de deck · '+s.evCount+' tournois · conv. victoire : '+(s.app>0?Math.round(s.win/s.app*100):0)+'%';
+    html+='</div>';
     html+='<table style="width:100%;border-collapse:collapse;font-size:.72rem">';
     html+='<thead><tr style="color:var(--tx3);border-bottom:.5px solid var(--bd)">';
     html+='<th style="padding:3px 8px;text-align:center">#</th>';
     html+='<th style="padding:3px 8px;text-align:left">Tournoi</th>';
     html+='<th style="padding:3px 8px;text-align:center">Date</th>';
-    html+='<th style="padding:3px 8px;text-align:center" title="Taille du tournoi">👥</th>';
-    html+='<th style="padding:3px 8px;text-align:center">Deck</th>';
+    html+='<th style="padding:3px 8px;text-align:center" title="Nombre de joueurs">👥</th>';
+    html+='<th style="padding:3px 8px;text-align:center">Version</th>';
     html+='</tr></thead><tbody>';
     finishes.forEach(function(f){
       var rankColor=f.rankNum===1?'gold':f.rankNum<=2?'var(--ac2)':f.rankNum<=4?'var(--ac)':'var(--tx)';
@@ -18745,7 +18748,7 @@ function tourRenderStats(){
       html+='<td style="padding:3px 8px">'+(f.isOnline?'<span title="MTGO" style="color:#6090ff;margin-right:3px">⬡</span>':'')+f.ename+'</td>';
       html+='<td style="padding:3px 8px;text-align:center;color:var(--tx3);white-space:nowrap">'+f.date+'</td>';
       html+='<td style="padding:3px 8px;text-align:center;color:var(--tx3)">'+(f.nbPlayers||'—')+'</td>';
-      html+='<td style="padding:3px 8px;text-align:center"><a href="https://www.mtgtop8.com/event?e='+f.eid+'&d='+f.did+'&f='+f.fmt+'" target="_blank" style="color:var(--ac);text-decoration:none;font-size:.72rem">📋 MTGTop8</a></td>';
+      html+='<td style="padding:3px 8px;text-align:center"><a href="https://www.mtgtop8.com/event?e='+f.eid+'&d='+f.did+'&f='+f.fmt+'" target="_blank" style="color:var(--ac);text-decoration:none;font-size:.7rem">📋 voir deck</a></td>';
       html+='</tr>';
     });
     html+='</tbody></table></td></tr>';
@@ -18756,11 +18759,14 @@ function tourRenderStats(){
 
 function tourToggleArch(i){
   var det=document.getElementById('tarch-det-'+i);
-  var arr=document.getElementById('tarch-arr-'+i);
+  var btn=document.getElementById('tarch-arr-'+i);
   if(!det)return;
   var open=det.style.display==='none'||det.style.display==='';
   det.style.display=open?'table-row':'none';
-  if(arr)arr.textContent=open?'▼':'▶';
+  if(btn){
+    var nDecks=btn.textContent.match(/\d+/);
+    btn.textContent=(open?'▼':'▶')+(nDecks?' '+nDecks[0]+' decks':'');
+  }
 }
 
 function tourRenderEventList(events){
