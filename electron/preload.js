@@ -10,4 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, v) => cb(v)),
   installUpdate:      ()   => ipcRenderer.send('install-update'),
   checkUpdate:        ()   => ipcRenderer.send('check-update'),
+
+  // Proxy HTTP (bypass CORS) — main process makes the actual request
+  httpFetch: (opts) => ipcRenderer.invoke('http-fetch', opts),
 });

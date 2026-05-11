@@ -18531,6 +18531,18 @@ var _TOUR_PROXIES=[
 function _tourFetch(method,path,body){
   var key=localStorage.getItem('ml_topdeck_key')||'';
   var target='https://topdeck.gg/api'+path;
+  // In Electron: use IPC bridge (main process, no CORS restrictions)
+  if(window.electronAPI&&window.electronAPI.httpFetch){
+    return window.electronAPI.httpFetch({
+      method:method||'GET',url:target,
+      headers:{'Authorization':key,'Content-Type':'application/json'},
+      body:body?JSON.stringify(body):undefined
+    }).then(function(r){
+      if(r.status>=400)throw new Error('HTTP '+r.status);
+      return r.data;
+    });
+  }
+  // Browser: proxy cascade
   function tryP(i){
     if(i>=_TOUR_PROXIES.length)return Promise.reject(new Error('Tous les proxies ont échoué'));
     var url=_TOUR_PROXIES[i]+(i>0?encodeURIComponent(target):target);

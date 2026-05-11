@@ -1,6 +1,7 @@
 'use strict';
 const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
+const https = require('https');
 
 let mainWindow;
 
@@ -66,6 +67,30 @@ function initUpdater() {
 
   setTimeout(() => autoUpdater.checkForUpdates(), 3000);
 }
+
+// HTTP proxy handler for renderer (bypasses browser CORS)
+ipcMain.handle('http-fetch', async (_event, { method, url, headers, body }) => {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const opts = {
+      hostname: u.hostname, port: u.port || 443,
+      path: u.pathname + u.search,
+      method: method || 'GET',
+      headers: headers || {},
+    };
+    const req = https.request(opts, (res) => {
+      let raw = '';
+      res.on('data', c => raw += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(raw) }); }
+        catch(e) { resolve({ status: res.statusCode, data: raw }); }
+      });
+    });
+    req.on('error', e => reject({ message: e.message }));
+    if (body) req.write(body);
+    req.end();
+  });
+});
 
 app.whenReady().then(() => {
   createWindow();
