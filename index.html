@@ -18539,7 +18539,7 @@ function _tourFetch(method,path,body){
       headers:{'Authorization':key,'Content-Type':'application/json'},
       body:body?JSON.stringify(body):undefined
     }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-      .catch(function(e){if(i===0)return tryP(1);throw e;});
+      .catch(function(){return tryP(i+1);});
   }
   return tryP(0);
 }
@@ -18836,13 +18836,13 @@ function metaFetchMeta(fmt,metaId){
 }
 function metaParsePeriods(html){
   var periods=[];var seen={};
-  // Cherche <option value="NUMBER">label</option> avec libellés de période
-  var re=/<option[^>]+value=["']?(\d+)["']?[^>]*>\s*([^<]{3,60}?)\s*<\/option>/gi;var m;
+  // MTGTop8 uses <a href="?f=PAU&meta=299&a="> links (not <option> elements)
+  var re=/href=["']?\?f=[A-Za-z0-9]+&(?:amp;)?meta=(\d+)[^"'>\s]*["']?[^>]*>([\s\S]*?)<\/a>/gi;var m;
   while((m=re.exec(html))!==null){
-    var id=m[1];var label=m[2].trim();var lw=label.toLowerCase();
-    if(!seen[id]&&(lw.indexOf('week')>=0||lw.indexOf('month')>=0||lw.indexOf('day')>=0||lw.indexOf('deck')>=0||lw.indexOf('tournament')>=0||lw.indexOf('event')>=0||/\b\d{4}\b/.test(label))){
-      seen[id]=1;periods.push({id:id,label:label});
-    }
+    var id=m[1];if(seen[id])continue;
+    var label=m[2].replace(/<[^>]+>/g,' ').replace(/&[a-z\d#]+;/gi,' ').replace(/\s+/g,' ').trim();
+    if(!label)continue;
+    seen[id]=1;periods.push({id:id,label:label});
   }
   return periods;
 }
@@ -18850,9 +18850,11 @@ function metaRenderPeriodSel(periods,activeId){
   var el=document.getElementById('meta-period-sel');if(!el)return;
   if(!periods.length){el.style.display='none';return;}
   el.style.display='';
+  // If no activeId given, default to first period (the highlighted one on MTGTop8)
+  var selId=activeId?String(activeId):(periods[0]?periods[0].id:null);
   var html='<select onchange="metaSetPeriod(this.value)" style="font-size:.75rem;padding:3px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none;cursor:pointer">';
   periods.forEach(function(p){
-    html+='<option value="'+p.id+'"'+(p.id===String(activeId)?' selected':'')+'>'+p.label+'</option>';
+    html+='<option value="'+p.id+'"'+(p.id===selId?' selected':'')+'>'+p.label+'</option>';
   });
   html+='</select>';
   el.innerHTML=html;
@@ -18868,11 +18870,11 @@ function metaParseFormat(html,fmt){
   var result=[];var seenA={};
   // === Passe 1 : regex sur HTML brut — positions, noms, %, params ===
   var rawItems=[];
-  // Diagnostic : compter les href "archetype" pour aider au debug
-  var _dbgArch=(html.match(/href=["'][^"']*archetype[^"']*["']/gi)||[]);
+  // Diagnostic
+  var _dbgArch=(html.match(/href=["']?[^"'>\s]*archetype[^"'>\s]*/gi)||[]);
   console.log('[Méta] href archetype trouvés:',_dbgArch.length,_dbgArch.slice(0,3));
-  // Regex permissif : href contenant "archetype" + param a= (ordre variable, &amp; décodé)
-  var re=/href=["']([^"']*archetype[^"']*)["']/gi;var m;
+  // Regex : href quoted OR unquoted (old HTML style: href=archetype?a=512&meta=299)
+  var re=/href=["']?([^"'>\s]*archetype[^"'>\s]*)["']?/gi;var m;
   while((m=re.exec(html))!==null){
     var href=m[1].replace(/&amp;/gi,'&');
     var aM=href.match(/[?&]a=(\d+)/);if(!aM)continue;
@@ -18979,7 +18981,7 @@ function metaRenderMeta(archetypes){
   var content=document.getElementById('meta-content');if(!content)return;
   if(!archetypes.length){
     var dbgLen=_metaLastHtml?_metaLastHtml.length:0;
-    var dbgArchN=((_metaLastHtml||'').match(/href=["'][^"']*archetype[^"']*["']/gi)||[]).length;
+    var dbgArchN=((_metaLastHtml||'').match(/href=["']?[^"'>\s]*archetype[^"'>\s]*/gi)||[]).length;
     var dbgSnip=_metaLastHtml?_metaLastHtml.substring(0,300).replace(/</g,'&lt;'):'';
     console.log('[Méta] 0 archétype — HTML:',dbgLen,'chars, hrefs archetype:',dbgArchN);
     content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1rem 0">Aucun archétype trouvé pour ce format.'
