@@ -18382,7 +18382,7 @@ var _metaLastHtml=''; // debug : accessible depuis la console navigateur
 function metaParseFormat(html,fmt){
   _metaLastHtml=html;
   var result=[];var seen={};
-  // Regex permissive : guillemets simples ou doubles, slash optionnel, &amp; ou &
+  // Regex permissive : guillemets simples ou doubles, slash optionnel
   var re=/href=["']([^"']*archetype\?a=(\d+)[^"']*)["']/gi;
   var m;
   while((m=re.exec(html))!==null){
@@ -18390,8 +18390,9 @@ function metaParseFormat(html,fmt){
     if(seen[a])continue;
     var metaM=fullHref.match(/meta=(\d+)/i);
     var fM=fullHref.match(/[?&]f=([A-Za-z]+)/i);
-    if(!metaM||!fM)continue;
-    var meta=metaM[1],f=fM[1];
+    // meta et f sont optionnels : on utilise '0' et fmt comme fallback
+    var meta=metaM?metaM[1]:'0';
+    var f=fM?fM[1]:fmt;
     seen[a]=1;
     // Nom : texte entre > et </a> après le href
     var afterHref=html.substr(m.index+m[0].length,300);
@@ -18415,18 +18416,20 @@ function metaParseFormat(html,fmt){
     });
     result.push({a:a,meta:meta,f:f,name:name,pct:pct,cat:cat,colors:metaColorsFromName(name)});
   }
-  // Fallback si 0 résultats : essayer avec DOMParser (cas href avec attrs avant)
+  // Fallback si 0 résultats : DOMParser (cas href avec attrs avant ou structure différente)
   if(!result.length){
     try{
       var doc=new DOMParser().parseFromString(html,'text/html');
       doc.querySelectorAll('a').forEach(function(link){
         var href=link.getAttribute('href')||'';
         if(href.indexOf('archetype')<0||href.indexOf('a=')<0)return;
-        var aM=href.match(/a=(\d+)/),metaM2=href.match(/meta=(\d+)/),fM2=href.match(/[?&]f=([A-Za-z]+)/i);
-        if(!aM||!metaM2||!fM2)return;
+        var aM=href.match(/a=(\d+)/);
+        if(!aM)return;
         var a2=aM[1];if(seen[a2])return;seen[a2]=1;
-        var name2=(link.textContent||'').trim();if(!name2)return;
-        result.push({a:a2,meta:metaM2[1],f:fM2[1],name:name2,pct:0,cat:'Other',colors:metaColorsFromName(name2)});
+        var name2=(link.textContent||'').trim();if(!name2||name2.length>80)return;
+        var metaM2=href.match(/meta=(\d+)/);
+        var fM2=href.match(/[?&]f=([A-Za-z]+)/i);
+        result.push({a:a2,meta:metaM2?metaM2[1]:'0',f:fM2?fM2[1]:fmt,name:name2,pct:0,cat:'Other',colors:metaColorsFromName(name2)});
       });
     }catch(e){}
   }
@@ -18436,7 +18439,9 @@ function metaParseFormat(html,fmt){
 function metaRenderMeta(archetypes){
   var content=document.getElementById('meta-content');if(!content)return;
   if(!archetypes.length){
-    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1.5rem 0">Aucun archétype trouvé pour ce format.</div>';
+    var dbgLen=_metaLastHtml?_metaLastHtml.length:0;
+    console.log('[Méta] 0 archétype — HTML reçu: '+dbgLen+' chars. Inspecter _metaLastHtml pour voir le contenu.');
+    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1.5rem 0">Aucun archétype trouvé pour ce format.<br><span style="font-size:.7rem;opacity:.7">HTML reçu: '+dbgLen+' chars — ouvrir la console (F12) pour diagnostiquer.</span></div>';
     return;
   }
   var maxPct=Math.max.apply(null,archetypes.map(function(a){return a.pct||0;}));if(!maxPct)maxPct=1;
@@ -18490,7 +18495,8 @@ function metaClickArchetype(a,meta,fmt,name){
   if(deckMeta)deckMeta.textContent='';
   _metaDecks=[];_metaDeckIdx=0;
   if(panel)setTimeout(function(){panel.scrollIntoView({behavior:'smooth',block:'nearest'});},120);
-  _metaFetch('https://mtgtop8.com/archetype?a='+a+'&meta='+meta+'&f='+fmt)
+  var _archUrl='https://mtgtop8.com/archetype?a='+a+(meta&&meta!=='0'?'&meta='+meta:'')+'&f='+fmt;
+  _metaFetch(_archUrl)
     .then(function(html){
       _metaDecks=metaParseArchetype(html);
       _metaDeckIdx=0;
