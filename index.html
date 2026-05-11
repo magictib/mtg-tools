@@ -909,6 +909,18 @@ body.mana-cursor{cursor:none}
 .meta-edit-deck{background:var(--s2);border:.5px solid var(--bd);border-radius:8px;padding:7px 10px;display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .meta-edit-name{flex:1;font-size:.8rem;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
 .meta-tier-sel{background:var(--s1);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.78rem;padding:3px 6px;font-family:'Crimson Pro',serif;outline:none}
+/* META 2 colonnes */
+.meta-2cols{display:flex;gap:14px;align-items:flex-start}
+.meta-col-arch{flex:3;min-width:0}
+.meta-col-top{flex:2;min-width:180px;max-width:280px}
+@media(max-width:600px){.meta-2cols{flex-direction:column}.meta-col-top{max-width:none;width:100%}}
+.meta-top-hdr{font-size:9px;font-family:'Goudy Mediaeval',serif;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3);padding:8px 0 6px;border-bottom:.5px solid var(--bd);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.meta-topcard-item{display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:.5px solid rgba(255,255,255,.04);min-width:0}
+.meta-topcard-name{flex:1;font-size:.75rem;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:color .1s}
+.meta-topcard-name:hover{color:var(--gold2)}
+.meta-topcard-bar{width:32px;height:3px;background:var(--s3);border-radius:999px;flex-shrink:0}
+.meta-topcard-fill{height:3px;border-radius:999px;background:rgba(201,168,76,.55)}
+.meta-topcard-pct{font-size:.66rem;color:var(--tx3);min-width:28px;text-align:right;flex-shrink:0}
 /* ===== BUILDER AMÉLIORÉ ===== */
 .bld-grp-hdr{font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.1em;text-transform:uppercase;padding:6px 0 3px;border-bottom:.5px solid var(--bd);margin-bottom:3px;display:flex;align-items:center;gap:5px}
 .bld-grp-cnt{font-size:.68rem;color:var(--tx3);font-weight:400;letter-spacing:0}
@@ -18358,6 +18370,7 @@ function metaSetFmt(fmt){
   metaFetchMeta(fmt);
 }
 
+var _metaTopCards=[];
 function metaFetchMeta(fmt){
   var loading=document.getElementById('meta-loading');
   var err=document.getElementById('meta-error');
@@ -18365,12 +18378,24 @@ function metaFetchMeta(fmt){
   if(loading)loading.style.display='block';
   if(err)err.style.display='none';
   if(content)content.innerHTML='';
+  _metaTopCards=[];
   var url='https://mtgtop8.com/format?f='+fmt;
   _metaFetch(url)
     .then(function(html){
       if(loading)loading.style.display='none';
       _metaArchetypes=metaParseFormat(html,fmt);
+      // Essaie aussi d'extraire les top cards depuis la même page
+      _metaTopCards=metaParseTopCards(html);
       metaRenderMeta(_metaArchetypes);
+      // Fetch séparé topcards si on a un meta ID
+      var metaId=_metaArchetypes.length&&_metaArchetypes[0].meta!=='0'?_metaArchetypes[0].meta:null;
+      if(metaId){
+        _metaFetch('https://mtgtop8.com/topcards?f='+fmt+'&meta='+metaId+'&a=0')
+          .then(function(tcHtml){
+            var tc=metaParseTopCards(tcHtml);
+            if(tc.length>_metaTopCards.length){_metaTopCards=tc;metaRenderMeta(_metaArchetypes);}
+          }).catch(function(){});
+      }
     })
     .catch(function(e){
       if(loading)loading.style.display='none';
@@ -18382,58 +18407,132 @@ var _metaLastHtml=''; // debug : accessible depuis la console navigateur
 function metaParseFormat(html,fmt){
   _metaLastHtml=html;
   var result=[];var seen={};
-  // Regex permissive : guillemets simples ou doubles, slash optionnel
-  var re=/href=["']([^"']*archetype\?a=(\d+)[^"']*)["']/gi;
-  var m;
-  while((m=re.exec(html))!==null){
-    var fullHref=m[1],a=m[2];
-    if(seen[a])continue;
-    var metaM=fullHref.match(/meta=(\d+)/i);
-    var fM=fullHref.match(/[?&]f=([A-Za-z]+)/i);
-    // meta et f sont optionnels : on utilise '0' et fmt comme fallback
-    var meta=metaM?metaM[1]:'0';
-    var f=fM?fM[1]:fmt;
-    seen[a]=1;
-    // Nom : texte entre > et </a> après le href
-    var afterHref=html.substr(m.index+m[0].length,300);
-    var nameM=afterHref.match(/>([^<]{1,60})<\/a>/);
-    var name=nameM?nameM[1].trim():'';
-    if(!name)continue;
-    // Pourcentage : dans les 300 chars après </a>, avant le prochain lien archetype
-    var closeA=html.indexOf('</a>',m.index+m[0].length);
-    var pct=0;
-    if(closeA>0){
-      var after=html.substr(closeA+4,300);
-      var nl=after.search(/archetype\?a=/i);if(nl>0)after=after.substr(0,nl);
-      var pm=after.match(/(\d+(?:\.\d+)?)\s*%/);
-      if(pm)pct=parseFloat(pm[1]);
-    }
-    // Catégorie : dernier mot-clé catégorie dans les 1000 chars AVANT
-    var before=html.substr(Math.max(0,m.index-1000),1000).toUpperCase();
-    var cat='Other';var bestPos=-1;
-    [{k:'AGGRO',v:'Aggro'},{k:'CONTROL',v:'Control'},{k:'COMBO',v:'Combo'},{k:'MIDRANGE',v:'Midrange'}].forEach(function(c){
-      var idx=before.lastIndexOf(c.k);if(idx>bestPos){bestPos=idx;cat=c.v;}
+  try{
+    var doc=new DOMParser().parseFromString(html,'text/html');
+    // Trouve tous les liens archétype
+    Array.from(doc.querySelectorAll('a[href]')).forEach(function(link){
+      var href=link.getAttribute('href')||'';
+      if(href.indexOf('archetype')<0||href.indexOf('a=')<0)return;
+      var aM=href.match(/a=(\d+)/);if(!aM)return;
+      var a=aM[1];if(seen[a])return;seen[a]=1;
+      var name=(link.textContent||'').trim();if(!name||name.length>80)return;
+      var metaM=href.match(/meta=(\d+)/);
+      var fM=href.match(/[?&]f=([A-Za-z]+)/i);
+      var meta=metaM?metaM[1]:'0';
+      var f=fM?fM[1]:fmt;
+      // Trouver la ligne TR (ou parent direct)
+      var row=link.closest('tr')||link.parentElement;
+      // --- Pourcentage ---
+      var pct=0;
+      if(row){
+        // Texte de la ligne sans le nom de l'archétype
+        var rowTxt=(row.textContent||'').replace(name,'');
+        var allPcts=[];var rp=/(\d+(?:\.\d+)?)\s*%/g;var pm;
+        while((pm=rp.exec(rowTxt))!==null)allPcts.push(parseFloat(pm[1]));
+        // Prend le premier % raisonnable (entre 0.1 et 100)
+        for(var i=0;i<allPcts.length;i++){if(allPcts[i]>=0.1&&allPcts[i]<=100){pct=allPcts[i];break;}}
+        // Fallback : cherche width:XX% dans les styles (barre de progression)
+        if(!pct){
+          Array.from(row.querySelectorAll('[style]')).forEach(function(el){
+            if(pct)return;
+            var wM=(el.getAttribute('style')||'').match(/width:\s*(\d+(?:\.\d+)?)\s*%/);
+            if(wM&&parseFloat(wM[1])>=0.1&&parseFloat(wM[1])<=100)pct=parseFloat(wM[1]);
+          });
+        }
+      }
+      // --- Couleurs : images de symboles de mana dans la ligne ---
+      var colors=[];
+      if(row){
+        Array.from(row.querySelectorAll('img[src]')).forEach(function(img){
+          var src=(img.getAttribute('src')||'').toLowerCase();
+          // MTGTop8 utilise /graph/W.gif, /i/s/W.gif, etc.
+          var cM=src.match(/[\/\\]([wubrg])\.(?:gif|png|svg)/i);
+          if(cM){var c=cM[1].toUpperCase();if(colors.indexOf(c)<0)colors.push(c);}
+          // Ou via attribut alt
+          var alt=(img.getAttribute('alt')||'').trim().toUpperCase();
+          if(['W','U','B','R','G','C'].indexOf(alt)>=0&&colors.indexOf(alt)<0)colors.push(alt);
+        });
+        // Essaie aussi les spans avec class contenant la couleur (certains sites)
+        Array.from(row.querySelectorAll('[class]')).forEach(function(el){
+          var cls=(el.getAttribute('class')||'').toLowerCase();
+          ['w','u','b','r','g'].forEach(function(c){
+            if(cls===c||cls.indexOf('mana-'+c)>=0||cls.indexOf('color-'+c)>=0){
+              var C=c.toUpperCase();if(colors.indexOf(C)<0)colors.push(C);
+            }
+          });
+        });
+      }
+      if(!colors.length)colors=metaColorsFromName(name);
+      // --- Catégorie : remonte le DOM à la recherche d'un en-tête de section ---
+      var cat='Other';
+      var el=row?row.parentElement:link.parentElement;
+      outer:for(var t=0;t<20&&el;t++){
+        var prev=el.previousElementSibling;
+        for(var j=0;j<15&&prev;j++){
+          var txt=(prev.textContent||'').toUpperCase();
+          if(/\bAGGRO\b/.test(txt)){cat='Aggro';break outer;}
+          if(/\bCONTROL\b/.test(txt)){cat='Control';break outer;}
+          if(/\bCOMBO\b/.test(txt)){cat='Combo';break outer;}
+          if(/\bMIDRANGE\b/.test(txt)){cat='Midrange';break outer;}
+          prev=prev.previousElementSibling;
+        }
+        el=el.parentElement;
+      }
+      result.push({a:a,meta:meta,f:f,name:name,pct:pct,cat:cat,colors:colors});
     });
-    result.push({a:a,meta:meta,f:f,name:name,pct:pct,cat:cat,colors:metaColorsFromName(name)});
-  }
-  // Fallback si 0 résultats : DOMParser (cas href avec attrs avant ou structure différente)
+  }catch(e){console.warn('[metaParseFormat]',e);}
+  // Fallback regex si DOMParser n'a rien trouvé
   if(!result.length){
-    try{
-      var doc=new DOMParser().parseFromString(html,'text/html');
-      doc.querySelectorAll('a').forEach(function(link){
-        var href=link.getAttribute('href')||'';
-        if(href.indexOf('archetype')<0||href.indexOf('a=')<0)return;
-        var aM=href.match(/a=(\d+)/);
-        if(!aM)return;
-        var a2=aM[1];if(seen[a2])return;seen[a2]=1;
-        var name2=(link.textContent||'').trim();if(!name2||name2.length>80)return;
-        var metaM2=href.match(/meta=(\d+)/);
-        var fM2=href.match(/[?&]f=([A-Za-z]+)/i);
-        result.push({a:a2,meta:metaM2?metaM2[1]:'0',f:fM2?fM2[1]:fmt,name:name2,pct:0,cat:'Other',colors:metaColorsFromName(name2)});
-      });
-    }catch(e){}
+    var re=/href=["']([^"']*archetype\?a=(\d+)[^"']*)["']/gi;var m;
+    while((m=re.exec(html))!==null){
+      var fullHref=m[1],a2=m[2];if(seen[a2])continue;
+      var metaM2=fullHref.match(/meta=(\d+)/i);var fM2=fullHref.match(/[?&]f=([A-Za-z]+)/i);
+      var meta2=metaM2?metaM2[1]:'0';var f2=fM2?fM2[1]:fmt;seen[a2]=1;
+      var afterHref=html.substr(m.index+m[0].length,400);
+      var nameM2=afterHref.match(/>([^<]{1,60})<\/a>/);
+      var name2=nameM2?nameM2[1].trim():'';if(!name2)continue;
+      var closeA=html.indexOf('</a>',m.index+m[0].length);var pct2=0;
+      if(closeA>0){var after=html.substr(closeA+4,600);var nl=after.search(/archetype\?a=/i);if(nl>0)after=after.substr(0,nl);var pm2=after.match(/(\d+(?:\.\d+)?)\s*%/);if(pm2)pct2=parseFloat(pm2[1]);}
+      var before=html.substr(Math.max(0,m.index-1000),1000).toUpperCase();var cat2='Other';var bestPos=-1;
+      [{k:'AGGRO',v:'Aggro'},{k:'CONTROL',v:'Control'},{k:'COMBO',v:'Combo'},{k:'MIDRANGE',v:'Midrange'}].forEach(function(c){var idx=before.lastIndexOf(c.k);if(idx>bestPos){bestPos=idx;cat2=c.v;}});
+      result.push({a:a2,meta:meta2,f:f2,name:name2,pct:pct2,cat:cat2,colors:metaColorsFromName(name2)});
+    }
   }
   return result;
+}
+
+function metaParseTopCards(html){
+  var cards=[];var seen={};
+  try{
+    var doc=new DOMParser().parseFromString(html,'text/html');
+    // Stratégie 1 : liens vers pages carte (/cards?card= ou similaire)
+    var cardLinks=Array.from(doc.querySelectorAll('a[href]')).filter(function(l){
+      var href=l.getAttribute('href')||'';
+      return /cards\?card=/i.test(href)||/\/card\//i.test(href)||/card\.php/i.test(href);
+    });
+    cardLinks.forEach(function(link){
+      var name=(link.textContent||'').trim();
+      if(!name||seen[name]||name.length>60||name.length<2)return;seen[name]=1;
+      var row=link.closest('tr')||link.parentElement;var pct=0;
+      if(row){var pm=(row.textContent||'').replace(name,'').match(/(\d+(?:\.\d+)?)\s*%/);if(pm)pct=parseFloat(pm[1]);}
+      cards.push({name:name,pct:pct});
+    });
+    // Stratégie 2 : lignes de tableau avec nom + %
+    if(!cards.length){
+      Array.from(doc.querySelectorAll('tr')).forEach(function(row){
+        if(row.querySelector('a[href*="archetype"]'))return;
+        var tds=Array.from(row.querySelectorAll('td'));if(tds.length<2)return;
+        var name=(tds[0].textContent||'').trim();
+        if(!name||seen[name]||name.length>60||name.length<2)return;
+        var rowTxt=(row.textContent||'').replace(name,'');
+        var pm=rowTxt.match(/(\d+(?:\.\d+)?)\s*%/);if(!pm)return;
+        var pct=parseFloat(pm[1]);if(pct<=0||pct>100)return;
+        seen[name]=1;cards.push({name:name,pct:pct});
+      });
+    }
+  }catch(e){}
+  cards.sort(function(a,b){return b.pct-a.pct;});
+  return cards.slice(0,20);
 }
 
 function metaRenderMeta(archetypes){
@@ -18449,29 +18548,50 @@ function metaRenderMeta(archetypes){
   var groups={};cats.forEach(function(c){groups[c]=[];});
   archetypes.forEach(function(a){var g=groups[a.cat];if(g)g.push(a);else groups['Other'].push(a);});
   var catColors={Aggro:'#e06050',Control:'#5a9fd4',Combo:'#c090e0',Midrange:'#56b070',Other:'var(--tx3)'};
-  var html='';
+  // --- Colonne gauche : archétypes ---
+  var archHtml='';
   cats.forEach(function(cat){
     var grp=groups[cat];if(!grp||!grp.length)return;
-    var catPct=Math.round(grp.reduce(function(s,a){return s+(a.pct||0);},0));
-    html+='<div class="meta-cat-hdr"><span style="color:'+catColors[cat]+'">'+cat.toUpperCase()+'</span>';
-    if(catPct)html+='<span style="font-size:.7rem;font-weight:400;letter-spacing:0;color:var(--tx3)">'+catPct+'%</span>';
-    html+='</div>';
-    grp.forEach(function(arch,_gi){
+    var catPct=grp.reduce(function(s,a){return s+(a.pct||0);},0);
+    archHtml+='<div class="meta-cat-hdr"><span style="color:'+catColors[cat]+'">'+cat.toUpperCase()+'</span>';
+    if(catPct)archHtml+='<span style="font-size:.7rem;font-weight:400;letter-spacing:0;color:var(--tx3)">'+Math.round(catPct)+'%</span>';
+    archHtml+='</div>';
+    grp.forEach(function(arch){
       var isActive=_metaActiveA===arch.a;
       var pctW=maxPct?Math.round((arch.pct||0)/maxPct*100):0;
       var globalIdx=_metaArchetypes.indexOf(arch);
-      html+='<div class="meta-row'+(isActive?' meta-active':'')+'" onclick="metaClickByIdx('+globalIdx+')">'
+      archHtml+='<div class="meta-row'+(isActive?' meta-active':'')+'" onclick="metaClickByIdx('+globalIdx+')">'
         +'<div style="display:flex;gap:2px;min-width:56px;flex-shrink:0">'+metaColorPips(arch.colors)+'</div>'
         +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(arch.name)+'</div>'
-        +(arch.pct?'<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
-          +'<div class="meta-pct-track"><div class="meta-pct-bar" style="width:'+pctW+'%"></div></div>'
-          +'<span style="font-size:.72rem;color:var(--tx2);min-width:30px;text-align:right">'+arch.pct+'%</span>'
-          +'</div>':'')
+        +'<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">'
+        +(arch.pct
+          ?'<div class="meta-pct-track"><div class="meta-pct-bar" style="width:'+pctW+'%"></div></div>'
+           +'<span style="font-size:.72rem;color:var(--tx2);min-width:32px;text-align:right">'+arch.pct+'%</span>'
+          :'<span style="font-size:.72rem;color:var(--tx3);min-width:32px;text-align:right">—</span>')
+        +'</div>'
         +'</div>';
     });
-    html+='<div style="height:8px"></div>';
+    archHtml+='<div style="height:8px"></div>';
   });
-  content.innerHTML=html;
+  // --- Colonne droite : cartes les plus jouées ---
+  var topHtml='<div class="meta-top-hdr">🃏 Cartes les plus jouées</div>';
+  if(!_metaTopCards.length){
+    topHtml+='<div style="font-size:.74rem;color:var(--tx3);font-style:italic;padding:.5rem 0">Chargement...</div>';
+  }else{
+    var maxTc=Math.max.apply(null,_metaTopCards.map(function(c){return c.pct||0;}));if(!maxTc)maxTc=1;
+    _metaTopCards.forEach(function(card){
+      var w=Math.round((card.pct||0)/maxTc*100);
+      topHtml+='<div class="meta-topcard-item">'
+        +'<span class="meta-topcard-name" data-name="'+esc(card.name)+'" onmouseenter="metaCardTipShow(this.dataset.name,event)" onmouseleave="metaCardTipHide()">'+esc(card.name)+'</span>'
+        +'<div class="meta-topcard-bar"><div class="meta-topcard-fill" style="width:'+w+'%"></div></div>'
+        +(card.pct?'<span class="meta-topcard-pct">'+card.pct+'%</span>':'')
+        +'</div>';
+    });
+  }
+  content.innerHTML='<div class="meta-2cols">'
+    +'<div class="meta-col-arch">'+archHtml+'</div>'
+    +'<div class="meta-col-top">'+topHtml+'</div>'
+    +'</div>';
 }
 
 function metaClickByIdx(i){
