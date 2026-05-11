@@ -912,7 +912,7 @@ body.mana-cursor{cursor:none}
 /* META 2 colonnes */
 .meta-2cols{display:flex;gap:14px;align-items:flex-start}
 .meta-col-arch{flex:3;min-width:0}
-.meta-col-top{flex:2;min-width:180px;max-width:280px}
+.meta-col-top{flex:2;min-width:200px}
 @media(max-width:600px){.meta-2cols{flex-direction:column}.meta-col-top{max-width:none;width:100%}}
 .meta-top-hdr{font-size:9px;font-family:'Goudy Mediaeval',serif;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3);padding:8px 0 6px;border-bottom:.5px solid var(--bd);margin-bottom:6px;display:flex;align-items:center;gap:6px}
 .meta-topcard-item{display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:.5px solid rgba(255,255,255,.04);min-width:0}
@@ -1750,7 +1750,7 @@ body.mana-cursor{cursor:none}
     <div class="lbl" style="font-size:1.1rem;margin-bottom:.3rem">Créer ou charger un deck</div>
     <div style="color:var(--tx3);font-size:.82rem">Choisissez comment commencer</div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
     <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="_bldWizOpenLoad(event)">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">📂</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Charger un deck</div>
@@ -1764,6 +1764,11 @@ body.mana-cursor{cursor:none}
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">👑</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Chercher un commandant</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Partir d'un commandant spécifique ou explorer par couleur</div>
+    </div>
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="_bldEntryBlank()">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">✨</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Nouveau deck vierge</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Commencer avec un deck entièrement vide</div>
     </div>
     <div class="card" style="padding:1.25rem">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🎯</div>
@@ -2150,7 +2155,7 @@ body.mana-cursor{cursor:none}
 
 <!-- META -->
 <div class="page" id="pg-meta">
-  <div style="max-width:740px;margin:0 auto">
+  <div>
     <!-- Sélecteur de format -->
     <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px">
       <button class="meta-fmt-btn active" id="mfb-PAU" onclick="metaSetFmt('PAU')">Pauper</button>
@@ -2475,12 +2480,6 @@ body.mana-cursor{cursor:none}
 
   <!-- Panel: Historique -->
   <div id="ar-panel-history" style="display:none">
-    <!-- Stats -->
-    <div class="card">
-      <div class="lbl">Statistiques</div>
-      <div id="game-stats" style="margin-bottom:4px"></div>
-    </div>
-
     <!-- Historique -->
     <div class="card">
       <div class="row" style="margin-bottom:.5rem">
@@ -2565,7 +2564,7 @@ body.mana-cursor{cursor:none}
 
   <!-- Panel: Jouer (solo / en ligne / vs IA) -->
   <div id="ar-panel-online" style="display:none">
-    <div style="max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;flex-direction:column;gap:14px">
       <div class="card">
         <div class="lbl">🎮 Arène de test</div>
         <p style="font-size:.83rem;color:var(--tx2);margin-bottom:14px;line-height:1.6">Testez votre deck sous tous les angles.</p>
@@ -2701,15 +2700,18 @@ body.mana-cursor{cursor:none}
 
   <!-- Panel: Stats -->
   <div id="ar-panel-stats" style="display:none">
-    <div style="max-width:560px;margin:0 auto">
-      <!-- Ranking & Stats -->
-      <div class="card" id="ar-stats-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div class="lbl" style="margin-bottom:0">📊 Ranking — Parties test</div>
-          <button class="btn btnsm btnrd" onclick="arClearStats()" style="font-size:.68rem">Réinitialiser</button>
-        </div>
-        <div id="ar-stats-section"><div style="color:var(--tx3);font-style:italic;font-size:.82rem">Aucune partie enregistrée</div></div>
+    <!-- Stats parties arena (ranking test) -->
+    <div class="card" id="ar-stats-card" style="margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="lbl" style="margin-bottom:0">📊 Ranking — Parties test</div>
+        <button class="btn btnsm btnrd" onclick="arClearStats()" style="font-size:.68rem">Réinitialiser</button>
       </div>
+      <div id="ar-stats-section"><div style="color:var(--tx3);font-style:italic;font-size:.82rem">Aucune partie enregistrée</div></div>
+    </div>
+    <!-- Statistiques parties enregistrées -->
+    <div class="card">
+      <div class="lbl">Statistiques</div>
+      <div id="game-stats" style="margin-bottom:4px"></div>
     </div>
   </div>
 </div>
@@ -18406,99 +18408,75 @@ function metaFetchMeta(fmt){
 var _metaLastHtml=''; // debug : accessible depuis la console navigateur
 function metaParseFormat(html,fmt){
   _metaLastHtml=html;
-  var result=[];var seen={};
+  var result=[];var seenA={};
+  // === Passe 1 : regex sur HTML brut — positions, noms, %, params ===
+  var rawItems=[];
+  var re=/href=["']([^"']*archetype\?a=(\d+)[^"']*)["']/gi;var m;
+  while((m=re.exec(html))!==null){
+    var a=m[2];if(seenA[a])continue;seenA[a]=1;
+    var href=m[1];
+    var metaM=href.match(/meta=(\d+)/i);
+    var fM=href.match(/[?&]f=([A-Za-z]+)/i);
+    var meta=metaM?metaM[1]:'0';
+    var f=fM?fM[1]:fmt;
+    // Nom : texte entre > et </a>
+    var afterStart=html.substr(m.index+m[0].length,200);
+    var nameM=afterStart.match(/>([^<]{1,80})<\/a>/);
+    var name=nameM?nameM[1].trim():'';if(!name)continue;
+    // Pourcentage : HTML brut après </a> avec tags strippés
+    var closeA=html.indexOf('</a>',m.index+m[0].length);
+    var pct=0;
+    if(closeA>=0){
+      rawItems.push({a:a,meta:meta,f:f,name:name,pct:0,cat:'Other',colors:[],closeA:closeA,matchIdx:m.index});
+      continue;
+    }
+    rawItems.push({a:a,meta:meta,f:f,name:name,pct:pct,cat:'Other',colors:[],closeA:-1,matchIdx:m.index});
+  }
+  // Calcul des pourcentages en utilisant les positions
+  rawItems.forEach(function(item,i){
+    if(item.closeA<0)return;
+    // Fenêtre jusqu'au prochain lien archétype
+    var nextIdx=i+1<rawItems.length?rawItems[i+1].matchIdx:item.closeA+800;
+    var winLen=Math.max(0,Math.min(800,nextIdx-item.closeA-4));
+    var window=html.substr(item.closeA+4,winLen);
+    // Supprimer TOUS les tags HTML (et leurs attributs style/width) → ne reste que le texte
+    var text=window.replace(/<[^>]+>/g,' ').replace(/&[a-z\d#]+;/gi,' ');
+    var rp=/\b(\d+(?:\.\d+)?)\s*%/g;var pm;
+    while((pm=rp.exec(text))!==null){
+      var v=parseFloat(pm[1]);
+      // Aucun archétype n'a > 50% du méta — valeurs plus grandes sont du bruit (layout CSS)
+      if(v>=0.1&&v<=50){item.pct=v;break;}
+    }
+    // Catégorie via HTML brut avant le lien
+    var before=html.substr(Math.max(0,item.matchIdx-1500),1500).toUpperCase();
+    var bestPos=-1;
+    [{k:'AGGRO',v:'Aggro'},{k:'CONTROL',v:'Control'},{k:'COMBO',v:'Combo'},{k:'MIDRANGE',v:'Midrange'}].forEach(function(c){
+      var idx=before.lastIndexOf(c.k);if(idx>bestPos){bestPos=idx;item.cat=c.v;}
+    });
+  });
+  // === Passe 2 : DOMParser — couleurs uniquement ===
   try{
     var doc=new DOMParser().parseFromString(html,'text/html');
-    // Trouve tous les liens archétype
     Array.from(doc.querySelectorAll('a[href]')).forEach(function(link){
-      var href=link.getAttribute('href')||'';
-      if(href.indexOf('archetype')<0||href.indexOf('a=')<0)return;
-      var aM=href.match(/a=(\d+)/);if(!aM)return;
-      var a=aM[1];if(seen[a])return;seen[a]=1;
-      var name=(link.textContent||'').trim();if(!name||name.length>80)return;
-      var metaM=href.match(/meta=(\d+)/);
-      var fM=href.match(/[?&]f=([A-Za-z]+)/i);
-      var meta=metaM?metaM[1]:'0';
-      var f=fM?fM[1]:fmt;
-      // Trouver la ligne TR (ou parent direct)
+      var href2=link.getAttribute('href')||'';
+      if(href2.indexOf('archetype')<0||href2.indexOf('a=')<0)return;
+      var aM2=href2.match(/a=(\d+)/);if(!aM2)return;
+      var item=rawItems.find(function(x){return x.a===aM2[1];});if(!item)return;
+      if(item.colors.length)return; // déjà trouvé
       var row=link.closest('tr')||link.parentElement;
-      // --- Pourcentage ---
-      var pct=0;
-      if(row){
-        // Texte de la ligne sans le nom de l'archétype
-        var rowTxt=(row.textContent||'').replace(name,'');
-        var allPcts=[];var rp=/(\d+(?:\.\d+)?)\s*%/g;var pm;
-        while((pm=rp.exec(rowTxt))!==null)allPcts.push(parseFloat(pm[1]));
-        // Prend le premier % raisonnable (entre 0.1 et 100)
-        for(var i=0;i<allPcts.length;i++){if(allPcts[i]>=0.1&&allPcts[i]<=100){pct=allPcts[i];break;}}
-        // Fallback : cherche width:XX% dans les styles (barre de progression)
-        if(!pct){
-          Array.from(row.querySelectorAll('[style]')).forEach(function(el){
-            if(pct)return;
-            var wM=(el.getAttribute('style')||'').match(/width:\s*(\d+(?:\.\d+)?)\s*%/);
-            if(wM&&parseFloat(wM[1])>=0.1&&parseFloat(wM[1])<=100)pct=parseFloat(wM[1]);
-          });
-        }
-      }
-      // --- Couleurs : images de symboles de mana dans la ligne ---
-      var colors=[];
-      if(row){
-        Array.from(row.querySelectorAll('img[src]')).forEach(function(img){
-          var src=(img.getAttribute('src')||'').toLowerCase();
-          // MTGTop8 utilise /graph/W.gif, /i/s/W.gif, etc.
-          var cM=src.match(/[\/\\]([wubrg])\.(?:gif|png|svg)/i);
-          if(cM){var c=cM[1].toUpperCase();if(colors.indexOf(c)<0)colors.push(c);}
-          // Ou via attribut alt
-          var alt=(img.getAttribute('alt')||'').trim().toUpperCase();
-          if(['W','U','B','R','G','C'].indexOf(alt)>=0&&colors.indexOf(alt)<0)colors.push(alt);
-        });
-        // Essaie aussi les spans avec class contenant la couleur (certains sites)
-        Array.from(row.querySelectorAll('[class]')).forEach(function(el){
-          var cls=(el.getAttribute('class')||'').toLowerCase();
-          ['w','u','b','r','g'].forEach(function(c){
-            if(cls===c||cls.indexOf('mana-'+c)>=0||cls.indexOf('color-'+c)>=0){
-              var C=c.toUpperCase();if(colors.indexOf(C)<0)colors.push(C);
-            }
-          });
-        });
-      }
-      if(!colors.length)colors=metaColorsFromName(name);
-      // --- Catégorie : remonte le DOM à la recherche d'un en-tête de section ---
-      var cat='Other';
-      var el=row?row.parentElement:link.parentElement;
-      outer:for(var t=0;t<20&&el;t++){
-        var prev=el.previousElementSibling;
-        for(var j=0;j<15&&prev;j++){
-          var txt=(prev.textContent||'').toUpperCase();
-          if(/\bAGGRO\b/.test(txt)){cat='Aggro';break outer;}
-          if(/\bCONTROL\b/.test(txt)){cat='Control';break outer;}
-          if(/\bCOMBO\b/.test(txt)){cat='Combo';break outer;}
-          if(/\bMIDRANGE\b/.test(txt)){cat='Midrange';break outer;}
-          prev=prev.previousElementSibling;
-        }
-        el=el.parentElement;
-      }
-      result.push({a:a,meta:meta,f:f,name:name,pct:pct,cat:cat,colors:colors});
+      if(!row)return;
+      Array.from(row.querySelectorAll('img[src]')).forEach(function(img){
+        var src=(img.getAttribute('src')||'').toLowerCase();
+        var cM=src.match(/[\/\\]([wubrg])\.(?:gif|png|svg)/i);
+        if(cM){var c=cM[1].toUpperCase();if(item.colors.indexOf(c)<0)item.colors.push(c);}
+        var alt=(img.getAttribute('alt')||'').trim().toUpperCase();
+        if(['W','U','B','R','G','C'].indexOf(alt)>=0&&item.colors.indexOf(alt)<0)item.colors.push(alt);
+      });
     });
-  }catch(e){console.warn('[metaParseFormat]',e);}
-  // Fallback regex si DOMParser n'a rien trouvé
-  if(!result.length){
-    var re=/href=["']([^"']*archetype\?a=(\d+)[^"']*)["']/gi;var m;
-    while((m=re.exec(html))!==null){
-      var fullHref=m[1],a2=m[2];if(seen[a2])continue;
-      var metaM2=fullHref.match(/meta=(\d+)/i);var fM2=fullHref.match(/[?&]f=([A-Za-z]+)/i);
-      var meta2=metaM2?metaM2[1]:'0';var f2=fM2?fM2[1]:fmt;seen[a2]=1;
-      var afterHref=html.substr(m.index+m[0].length,400);
-      var nameM2=afterHref.match(/>([^<]{1,60})<\/a>/);
-      var name2=nameM2?nameM2[1].trim():'';if(!name2)continue;
-      var closeA=html.indexOf('</a>',m.index+m[0].length);var pct2=0;
-      if(closeA>0){var after=html.substr(closeA+4,600);var nl=after.search(/archetype\?a=/i);if(nl>0)after=after.substr(0,nl);var pm2=after.match(/(\d+(?:\.\d+)?)\s*%/);if(pm2)pct2=parseFloat(pm2[1]);}
-      var before=html.substr(Math.max(0,m.index-1000),1000).toUpperCase();var cat2='Other';var bestPos=-1;
-      [{k:'AGGRO',v:'Aggro'},{k:'CONTROL',v:'Control'},{k:'COMBO',v:'Combo'},{k:'MIDRANGE',v:'Midrange'}].forEach(function(c){var idx=before.lastIndexOf(c.k);if(idx>bestPos){bestPos=idx;cat2=c.v;}});
-      result.push({a:a2,meta:meta2,f:f2,name:name2,pct:pct2,cat:cat2,colors:metaColorsFromName(name2)});
-    }
-  }
-  return result;
+  }catch(e){console.warn('[meta colors]',e);}
+  // Fallback couleurs par nom
+  rawItems.forEach(function(item){if(!item.colors.length)item.colors=metaColorsFromName(item.name);});
+  return rawItems.filter(function(x){return x.name;});
 }
 
 function metaParseTopCards(html){
@@ -18815,20 +18793,22 @@ function metaCopyDeck(){
   }).catch(function(){});
 }
 function metaCreateDeck(){
-  var txt=_metaCurDeckTxt();
-  if(!txt)return;
-  var dk=_metaDecks&&_metaDecks[_metaDeckIdx];
-  var archName=(document.getElementById('meta-dl-title')||{}).textContent||'Deck méta';
-  var name=(dk&&dk.player)?(archName+' — '+dk.player):archName;
-  goTab('deck');
+  var txt=_metaCurDeckTxt();if(!txt)return;
+  // Parser le texte MTGO en cartes pour le builder
+  var main=[],side=[],inSide=false;
+  txt.split('\n').forEach(function(line){
+    line=line.trim();if(!line)return;
+    if(/^sideboard/i.test(line)){inSide=true;return;}
+    var m=line.match(/^(\d+)\s+(.+)$/);if(!m)return;
+    var card={name:m[2].trim(),qty:parseInt(m[1])};
+    if(inSide)side.push(card);else main.push(card);
+  });
+  // Peupler le builder
+  bldCurDeckId=null;bldMain=main;bldSide=side;bldAvoir=[];bldOublie=[];
+  _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;_bldChecked={};
+  goTab('build');
   setTimeout(function(){
-    newDeck();
-    var taName=document.getElementById('ta-name');
-    var dNameIn=document.getElementById('dnamein');
-    if(taName)taName.value=txt;
-    if(dNameIn)dNameIn.value=name;
-    var deditor=document.getElementById('deditor');
-    if(deditor)deditor.scrollIntoView({behavior:'smooth'});
+    renderBldDecks();renderBldStats();_bldShowBuilder();
   },100);
 }
 
