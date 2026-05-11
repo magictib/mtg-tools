@@ -2194,6 +2194,13 @@ body.mana-cursor{cursor:none}
       <button class="meta-fmt-btn" id="mfb-EDH" onclick="metaSetFmt('EDH')">Duel Cdr</button>
       <button class="meta-fmt-btn" id="mfb-PREM" onclick="metaSetFmt('PREM')">Premodern</button>
     </div>
+    <!-- Mode toggle -->
+    <div style="display:flex;gap:5px;margin-bottom:12px;padding-bottom:10px;border-bottom:.5px solid var(--bd)">
+      <button class="meta-fmt-btn active" id="meta-mode-meta" onclick="metaSetMode('meta')" style="font-size:.75rem">📊 Méta</button>
+      <button class="meta-fmt-btn" id="meta-mode-tour" onclick="metaSetMode('tour')" style="font-size:.75rem">🏆 Tournois</button>
+    </div>
+    <!-- === SECTION MÉTA === -->
+    <div id="meta-meta-sec">
     <!-- Source + sélecteur de période -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
       <div style="font-size:.68rem;color:var(--tx3)">Source : <a href="https://mtgtop8.com" target="_blank" style="color:var(--ac);text-decoration:none">mtgtop8.com</a></div>
@@ -2230,6 +2237,36 @@ body.mana-cursor{cursor:none}
         <div id="meta-deck-content" style="min-height:80px"></div>
       </div>
     </div>
+    </div><!-- /meta-meta-sec -->
+
+    <!-- === SECTION TOURNOIS (TopDeck.gg) === -->
+    <div id="meta-tour-sec" style="display:none">
+      <!-- Clé API -->
+      <div id="tour-setup" style="display:none">
+        <div class="card" style="margin-bottom:10px">
+          <div class="lbl">Clé API TopDeck.gg <span style="font-weight:400;font-size:.75rem;color:var(--tx3)">— inscription gratuite sur <a href="https://topdeck.gg" target="_blank" style="color:var(--ac)">topdeck.gg</a></span></div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <input id="tour-key-in" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="flex:1;font-size:.78rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;font-family:monospace">
+            <button class="btn btnsm btnp" onclick="tourSaveKey()">Sauvegarder</button>
+          </div>
+        </div>
+      </div>
+      <!-- Contrôles -->
+      <div id="tour-controls" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <select id="tour-range-sel" style="font-size:.78rem;padding:4px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none">
+            <option value="90">3 derniers mois</option>
+            <option value="180" selected>6 mois</option>
+            <option value="365">1 an</option>
+            <option value="730">2 ans</option>
+          </select>
+          <button class="btn btnsm btnp" onclick="tourLoad()">Charger</button>
+          <button class="btn btnsm" onclick="tourClearKey()" style="margin-left:auto;font-size:.68rem;color:var(--tx3)">✏ Changer clé</button>
+        </div>
+      </div>
+      <div id="tour-loading" style="display:none;text-align:center;color:var(--tx3);font-size:.82rem;padding:2rem">Chargement...</div>
+      <div id="tour-results"></div>
+    </div><!-- /meta-tour-sec -->
   </div>
 </div>
 
@@ -18459,13 +18496,286 @@ function metaInit(){
   metaFetchMeta(_metaFmt);
 }
 
+// ===== MODE TOGGLE MÉTA / TOURNOIS =====
+var _metaMode='meta';
+function metaSetMode(mode){
+  _metaMode=mode;
+  var ms=document.getElementById('meta-meta-sec');
+  var ts=document.getElementById('meta-tour-sec');
+  var mb=document.getElementById('meta-mode-meta');
+  var tb=document.getElementById('meta-mode-tour');
+  if(ms)ms.style.display=mode==='meta'?'':'none';
+  if(ts)ts.style.display=mode==='tour'?'':'none';
+  if(mb)mb.classList.toggle('active',mode==='meta');
+  if(tb)tb.classList.toggle('active',mode==='tour');
+  if(mode==='tour')tourInitUI();
+}
 function metaSetFmt(fmt){
   _metaFmt=fmt;
   document.querySelectorAll('.meta-fmt-btn').forEach(function(b){b.classList.remove('active');});
   var ab=document.getElementById('mfb-'+fmt);if(ab)ab.classList.add('active');
-  metaCloseDl();
-  metaFetchMeta(fmt);
+  if(_metaMode==='meta'){metaCloseDl();metaFetchMeta(fmt);}
+  else{document.getElementById('tour-results').innerHTML='';}
 }
+
+// ===== TOURNOIS — TopDeck.gg API =====
+var _TOUR_FMT={PAU:'Pauper',MO:'Modern',PI:'Pioneer',ST:'Standard',LE:'Legacy',VI:'Vintage',cEDH:'cEDH',EDH:'Commander',PREM:'Premodern'};
+var _tourLastData=null;
+
+function _tourFetch(method,path,body){
+  var key=localStorage.getItem('ml_topdeck_key')||'';
+  return fetch('https://topdeck.gg/api'+path,{
+    method:method||'GET',
+    headers:{'Authorization':key,'Content-Type':'application/json'},
+    body:body?JSON.stringify(body):undefined
+  }).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});
+}
+function tourSaveKey(){
+  var inp=document.getElementById('tour-key-in');
+  if(!inp||!inp.value.trim())return;
+  localStorage.setItem('ml_topdeck_key',inp.value.trim());
+  tourInitUI();
+}
+function tourClearKey(){localStorage.removeItem('ml_topdeck_key');tourInitUI();}
+function tourInitUI(){
+  var hasKey=!!localStorage.getItem('ml_topdeck_key');
+  var setup=document.getElementById('tour-setup');
+  var ctrl=document.getElementById('tour-controls');
+  if(setup)setup.style.display=hasKey?'none':'block';
+  if(ctrl)ctrl.style.display=hasKey?'block':'none';
+}
+
+function tourLoad(){
+  var fmt=_metaFmt;
+  var tfmt=_TOUR_FMT[fmt]||fmt;
+  var days=parseInt((document.getElementById('tour-range-sel')||{value:'180'}).value)||180;
+  var now=Math.floor(Date.now()/1000);
+  var start=now-days*86400;
+  var loading=document.getElementById('tour-loading');
+  var results=document.getElementById('tour-results');
+  if(loading){loading.style.display='block';loading.textContent='Chargement des tournois...';}
+  if(results)results.innerHTML='';
+  _tourFetch('POST','/v2/tournaments',{game:'Magic: The Gathering',format:tfmt,start:start,end:now})
+    .then(function(tours){
+      if(!Array.isArray(tours)||!tours.length){
+        if(loading)loading.style.display='none';
+        if(results)results.innerHTML='<div style="color:var(--tx3);font-style:italic;padding:1rem">Aucun tournoi trouvé pour '+tfmt+' dans cette période.</div>';
+        return;
+      }
+      if(loading)loading.textContent='Chargement classements... 0/'+tours.length;
+      var done=0;var allData=[];
+      var promises=tours.map(function(t){
+        var tid=t.TID;
+        return _tourFetch('GET','/v2/tournaments/'+tid+'/standings')
+          .then(function(st){
+            done++;if(loading)loading.textContent='Chargement classements... '+done+'/'+tours.length;
+            allData.push({
+              tid:tid,name:t.tournamentName||tid,date:t.startDate||0,
+              topCut:t.topCut||0,swissNum:t.swissNum||0,
+              location:(t.eventData&&t.eventData.city)||(t.eventData&&t.eventData.country)||'',
+              standings:Array.isArray(st)?st:[],
+              embStandings:Array.isArray(t.standings)?t.standings:[]
+            });
+          }).catch(function(){
+            done++;
+            allData.push({tid:tid,name:t.tournamentName||tid,date:t.startDate||0,
+              topCut:t.topCut||0,swissNum:t.swissNum||0,location:'',
+              standings:[],embStandings:Array.isArray(t.standings)?t.standings:[]});
+          });
+      });
+      Promise.all(promises).then(function(){
+        if(loading)loading.style.display='none';
+        allData.sort(function(a,b){return b.date-a.date;});
+        _tourLastData=allData;
+        tourRenderList(allData,fmt);
+      });
+    }).catch(function(e){
+      if(loading)loading.style.display='none';
+      if(results)results.innerHTML='<div style="color:var(--rd2);padding:1rem">Erreur : '+(e.message||e)+'</div>';
+    });
+}
+
+function tourRenderList(allData,fmt){
+  var results=document.getElementById('tour-results');if(!results)return;
+  var totalPlayers=allData.reduce(function(s,t){return s+(t.standings.length||t.embStandings.length);},0);
+  var withDecklists=allData.reduce(function(s,t){
+    return s+(t.standings.filter(function(p){return p.decklist;}).length);},0);
+  var hasArch=allData.some(function(t){
+    return t.standings.some(function(p){return p.deckObj&&(p.deckObj.archetype||p.deckObj.name);});
+  });
+  var html='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:10px">'+allData.length+' tournois · '+totalPlayers+' joueurs';
+  if(withDecklists)html+=' · '+withDecklists+' decklists';
+  if(!hasArch)html+=' · <span style="color:rgba(201,168,76,.9)">Archétypes non taggés (decklists requis)</span>';
+  html+='</div>';
+  if(hasArch){html+=tourRenderArchTable(allData);html+=tourRenderMatrix(allData);}
+  html+='<div class="card" style="overflow-x:auto"><div class="lbl" style="margin-bottom:8px">Tournois récents</div>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="color:var(--tx3)">';
+  html+='<th style="padding:4px 8px;text-align:left">Tournoi</th><th style="padding:4px 8px">Date</th><th style="padding:4px 8px;text-align:center">Joueurs</th><th style="padding:4px 8px;text-align:center">Top cut</th><th style="padding:4px 8px;text-align:center">Swiss</th><th style="padding:4px 8px;text-align:left">Lieu</th><th></th></tr></thead><tbody>';
+  allData.slice(0,50).forEach(function(t,i){
+    var date=t.date?new Date(t.date*1000).toLocaleDateString('fr-FR'):'—';
+    var players=t.standings.length||t.embStandings.length||'?';
+    var hasDk=t.standings.some(function(p){return p.decklist;});
+    html+='<tr style="border-top:.5px solid var(--bd);cursor:pointer'+(i%2?';background:var(--s2)':'')+'" onclick="tourShowDetail(\''+t.tid+'\')">';
+    html+='<td style="padding:5px 8px;font-weight:500">'+(t.name||t.tid)+(hasDk?' <span style="font-size:.6rem;color:var(--ac2)">📋</span>':'')+'</td>';
+    html+='<td style="padding:5px 8px;color:var(--tx3);white-space:nowrap">'+date+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+players+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+(t.topCut||'—')+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+(t.swissNum||'—')+'</td>';
+    html+='<td style="padding:5px 8px;color:var(--tx3);font-size:.7rem">'+(t.location||'—')+'</td>';
+    html+='<td style="padding:5px 8px"><a href="https://topdeck.gg/t/'+t.tid+'" target="_blank" onclick="event.stopPropagation()" style="color:var(--ac);text-decoration:none;font-size:.7rem">↗</a></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  results.innerHTML=html;
+}
+
+function tourGetArch(p){
+  if(p.deckObj){var d=p.deckObj;if(d.archetype)return d.archetype;if(d.name)return d.name;}
+  if(p.archetype)return p.archetype;
+  return null;
+}
+
+function tourRenderArchTable(allData){
+  var stats={};
+  allData.forEach(function(t){
+    var total=t.standings.length||1;
+    var topCut=t.topCut||Math.ceil(total*0.25)||1;
+    t.standings.forEach(function(p){
+      var a=tourGetArch(p);if(!a)return;
+      if(!stats[a])stats[a]={app:0,wrSum:0,top:0,top4:0,fin:0,win:0};
+      var s=stats[a];s.app++;s.wrSum+=p.winRate||0;
+      if(p.standing<=topCut)s.top++;
+      if(p.standing<=Math.max(1,Math.ceil(topCut/2)))s.top4++;
+      if(p.standing<=2)s.fin++;
+      if(p.standing===1)s.win++;
+    });
+  });
+  var archs=Object.keys(stats).sort(function(a,b){return(stats[b].wrSum/stats[b].app)-(stats[a].wrSum/stats[a].app);});
+  if(!archs.length)return '';
+  var html='<div class="card" style="margin-bottom:10px;overflow-x:auto"><div class="lbl" style="margin-bottom:8px">Performance par archétype</div>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="color:var(--tx3)">';
+  html+='<th style="padding:4px 8px;text-align:left">Archétype</th><th style="padding:4px 8px;text-align:center">App.</th><th style="padding:4px 8px;text-align:center">Win%</th><th style="padding:4px 8px;text-align:center">Top cut</th><th style="padding:4px 8px;text-align:center">Top 4</th><th style="padding:4px 8px;text-align:center">Finale</th><th style="padding:4px 8px;text-align:center">🏆</th></tr></thead><tbody>';
+  archs.slice(0,25).forEach(function(a,i){
+    var s=stats[a];var wr=s.wrSum/s.app;
+    var wrc=wr>=0.55?'var(--gn)':wr<=0.45?'var(--rd2)':'var(--tx)';
+    html+='<tr style="border-top:.5px solid var(--bd)'+(i%2?';background:var(--s2)':'')+'">';
+    html+='<td style="padding:5px 8px;font-weight:500">'+a+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+s.app+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center;color:'+wrc+';font-weight:600">'+(wr*100).toFixed(1)+'%</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+s.top+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+s.top4+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+s.fin+'</td>';
+    html+='<td style="padding:5px 8px;text-align:center">'+(s.win?'⭐'.repeat(Math.min(s.win,5)):'—')+'</td></tr>';
+  });
+  return html+'</tbody></table></div>';
+}
+
+function tourRenderMatrix(allData){
+  var matrix={};var playerArch={};
+  allData.forEach(function(t){
+    t.standings.forEach(function(p){var a=tourGetArch(p);if(a&&p.id)playerArch[p.id]=a;});
+  });
+  // Matrix requires rounds — built when viewing detail; skip here
+  return '';
+}
+
+function tourShowDetail(tid){
+  var t=_tourLastData&&_tourLastData.find(function(x){return x.tid===tid;});
+  if(!t)return;
+  var results=document.getElementById('tour-results');if(!results)return;
+  var loading=document.getElementById('tour-loading');
+
+  var renderDetail=function(rounds){
+    var standings=t.standings.length?t.standings:t.embStandings;
+    var playerArch={};var matrix={};
+    // Build archetype map from standings
+    standings.forEach(function(p){var a=tourGetArch(p);if(a&&p.id)playerArch[p.id]=a;});
+    // Build matchup matrix from rounds
+    if(rounds&&rounds.length){
+      rounds.forEach(function(round){
+        (round.tables||[]).forEach(function(tbl){
+          var ps=tbl.players||[];if(ps.length<2)return;
+          var a1=playerArch[ps[0].id];var a2=playerArch[ps[1].id];
+          if(!a1||!a2||a1===a2)return;
+          if(!matrix[a1])matrix[a1]={};if(!matrix[a1][a2])matrix[a1][a2]={w:0,n:0};
+          if(!matrix[a2])matrix[a2]={};if(!matrix[a2][a1])matrix[a2][a1]={w:0,n:0};
+          matrix[a1][a2].n++;matrix[a2][a1].n++;
+          if(tbl.winner_id===ps[0].id)matrix[a1][a2].w++;
+          else if(tbl.winner_id===ps[1].id)matrix[a2][a1].w++;
+        });
+      });
+    }
+    var date=t.date?new Date(t.date*1000).toLocaleDateString('fr-FR'):'—';
+    var html='<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+    html+='<button class="btn btnsm" onclick="tourBackToList()">← Retour</button>';
+    html+='<span style="font-weight:600">'+t.name+'</span>';
+    html+='<span style="font-size:.72rem;color:var(--tx3)">'+date+'</span>';
+    if(t.location)html+='<span style="font-size:.72rem;color:var(--tx3)">· '+t.location+'</span>';
+    html+='<a href="https://topdeck.gg/t/'+tid+'" target="_blank" style="color:var(--ac);font-size:.72rem;text-decoration:none;margin-left:auto">↗ TopDeck.gg</a></div>';
+
+    // Matchup matrix if data available
+    var archList=Object.keys(matrix).filter(function(a){return Object.keys(matrix[a]).some(function(b){return matrix[a][b].n>=2;});});
+    if(archList.length>=2){
+      html+='<div class="card" style="margin-bottom:10px;overflow-x:auto"><div class="lbl" style="margin-bottom:8px">Matchups (% victoires, min 2 parties)</div>';
+      html+='<table style="font-size:.7rem;border-collapse:collapse"><tr><th style="padding:3px 6px;min-width:80px"></th>';
+      archList.slice(0,12).forEach(function(a){
+        var ab=a.length>9?a.substring(0,9)+'…':a;
+        html+='<th style="padding:3px 4px;color:var(--tx3);writing-mode:vertical-rl;height:55px;min-width:42px;text-align:left">'+ab+'</th>';
+      });
+      html+='</tr>';
+      archList.slice(0,12).forEach(function(ra){
+        var ab=ra.length>13?ra.substring(0,13)+'…':ra;
+        html+='<tr><td style="padding:3px 8px;font-weight:500;white-space:nowrap">'+ab+'</td>';
+        archList.slice(0,12).forEach(function(ca){
+          if(ra===ca){html+='<td style="padding:3px 4px;text-align:center;background:var(--s3)">—</td>';return;}
+          var m=matrix[ra]&&matrix[ra][ca];
+          if(!m||m.n<2){html+='<td style="padding:3px 4px;text-align:center;color:var(--tx3)">?</td>';return;}
+          var pct=Math.round(m.w/m.n*100);
+          var bg=pct>=55?'rgba(80,180,80,.18)':pct<=45?'rgba(200,60,60,.12)':'transparent';
+          html+='<td style="padding:3px 4px;text-align:center;background:'+bg+';border-radius:3px" title="'+m.w+'/'+m.n+'">'+pct+'%</td>';
+        });
+        html+='</tr>';
+      });
+      html+='</table></div>';
+    }
+
+    // Standings table
+    html+='<div class="card" style="overflow-x:auto"><div class="lbl" style="margin-bottom:6px">Classement — '+standings.length+' joueurs · Top cut : '+(t.topCut||'?')+'</div>';
+    html+='<table style="width:100%;border-collapse:collapse;font-size:.76rem"><thead><tr style="color:var(--tx3)">';
+    html+='<th style="padding:4px 8px;text-align:center">#</th><th style="padding:4px 8px;text-align:left">Joueur</th><th style="padding:4px 8px;text-align:left">Archétype</th><th style="padding:4px 8px;text-align:center">Pts</th><th style="padding:4px 8px;text-align:center">Win%</th><th style="padding:4px 8px;text-align:center">OWin%</th><th></th></tr></thead><tbody>';
+    standings.forEach(function(p,i){
+      var inTop=p.standing<=(t.topCut||Math.ceil(standings.length*0.25));
+      var bg=inTop?';background:rgba(201,168,76,.07)':(i%2?';background:var(--s2)':'');
+      var arch=tourGetArch(p)||'—';
+      html+='<tr style="border-top:.5px solid var(--bd)'+bg+'">';
+      html+='<td style="padding:5px 8px;text-align:center;color:'+(p.standing===1?'gold':inTop?'var(--ac2)':'var(--tx3)')+';font-weight:'+(inTop?'700':'400')+'">'+p.standing+'</td>';
+      html+='<td style="padding:5px 8px">'+(p.name||'—')+'</td>';
+      html+='<td style="padding:5px 8px;font-size:.72rem;color:var(--tx2)">'+arch+'</td>';
+      html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3)">'+(p.points||'—')+'</td>';
+      var wr=p.winRate;
+      html+='<td style="padding:5px 8px;text-align:center;font-weight:600;color:'+(wr>=0.55?'var(--gn)':wr<=0.45?'var(--rd2)':'var(--tx)')+'">'+(wr!=null?(wr*100).toFixed(1)+'%':'—')+'</td>';
+      html+='<td style="padding:5px 8px;text-align:center;color:var(--tx3);font-size:.7rem">'+(p.opponentWinRate?(p.opponentWinRate*100).toFixed(1)+'%':'—')+'</td>';
+      html+='<td style="padding:5px 8px">'+(p.decklist?'<a href="'+p.decklist+'" target="_blank" style="color:var(--ac);text-decoration:none;font-size:.7rem">📋</a>':'')+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+    results.innerHTML=html;
+  };
+
+  // Fetch rounds + render
+  if(loading){loading.style.display='block';loading.textContent='Chargement des rondes...';}
+  results.innerHTML='';
+  _tourFetch('GET','/v2/tournaments/'+tid+'/rounds')
+    .then(function(rounds){
+      if(loading)loading.style.display='none';
+      renderDetail(Array.isArray(rounds)?rounds:[]);
+    }).catch(function(){
+      if(loading)loading.style.display='none';
+      renderDetail([]);
+    });
+}
+
+function tourBackToList(){if(_tourLastData)tourRenderList(_tourLastData,_metaFmt);}
+// pré-chargement clé API si déjà enregistrée
+setTimeout(function(){if(localStorage.getItem('ml_topdeck_key'))tourInitUI();},100);
 
 var _metaTopCards=[];
 function metaFetchMeta(fmt,metaId){
