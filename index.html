@@ -1926,6 +1926,32 @@ body.mana-cursor{cursor:none}
 </div><!-- /cmd-cols -->
 </div><!-- /bld-cmd-zone -->
 
+<!-- ZONE DECK VIERGE -->
+<div id="bld-blank-zone" style="display:none;max-width:520px;margin:0 auto">
+  <div style="margin-bottom:8px;display:flex;align-items:center;gap:10px">
+    <button class="btn btnsm" onclick="_bldBackToWizard()">← Retour</button>
+    <span style="font-size:.85rem;color:var(--tx3);font-style:italic">Nouveau deck vierge</span>
+  </div>
+  <div class="card" style="margin-bottom:10px">
+    <div class="lbl" style="margin-bottom:8px">Format</div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap" id="bld-blank-fmts">
+      <button class="dm active" onclick="_bldBlankFmt('commander',this)">Commander</button>
+      <button class="dm" onclick="_bldBlankFmt('paupercmd',this)">Pauper EDH</button>
+      <button class="dm" onclick="_bldBlankFmt('pauper',this)">Pauper</button>
+      <button class="dm" onclick="_bldBlankFmt('standard',this)">Standard</button>
+      <button class="dm" onclick="_bldBlankFmt('pioneer',this)">Pioneer</button>
+      <button class="dm" onclick="_bldBlankFmt('modern',this)">Modern</button>
+      <button class="dm" onclick="_bldBlankFmt('legacy',this)">Legacy</button>
+      <button class="dm" onclick="_bldBlankFmt('vintage',this)">Vintage</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:10px">
+    <div class="lbl" style="margin-bottom:6px">Importer une liste <span style="color:var(--tx3);font-weight:400">(optionnel)</span></div>
+    <textarea id="bld-blank-import" placeholder="1 Sol Ring&#10;1 Command Tower&#10;&#10;Sideboard&#10;1 Fierce Guardianship" style="width:100%;min-height:120px;font-size:.8rem;padding:7px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;resize:vertical;box-sizing:border-box;font-family:monospace"></textarea>
+  </div>
+  <button class="btn btnp" style="width:100%;font-size:.9rem;padding:.6rem" onclick="_bldStartBlank()">Commencer →</button>
+</div>
+
 <div id="bld-back-row" style="display:none;margin-bottom:8px">
   <button class="btn btnsm" onclick="_bldBackToWizard()">← Retour</button>
 </div>
@@ -4227,8 +4253,10 @@ function _bldRefreshView(){
   var cmd=document.getElementById('bld-cmd-zone');
   var cols=document.getElementById('bld-cols');
   var backRow=document.getElementById('bld-back-row');
+  var blank=document.getElementById('bld-blank-zone');
   if(wiz)wiz.style.display=_bldView==='wizard'?'block':'none';
   if(cmd)cmd.style.display=_bldView==='cmd'?'block':'none';
+  if(blank)blank.style.display=_bldView==='blank'?'block':'none';
   if(cols)cols.style.display=_bldView==='builder'?'flex':'none';
   if(backRow)backRow.style.display=_bldView==='builder'?'block':'none';
   if(_bldView==='wizard')bldInitEntryDeckSel();
@@ -4248,9 +4276,37 @@ function bldClearChecks(){
   _bldChecked={};renderBldDecks();
 }
 
+var _blankFmt='commander';
+function _bldBlankFmt(fmt,btn){
+  _blankFmt=fmt;
+  document.querySelectorAll('#bld-blank-fmts .dm').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+}
 function _bldEntryBlank(){
+  _bldView='blank';
+  _blankFmt='commander';
+  document.querySelectorAll('#bld-blank-fmts .dm').forEach(function(b){b.classList.remove('active');});
+  var first=document.querySelector('#bld-blank-fmts .dm');
+  if(first)first.classList.add('active');
+  var ta=document.getElementById('bld-blank-import');if(ta)ta.value='';
+  _bldRefreshView();
+}
+function _bldStartBlank(){
   bldCurDeckId=null;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
   _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;dCommander=null;_bldChecked={};
+  var ta=document.getElementById('bld-blank-import');
+  var txt=ta?ta.value.trim():'';
+  if(txt){
+    var inSide=false;
+    txt.split('\n').forEach(function(line){
+      line=line.trim();if(!line)return;
+      if(/^sideboard/i.test(line)){inSide=true;return;}
+      var m=line.match(/^(\d+)\s+(.+)$/);if(!m)return;
+      var card={name:m[2].trim(),qty:parseInt(m[1]),cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}};
+      if(inSide)bldSide.push(card);else bldMain.push(card);
+    });
+  }
+  bldSetFormat(_blankFmt);
   renderBldDecks();renderBldStats();_bldShowBuilder();
 }
 function _bldBackToWizard(){_bldView='wizard';_bldRefreshView();}
