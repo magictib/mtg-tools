@@ -2052,6 +2052,7 @@ body.mana-cursor{cursor:none}
 
 <div id="bld-back-row" style="display:none;margin-bottom:8px">
   <button class="btn btnsm" onclick="_bldBackToWizard()">← Retour</button>
+  <button id="bld-back-prop-btn" class="btn btnsm btnp" style="display:none;margin-left:8px" onclick="_propBackToResults()">← Propositions</button>
 </div>
 <div id="bld-cols" style="display:none">
 <div id="bld-left">
@@ -4544,9 +4545,9 @@ function _bldStartBlank(){
 }
 function _bldBackToWizard(){
   _bldView='wizard';
-  // Reset theme selection UI in wizard buttons
   _bldThemeSel={};
   document.querySelectorAll('#bld-arch-btns .dm').forEach(function(b){b.classList.remove('active');});
+  var btn=document.getElementById('bld-back-prop-btn');if(btn)btn.style.display='none';
   _bldRefreshView();
 }
 function _bldShowBuilder(){_bldView='builder';_bldRefreshView();}
@@ -19275,6 +19276,35 @@ function parseMtg8DeckPage(html){
   return cards;
 }
 
+function _fetchMissingPrices(top5,cb){
+  var names=[];var seen={};
+  top5.forEach(function(r){
+    r.missing.missing.forEach(function(c){
+      var k=c.name.toLowerCase();
+      if(!seen[k]&&!allPriceMap[k]){seen[k]=1;names.push(c.name);}
+    });
+  });
+  if(!names.length){cb();return;}
+  var batches=[];for(var i=0;i<names.length;i+=75)batches.push(names.slice(i,i+75));
+  var left=batches.length;
+  batches.forEach(function(batch){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:batch.map(function(n){return{name:n};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        if(!card.prices)return;
+        var p=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;
+        if(!p)return;
+        var full=(card.name||'').toLowerCase();
+        var front=full.split(' // ')[0].trim();
+        if(!allPriceMap[full])allPriceMap[full]=p;
+        if(!allPriceMap[front])allPriceMap[front]=p;
+      });
+    }).catch(function(){}).then(function(){if(!--left)cb();});
+  });
+}
+
 function _propMissing(deckCards,profIdx){
   var pm=getPMap(profIdx||0);
   var missing=[];var totalMissing=0;
@@ -19342,42 +19372,46 @@ function _renderPropHtml(top5,profIdx,fmtLabel){
 }
 
 // ── Propositions PDH via EDHREC ───────────────────────────────────────────
+// Liste fixe de commandants PDH populaires (EDHREC ne sert pas de page de liste)
+var _PDH_COMMANDERS=[
+  {name:'Rhys the Exiled',sanitized:'rhys-the-exiled'},
+  {name:'Trinket Mage',sanitized:'trinket-mage'},
+  {name:'Mulldrifter',sanitized:'mulldrifter'},
+  {name:'Beetleback Chief',sanitized:'beetleback-chief'},
+  {name:'Civic Wayfinder',sanitized:'civic-wayfinder'},
+  {name:'Dimir Infiltrator',sanitized:'dimir-infiltrator'},
+  {name:'Sea Gate Oracle',sanitized:'sea-gate-oracle'},
+  {name:'Thorn of the Black Rose',sanitized:'thorn-of-the-black-rose'},
+  {name:'Crypt Rats',sanitized:'crypt-rats'},
+  {name:'Archaeomancer',sanitized:'archaeomancer'},
+  {name:'Crimson Fleet Commodore',sanitized:'crimson-fleet-commodore'},
+  {name:'Lunk Errant',sanitized:'lunk-errant'},
+];
+
 function proposeDecksPDH(profIdx,wrap){
   var prog=document.getElementById('prop-progress');
-  if(prog)prog.textContent='Chargement des commandants Pauper Commander (EDHREC)…';
-  _edhFetchJSON('pages/pauper-commanders.json').then(function(data){
-    var jd=(data&&data.container&&data.container.json_dict)||{};
-    // Commandants : dans jd.commanders, ou dans le cardlist de la page
-    var raw=jd.commanders||[];
-    if(!raw.length)raw=edhFindCardlist(data);
-    var commanders=raw.slice(0,10).map(function(c){
-      var name=c.name||c.label||'';
-      return {name:name,sanitized:c.sanitized||_anaCommanderSlug(name)};
-    }).filter(function(c){return c.name&&c.sanitized;});
-    if(!commanders.length){
-      wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Aucun commandant PDH trouvé sur EDHREC.</div></div>';return;
-    }
-    if(prog)prog.textContent='Récupération de '+commanders.length+' decklists PDH…';
-    var promises=commanders.map(function(cmd){
-      return _edhFetchJSON('pages/pauper-commanders/'+cmd.sanitized+'.json')
-        .then(function(d){return {name:cmd.name,cards:edhFindCardlist(d)};})
-        .catch(function(){return {name:cmd.name,cards:[]};});
-    });
-    Promise.all(promises).then(function(results){
-      var decks=results.filter(function(r){return r.cards.length>=20;}).map(function(r){
-        // Commandant (1 exemplaire) + top cartes EDHREC (1x chacune, max 100)
-        var deckCards=[{name:r.name,qty:1,nl:_normNl(r.name)}];
-        r.cards.forEach(function(c){
-          if(deckCards.length>=100)return;
-          var name=c.name||c.label||'';if(!name)return;
-          deckCards.push({name:name,qty:1,nl:_normNl(name)});
-        });
-        return {arch:r.name,cards:deckCards,missing:_propMissing(deckCards,profIdx),fmt:'PDH'};
+  if(prog)prog.textContent='Récupération de '+_PDH_COMMANDERS.length+' decklists PDH (EDHREC)…';
+  var promises=_PDH_COMMANDERS.map(function(cmd){
+    return _edhFetchJSON('pages/pauper-commanders/'+cmd.sanitized+'.json')
+      .then(function(d){return {name:cmd.name,cards:edhFindCardlist(d)};})
+      .catch(function(){return {name:cmd.name,cards:[]};});
+  });
+  Promise.all(promises).then(function(results){
+    var decks=results.filter(function(r){return r.cards.length>=20;}).map(function(r){
+      var deckCards=[{name:r.name,qty:1,nl:_normNl(r.name)}];
+      r.cards.forEach(function(c){
+        if(deckCards.length>=100)return;
+        var name=c.name||c.label||'';if(!name)return;
+        deckCards.push({name:name,qty:1,nl:_normNl(name)});
       });
-      if(!decks.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Données EDHREC insuffisantes pour le PDH.</div></div>';return;}
-      decks.sort(function(a,b){return a.missing.totalMissing-b.missing.totalMissing;});
-      var top5=decks.slice(0,5);
-      _propResults=top5;
+      return {arch:r.name,cards:deckCards,missing:_propMissing(deckCards,profIdx),fmt:'PDH'};
+    });
+    if(!decks.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Données EDHREC insuffisantes pour le PDH.</div></div>';return;}
+    decks.sort(function(a,b){return a.missing.totalMissing-b.missing.totalMissing;});
+    var top5=decks.slice(0,5);
+    _propResults=top5;
+    if(prog)prog.textContent='Récupération des prix Scryfall…';
+    _fetchMissingPrices(top5,function(){
       wrap.innerHTML=_renderPropHtml(top5,profIdx,'Pauper Commander (PDH)');
     });
   }).catch(function(){
@@ -19436,6 +19470,8 @@ function proposeDecks(){
         var top5=results.slice(0,5);
         if(!top5.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Impossible de récupérer les decklists (les decklists de ce format ne sont peut-être pas disponibles).</div></div>';return;}
         _propResults=top5;
+        if(prog)prog.textContent='Récupération des prix Scryfall…';
+        _fetchMissingPrices(top5,function(){
         // Render
         var html='<div class="card"><div class="lbl">🏆 Propositions — '+fmt+' (profil : '+(PN[profIdx]||'Profil '+profIdx)+')</div>';
         html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">Classées par nombre de cartes manquantes dans votre collection.</div>';
@@ -19482,6 +19518,7 @@ function proposeDecks(){
         });
         html+='</div>';
         wrap.innerHTML=html;
+        });// end _fetchMissingPrices
       });
     });
   }).catch(function(e){
@@ -19489,10 +19526,19 @@ function proposeDecks(){
   });
 }
 
+function _propBackToResults(){
+  _bldBackToWizard();
+  var wrap=document.getElementById('bld-propose-wrap');
+  if(wrap&&wrap.innerHTML)wrap.style.display='block';
+  var btn=document.getElementById('bld-back-prop-btn');if(btn)btn.style.display='none';
+  setTimeout(function(){if(wrap)wrap.scrollIntoView({behavior:'smooth',block:'start'});},100);
+}
+
 function _propLoadDeck(idx){
   var r=_propResults[idx];if(!r)return;
   var cards=r.cards;
   var raw=cards.map(function(c){return c.qty+' '+c.name;}).join('\n');
+  var btn=document.getElementById('bld-back-prop-btn');if(btn)btn.style.display='inline-block';
   _bldEntryBlank();
   setTimeout(function(){
     var ta=document.getElementById('bld-blank-import');
