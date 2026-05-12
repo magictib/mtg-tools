@@ -1394,10 +1394,27 @@ body.mana-cursor{cursor:none}
         <button class="colorbtn cG" id="cf-G" onclick="toggleCollColor('G',this)" title="Vert"><i class="ms ms-g ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
         <button class="colorbtn cC" id="cf-C" onclick="toggleCollColor('C',this)" title="Incolore"><i class="ms ms-c ms-cost ms-shadow" style="font-size:1.1rem"></i></button>
       </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
+        <select id="coll-sort-sel" onchange="sortColl(this.value)" style="font-size:.76rem;padding:3px 8px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;outline:none">
+          <option value="name">Trier par Nom</option>
+          <option value="set">par Extension</option>
+          <option value="rarity">par Rareté</option>
+          <option value="color">par Couleur</option>
+          <option value="qty">par Quantité</option>
+          <option value="price">par Prix</option>
+        </select>
+        <div style="display:flex;gap:3px;flex-wrap:wrap" id="coll-statmode-btns">
+          <button class="dm active" onclick="setCollStatMode('none',this)" style="font-size:.7rem">Défaut</button>
+          <button class="dm" onclick="setCollStatMode('rarity',this)" style="font-size:.7rem">⊕ Rareté</button>
+          <button class="dm" onclick="setCollStatMode('color',this)" style="font-size:.7rem">⊕ Couleur</button>
+          <button class="dm" onclick="setCollStatMode('both',this)" style="font-size:.7rem">⊕ Les deux</button>
+        </div>
+      </div>
     </div>
   </div>
   <div class="card" id="collcard" style="display:none">
-    <div class="g3" id="collstats" style="margin-bottom:10px"></div>
+    <div class="g3" id="collstats" style="margin-bottom:6px"></div>
+    <div id="collbreak" style="margin-bottom:8px"></div>
     <div class="collhdr">
       <div onclick="sortColl('name')">Carte <span id="csort-name">▲</span></div>
       <div onclick="sortColl('set')">Extension <span id="csort-set"></span></div>
@@ -1693,6 +1710,15 @@ body.mana-cursor{cursor:none}
     </div>
   </div>
   <div id="ana-results" style="display:none"></div>
+  <div class="card" id="ana-card-search-sec" style="margin-top:10px">
+    <div class="lbl">🔍 Rechercher une carte</div>
+    <div style="font-size:11px;color:var(--tx3);margin-bottom:8px">% d'utilisation dans tes decks + données EDHREC si un deck Commander est sélectionné.</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input type="text" id="ana-search-in" placeholder="Nom de la carte…" style="flex:1;font-size:.82rem" onkeydown="if(event.key==='Enter')anaSearchCard()">
+      <button class="btn btnsm btnp" onclick="anaSearchCard()">Chercher</button>
+    </div>
+    <div id="ana-search-result"></div>
+  </div>
 </div>
 <div id="ana-zoom" onclick="this.style.display='none'"><img src="" alt=""></div>
 
@@ -4197,6 +4223,7 @@ var PN=[]; // dynamic: PN[0]=current user, PN[1..n]=extra profiles
 var _epSlots={coll:[],deck:[],build:[],game:[],trade:[]}; // extra profile UIDs per context
 var _epCards={}; // uid → cards[]
 var _epDecks={}; // uid → decks object (chargé depuis users/{uid}/decks)
+var _epDecksUnsubs={}; // uid → onSnapshot unsubscribe
 var _pickerCtx=null;
 var _allUsers=null; // cache [{uid,name}]
 // Legacy alias (will be replaced in each function)
@@ -4221,6 +4248,7 @@ var dbarOpen=[false]; // dynamic length
 var _deckFilterActive=null; // null = not init; array of active profile indices
 var collP=0;
 var collFiltSet='', collFiltRar='', collFiltColors=new Set();
+var collStatMode='none';
 var collCache={};
 var collSort={field:'name',dir:1};
 var _scryfallOffline=localStorage.getItem('scryfall_offline')==='1';
@@ -4713,15 +4741,22 @@ function _loadEpCards(uid,cb){
     try{var ls=localStorage.getItem('mtg_ep_cards_'+uid);_epCards[uid]=ls?JSON.parse(ls):[];}catch(e){_epCards[uid]=[];}
     cardsDone=true;_done();
   });
-  // Charger les decks de l'ami
-  db.collection('users').doc(uid).collection('decks').get().then(function(snap){
-    var d={};snap.forEach(function(doc){d[doc.id]=doc.data();});
-    _epDecks[uid]=d;
+  // Charger les decks de l'ami (temps réel via onSnapshot)
+  if(!_epDecksUnsubs[uid]){
+    _epDecksUnsubs[uid]=db.collection('users').doc(uid).collection('decks')
+      .onSnapshot(function(snap){
+        var d={};snap.forEach(function(doc){d[doc.id]=doc.data();});
+        var first=!decksDone;
+        _epDecks[uid]=d;
+        if(first){decksDone=true;_done();}
+        else{renderDBar();_refreshAllDeckSelects();}
+      },function(){
+        _epDecks[uid]=_epDecks[uid]||{};
+        if(!decksDone){decksDone=true;_done();}
+      });
+  } else {
     decksDone=true;_done();
-  }).catch(function(){
-    _epDecks[uid]={};
-    decksDone=true;_done();
-  });
+  }
 }
 
 function _saveEpSlots(){
@@ -5381,7 +5416,7 @@ function saveDeck(){
   var id=actDeck||(Date.now().toString());actDeck=id;
   var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
   var savedColors=isCmd?(dCommander?dCommander.colors:[]):dColors.slice();
-  var deckData={name:name,rawName:rawName,cards:cards,owner:dOwner,ownerUid:(_adminEditUid||_profUid(dOwner)||userId),format:dFormat||null,commander:dCommander||null,colors:savedColors,updatedAt:Date.now()};
+  var deckData={name:name,rawName:rawName,cards:cards,owner:_adminEditUid?dOwner:0,ownerUid:(_adminEditUid?(_profUid(dOwner)||userId):userId),format:dFormat||null,commander:dCommander||null,colors:savedColors,updatedAt:Date.now()};
   if(_adminEditUid){
     db.collection('users').doc(_adminEditUid).collection('decks').doc(id).set(deckData).catch(function(e){console.error('[Admin] Erreur save deck:',e);});
     if(!_epDecks[_adminEditUid])_epDecks[_adminEditUid]={};
@@ -11826,6 +11861,8 @@ function renderColl(){
     if(f==='cond'){return (a.cond||'').localeCompare(b.cond||'')*d;}
     if(f==='foil'){va=fNF(a.finish)==='foil'?1:0;vb=fNF(b.finish)==='foil'?1:0;return (va-vb)*d;}
     if(f==='price'){return ((a.price||0)-(b.price||0))*d;}
+    if(f==='rarity'){var ra=collCache[a.name.toLowerCase()]||{};var rb=collCache[b.name.toLowerCase()]||{};return (_rRank(ra.rarity)-_rRank(rb.rarity))*d;}
+    if(f==='color'){var _co=['W','U','B','R','G'];var ca2=collCache[a.name.toLowerCase()]||{};var cb2=collCache[b.name.toLowerCase()]||{};var cla=ca2.colors||[];var clb=cb2.colors||[];var ia=!cla.length?99:(cla.length>1?98:_co.indexOf(cla[0]));var ib=!clb.length?99:(clb.length>1?98:_co.indexOf(clb[0]));return (ia-ib)*d;}
     return 0;
   });
   // Indicateurs de tri
@@ -11833,6 +11870,7 @@ function renderColl(){
     var el=document.getElementById('csort-'+f);
     if(el)el.textContent=collSort.field===f?(collSort.dir===1?'▲':'▼'):'';
   });
+  var _sortSel=document.getElementById('coll-sort-sel');if(_sortSel)_sortSel.value=collSort.field;
   var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var val=cards.reduce(function(s,c){return s+(c.qty||1)*(c.price||0);},0);
   document.getElementById('collstats').innerHTML=
@@ -11860,6 +11898,35 @@ function renderColl(){
       '<div class="cprice">'+priceStr+'</div>'+
     '</div>';
   }).join('');
+  // Stat breakdown (#collbreak)
+  var breakDiv=document.getElementById('collbreak');
+  if(breakDiv){
+    if(collStatMode==='none'){breakDiv.innerHTML='';}
+    else{
+      var _allC=getProfCards(collP);
+      var bHtml='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:4px">';
+      if(collStatMode==='rarity'||collStatMode==='both'){
+        var _rarMap={common:0,uncommon:0,rare:0,mythic:0};
+        _allC.forEach(function(c){var cc=collCache[c.name.toLowerCase()]||{};var r=cc.rarity||'';if(_rarMap[r]!==undefined)_rarMap[r]+=(c.qty||1);});
+        var _rarCol={common:'#bbbbb0',uncommon:'#a0c8b0',rare:'#c8a040',mythic:'#e07070'};
+        var _rarLbl={common:'Communes',uncommon:'Peu com.',rare:'Rares',mythic:'Mythiques'};
+        bHtml+='<div style="background:var(--s3);border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Rareté</div><div style="display:flex;gap:12px">';
+        ['common','uncommon','rare','mythic'].forEach(function(r){bHtml+='<div style="text-align:center"><div style="font-size:15px;font-weight:700;color:'+_rarCol[r]+'">'+(_rarMap[r]||0)+'</div><div style="font-size:9px;color:var(--tx3)">'+_rarLbl[r]+'</div></div>';});
+        bHtml+='</div></div>';
+      }
+      if(collStatMode==='color'||collStatMode==='both'){
+        var _colMap={W:0,U:0,B:0,R:0,G:0,multi:0,C:0};
+        _allC.forEach(function(c){var cc=collCache[c.name.toLowerCase()]||{};var cl=cc.colors||[];var q=c.qty||1;if(!cl.length)_colMap.C+=q;else if(cl.length>1)_colMap.multi+=q;else if(_colMap[cl[0]]!==undefined)_colMap[cl[0]]+=q;});
+        var _colCol={W:'#f5f0c8',U:'#5b8cf5',B:'#c080e0',R:'#e07070',G:'#78c890',multi:'#cdb87a',C:'#aaaaaa'};
+        var _colLbl={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',multi:'Multi',C:'Incolore'};
+        bHtml+='<div style="background:var(--s3);border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Couleur</div><div style="display:flex;gap:10px;flex-wrap:wrap">';
+        ['W','U','B','R','G','multi','C'].forEach(function(col){if(!_colMap[col])return;bHtml+='<div style="text-align:center"><div style="font-size:15px;font-weight:700;color:'+_colCol[col]+'">'+_colMap[col]+'</div><div style="font-size:9px;color:var(--tx3)">'+_colLbl[col]+'</div></div>';});
+        bHtml+='</div></div>';
+      }
+      bHtml+='</div>';
+      breakDiv.innerHTML=bHtml;
+    }
+  }
   // Section cartes empruntées (prêts reçus)
   var borrowed=loans.filter(function(l){return l.to===collP;});
   if(borrowed.length){
@@ -11884,6 +11951,13 @@ function setCollRarity(r,btn){
 function toggleCollColor(c,btn){
   if(collFiltColors.has(c))collFiltColors.delete(c);else collFiltColors.add(c);
   btn.classList.toggle('active');
+  enrichCollCache();
+  renderColl();
+}
+function setCollStatMode(mode,btn){
+  collStatMode=mode;
+  document.querySelectorAll('#coll-statmode-btns .dm').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
   enrichCollCache();
   renderColl();
 }
@@ -17462,6 +17536,27 @@ function anaResetAnalysis(){
   var rr=document.getElementById('ana-reset-row');
   if(rr)rr.style.display='none';
 }
+var _BILANDS={
+  WU:['Hallowed Fountain','Glacial Fortress','Seachrome Coast','Flooded Strand','Mystic Gate'],
+  WB:['Godless Shrine','Isolated Chapel','Concealed Courtyard','Marsh Flats','Fetid Heath'],
+  WR:['Sacred Foundry','Clifftop Retreat','Inspiring Vantage','Arid Mesa','Rugged Prairie'],
+  WG:['Temple Garden','Sunpetal Grove','Canopy Vista','Windswept Heath','Wooded Bastion'],
+  UB:['Watery Grave','Drowned Catacomb','Darkslick Shores','Polluted Delta','Sunken Ruins'],
+  UR:['Steam Vents','Sulfur Falls','Spirebluff Canal','Scalding Tarn','Cascade Bluffs'],
+  UG:['Breeding Pool','Hinterland Harbor','Botanical Sanctum','Misty Rainforest','Flooded Grove'],
+  BR:['Blood Crypt','Dragonskull Summit','Blackcleave Cliffs','Bloodstained Mire','Graven Cairns'],
+  BG:['Overgrown Tomb','Woodland Cemetery','Blooming Marsh','Verdant Catacombs','Twilight Mire'],
+  RG:['Stomping Ground','Rootbound Crag','Copperline Gorge','Wooded Foothills','Fire-Lit Thicket']
+};
+function _anaBilandSuggestions(pairs){
+  var res=[];
+  pairs.forEach(function(p){
+    var k=p[0]+p[1],lands=_BILANDS[k]||_BILANDS[p[1]+p[0]];
+    if(lands)lands.slice(0,3).forEach(function(l){res.push({name:l,pair:p});});
+  });
+  return res;
+}
+
 function anaRender(deckId){
   var deck=_anaGetDeck(deckId);if(!deck)return;
   // Themes du commandant : auto-détection puis application des overrides utilisateur
@@ -18216,6 +18311,46 @@ function anaRender(deckId){
     html+='</div>';
   }
 
+  // === Analyse des terrains ===
+  var _landRows2=rows.filter(function(r){return r.inCache&&r.roles&&r.roles.land;});
+  var _totalLands=_landRows2.reduce(function(s,r){return s+(r.card.qty||1);},0);
+  var _idealLands=anaIsCommanderFormat(fmt)?37:(fmt==='pauper'?22:24);
+  var _landDiff=_totalLands-_idealLands;
+  var _ldCol=Math.abs(_landDiff)<=2?'#78c890':Math.abs(_landDiff)<=4?'#f5b95b':'#e07070';
+  // Basic land counts per color
+  var _basicNames={W:['plains','snow-covered plains'],U:['island','snow-covered island'],B:['swamp','snow-covered swamp'],R:['mountain','snow-covered mountain'],G:['forest','snow-covered forest']};
+  var _basicCnt={W:0,U:0,B:0,R:0,G:0};
+  _landRows2.forEach(function(r){var nm=(r.card.name||'').toLowerCase();Object.keys(_basicNames).forEach(function(c){if(_basicNames[c].indexOf(nm)>=0)_basicCnt[c]+=r.card.qty||1;});});
+  var _totalBasics=Object.keys(_basicCnt).reduce(function(s,k){return s+_basicCnt[k];},0);
+  var _dualLandN=_totalLands-_totalBasics;
+  html+='<div class="card"><div class="lbl">🏔 Analyse des terrains</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:10px">';
+  html+='<div class="stat"><div class="sv">'+_totalLands+'</div><div class="sl">Terrains</div></div>';
+  html+='<div class="stat"><div class="sv">'+_idealLands+'</div><div class="sl">Idéal</div></div>';
+  html+='<div class="stat"><div class="sv" style="color:'+_ldCol+'">'+(_landDiff>=0?'+':'')+_landDiff+'</div><div class="sl">Écart</div></div>';
+  html+='<div class="stat"><div class="sv">'+_totalBasics+'</div><div class="sl">Basics</div></div>';
+  html+='<div class="stat"><div class="sv">'+_dualLandN+'</div><div class="sl">Dual / Fetch</div></div>';
+  html+='</div>';
+  if(_totalBasics>0){
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Basics actuels :</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+    ['W','U','B','R','G'].forEach(function(c){if(!_basicCnt[c])return;html+='<span class="pip pip-'+c+'" style="font-size:11px;padding:2px 8px">'+_basicCnt[c]+'×</span>';});
+    html+='</div>';
+  }
+  if(deckCi&&deckCi.length>1){
+    var _pairs=[];for(var _i=0;_i<deckCi.length;_i++)for(var _j=_i+1;_j<deckCi.length;_j++)_pairs.push([deckCi[_i],deckCi[_j]]);
+    var _biSug=_anaBilandSuggestions(_pairs);
+    var _deckNlSet2={};cards.forEach(function(c){_deckNlSet2[(c.nl||stripDFC(c.name||'').toLowerCase())]=1;});
+    _biSug=_biSug.filter(function(b){return !_deckNlSet2[b.name.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim()];});
+    if(_biSug.length){
+      html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Bi-terrains suggérés :</div>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      _biSug.forEach(function(b){html+='<span style="font-size:10px;padding:2px 8px;background:rgba(200,160,64,.15);border:.5px solid rgba(200,160,64,.3);border-radius:10px;color:var(--gold2);cursor:pointer" onmouseenter="showTip(\''+esc(b.name)+'\',event)" onmouseleave="hideTip()">'+esc(b.name)+'</span>';});
+      html+='</div>';
+    }
+  }
+  html+='</div>';
+
   // === Matrice de matchups (style metagame) ===
   var libUser=_anaBuildSimLib(deck);
   var cmdUser=_anaExtractCmd(deck);
@@ -18234,6 +18369,48 @@ function anaRender(deckId){
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
   (function(_dId){setTimeout(function(){_anaRestoreOracleFallback(_dId);},0);})(deckId);
   if(_cmdNameVis&&_cmdImgUrl)(function(_dId,_nm){setTimeout(function(){_anaFetchCmdPrints(_dId,_nm);},80);})(deckId,_cmdNameVis);
+}
+
+function anaSearchCard(){
+  var name=(document.getElementById('ana-search-in').value||'').trim();
+  var el=document.getElementById('ana-search-result');
+  if(!el)return;
+  if(!name){el.innerHTML='';return;}
+  var nl=stripDFC(name).toLowerCase();
+  // Count usage across all decks (current user + friends)
+  var allDecks=[];
+  Object.keys(decks).forEach(function(id){allDecks.push(decks[id]);});
+  Object.keys(_epDecks).forEach(function(uid){var ud=_epDecks[uid];if(ud)Object.keys(ud).forEach(function(id){allDecks.push(ud[id]);});});
+  var total=allDecks.length;
+  var withCard=allDecks.filter(function(d){return (d.cards||[]).some(function(c){return (c.nl||stripDFC(c.name||'').toLowerCase())===nl;});}).length;
+  var pct=total?Math.round(withCard/total*100):0;
+  var h='<div style="font-size:11px;padding:8px 10px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
+  h+='<div style="margin-bottom:6px"><b style="color:var(--tx)">'+esc(name)+'</b></div>';
+  h+='<div style="color:var(--tx2)">Présente dans <b>'+withCard+'/'+total+'</b> decks <b>('+pct+'%)</b></div>';
+  // EDHREC data for current analyzed deck
+  if(_anaCurrentEDHREC&&_anaCurrentEDHREC[nl]){
+    var ed=_anaCurrentEDHREC[nl];
+    h+='<div style="margin-top:8px;padding:6px 10px;background:rgba(201,168,76,.1);border-radius:6px;border:.5px solid var(--gold)">';
+    h+='<div style="font-size:10px;color:var(--tx3);margin-bottom:3px">EDHREC · deck sélectionné</div>';
+    h+='<div>Fréquence : <b style="color:var(--gold2)">'+Math.round((ed.freq||0)*100)+'%</b>';
+    if(ed.synergy!=null)h+=' &nbsp;·&nbsp; Synergie : <b style="color:'+((ed.synergy||0)>=0?'#78c890':'#e07070')+'">'+(ed.synergy>=0?'+':'')+((ed.synergy||0)*100).toFixed(0)+'%</b>';
+    h+='</div></div>';
+  } else if(_anaState&&_anaState.deck&&COMMANDER_FMTS.indexOf(_anaState.deck.format||'')>=0){
+    h+='<div style="margin-top:6px;font-size:10px;color:var(--tx3);font-style:italic">Données EDHREC disponibles une fois le deck Commander analysé</div>';
+  }
+  // Local role data
+  var meta=_anaData[nl];
+  if(meta){
+    var roles=anaRoles(meta);var roleStrs=[];
+    if(roles.ramp)roleStrs.push('Ramp');if(roles.draw)roleStrs.push('Pioche');if(roles.removal)roleStrs.push('Removal');
+    if(roles.interaction)roleStrs.push('Interaction');if(roles.wincon)roleStrs.push('Menace');if(roles.land)roleStrs.push('Terrain');
+    if(roleStrs.length)h+='<div style="margin-top:5px;font-size:10px;color:var(--tx3)">Rôles détectés : '+roleStrs.join(', ')+'</div>';
+    if(meta.rarity)h+='<div style="font-size:10px;color:var(--tx3)">Rareté : '+meta.rarity+'</div>';
+  } else {
+    h+='<div style="margin-top:5px;font-size:10px;color:var(--tx3);font-style:italic">Carte non encore analysée — lancez une analyse pour charger ses données</div>';
+  }
+  h+='</div>';
+  el.innerHTML=h;
 }
 
 // ===== POOL DE DECKS + META ANALYTICS =====

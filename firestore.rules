@@ -11,15 +11,15 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Users: tout utilisateur connecté peut lire, chaque utilisateur écrit son propre document
+    // Users: tout utilisateur connecté peut lire, chaque utilisateur ou admin écrit son propre document
     match /users/{uid} {
       allow read: if isAuthed();
-      allow write: if isAuthed() && request.auth.uid == uid;
+      allow write: if isAuthed() && (request.auth.uid == uid || isAdmin());
 
-      // Sous-collections (profs, friends, decks, games…) : propriétaire ou admin
+      // Sous-collections (profs, friends, decks, games…) : propriétaire, admin, ou le doc lui-même (ex: retrait ami)
       match /{subcollection}/{doc} {
         allow read: if isAuthed();
-        allow write: if isAuthed() && (request.auth.uid == uid || isAdmin());
+        allow write: if isAuthed() && (request.auth.uid == uid || isAdmin() || request.auth.uid == doc);
       }
     }
 
