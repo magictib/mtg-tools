@@ -99,6 +99,9 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 #hub-sec-notifs,#hub-sec-friends,#hub-sec-settings{display:none}
 #hub-sec-notifs.hub-sec-on,#hub-sec-friends.hub-sec-on,#hub-sec-settings.hub-sec-on{display:block}
 @keyframes _pgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.page{display:none}.page.active{display:block;animation:_pgIn .22s ease}
+#pg-deck.deck-modal-open{display:block!important;position:fixed;inset:0;z-index:1500;background:rgba(6,3,1,.94);overflow-y:auto;padding:16px 12px;box-sizing:border-box}
+#pg-deck.deck-modal-open>.card,#pg-deck.deck-modal-open>#deditor,#pg-deck.deck-modal-open>#deckres,#pg-deck.deck-modal-open>#smart-deck-panel,#pg-deck.deck-modal-open>#deck-ana-swaps-panel{max-width:900px;margin-left:auto;margin-right:auto}
+#deck-modal-bar{max-width:900px;margin-left:auto;margin-right:auto}
 .card{position:relative;background:linear-gradient(180deg,#1e1208 0%,#120a04 100%);border:1.5px solid #7a5218;border-radius:7px;padding:1.25rem;margin-bottom:1rem;outline:1px solid rgba(201,168,76,.14);outline-offset:-6px;box-shadow:inset 0 1px 0 rgba(255,190,50,.08),inset 0 -3px 10px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.85),0 4px 0 rgba(0,0,0,.45),0 8px 28px rgba(0,0,0,.85)}
 .card:hover{border-color:#9a6a28}
 .lbl{font-family:'Goudy Mediaeval',serif;font-size:10px;letter-spacing:.12em;color:var(--tx3);text-transform:uppercase;margin-bottom:.75rem}
@@ -1226,8 +1229,7 @@ body.mana-cursor{cursor:none}
 
 <div class="tabs">
   <button class="tab-btn active" id="tb-coll" onclick="goTab('coll')">◈ Collection</button>
-  <button class="tab-btn" id="tb-build" onclick="goTab('build')">⚒ Créer</button>
-  <button class="tab-btn" id="tb-deck" onclick="goTab('deck')">♠ Deck</button>
+  <button class="tab-btn" id="tb-build" onclick="goTab('build')">♠ Deck</button>
   <button class="tab-btn" id="tb-analyse" onclick="goTab('analyse');anaInit()">📊 Analyse</button>
   <button class="tab-btn" id="tb-arena" onclick="goTab('arena')">⚡ Arène</button>
   <button class="tab-btn" id="tb-meta" onclick="goTab('meta');metaInit()">🌐 Méta</button>
@@ -1504,7 +1506,13 @@ body.mana-cursor{cursor:none}
 </div>
 
 <!-- DECK -->
-<div class="page" id="pg-deck">
+<div class="page" id="pg-deck" onclick="if(event.target===this)closeDeckModal()">
+  <div id="deck-modal-bar" style="display:none;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="lbl" style="margin:0;font-size:1rem">♠ Mes decks</div>
+      <button class="btn btnsm btnrd" onclick="closeDeckModal()">✕ Fermer</button>
+    </div>
+  </div>
   <div class="card">
     <div class="row" style="margin-bottom:.5rem">
       <div class="lbl" style="margin-bottom:0">Mes decks</div>
@@ -1834,8 +1842,30 @@ body.mana-cursor{cursor:none}
         <button class="dm" onclick="_bldThemeSearch('clone')">👥 Clones</button>
       </div>
     </div>
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openDeckModal()">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">📋</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Mes decks</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Consulter et gérer mes decks sauvegardés</div>
+    </div>
+    <div class="card" style="padding:1.25rem">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🔎</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Proposer un deck</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center;margin-bottom:.75rem">5 decklists du méta où vous avez le moins de cartes manquantes</div>
+      <select id="prop-fmt-sel" onclick="event.stopPropagation()" style="width:100%;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none;margin-bottom:8px">
+        <option value="ST">Standard</option>
+        <option value="PI">Pioneer</option>
+        <option value="MO">Modern</option>
+        <option value="LE">Legacy</option>
+        <option value="VI">Vintage</option>
+        <option value="PAU">Pauper</option>
+        <option value="EDH">Commander</option>
+      </select>
+      <select id="prop-prof-sel" onclick="event.stopPropagation()" style="width:100%;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none;margin-bottom:8px"></select>
+      <button class="btn btnsm btnp" style="width:100%" onclick="event.stopPropagation();proposeDecks()">Proposer 5 decks</button>
+    </div>
   </div>
 </div>
+<div id="bld-propose-wrap" style="display:none;margin-top:12px"></div>
 
 <!-- ZONE COMMANDANT (contenu migré depuis ex-onglet Commandants) -->
 <div id="bld-cmd-zone" style="display:none">
@@ -4281,7 +4311,21 @@ function getProfCards(i){
 }
 
 // ===== TABS =====
+function openDeckModal(){
+  var pg=document.getElementById('pg-deck');if(!pg)return;
+  pg.classList.add('deck-modal-open');
+  var bar=document.getElementById('deck-modal-bar');if(bar)bar.style.display='block';
+  renderProfSlots('deck','prof-grid-deck');_renderDeckListHeader();renderDBar();
+  if(actDeck&&decks[actDeck]){var _dk=decks[actDeck];dCards=_dk.rawName?parseList(_dk.rawName):(_dk.cards||[]);renderDeck();}
+}
+function closeDeckModal(){
+  var pg=document.getElementById('pg-deck');if(!pg)return;
+  pg.classList.remove('deck-modal-open');
+  var bar=document.getElementById('deck-modal-bar');if(bar)bar.style.display='none';
+}
 function goTab(id) {
+  closeDeckModal();
+  if(id==='deck'){openDeckModal();id='build';}
   document.querySelectorAll('.page').forEach(function(el){el.classList.remove('active');});
   document.querySelectorAll('.tab-btn').forEach(function(el){el.classList.remove('active');});
   var pg=document.getElementById('pg-'+id);if(pg)pg.classList.add('active');
@@ -4299,7 +4343,7 @@ function goTab(id) {
       renderDeck();
     }
   }
-  if(id==='build'){_renderBuildCollBtns();bldInitDeckSel();bldRenderSwapsPanel();_bldRefreshView();}
+  if(id==='build'){_renderBuildCollBtns();bldInitDeckSel();bldRenderSwapsPanel();_bldRefreshView();_initPropProfSel();}
   if(_userLang&&_userLang!=='en'){
     var _pg=document.getElementById('pg-'+id);
     if(_pg)setTimeout(function(){_pg.querySelectorAll('img').forEach(_localizeOneImg);},120);
@@ -18414,6 +18458,7 @@ function anaSearchCard(){
 }
 
 // ===== POOL DE DECKS + META ANALYTICS =====
+var _propResults=[];
 var _arPool=[];
 var _arMatches=[];
 var _arEndResult=null;
@@ -18986,6 +19031,154 @@ function metaFetchMeta(fmt,metaId){
       if(err){err.style.display='block';err.textContent='Impossible de charger le méta ('+e.message+'). Vérifiez votre connexion.';}
     });
 }
+// ===== PROPOSER UN DECK =====
+function _initPropProfSel(){
+  var sel=document.getElementById('prop-prof-sel');if(!sel)return;
+  sel.innerHTML=profs.map(function(_,i){return '<option value="'+i+'">'+esc(PN[i]||'Profil '+i)+'</option>';}).join('');
+}
+
+function parseMtg8DeckPage(html){
+  var cards=[];var seen={};
+  // Pattern: <div class="deck_line">4 Card Name</div> or <div class="G11">4 Card Name</div>
+  var re1=/<div[^>]+class=["']?deck_line["']?[^>]*>(\d+)\s+<[^>]+>([^<]+)<\/[^>]+>/gi;
+  var m;
+  while((m=re1.exec(html))!==null){
+    var qty=parseInt(m[1]);var name=m[2].replace(/&amp;/g,'&').replace(/&[a-z#\d]+;/gi,'').trim();
+    if(!qty||!name||name.length>80)continue;
+    var nl=_normNl(name);if(seen[nl])continue;seen[nl]=1;
+    cards.push({name:name,nl:nl,qty:qty});
+  }
+  // Pattern 2: <span class="G11">4 <a href...>Card Name</a></span>
+  if(!cards.length){
+    var re2=/<span[^>]+class=["']?G\d+["']?[^>]*>(\d+)\s+<a[^>]*>([^<]+)<\/a>/gi;
+    while((m=re2.exec(html))!==null){
+      var qty=parseInt(m[1]);var name=m[2].replace(/&amp;/g,'&').trim();
+      if(!qty||!name||name.length>80)continue;
+      var nl=_normNl(name);if(seen[nl])continue;seen[nl]=1;
+      cards.push({name:name,nl:nl,qty:qty});
+    }
+  }
+  // Pattern 3 (fallback): >4 Card Name< patterns
+  if(!cards.length){
+    var re3=/>\s*(\d)\s+([A-Z][^<\n]{2,60})\s*</g;
+    while((m=re3.exec(html))!==null){
+      var qty=parseInt(m[1]);var name=m[2].trim();
+      if(!qty||!name)continue;
+      var nl=_normNl(name);if(seen[nl])continue;seen[nl]=1;
+      cards.push({name:name,nl:nl,qty:qty});
+    }
+  }
+  return cards;
+}
+
+function _propMissing(deckCards,profIdx){
+  var pm=getPMap(profIdx||0);
+  var missing=[];var totalMissing=0;
+  deckCards.forEach(function(c){
+    var have=pm.get(_normNl(c.name))||0;
+    var need=Math.max(0,c.qty-have);
+    if(need>0){missing.push({name:c.name,qty:c.qty,have:have,need:need});totalMissing+=need;}
+  });
+  return {missing:missing,totalMissing:totalMissing,total:deckCards.reduce(function(s,c){return s+(c.qty||1);},0)};
+}
+
+function proposeDecks(){
+  var fmt=document.getElementById('prop-fmt-sel');fmt=fmt?fmt.value:'ST';
+  var profIdx=parseInt((document.getElementById('prop-prof-sel')||{}).value||'0')||0;
+  var wrap=document.getElementById('bld-propose-wrap');if(!wrap)return;
+  wrap.style.display='block';
+  wrap.innerHTML='<div class="card"><div class="lbl">🔎 Recherche en cours…</div><div id="prop-progress" style="font-size:11px;color:var(--tx3);font-style:italic;margin-top:6px">Chargement des tournois '+fmt+'…</div></div>';
+  var prog=document.getElementById('prop-progress');
+  // Step 1: fetch event list
+  _top8Fetch('https://www.mtgtop8.com/format?f='+fmt).then(function(html){
+    var events=top8ParseEventList(html,fmt);
+    if(!events.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Aucun tournoi trouvé pour ce format.</div></div>';return;}
+    if(prog)prog.textContent='Chargement des standings ('+events.length+' tournois)…';
+    // Step 2: fetch event details to get deck IDs
+    var limit=Math.min(events.length,12);
+    var evSlice=events.slice(0,limit);
+    var p2=evSlice.map(function(ev){
+      return _top8Fetch('https://www.mtgtop8.com/event?e='+ev.eid+'&f='+fmt)
+        .then(function(h){var det=top8ParseEventDetail(h,ev.eid,fmt);ev.standings=det.standings;})
+        .catch(function(){});
+    });
+    return Promise.all(p2).then(function(){
+      // Collect unique decks — one per archetype, best rank first
+      var archBest={};
+      evSlice.forEach(function(ev){
+        (ev.standings||[]).forEach(function(p){
+          var a=p.arch||'Unknown';
+          if(!archBest[a]||p.rankNum<archBest[a].rankNum)archBest[a]=p;
+        });
+      });
+      var topDecks=Object.keys(archBest).map(function(k){return archBest[k];}).sort(function(a,b){return a.rankNum-b.rankNum;}).slice(0,20);
+      if(!topDecks.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Données insuffisantes.</div></div>';return;}
+      if(prog)prog.textContent='Analyse de '+topDecks.length+' decklists…';
+      // Step 3: fetch individual deck pages
+      var p3=topDecks.map(function(d){
+        return _top8Fetch('https://www.mtgtop8.com/event?e='+d.eid+'&d='+d.did+'&f='+fmt)
+          .then(function(h){d._cards=parseMtg8DeckPage(h);})
+          .catch(function(){d._cards=[];});
+      });
+      return Promise.all(p3).then(function(){
+        // Step 4: compute missing per deck
+        var results=topDecks.map(function(d){
+          var cards=d._cards||[];
+          var miss=_propMissing(cards,profIdx);
+          return {arch:d.arch,eid:d.eid,did:d.did,fmt:fmt,cards:cards,missing:miss};
+        });
+        results=results.filter(function(r){return r.cards.length>0;});
+        results.sort(function(a,b){return a.missing.totalMissing-b.missing.totalMissing;});
+        var top5=results.slice(0,5);
+        if(!top5.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Impossible de récupérer les decklists (les decklists de ce format ne sont peut-être pas disponibles).</div></div>';return;}
+        _propResults=top5;
+        // Render
+        var html='<div class="card"><div class="lbl">🏆 Propositions — '+fmt+' (profil : '+(PN[profIdx]||'Profil '+profIdx)+')</div>';
+        html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">Classées par nombre de cartes manquantes dans votre collection.</div>';
+        top5.forEach(function(r,i){
+          var pct=r.cards.length?Math.round((r.missing.total-r.missing.totalMissing)/r.missing.total*100):0;
+          var pctCol=pct>=80?'#78c890':pct>=50?'#f5b95b':'#e07070';
+          var url='https://www.mtgtop8.com/event?e='+r.eid+'&d='+r.did+'&f='+r.fmt;
+          html+='<div style="margin-bottom:12px;padding:10px 12px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
+          html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">';
+          html+='<span style="font-size:1rem;font-weight:600;color:var(--gold2)">#'+(i+1)+'</span>';
+          html+='<span style="font-size:.9rem;font-weight:600;color:var(--tx)">'+esc(r.arch)+'</span>';
+          html+='<span style="margin-left:auto;font-size:.9rem;font-weight:700;color:'+pctCol+'">'+pct+'%</span>';
+          html+='<span style="font-size:10px;color:var(--tx3)">'+r.cards.length+' cartes · <b style="color:'+pctCol+'">'+r.missing.totalMissing+'</b> manquantes</span>';
+          html+='<a href="'+url+'" target="_blank" style="font-size:10px;color:var(--ac2);text-decoration:none">↗ MTGTop8</a>';
+          html+='</div>';
+          html+='<div style="height:6px;background:rgba(0,0,0,.4);border-radius:3px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:'+pct+'%;background:'+pctCol+';border-radius:3px"></div></div>';
+          if(r.missing.missing.length){
+            html+='<details><summary style="cursor:pointer;font-size:10px;color:var(--tx3);padding:2px 0">Cartes manquantes ('+r.missing.missing.length+')</summary>';
+            html+='<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">';
+            r.missing.missing.forEach(function(c){
+              html+='<span style="font-size:9px;padding:1px 6px;background:rgba(224,112,112,.15);border:.5px solid rgba(224,112,112,.3);border-radius:8px;color:#e07070;cursor:pointer" onmouseenter="showTip(\''+esc(c.name)+'\',event)" onmouseleave="hideTip()">'+esc(c.name)+' ×'+c.need+'</span>';
+            });
+            html+='</div></details>';
+          }
+          html+='<div style="margin-top:6px"><button class="btn btnsm btnp" style="font-size:.72rem" onclick="_propLoadDeck('+i+')">⚒ Ouvrir dans le builder</button></div>';
+          html+='</div>';
+        });
+        html+='</div>';
+        wrap.innerHTML=html;
+      });
+    });
+  }).catch(function(e){
+    wrap.innerHTML='<div class="card"><div style="color:var(--rd2)">Erreur : '+(e.message||e)+'</div></div>';
+  });
+}
+
+function _propLoadDeck(idx){
+  var r=_propResults[idx];if(!r)return;
+  var cards=r.cards;
+  var raw=cards.map(function(c){return c.qty+' '+c.name;}).join('\n');
+  _bldEntryBlank();
+  setTimeout(function(){
+    var ta=document.getElementById('bld-blank-import');
+    if(ta){ta.value=raw;_bldStartBlank();}
+  },150);
+}
+
 function metaParsePeriods(html){
   var periods=[];var seen={};
   // MTGTop8 uses <a href="?f=PAU&meta=299&a="> links (not <option> elements)
