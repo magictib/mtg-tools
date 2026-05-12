@@ -1405,6 +1405,7 @@ body.mana-cursor{cursor:none}
           <option value="qty">par Quantité</option>
           <option value="price">par Prix</option>
         </select>
+        <button id="coll-sort-dir" class="dm" onclick="toggleCollSortDir()" style="font-size:.8rem;padding:3px 9px" title="Inverser l'ordre">▲</button>
         <div style="display:flex;gap:3px;flex-wrap:wrap" id="coll-statmode-btns">
           <button class="dm" data-mode="rarity" onclick="toggleCollStatMode('rarity',this)" style="font-size:.7rem">⊕ Rareté</button>
           <button class="dm" data-mode="color" onclick="toggleCollStatMode('color',this)" style="font-size:.7rem">⊕ Couleur</button>
@@ -12026,6 +12027,10 @@ function sortColl(field){
   else{collSort.field=field;collSort.dir=1;}
   renderColl();
 }
+function toggleCollSortDir(){
+  collSort.dir*=-1;
+  renderColl();
+}
 function renderColl(){
   // Re-render profile slots to update info badges
   _syncProfsForCtx('coll');
@@ -12076,6 +12081,7 @@ function renderColl(){
     if(el)el.textContent=collSort.field===f?(collSort.dir===1?'▲':'▼'):'';
   });
   var _sortSel=document.getElementById('coll-sort-sel');if(_sortSel)_sortSel.value=collSort.field;
+  var _sortDir=document.getElementById('coll-sort-dir');if(_sortDir)_sortDir.textContent=collSort.dir===1?'▲':'▼';
   var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var val=cards.reduce(function(s,c){return s+(c.qty||1)*(c.price||0);},0);
   document.getElementById('collstats').innerHTML=
@@ -12109,24 +12115,50 @@ function renderColl(){
     if(collStatMode==='none'){breakDiv.innerHTML='';}
     else{
       var _allC=getProfCards(collP);
+      var _rarCol2={common:'#bbbbb0',uncommon:'#a0c8b0',rare:'#c8a040',mythic:'#e07070'};
+      var _rarLbl2={common:'Communes',uncommon:'Peu com.',rare:'Rares',mythic:'Mythiques'};
+      var _colCol2={W:'#f5f0c8',U:'#5b8cf5',B:'#c080e0',R:'#e07070',G:'#78c890',multi:'#cdb87a',C:'#aaaaaa'};
+      var _colLbl2={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',multi:'Multi',C:'Incolore'};
+      var _colKeys=['W','U','B','R','G','multi','C'];
+      var _rarKeys=['common','uncommon','rare','mythic'];
       var bHtml='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:4px">';
-      if(collStatMode==='rarity'||collStatMode==='both'){
-        var _rarMap={common:0,uncommon:0,rare:0,mythic:0};
-        _allC.forEach(function(c){var cc=collCache[c.name.toLowerCase()]||{};var r=cc.rarity||'';if(_rarMap[r]!==undefined)_rarMap[r]+=(c.qty||1);});
-        var _rarCol={common:'#bbbbb0',uncommon:'#a0c8b0',rare:'#c8a040',mythic:'#e07070'};
-        var _rarLbl={common:'Communes',uncommon:'Peu com.',rare:'Rares',mythic:'Mythiques'};
-        bHtml+='<div style="background:var(--s3);border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Rareté</div><div style="display:flex;gap:12px">';
-        ['common','uncommon','rare','mythic'].forEach(function(r){bHtml+='<div style="text-align:center"><div style="font-size:15px;font-weight:700;color:'+_rarCol[r]+'">'+(_rarMap[r]||0)+'</div><div style="font-size:9px;color:var(--tx3)">'+_rarLbl[r]+'</div></div>';});
-        bHtml+='</div></div>';
-      }
-      if(collStatMode==='color'||collStatMode==='both'){
-        var _colMap={W:0,U:0,B:0,R:0,G:0,multi:0,C:0};
-        _allC.forEach(function(c){var cc=collCache[c.name.toLowerCase()]||{};var cl=cc.colors||[];var q=c.qty||1;if(!cl.length)_colMap.C+=q;else if(cl.length>1)_colMap.multi+=q;else if(_colMap[cl[0]]!==undefined)_colMap[cl[0]]+=q;});
-        var _colCol={W:'#f5f0c8',U:'#5b8cf5',B:'#c080e0',R:'#e07070',G:'#78c890',multi:'#cdb87a',C:'#aaaaaa'};
-        var _colLbl={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',multi:'Multi',C:'Incolore'};
-        bHtml+='<div style="background:var(--s3);border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Couleur</div><div style="display:flex;gap:10px;flex-wrap:wrap">';
-        ['W','U','B','R','G','multi','C'].forEach(function(col){if(!_colMap[col])return;bHtml+='<div style="text-align:center"><div style="font-size:15px;font-weight:700;color:'+_colCol[col]+'">'+_colMap[col]+'</div><div style="font-size:9px;color:var(--tx3)">'+_colLbl[col]+'</div></div>';});
-        bHtml+='</div></div>';
+      if(collStatMode==='both'){
+        // Grille rareté × couleur
+        var _rcMap={};
+        _rarKeys.forEach(function(r){_rcMap[r]={W:0,U:0,B:0,R:0,G:0,multi:0,C:0};});
+        _allC.forEach(function(c){
+          var cc=collCache[c.name.toLowerCase()]||{};var r=cc.rarity||'';var cl=cc.colors||[];var q=c.qty||1;
+          if(!_rcMap[r])return;
+          var ck=!cl.length?'C':cl.length>1?'multi':cl[0];
+          if(_rcMap[r][ck]!==undefined)_rcMap[r][ck]+=q;
+        });
+        bHtml+='<div style="background:var(--s3);border-radius:8px;padding:8px 12px;width:100%">';
+        bHtml+='<div style="font-size:10px;color:var(--tx3);margin-bottom:7px">Rareté × Couleur</div>';
+        _rarKeys.forEach(function(r){
+          var row=_rcMap[r];var total=_colKeys.reduce(function(s,k){return s+row[k];},0);if(!total)return;
+          bHtml+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">';
+          bHtml+='<div style="min-width:58px;font-size:9px;color:'+_rarCol2[r]+';font-weight:600">'+_rarLbl2[r]+'</div>';
+          _colKeys.forEach(function(c){if(!row[c])return;
+            bHtml+='<div style="text-align:center;min-width:30px"><div style="font-size:12px;font-weight:700;color:'+_colCol2[c]+'">'+row[c]+'</div><div style="font-size:8px;color:var(--tx3)">'+_colLbl2[c]+'</div></div>';
+          });
+          bHtml+='</div>';
+        });
+        bHtml+='</div>';
+      } else {
+        if(collStatMode==='rarity'){
+          var _rarMap={common:0,uncommon:0,rare:0,mythic:0};
+          _allC.forEach(function(c){var cc=collCache[c.name.toLowerCase()]||{};var r=cc.rarity||'';if(_rarMap[r]!==undefined)_rarMap[r]+=(c.qty||1);});
+          bHtml+='<div style="background:var(--s3);border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Rareté</div><div style="display:flex;gap:12px">';
+          _rarKeys.forEach(function(r){bHtml+='<div style="text-align:center"><div style="font-size:15px;font-weight:700;color:'+_rarCol2[r]+'">'+(_rarMap[r]||0)+'</div><div style="font-size:9px;color:var(--tx3)">'+_rarLbl2[r]+'</div></div>';});
+          bHtml+='</div></div>';
+        }
+        if(collStatMode==='color'){
+          var _colMap={W:0,U:0,B:0,R:0,G:0,multi:0,C:0};
+          _allC.forEach(function(c){var cc=collCache[c.name.toLowerCase()]||{};var cl=cc.colors||[];var q=c.qty||1;if(!cl.length)_colMap.C+=q;else if(cl.length>1)_colMap.multi+=q;else if(_colMap[cl[0]]!==undefined)_colMap[cl[0]]+=q;});
+          bHtml+='<div style="background:var(--s3);border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Couleur</div><div style="display:flex;gap:10px;flex-wrap:wrap">';
+          _colKeys.forEach(function(col){if(!_colMap[col])return;bHtml+='<div style="text-align:center"><div style="font-size:15px;font-weight:700;color:'+_colCol2[col]+'">'+_colMap[col]+'</div><div style="font-size:9px;color:var(--tx3)">'+_colLbl2[col]+'</div></div>';});
+          bHtml+='</div></div>';
+        }
       }
       bHtml+='</div>';
       breakDiv.innerHTML=bHtml;
