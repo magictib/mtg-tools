@@ -6,21 +6,23 @@ Application web single-file (index.html) de gestion de collection Magic: The Gat
 ## Structure
 - `index.html` — toute l'application (HTML + CSS + JS dans un seul fichier)
 - Pas de framework, pas de build tool, vanilla JS uniquement
-- Données stockées dans localStorage du navigateur
+- Données utilisateur dans Firebase Firestore ; localStorage en cache secondaire
 
 ## Profils
-- 3 profils fixes : Thibaud, Gérémy, Antoine
-- Clé localStorage : `mtg_profs` (tableau de 3 éléments)
+- Utilisateur principal : Thibaud (compte Firebase authentifié)
+- Autres profils : amis Firebase (système d'amis dans l'app)
+  - Seul utilisateur ami actif : **Gérébite**
+  - Les anciens profils "Gérémy", "Antoine", "test" étaient des comptes de test, ne plus s'y référer
+- `profs[0]` = collection du user connecté (slot Firebase)
+- `profs[1..n]` = collections des amis chargés via `_epSlots[ctx]`
+- `PN[]` = noms affichés (PN[0] = user, PN[1..n] = amis)
+- Clé localStorage (legacy, slot 0 uniquement) : `mtg_profs`
 - Clé localStorage : `mtg_decks` (objet {id: deck})
 
 ## Fonctionnalités
 1. **Convertisseur CSV** : CardNexus (A) ↔ Mythic Tools (B) ↔ Moxfield (C)
 2. **Scryfall** : recherche carte via API publique
 3. **Deck Manager** : création/sauvegarde decks par profil, comparaison possession
-
-## Bugs connus à corriger
-- Comparatif possession deck : colonnes affichent ✗ même si cartes présentes dans profil
-- Bouton "Nouveau deck" manquant dans l'éditeur (2e encadré)
 
 ## API utilisées
 - Scryfall : https://api.scryfall.com (publique, pas de clé)

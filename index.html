@@ -3368,12 +3368,17 @@ function _onUserRole(user,role){
     PN[0]=user.displayName||user.email;
     if(localStorage.getItem('mtg_last_uid')!==userId){
       ['mtg_profs','mtg_ep_slots','mtg_decks','mtg_deck_orders','mtg_pending','mtg_loans',
-       'mtg_trades','mtg_trades_processed','mtg_games','mtg_player_bgs','mtg_pending_out_reqs'
+       'mtg_trades','mtg_trades_processed','mtg_games','mtg_player_bgs','mtg_pending_out_reqs',
+       'mtg_ana_themes','mtg_user_lang','mtg_user_archetypes','mtg_cmd_manual_oracle',
+       'mtg_arena_pool','manalab_ar_matches'
       ].forEach(function(k){localStorage.removeItem(k);});
       localStorage.setItem('mtg_last_uid',userId);
     }
-    loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();loadFriends();
-    fetchRules();
+    _loadFsPrefs(function(){
+      loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();loadFriends();
+      _loadSharedWorkerUrl();
+      fetchRules();
+    });
     initNotifications(user.uid);
     _initTradesListener(user.uid);
     setTimeout(_checkScryfallIDB,2000);
@@ -4879,6 +4884,7 @@ function _loadEpCards(uid,cb){
 
 function _saveEpSlots(){
   try{localStorage.setItem('mtg_ep_slots',JSON.stringify(_epSlots));}catch(e){}
+  _fsPrefs.epSlots=_epSlots;_saveFsPrefs();
 }
 
 function _refreshCtxRender(ctx){
@@ -5002,8 +5008,8 @@ function _renderGamePlayerRows(){
 function loadProfs(){
   // Compat: load old mtg_profs array, keep only slot 0
   try{var s=localStorage.getItem('mtg_profs');if(s){var arr=JSON.parse(s);profs[0]=arr[0]||null;}}catch(e){}
-  // Load extra profile slots
-  try{var eps=localStorage.getItem('mtg_ep_slots');if(eps)_epSlots=JSON.parse(eps);}catch(e){}
+  // Load extra profile slots — géré par _loadFsPrefs si déjà chargé
+  if(!_fsPrefsDone){try{var eps=localStorage.getItem('mtg_ep_slots');if(eps)_epSlots=JSON.parse(eps);}catch(e){}}
   // Initial render
   renderProfSlots('coll','prof-grid-coll');
   renderProfSlots('deck','prof-grid-deck');
@@ -5173,8 +5179,8 @@ function scState(s,msg){
 }
 
 // ===== DECK =====
-function loadDeckOrders(){try{var s=localStorage.getItem('mtg_deck_orders');if(s)_deckOrders=JSON.parse(s);}catch(e){_deckOrders={};}}
-function saveDeckOrders(){try{localStorage.setItem('mtg_deck_orders',JSON.stringify(_deckOrders));}catch(e){}}
+function loadDeckOrders(){if(_fsPrefsDone)return;try{var s=localStorage.getItem('mtg_deck_orders');if(s)_deckOrders=JSON.parse(s);}catch(e){_deckOrders={};}}
+function saveDeckOrders(){try{localStorage.setItem('mtg_deck_orders',JSON.stringify(_deckOrders));}catch(e){}_fsPrefs.deckOrders=_deckOrders;_saveFsPrefs();}
 function _migrateReparseDecks(dict){
   // Re-parse tous les decks depuis rawName (auto-repare les noms tronques par d'anciens parsers)
   if(!dict)return dict;
@@ -5240,10 +5246,10 @@ function saveDecks(){
   batch.commit().catch(function(e){console.warn('Firestore saveDecks',e);});
 }
 // ===== PENDING / LOANS / TRADES — PERSISTANCE =====
-function loadPending(){try{var s=localStorage.getItem('mtg_pending');if(s)pending=JSON.parse(s);}catch(e){pending=[];}}
-function savePending(){try{localStorage.setItem('mtg_pending',JSON.stringify(pending));}catch(e){}}
-function loadLoans(){try{var s=localStorage.getItem('mtg_loans');if(s)loans=JSON.parse(s);}catch(e){loans=[];}}
-function saveLoans(){try{localStorage.setItem('mtg_loans',JSON.stringify(loans));}catch(e){}}
+function loadPending(){if(_fsPrefsDone)return;try{var s=localStorage.getItem('mtg_pending');if(s)pending=JSON.parse(s);}catch(e){pending=[];}}
+function savePending(){try{localStorage.setItem('mtg_pending',JSON.stringify(pending));}catch(e){}_fsPrefs.pending=pending;_saveFsPrefs();}
+function loadLoans(){if(_fsPrefsDone)return;try{var s=localStorage.getItem('mtg_loans');if(s)loans=JSON.parse(s);}catch(e){loans=[];}}
+function saveLoans(){try{localStorage.setItem('mtg_loans',JSON.stringify(loans));}catch(e){}_fsPrefs.loans=loans;_saveFsPrefs();}
 function loadTrades(){try{var s=localStorage.getItem('mtg_trades');if(s)trades=JSON.parse(s);}catch(e){trades=[];}}
 function saveTrades(){try{localStorage.setItem('mtg_trades',JSON.stringify(trades));}catch(e){}}
 function addCardToProf(pi,card){
@@ -7100,13 +7106,13 @@ function getColorStyle(colors){
 }
 
 function loadGames(){
-  try{var s=localStorage.getItem('mtg_games');if(s)games=JSON.parse(s);}catch(e){games=[];}
+  if(!_fsPrefsDone){try{var s=localStorage.getItem('mtg_games');if(s)games=JSON.parse(s);}catch(e){games=[];}}
   try{var b=localStorage.getItem('mtg_player_bgs');if(b)playerBgImages=JSON.parse(b);}catch(e){playerBgImages={};}
   initSetupDecks();
   updateBgButtons();
   renderGameStats();renderGameHistory();
 }
-function saveGames(){try{localStorage.setItem('mtg_games',JSON.stringify(games));}catch(e){}}
+function saveGames(){try{localStorage.setItem('mtg_games',JSON.stringify(games));}catch(e){}_fsPrefs.games=games;_saveFsPrefs();}
 function savePlayerBgs(){try{localStorage.setItem('mtg_player_bgs',JSON.stringify(playerBgImages));}catch(e){}}
 
 function resetSetupColors(){
@@ -11382,10 +11388,85 @@ var _RULES_URLS=[
   'https://media.wizards.com/2024/downloads/MagicCompRules%2020241108.txt'
 ];
 var _CORS='https://api.allorigins.win/raw?url=';
+// ===== FIRESTORE PREFS — sync user data across devices =====
+var _fsPrefs={};
+var _fsPrefsDone=false;
+var _fsPrefsSaveTimer=null;
+
+function _saveFsPrefs(){
+  if(!userId)return;
+  clearTimeout(_fsPrefsSaveTimer);
+  _fsPrefsSaveTimer=setTimeout(function(){
+    if(!userId)return;
+    db.collection('users').doc(userId).collection('settings').doc('prefs')
+      .set(_fsPrefs,{merge:true})
+      .catch(function(e){console.warn('[prefs save]',e);});
+  },1500);
+}
+
+function _loadFsPrefs(cb){
+  if(!userId){if(cb)cb();return;}
+  db.collection('users').doc(userId).collection('settings').doc('prefs')
+    .get().then(function(doc){
+      _fsPrefs=doc.exists?(doc.data()||{}):{};
+      // epSlots : Firestore prioritaire, sinon migration depuis localStorage
+      if(_fsPrefs.epSlots){_epSlots=_fsPrefs.epSlots;}
+      else{try{var _e=localStorage.getItem('mtg_ep_slots');if(_e)_epSlots=JSON.parse(_e);}catch(e){}}
+      // deckOrders
+      if(_fsPrefs.deckOrders){_deckOrders=_fsPrefs.deckOrders;}
+      else{try{var _d=localStorage.getItem('mtg_deck_orders');if(_d)_deckOrders=JSON.parse(_d);}catch(e){}}
+      // games
+      if(_fsPrefs.games&&_fsPrefs.games.length){games=_fsPrefs.games;}
+      else{try{var _g=localStorage.getItem('mtg_games');if(_g)games=JSON.parse(_g);}catch(e){games=[];}}
+      // pending
+      if(_fsPrefs.pending){pending=_fsPrefs.pending;}
+      else{try{var _p=localStorage.getItem('mtg_pending');if(_p)pending=JSON.parse(_p);}catch(e){pending=[];}}
+      // loans
+      if(_fsPrefs.loans){loans=_fsPrefs.loans;}
+      else{try{var _l=localStorage.getItem('mtg_loans');if(_l)loans=JSON.parse(_l);}catch(e){loans=[];}}
+      // analyse
+      if(_fsPrefs.anaThemes)_anaUserThemesData=_fsPrefs.anaThemes;
+      if(_fsPrefs.userLang)_userLang=_fsPrefs.userLang;
+      if(_fsPrefs.userArchetypes)_anaUserArchetypes=_fsPrefs.userArchetypes;
+      if(_fsPrefs.cmdManualOracle)_anaCmdManualOracle=_fsPrefs.cmdManualOracle;
+      // arena
+      if(_fsPrefs.arPool&&_fsPrefs.arPool.length)_arPool=_fsPrefs.arPool;
+      if(_fsPrefs.arMatches&&_fsPrefs.arMatches.length)_arMatches=_fsPrefs.arMatches;
+      _fsPrefsDone=true;
+      if(cb)cb();
+    }).catch(function(){
+      // Fallback complet sur localStorage
+      try{var _e=localStorage.getItem('mtg_ep_slots');if(_e)_epSlots=JSON.parse(_e);}catch(e){}
+      try{var _d=localStorage.getItem('mtg_deck_orders');if(_d)_deckOrders=JSON.parse(_d);}catch(e){}
+      try{var _g=localStorage.getItem('mtg_games');if(_g)games=JSON.parse(_g);}catch(e){games=[];}
+      try{var _p=localStorage.getItem('mtg_pending');if(_p)pending=JSON.parse(_p);}catch(e){pending=[];}
+      try{var _l=localStorage.getItem('mtg_loans');if(_l)loans=JSON.parse(_l);}catch(e){loans=[];}
+      _fsPrefsDone=true;
+      if(cb)cb();
+    });
+}
+// ===================================================
+
 var _rulesChatHistory=[];
+var _sharedWorkerUrl='';
+
+function _getWorkerUrl(){
+  return localStorage.getItem('ml_worker_url')||_sharedWorkerUrl||'';
+}
+
+function _loadSharedWorkerUrl(){
+  db.collection('meta').doc('config').get().then(function(doc){
+    if(doc.exists&&doc.data().workerUrl){
+      _sharedWorkerUrl=doc.data().workerUrl;
+      if(!localStorage.getItem('ml_worker_url')){
+        _applyWorkerUrl(_sharedWorkerUrl);
+      }
+    }
+  }).catch(function(){});
+}
 
 function initRulesTab(){
-  var wu=localStorage.getItem('ml_worker_url')||'';
+  var wu=_getWorkerUrl();
   // URL Worker visible uniquement pour l'admin
   var workerWrap=document.getElementById('rules-worker-wrap');
   if(workerWrap)workerWrap.style.display=_userRole==='admin'?'block':'none';
@@ -11399,6 +11480,9 @@ function saveWorkerUrl(){
   var wu=(document.getElementById('rules-worker-url').value||'').trim();
   localStorage.setItem('ml_worker_url',wu);
   _applyWorkerUrl(wu);
+  if(_userRole==='admin'){
+    db.collection('meta').doc('config').set({workerUrl:wu},{merge:true}).catch(function(){});
+  }
 }
 
 function _applyWorkerUrl(wu){
@@ -11418,7 +11502,7 @@ function fetchRules(){
   _rulesLoading=true;
   var status=document.getElementById('rules-load-status');
   if(status){status.style.display='block';status.textContent='Chargement des règles officielles…';}
-  var wu=localStorage.getItem('ml_worker_url')||'';
+  var wu=_getWorkerUrl();
   if(wu&&wu.startsWith('http')){
     fetch(wu+'?rules=1')
       .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
@@ -11597,7 +11681,7 @@ function resetRulesChat(){
 }
 
 function askRulesAI(){
-  var wu=localStorage.getItem('ml_worker_url')||'';
+  var wu=_getWorkerUrl();
   if(!wu){return;}
   var input=document.getElementById('rules-ai-query');
   var question=(input.value||'').trim();
@@ -14655,7 +14739,7 @@ function showToast(msg,durationMs){
 }
 function setUserLang(lang){
   _userLang=lang||'en';
-  try{localStorage.setItem('mtg_user_lang',_userLang);}catch(e){}
+  try{localStorage.setItem('mtg_user_lang',_userLang);}catch(e){}_fsPrefs.userLang=_userLang;_saveFsPrefs();
   var _lEntry=null;for(var _li=0;_li<USER_LANGS.length;_li++){if(USER_LANGS[_li].code===_userLang){_lEntry=USER_LANGS[_li];break;}}
   var label=_lEntry?_lEntry.label:_userLang;
   showToast('🌐 Langue enregistrée : '+label);
@@ -15824,12 +15908,12 @@ var _anaThemeMeta=[
   {k:'sacrifice',   fr:'Sacrifice',           ico:'🔪'},
   {k:'sweeper',     fr:'Dégâts AoE / Ping',   ico:'💥'}
 ];
-function _anaSaveUserThemes(){try{localStorage.setItem('mtg_ana_themes',JSON.stringify(_anaUserThemesData));}catch(e){}}
+function _anaSaveUserThemes(){try{localStorage.setItem('mtg_ana_themes',JSON.stringify(_anaUserThemesData));}catch(e){}_fsPrefs.anaThemes=_anaUserThemesData;_saveFsPrefs();}
 
 // Persistence de l'oracle text saisi manuellement (fallback quand Scryfall échoue)
 var _anaCmdManualOracle={};
 try{var __cmo=localStorage.getItem('mtg_cmd_manual_oracle');if(__cmo){var __cmoP=JSON.parse(__cmo);if(__cmoP&&typeof __cmoP==='object')_anaCmdManualOracle=__cmoP;}}catch(e){}
-function _anaSaveCmdManualOracle(){try{localStorage.setItem('mtg_cmd_manual_oracle',JSON.stringify(_anaCmdManualOracle));}catch(e){}}
+function _anaSaveCmdManualOracle(){try{localStorage.setItem('mtg_cmd_manual_oracle',JSON.stringify(_anaCmdManualOracle));}catch(e){}_fsPrefs.cmdManualOracle=_anaCmdManualOracle;_saveFsPrefs();}
 
 function _anaPillToggle(btn){
   var on=btn.dataset.active==='1';
@@ -16330,7 +16414,7 @@ function _anaCommanderThemes(deck){
 /* ----- Override manuel d'archetype par deck (persiste localStorage) ----- */
 var _anaUserArchetypes={};
 try{var __aA=localStorage.getItem('mtg_user_archetypes');if(__aA){var __aAP=JSON.parse(__aA);if(__aAP&&typeof __aAP==='object')_anaUserArchetypes=__aAP;}}catch(e){}
-function _anaSaveUserArchetypes(){try{localStorage.setItem('mtg_user_archetypes',JSON.stringify(_anaUserArchetypes));}catch(e){}}
+function _anaSaveUserArchetypes(){try{localStorage.setItem('mtg_user_archetypes',JSON.stringify(_anaUserArchetypes));}catch(e){}_fsPrefs.userArchetypes=_anaUserArchetypes;_saveFsPrefs();}
 function anaSetArchetype(deckId,arch){
   if(!deckId)return;
   if(!arch||arch==='auto')delete _anaUserArchetypes[deckId];
@@ -18605,10 +18689,10 @@ function _getDeckFmt(deckId){
   return'';
 }
 
-function arPoolLoad(){try{_arPool=JSON.parse(localStorage.getItem('mtg_arena_pool')||'[]');}catch(e){_arPool=[];}}
-function arPoolSave(){localStorage.setItem('mtg_arena_pool',JSON.stringify(_arPool));}
-function arMatchesLoad(){try{_arMatches=JSON.parse(localStorage.getItem('manalab_ar_matches')||'[]');}catch(e){_arMatches=[];}}
-function arMatchesSave(){localStorage.setItem('manalab_ar_matches',JSON.stringify(_arMatches));}
+function arPoolLoad(){if(_fsPrefsDone)return;try{_arPool=JSON.parse(localStorage.getItem('mtg_arena_pool')||'[]');}catch(e){_arPool=[];}}
+function arPoolSave(){localStorage.setItem('mtg_arena_pool',JSON.stringify(_arPool));_fsPrefs.arPool=_arPool;_saveFsPrefs();}
+function arMatchesLoad(){if(_fsPrefsDone)return;try{_arMatches=JSON.parse(localStorage.getItem('manalab_ar_matches')||'[]');}catch(e){_arMatches=[];}}
+function arMatchesSave(){localStorage.setItem('manalab_ar_matches',JSON.stringify(_arMatches));_fsPrefs.arMatches=_arMatches;_saveFsPrefs();}
 
 function arSetResult(r){
   _arEndResult=r;
@@ -18872,6 +18956,8 @@ function tourLoad(){
   _top8Fetch(url).then(function(html){
     if(sel&&sel.options.length<=1){
       var periods=metaParsePeriods(html);
+      // Tri par ID décroissant : ID plus élevé = saison plus récente
+      periods.sort(function(a,b){return parseInt(b.id,10)-parseInt(a.id,10);});
       periods.forEach(function(p){
         var o=document.createElement('option');o.value=p.id;o.textContent=p.label;sel.appendChild(o);
       });
@@ -19298,10 +19384,11 @@ function metaRenderPeriodSel(periods,activeId){
   var el=document.getElementById('meta-period-sel');if(!el)return;
   if(!periods.length){el.style.display='none';return;}
   el.style.display='';
-  // If no activeId given, default to first period (the highlighted one on MTGTop8)
-  var selId=activeId?String(activeId):(periods[0]?periods[0].id:null);
+  // Tri par ID décroissant : ID plus élevé = saison plus récente
+  var sorted=periods.slice().sort(function(a,b){return parseInt(b.id,10)-parseInt(a.id,10);});
+  var selId=activeId?String(activeId):(sorted[0]?sorted[0].id:null);
   var html='<select onchange="metaSetPeriod(this.value)" style="font-size:.75rem;padding:3px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none;cursor:pointer">';
-  periods.forEach(function(p){
+  sorted.forEach(function(p){
     html+='<option value="'+p.id+'"'+(p.id===selId?' selected':'')+'>'+p.label+'</option>';
   });
   html+='</select>';
