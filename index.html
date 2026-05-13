@@ -18230,16 +18230,20 @@ function _anaRenderMetaMatrix(){
     var _simOpts=cmdUser?Object.assign({},_base,{cmdA:cmdUser}):_base;
     var _arcSz=_isCmd?libUser.length:40;
     var _simRuns=100;
+    // Générer un deck représentatif par archétype (pour affichage — simulations restent aléatoires)
+    _anaMetaDisplayDecks=metaDecks.map(function(md){return _archetypeDeck(md.kind,_arcSz);});
     var results=metaDecks.map(function(md){
       var wr=anaWinRate(libUser,function(){return _archetypeDeck(md.kind,_arcSz);},_simRuns,_simOpts);
       return {md:md,wr:wr};
     });
     var avg=results.reduce(function(s,r){return s+r.wr;},0)/results.length;
     var sorted=results.slice().sort(function(a,b){return b.wr-a.wr;});
+    // Calcul des index originaux pour les display decks
+    var sortedOrigIdx=sorted.map(function(r){return metaDecks.indexOf(r.md);});
     var fmtLabel=(fmt||'').charAt(0).toUpperCase()+(fmt||'').slice(1);
     var lifeHint=_isDuel?(_isCmd?'20 PV':'20 PV'):(_isCmd?'40 PV':'20 PV');
     var h='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Simulation contre les archétypes méta '+fmtLabel+' ('+_simRuns+' parties/archétype · '+lifeHint+'). Compositions synthétiques basées sur les styles réels.</div>';
-    h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:0 3px;font-size:11px">';
+    h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
     h+='<thead><tr>';
     h+='<th style="text-align:left;padding:4px 8px;color:var(--tx3);font-family:Goudy Mediaeval,serif;font-size:10px;letter-spacing:.06em">ARCHÉTYPE MÉTA</th>';
     h+='<th style="text-align:center;padding:4px 6px;color:var(--tx3);font-family:Goudy Mediaeval,serif;font-size:10px">COULEURS</th>';
@@ -18247,16 +18251,30 @@ function _anaRenderMetaMatrix(){
     h+='<th style="text-align:center;padding:4px 6px;color:var(--tx3);font-family:Goudy Mediaeval,serif;font-size:10px;min-width:80px">WIN RATE</th>';
     h+='<th style="text-align:left;padding:4px 8px;color:var(--tx3);font-family:Goudy Mediaeval,serif;font-size:10px">RÉSULTAT</th>';
     h+='</tr></thead><tbody>';
-    sorted.forEach(function(r){
+    sorted.forEach(function(r,si){
       var c=_wrCell(r.wr);
       var al=_ARCH_LABELS[r.md.kind]||{ico:'',label:r.md.kind};
-      h+='<tr title="'+esc(r.md.hint)+'">';
-      h+='<td style="padding:7px 8px;font-weight:bold;font-size:11px;color:var(--tx1)">'+esc(r.md.name)+'</td>';
+      var origIdx=sortedOrigIdx[si];
+      var summary=_anaMetaDeckSummary(_anaMetaDisplayDecks[origIdx]||[]);
+      h+='<tr title="'+esc(r.md.hint)+'" style="border-bottom:1px solid var(--bd)">';
+      h+='<td style="padding:7px 8px;font-weight:bold;font-size:11px;color:var(--tx1)">';
+      h+=esc(r.md.name);
+      h+=' <button id="ana-meta-deck-btn-'+si+'" onclick="_anaToggleMetaDeck('+si+')" style="font-size:9px;padding:1px 6px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx3);cursor:pointer;vertical-align:middle">▾ Composition</button>';
+      h+='</td>';
       h+='<td style="padding:7px 4px;text-align:center">'+_metaColorPips(r.md.colors)+'</td>';
       h+='<td style="padding:7px 4px;text-align:center;font-size:10px;color:var(--tx3)">'+al.ico+' '+esc(al.label)+'</td>';
       h+='<td style="padding:4px"><div style="background:'+c.col+';color:'+c.textCol+';padding:7px 4px;text-align:center;border-radius:5px;font-weight:bold;font-size:12px">'+c.pct+'%</div></td>';
       h+='<td style="padding:7px 8px;font-size:10px;color:var(--tx3)">'+esc(c.label)+'</td>';
       h+='</tr>';
+      h+='<tr><td colspan="5" style="padding:0">';
+      h+='<div id="ana-meta-deck-'+si+'" style="display:none;padding:8px 12px 10px;background:var(--s3);border-bottom:1px solid var(--bd)">';
+      h+='<div style="font-size:9px;color:var(--tx3);margin-bottom:6px;font-style:italic">Composition synthétique représentative ('+(_anaMetaDisplayDecks[origIdx]||[]).length+' cartes) :</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      summary.forEach(function(g){
+        h+='<span style="font-size:10px;padding:2px 8px;background:rgba(128,128,128,.1);border:.5px solid var(--bd2);border-radius:8px;color:var(--tx2)">'+g.lbl+' <b>'+g.n+'</b></span>';
+      });
+      h+='</div>';
+      h+='</div></td></tr>';
     });
     var avgC=_wrCell(avg);
     h+='<tr>';
@@ -18286,6 +18304,56 @@ function anaResetAnalysis(){
   var rr=document.getElementById('ana-reset-row');
   if(rr)rr.style.display='none';
 }
+/* ----- Bi-terrains mode image ----- */
+var _bilandsImgMode=false;
+try{_bilandsImgMode=!!localStorage.getItem('mtg_bilands_img');}catch(e){}
+function toggleBilandsImg(){
+  _bilandsImgMode=!_bilandsImgMode;
+  try{localStorage.setItem('mtg_bilands_img',_bilandsImgMode?'1':'');}catch(e){}
+  var sel=document.getElementById('ana-deck-sel');
+  if(sel&&sel.value&&_anaState)try{anaRender(sel.value);}catch(e){}
+}
+
+/* ----- Decks de la matrice méta (pré-générés pour affichage) ----- */
+var _anaMetaDisplayDecks=[];
+function _anaToggleMetaDeck(idx){
+  var d=document.getElementById('ana-meta-deck-'+idx);if(!d)return;
+  var open=d.style.display==='block';
+  d.style.display=open?'none':'block';
+  var btn=document.getElementById('ana-meta-deck-btn-'+idx);
+  if(btn)btn.textContent=open?'▾ Composition':'▴ Fermer';
+}
+function _anaMetaDeckSummary(deck){
+  var groups={};
+  deck.forEach(function(c){
+    var k;
+    if(c.isLand)k='🏔 Terrains';
+    else if(c.prison)k='⛓ Prison / Taxe';
+    else if(c.combopiece&&c.roles&&c.roles.draw)k='📖 Pioche (combo)';
+    else if(c.combopiece&&c.roles&&c.roles.ramp)k='🌱 Ramp (combo)';
+    else if(c.roles&&c.roles.wrath)k='💥 Wrath';
+    else if(c.roles&&c.roles.removal&&c.faceDmg)k='🔥 Burn/Dégâts directs';
+    else if(c.roles&&c.roles.removal)k='🗡 Removal';
+    else if(c.roles&&c.roles.counter)k='🛡 Counterspells';
+    else if(c.roles&&c.roles.draw)k='📖 Pioche';
+    else if(c.roles&&c.roles.ramp)k=c.rampDouble?'⚡ Ramp (explosif)':'🌱 Ramp';
+    else if(c.roles&&(c.roles.creature||c.roles.wincon)){
+      if(c.cmc<=1)k='👊 Créatures 1-drop';
+      else if(c.cmc<=2)k='👊 Créatures 2-drops';
+      else if(c.cmc<=4)k='👊 Créatures 3-4 CMC';
+      else k='💀 Menaces lourdes (CMC 5+)';
+    }
+    else if(c.roles&&c.roles.interaction)k='✋ Interaction';
+    else k='• Autre';
+    groups[k]=(groups[k]||0)+1;
+  });
+  return Object.keys(groups).map(function(lbl){return {lbl:lbl,n:groups[lbl]};})
+    .sort(function(a,b){
+      var ord=['🏔','⛓','📖','🌱','⚡','👊','💀','🔥','🗡','💥','🛡','✋','•'];
+      return ord.findIndex(function(p){return a.lbl.startsWith(p);})-ord.findIndex(function(p){return b.lbl.startsWith(p);});
+    });
+}
+
 var _BILANDS={
   WU:['Hallowed Fountain','Glacial Fortress','Seachrome Coast','Flooded Strand','Mystic Gate'],
   WB:['Godless Shrine','Isolated Chapel','Concealed Courtyard','Marsh Flats','Fetid Heath'],
@@ -19128,21 +19196,57 @@ function anaRender(deckId){
   html+='<div class="stat"><div class="sv">'+_dualLandN+'</div><div class="sl">Dual / Fetch</div></div>';
   html+='</div>';
   if(_totalBasics>0){
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Basics actuels :</div>';
-    html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">Basics actuels :</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">';
     ['W','U','B','R','G'].forEach(function(c){if(!_basicCnt[c])return;html+='<span class="pip pip-'+c+'" style="font-size:11px;padding:2px 8px">'+_basicCnt[c]+'×</span>';});
     html+='</div>';
   }
+  // Ratio recommandé de basics (basé sur les pips couleur des sorts)
+  (function(){
+    var _pipCnt={W:0,U:0,B:0,R:0,G:0};var _totalPips=0;
+    rows.forEach(function(r){
+      if(!r.inCache||!r.roles||r.roles.land)return;
+      var qty=r.card.qty||1;
+      ((r.meta&&r.meta.colors)||[]).forEach(function(col){if(_pipCnt[col]!==undefined){_pipCnt[col]+=qty;_totalPips+=qty;}});
+    });
+    var _basicsNeeded=Math.max(0,_idealLands-_dualLandN);
+    if(_totalPips>0&&_basicsNeeded>0){
+      var _reco={};
+      ['W','U','B','R','G'].forEach(function(col){if(_pipCnt[col]>0)_reco[col]=Math.round(_pipCnt[col]/_totalPips*_basicsNeeded);});
+      var _recoTotal=Object.keys(_reco).reduce(function(s,k){return s+_reco[k];},0);
+      var _diff=_basicsNeeded-_recoTotal;
+      if(_diff!==0){var _srt=Object.keys(_reco).filter(function(k){return _reco[k]>0;}).sort(function(a,b){return _reco[b]-_reco[a];});if(_srt.length)_reco[_srt[0]]=Math.max(0,_reco[_srt[0]]+_diff);}
+      var _recoStr=['W','U','B','R','G'].filter(function(c){return _reco[c]>0;}).map(function(c){return '<span class="pip pip-'+c+'" style="font-size:11px;padding:2px 8px">'+_reco[c]+'×</span>';}).join('');
+      if(_recoStr){
+        html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">Ratio recommandé ('+_basicsNeeded+' basics sur base des pips) :</div>';
+        html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+_recoStr+'</div>';
+      }
+    }
+  })();
   if(deckCi&&deckCi.length>1){
     var _pairs=[];for(var _i=0;_i<deckCi.length;_i++)for(var _j=_i+1;_j<deckCi.length;_j++)_pairs.push([deckCi[_i],deckCi[_j]]);
     var _biSug=_anaBilandSuggestions(_pairs);
     var _deckNlSet2={};cards.forEach(function(c){_deckNlSet2[(c.nl||stripDFC(c.name||'').toLowerCase())]=1;});
     _biSug=_biSug.filter(function(b){return !_deckNlSet2[b.name.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim()];});
     if(_biSug.length){
-      html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">Bi-terrains suggérés :</div>';
-      html+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
-      _biSug.forEach(function(b){html+='<span style="font-size:10px;padding:2px 8px;background:rgba(200,160,64,.15);border:.5px solid rgba(200,160,64,.3);border-radius:10px;color:var(--gold2);cursor:pointer" onmouseenter="showTip(\''+esc(b.name)+'\',event)" onmouseleave="hideTip()">'+esc(b.name)+'</span>';});
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">';
+      html+='<div style="font-size:10px;color:var(--tx3)">Bi-terrains suggérés :</div>';
+      html+='<button class="dm" style="font-size:9px;padding:2px 7px;border-radius:8px" onclick="toggleBilandsImg()">'+(_bilandsImgMode?'Mode texte':'Mode images')+'</button>';
       html+='</div>';
+      if(_bilandsImgMode){
+        html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px">';
+        _biSug.forEach(function(b){
+          html+='<div style="text-align:center">';
+          html+='<img src="https://api.scryfall.com/cards/named?exact='+encodeURIComponent(b.name)+'&format=image&version=small" style="width:104px;border-radius:7px;display:block;box-shadow:0 2px 8px rgba(0,0,0,.4)" loading="lazy" title="'+esc(b.name)+'" alt="'+esc(b.name)+'">';
+          html+='<div style="font-size:9px;margin-top:3px">'+_metaColorPips(b.pair)+'</div>';
+          html+='</div>';
+        });
+        html+='</div>';
+      } else {
+        html+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+        _biSug.forEach(function(b){html+='<span style="font-size:10px;padding:2px 8px;background:rgba(200,160,64,.15);border:.5px solid rgba(200,160,64,.3);border-radius:10px;color:var(--gold2);cursor:pointer" onmouseenter="showTip(\''+esc(b.name)+'\',event)" onmouseleave="hideTip()">'+esc(b.name)+'</span>';});
+        html+='</div>';
+      }
     }
   }
   html+='</div>';
