@@ -1814,12 +1814,6 @@ body.mana-cursor{cursor:none}
       <button class="btn btnp" onclick="anaAnalyzeGeneric()" style="flex:1">⚡ Analyser</button>
       <button class="btn btnsm" onclick="anaClearCache()" title="Vider le cache d'analyse">🗑 Cache</button>
     </div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
-      <span style="font-size:11px;color:var(--tx3);white-space:nowrap">PV simulés :</span>
-      <button id="ana-mode-multi" class="dm" onclick="setAnaSimMode('multi')">🌐 40 PV</button>
-      <button id="ana-mode-duel" class="dm active" onclick="setAnaSimMode('duel')">⚔ 20 PV</button>
-      <span id="ana-fmt-indicator" style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px"></span>
-    </div>
     <div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">🌐 La langue des images est définie dans <b>Mes préférences</b> (icône ✎ en haut à droite).</div>
     <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic;min-height:1em"></div>
     <div id="ana-missing-wrap" style="display:none;margin-top:6px;font-size:.74rem;color:var(--tx3);line-height:1.8;flex-wrap:wrap;gap:4px"></div>
@@ -14537,7 +14531,6 @@ function anaSetOptMode(mode){
 }
 function _anaQSetFormat(deckId,fmt){
   _anaFormatOverride[deckId]=fmt;
-  setAnaSimMode(anaIsCommanderFormat(fmt)?'multi':'duel');
   anaShowPreEditor(true);
   if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){}
 }
@@ -15183,12 +15176,6 @@ function anaClearCache(){
 
 function anaInit(){
   anaPopulateDeckSel();
-  var mBtn=document.getElementById('ana-mode-multi');
-  var dBtn=document.getElementById('ana-mode-duel');
-  if(mBtn)mBtn.classList.toggle('active',_anaSimMode==='multi');
-  if(dBtn)dBtn.classList.toggle('active',_anaSimMode==='duel');
-  var optSel=document.getElementById('ana-opt-mode-sel');
-  if(optSel)optSel.value=_anaOptMode;
 }
 
 function _anaGetDeck(deckId){
@@ -16428,11 +16415,6 @@ function anaShowPreEditor(noToggle){
   // Format : override utilisateur ou auto-détecté
   var fmt=_anaGetFmt(deckId,deck);
   var isCmd=anaIsCommanderFormat(fmt);
-  if(fmt)setAnaSimMode(isCmd?'multi':'duel');
-
-  // Mise à jour de l'indicateur format dans la barre principale
-  var _fi=document.getElementById('ana-fmt-indicator');
-  if(_fi){var _fLabel={commander:'Commander',paupercmd:'Pauper Cmd',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',vintage:'Vintage',pauper:'Pauper',draft:'Limité',sealed:'Limité'};_fi.textContent=fmt?('Format : '+(_fLabel[fmt]||fmt)):'';};
 
   var autoThemes=_anaCommanderThemes(deck);
   var ov=_anaUserThemesData[deckId]||{};
@@ -16472,24 +16454,30 @@ function anaShowPreEditor(noToggle){
     html+='</div>';
   }
 
+  // Si le format n'est pas commander, réinitialiser les rôles commander
+  if(!isCmd){
+    if(qs.role==='commander')qs.role='';
+    if(qs.role2==='commander')qs.role2='';
+  }
+
   // ─── Format de jeu ───────────────────────────────────────────────
   var fmtOpts=[
-    {k:'commander',ico:'⚔',fr:'Commander',info:'100 cartes · singleton · 40 PV'},
-    {k:'paupercmd',ico:'🪙',fr:'Pauper Cmd',info:'100 cartes · singleton · 40 PV'},
-    {k:'brawl',ico:'🏰',fr:'Brawl',info:'60 cartes · singleton · 40 PV'},
-    {k:'standard',ico:'📅',fr:'Standard',info:'60 cartes · ×4 · 20 PV'},
-    {k:'pioneer',ico:'🌄',fr:'Pioneer',info:'60 cartes · ×4 · 20 PV'},
-    {k:'modern',ico:'⚙',fr:'Modern',info:'60 cartes · ×4 · 20 PV'},
-    {k:'legacy',ico:'📜',fr:'Legacy',info:'60 cartes · ×4 · 20 PV'},
-    {k:'pauper',ico:'🪙',fr:'Pauper',info:'60 cartes · ×4 · 20 PV'},
-    {k:'draft',ico:'📦',fr:'Limité',info:'40 cartes · 20 PV'}
+    {k:'commander',ico:'⚔',fr:'Commander',info:'100 cartes · singleton · commandant'},
+    {k:'paupercmd',ico:'🪙',fr:'Pauper Cmd',info:'100 cartes · singleton · commandant'},
+    {k:'brawl',ico:'🏰',fr:'Brawl',info:'60 cartes · singleton · commandant'},
+    {k:'standard',ico:'📅',fr:'Standard',info:'60 cartes · ×4 · pas de commandant'},
+    {k:'pioneer',ico:'🌄',fr:'Pioneer',info:'60 cartes · ×4 · pas de commandant'},
+    {k:'modern',ico:'⚙',fr:'Modern',info:'60 cartes · ×4 · pas de commandant'},
+    {k:'legacy',ico:'📜',fr:'Legacy',info:'60 cartes · ×4 · pas de commandant'},
+    {k:'pauper',ico:'🪙',fr:'Pauper',info:'60 cartes · ×4 · pas de commandant'},
+    {k:'draft',ico:'📦',fr:'Limité',info:'40 cartes · pas de commandant'}
   ];
   var isOver=!!_anaFormatOverride[deckId];
   html+='<div style="'+TIT+'">Format de jeu';
   if(fmt&&!isOver)html+='<span style="font-size:10px;font-weight:normal;color:var(--tx3);margin-left:7px">· auto-détecté</span>';
   else if(isOver)html+='<span style="font-size:10px;font-weight:normal;color:var(--gold2);margin-left:7px">· modifié</span>';
   html+='</div>';
-  html+='<div style="'+SUB+'">Définit la taille du deck attendue, les points de vie simulés et les règles de copie.</div>';
+  html+='<div style="'+SUB+'">Définit la taille du deck attendue, la présence d\'un commandant et les règles de copie des cartes.</div>';
   html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:16px">';
   fmtOpts.forEach(function(f){
     var active=fmt===f.k;
@@ -16498,6 +16486,23 @@ function anaShowPreEditor(noToggle){
     html+=f.ico+' <b>'+f.fr+'</b><br><span style="font-size:9px;color:var(--tx3)">'+f.info+'</span>';
     html+='</button>';
   });
+  html+='</div>';
+
+  // ─── Points de vie ──────────────────────────────────────────────
+  html+='<div style="'+TIT+'">Points de vie simulés</div>';
+  html+='<div style="'+SUB+'">Choisissez le nombre de PV de départ. Indépendant du format — Commander Duel se joue à 20 PV, certains groupes jouent Commander à 30 PV, etc.</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+  var isPV40=_anaSimMode==='multi';
+  html+='<button onclick="setAnaSimMode(\'duel\');anaShowPreEditor(true)" style="padding:10px 12px;text-align:left;border-radius:9px;cursor:pointer;border:.5px solid '+(!isPV40?'var(--gold2)':'var(--bd2)')+';background:'+(!isPV40?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+  html+='<div style="font-size:20px;margin-bottom:4px">❤️</div>';
+  html+='<div style="font-size:13px;font-weight:bold;color:'+(!isPV40?'var(--gold2)':'var(--tx2)')+'">20 PV</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;line-height:1.4">Standard, Pioneer, Modern, Legacy, Pauper, Limité, Commander Duel…</div>';
+  html+='</button>';
+  html+='<button onclick="setAnaSimMode(\'multi\');anaShowPreEditor(true)" style="padding:10px 12px;text-align:left;border-radius:9px;cursor:pointer;border:.5px solid '+(isPV40?'var(--gold2)':'var(--bd2)')+';background:'+(isPV40?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+  html+='<div style="font-size:20px;margin-bottom:4px">❤️❤️</div>';
+  html+='<div style="font-size:13px;font-weight:bold;color:'+(isPV40?'var(--gold2)':'var(--tx2)')+'">40 PV</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;line-height:1.4">Commander multijoueur, Brawl, Oathbreaker…</div>';
+  html+='</button>';
   html+='</div>';
 
   // ─── Mode d'analyse ─────────────────────────────────────────────
@@ -16518,12 +16523,14 @@ function anaShowPreEditor(noToggle){
   html+='</div>';
 
   // ─── Q1 : Plan A ────────────────────────────────────────────────
-  var roles=[
+  var rolesAll=[
     {k:'commander',ico:'⚔',fr:'Mon commandant',desc:'Le commandant est le moteur principal. Sa protection et son retour en jeu sont prioritaires.'},
     {k:'creatures',ico:'👊',fr:'Créatures & combat',desc:'Victoire par dommages de combat, masse de créatures ou attaque large.'},
     {k:'combo',ico:'💥',fr:'Combo',desc:'Enchaîner des pièces pour gagner d\'un coup, souvent en fin de partie.'},
     {k:'control',ico:'🌊',fr:'Contrôle',desc:'Beaucoup d\'interactions et de pioche. Gagner dans la durée en épuisant les adversaires.'}
   ];
+  // Le rôle commandant n'existe que dans les formats commander
+  var roles=isCmd?rolesAll:rolesAll.filter(function(r){return r.k!=='commander';});
   html+='<div style="'+TIT+'">1 · Plan de victoire principal <span style="font-weight:normal;font-size:11px;color:var(--tx3);margin-left:4px">Plan A</span></div>';
   html+='<div style="'+SUB+'">Votre stratégie de victoire principale. L\'analyse favorisera les cartes qui servent ce plan.</div>';
   html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px">';
@@ -17920,10 +17927,6 @@ function _anaSimSwapMatrix(deckId){
 /* ----- Toggle mode simulation matrice ----- */
 function setAnaSimMode(mode){
   _anaSimMode=mode;
-  var mBtn=document.getElementById('ana-mode-multi');
-  var dBtn=document.getElementById('ana-mode-duel');
-  if(mBtn)mBtn.classList.toggle('active',mode==='multi');
-  if(dBtn)dBtn.classList.toggle('active',mode==='duel');
   if(_anaState)anaRefreshMatrix();
 }
 function anaRefreshMatrix(){
