@@ -1819,19 +1819,11 @@ body.mana-cursor{cursor:none}
     <div id="ana-missing-wrap" style="display:none;margin-top:6px;font-size:.74rem;color:var(--tx3);line-height:1.8;flex-wrap:wrap;gap:4px"></div>
   </div>
   <div id="ana-results" style="display:none"></div>
-  <div class="card" id="ana-card-search-sec" style="margin-top:10px;display:none">
-    <div class="lbl">🔍 Rechercher une carte</div>
-    <div style="font-size:11px;color:var(--tx3);margin-bottom:8px">% d'utilisation dans tes decks + données EDHREC si un deck Commander est sélectionné.</div>
-    <div style="display:flex;gap:6px;margin-bottom:8px">
-      <input type="text" id="ana-search-in" placeholder="Nom de la carte…" style="flex:1;font-size:.82rem" oninput="_anaSearchDebounce()" onkeydown="if(event.key==='Enter'){clearTimeout(_anaSearchTO);anaSearchCard();}">
-      <button class="btn btnsm btnp" onclick="anaSearchCard()">Chercher</button>
-    </div>
-    <div id="ana-search-result"></div>
-  </div>
 </div>
 <div id="ana-zoom" onclick="this.style.display='none'"><img src="" alt=""></div>
 
 <style>
+@keyframes _anaSpin{to{transform:rotate(360deg)}}
 .ana-grade-badge{display:inline-flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;font-family:'Goudy Mediaeval',serif;font-size:42px;font-weight:bold;border:3px solid;flex-shrink:0;letter-spacing:-0.04em}
 .ana-sub{background:linear-gradient(140deg,var(--s2),var(--s1));border:.5px solid var(--bd2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
 .ana-sub-label{font-size:9px;color:var(--tx3);letter-spacing:.1em;text-transform:uppercase;font-family:'Goudy Mediaeval',serif}
@@ -15697,22 +15689,26 @@ function anaAnalyze(){
       st.textContent='✓ '+_totalQty+' cartes analysées ('+found+' types)';
       if(mw)mw.style.display='none';
     }
-    try{anaRender(deckId);}catch(e){console.error('[Analyse] Erreur de rendu',e);st.textContent='❌ Erreur : '+e.message;}
-    // Enrichissement EDHREC async pour les decks Commander
+    // Afficher le loader inline avant le rendu
+    var _res=document.getElementById('ana-results');
+    if(_res){
+      _res.style.display='block';
+      _res.innerHTML='<div class="card" style="text-align:center;padding:40px 20px 44px"><div style="width:38px;height:38px;border:3.5px solid var(--bd2);border-top-color:var(--gold2);border-radius:50%;animation:_anaSpin .85s linear infinite;margin:0 auto 18px"></div><div style="font-size:14px;font-weight:bold;color:var(--tx2);margin-bottom:7px;font-family:\'Goudy Mediaeval\',serif">Analyse en cours…</div><div style="font-size:11px;color:var(--tx3);font-style:italic">Simulation de 150 parties et calcul des recommandations…</div></div>';
+    }
+    // EDHREC async — démarre immédiatement pour profiter du délai de chargement
     if(deck.commander&&deck.commander.name&&anaIsCommanderFormat(deck.format)){
       var preStatus=st.textContent;
-      st.textContent=preStatus+' · ⏳ EDHREC…';
       anaFetchEDHRECCommander(deck.commander.name,deck.format,function(edhrecFreq){
         if(edhrecFreq){
           _anaCurrentEDHREC=edhrecFreq;
           st.textContent=preStatus+' · ✓ EDHREC ('+Object.keys(edhrecFreq).length+' cartes)';
-          try{anaRender(deckId);}catch(e){console.error('[Analyse] Re-render EDHREC',e);}
+          if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){console.error('[Analyse] Re-render EDHREC',e);}
         } else {
           st.textContent=preStatus+' · ⚠ EDHREC indispo';
         }
       });
     }
-    // Staples en arrière-plan (pool suggestions/optimizer) — ne bloque pas le rendu
+    // Staples en arrière-plan
     var stapleFb=_anaStaples.map(function(n){return {nl:n.toLowerCase(),name:n};});
     var stapleNls=stapleFb.filter(function(s){return !_anaData[s.nl];}).map(function(s){return s.nl;});
     if(stapleNls.length){
@@ -15720,7 +15716,6 @@ function anaAnalyze(){
         if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){}
       });
     }
-    // Pauper staples en arrière-plan (commons uniquement)
     if(_anaIsPauperFormat(deck.format)){
       var pauperFb=_anaPauperStaples.map(function(n){return {nl:n.toLowerCase(),name:n};});
       var pauperNls=pauperFb.filter(function(s){return !_anaData[s.nl];}).map(function(s){return s.nl;});
@@ -15730,6 +15725,10 @@ function anaAnalyze(){
         });
       }
     }
+    // Délai de chargement : laisse le temps à l'animation et aux requêtes async
+    setTimeout(function(){
+      try{anaRender(deckId);}catch(e){console.error('[Analyse] Erreur de rendu',e);st.textContent='❌ Erreur : '+e.message;}
+    },1200);
   });
 }
 
@@ -17957,7 +17956,7 @@ function anaRefreshMatrix(){
     var _base=_isCmd?(_isDuel?{startLife:20,maxTurns:16}:{startLife:40,maxTurns:20}):{startLife:20,maxTurns:12};
     var _simOpts=cmdUser?Object.assign({},_base,{cmdA:cmdUser}):_base;
     var _arcSz=_isCmd?libUser.length:40;
-    var _simRuns=80;
+    var _simRuns=150;
     var _rawSwaps=fullOpt&&fullOpt.swaps?fullOpt.swaps:[];
     // Étape 1 : matrice du deck actuel
     var matrixCurrent=archetypes.map(function(a){return {arch:a,wr:anaWinRate(libUser,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
@@ -18898,6 +18897,17 @@ function anaRender(deckId){
   }
   html+='</div>';
 
+  // === Rechercher une carte ===
+  html+='<div class="card" id="ana-card-search-sec">';
+  html+='<div class="lbl">🔍 Rechercher une carte</div>';
+  html+='<div style="font-size:11px;color:var(--tx3);margin-bottom:8px">% d\'utilisation dans tes decks + données EDHREC si un deck Commander est sélectionné.</div>';
+  html+='<div style="display:flex;gap:6px;margin-bottom:8px">';
+  html+='<input type="text" id="ana-search-in" placeholder="Nom de la carte…" style="flex:1;font-size:.82rem" oninput="_anaSearchDebounce()" onkeydown="if(event.key===\'Enter\'){clearTimeout(_anaSearchTO);anaSearchCard();}">';
+  html+='<button class="btn btnsm btnp" onclick="anaSearchCard()">Chercher</button>';
+  html+='</div>';
+  html+='<div id="ana-search-result"></div>';
+  html+='</div>';
+
   // === Matrice de matchups (style metagame) ===
   var libUser=_anaBuildSimLib(deck);
   var cmdUser=_anaExtractCmd(deck);
@@ -18912,7 +18922,6 @@ function anaRender(deckId){
   _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
   document.getElementById('ana-results').innerHTML=html;
   document.getElementById('ana-results').style.display='block';
-  var _anaCardSrch=document.getElementById('ana-card-search-sec');if(_anaCardSrch)_anaCardSrch.style.display='block';
   var _anaResetRow=document.getElementById('ana-reset-row');if(_anaResetRow)_anaResetRow.style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
   (function(_dId){setTimeout(function(){_anaRestoreOracleFallback(_dId);},0);})(deckId);
