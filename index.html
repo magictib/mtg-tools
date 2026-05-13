@@ -1789,19 +1789,11 @@ body.mana-cursor{cursor:none}
       <button class="btn btnp" onclick="anaAnalyzeGeneric()" style="flex:1">⚡ Analyser</button>
       <button class="btn btnsm" onclick="anaClearCache()" title="Vider le cache d'analyse">🗑 Cache</button>
     </div>
-    <div class="row" style="gap:16px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
-      <div style="display:flex;gap:6px;align-items:center">
-        <span style="font-size:11px;color:var(--tx3);white-space:nowrap">Mode :</span>
-        <button id="ana-mode-multi" class="dm" onclick="setAnaSimMode('multi')">🌐 Multi (40 PV)</button>
-        <button id="ana-mode-duel" class="dm active" onclick="setAnaSimMode('duel')">⚔ Duel (20 PV)</button>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <span style="font-size:11px;color:var(--tx3);white-space:nowrap">Suggestions :</span>
-        <select id="ana-opt-mode-sel" onchange="anaSetOptMode(this.value)" style="font-size:11px;padding:3px 8px;background:var(--bg2);color:var(--tx2);border:1px solid var(--bd);border-radius:4px">
-          <option value="all">🌐 Toutes les cartes</option>
-          <option value="collection">📦 Ma collection</option>
-        </select>
-      </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
+      <span style="font-size:11px;color:var(--tx3);white-space:nowrap">PV simulés :</span>
+      <button id="ana-mode-multi" class="dm" onclick="setAnaSimMode('multi')">🌐 40 PV</button>
+      <button id="ana-mode-duel" class="dm active" onclick="setAnaSimMode('duel')">⚔ 20 PV</button>
+      <span id="ana-fmt-indicator" style="font-size:10px;color:var(--tx3);font-style:italic;margin-left:4px"></span>
     </div>
     <div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">🌐 La langue des images est définie dans <b>Mes préférences</b> (icône ✎ en haut à droite).</div>
     <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic;min-height:1em"></div>
@@ -14512,11 +14504,20 @@ var _anaState=null;
 var _anaMissingCards=[];
 var _anaSimMode='duel'; // 'multi' = 40 PV / 20 tours | 'duel' = 20 PV / 14 tours
 var _anaOptMode='all'; // 'all' = toutes suggestions | 'collection' = cartes des decks uniquement
+var _anaFormatOverride={}; // deckId → format string surchargé par l'utilisateur
 function anaSetOptMode(mode){
   _anaOptMode=mode;
-  var sel=document.getElementById('ana-opt-mode-sel');if(sel)sel.value=mode;
   var deckId=document.getElementById('ana-deck-sel').value;
   if(deckId&&_anaState)try{anaRender(deckId);}catch(e){}
+}
+function _anaQSetFormat(deckId,fmt){
+  _anaFormatOverride[deckId]=fmt;
+  setAnaSimMode(anaIsCommanderFormat(fmt)?'multi':'duel');
+  anaShowPreEditor(true);
+  if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){}
+}
+function _anaGetFmt(deckId,deck){
+  return (_anaFormatOverride[deckId])||(deck&&deck.format)||'';
 }
 function _anaCollectionNlSet(){
   var s={};
@@ -16398,12 +16399,21 @@ function anaShowPreEditor(noToggle){
   if(!deck){alert('Deck introuvable');return;}
   var panel=document.getElementById('ana-pretheme');
   if(!noToggle&&panel.dataset.deck===deckId&&panel.style.display!=='none'){panel.style.display='none';panel.dataset.deck='';return;}
+
+  // Format : override utilisateur ou auto-détecté
+  var fmt=_anaGetFmt(deckId,deck);
+  var isCmd=anaIsCommanderFormat(fmt);
+  if(fmt)setAnaSimMode(isCmd?'multi':'duel');
+
+  // Mise à jour de l'indicateur format dans la barre principale
+  var _fi=document.getElementById('ana-fmt-indicator');
+  if(_fi){var _fLabel={commander:'Commander',paupercmd:'Pauper Cmd',brawl:'Brawl',oathbreaker:'Oathbreaker',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',vintage:'Vintage',pauper:'Pauper',draft:'Limité',sealed:'Limité'};_fi.textContent=fmt?('Format : '+(_fLabel[fmt]||fmt)):'';};
+
   var autoThemes=_anaCommanderThemes(deck);
   var ov=_anaUserThemesData[deckId]||{};
   var hasOv=Object.keys(ov).length>0;
   var notCached=!autoThemes._debug||autoThemes._debug.indexOf('ok')<0;
   if(!_anaQState[deckId])_anaQState[deckId]=_anaQAutoFill(autoThemes);
-  // Revalider si le rôle par défaut 'creatures' semble incohérent avec le commandant détecté
   else if(_anaQState[deckId].role==='creatures'&&autoThemes._debug&&autoThemes._debug.indexOf('ok')>=0){
     var _recheck=_anaQAutoFill(autoThemes);
     if(_recheck.role!=='creatures'){_anaQState[deckId].role=_recheck.role;_anaQState[deckId].cmdDep=_recheck.cmdDep;}
@@ -16411,6 +16421,12 @@ function anaShowPreEditor(noToggle){
   var qs=_anaQState[deckId];
   var qThemes=_anaQToThemes(qs,autoThemes);
   var cur=hasOv?Object.assign({},qThemes,ov):qThemes;
+
+  // Helpers de style
+  var TIT='font-size:15px;font-weight:bold;color:var(--tx2);margin-bottom:3px;font-family:\'Goudy Mediaeval\',serif';
+  var SUB='font-size:11px;color:var(--tx3);margin-bottom:9px';
+  var TITS='font-size:13px;font-weight:bold;color:var(--tx2);margin-bottom:3px';
+  var SUBS='font-size:10px;color:var(--tx3);margin-bottom:7px';
 
   var html='<div style="margin-bottom:10px;padding:14px 16px;background:var(--s3);border-radius:12px;border:1px solid var(--bd2)">';
 
@@ -16420,132 +16436,176 @@ function anaShowPreEditor(noToggle){
   if(hasOv)html+='<span style="font-size:9px;padding:2px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
   html+='</div>';
 
-  // Info banner
   html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:12px;padding:8px 10px;background:rgba(91,140,245,.07);border-radius:8px;border:.5px solid rgba(91,140,245,.2)">💡 Répondez aux questions ci-dessous pour personnaliser l\'analyse selon votre plan de jeu réel. Plus vous êtes précis, plus les suggestions seront adaptées à votre stratégie.</div>';
 
-  // Auto-detected labels
-  if(notCached){
+  if(notCached&&isCmd){
     html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">⚠ Commandant pas encore chargé — analysez une fois pour activer la détection automatique.</div>';
-  } else if(autoThemes.labels&&autoThemes.labels.length){
+  } else if(autoThemes.labels&&autoThemes.labels.length&&isCmd){
     html+='<div style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:3px;align-items:center">';
     html+='<span style="font-size:9px;color:var(--tx3)">🤖 Thèmes auto-détectés :</span>';
     autoThemes.labels.forEach(function(l){html+='<span style="font-size:9px;padding:2px 6px;background:rgba(91,140,245,.1);border:.5px solid #5b8cf5;border-radius:8px;color:#8ab0ff">'+esc(l)+'</span>';});
     html+='</div>';
   }
 
-  // Q1: Plan A
+  // ─── Format de jeu ───────────────────────────────────────────────
+  var fmtOpts=[
+    {k:'commander',ico:'⚔',fr:'Commander',info:'100 cartes · singleton · 40 PV'},
+    {k:'paupercmd',ico:'🪙',fr:'Pauper Cmd',info:'100 cartes · singleton · 40 PV'},
+    {k:'brawl',ico:'🏰',fr:'Brawl',info:'60 cartes · singleton · 40 PV'},
+    {k:'standard',ico:'📅',fr:'Standard',info:'60 cartes · ×4 · 20 PV'},
+    {k:'pioneer',ico:'🌄',fr:'Pioneer',info:'60 cartes · ×4 · 20 PV'},
+    {k:'modern',ico:'⚙',fr:'Modern',info:'60 cartes · ×4 · 20 PV'},
+    {k:'legacy',ico:'📜',fr:'Legacy',info:'60 cartes · ×4 · 20 PV'},
+    {k:'pauper',ico:'🪙',fr:'Pauper',info:'60 cartes · ×4 · 20 PV'},
+    {k:'draft',ico:'📦',fr:'Limité',info:'40 cartes · 20 PV'}
+  ];
+  var isOver=!!_anaFormatOverride[deckId];
+  html+='<div style="'+TIT+'">Format de jeu';
+  if(fmt&&!isOver)html+='<span style="font-size:10px;font-weight:normal;color:var(--tx3);margin-left:7px">· auto-détecté</span>';
+  else if(isOver)html+='<span style="font-size:10px;font-weight:normal;color:var(--gold2);margin-left:7px">· modifié</span>';
+  html+='</div>';
+  html+='<div style="'+SUB+'">Définit la taille du deck attendue, les points de vie simulés et les règles de copie.</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:16px">';
+  fmtOpts.forEach(function(f){
+    var active=fmt===f.k;
+    html+='<button onclick="_anaQSetFormat(\''+deckId+'\',\''+f.k+'\')" ';
+    html+='style="padding:6px 11px;font-size:11px;border-radius:8px;cursor:pointer;text-align:left;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';color:'+(active?'var(--gold2)':'var(--tx2)')+';">';
+    html+=f.ico+' <b>'+f.fr+'</b><br><span style="font-size:9px;color:var(--tx3)">'+f.info+'</span>';
+    html+='</button>';
+  });
+  html+='</div>';
+
+  // ─── Mode d'analyse ─────────────────────────────────────────────
+  html+='<div style="'+TIT+'">Suggestions de cartes</div>';
+  html+='<div style="'+SUB+'">Pool de cartes utilisé pour proposer des améliorations à votre deck.</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+  var mAll=_anaOptMode==='all',mColl=!mAll;
+  html+='<button onclick="anaSetOptMode(\'all\');anaShowPreEditor(true)" style="padding:10px 12px;text-align:left;border-radius:9px;cursor:pointer;border:.5px solid '+(mAll?'var(--gold2)':'var(--bd2)')+';background:'+(mAll?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+  html+='<div style="font-size:18px;margin-bottom:4px">🌐</div>';
+  html+='<div style="font-size:12px;font-weight:bold;color:'+(mAll?'var(--gold2)':'var(--tx2)')+'">Toutes les cartes</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;line-height:1.4">Suggestions parmi toutes les cartes MTG. Idéal pour trouver les meilleures options.</div>';
+  html+='</button>';
+  html+='<button onclick="anaSetOptMode(\'collection\');anaShowPreEditor(true)" style="padding:10px 12px;text-align:left;border-radius:9px;cursor:pointer;border:.5px solid '+(mColl?'#5b8cf5':'var(--bd2)')+';background:'+(mColl?'rgba(91,140,245,.15)':'var(--s2)')+';">';
+  html+='<div style="font-size:18px;margin-bottom:4px">📦</div>';
+  html+='<div style="font-size:12px;font-weight:bold;color:'+(mColl?'#8ab0ff':'var(--tx2)')+'">Ma collection</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;line-height:1.4">Uniquement vos cartes possédées. Suggestions directement jouables, pool plus restreint.</div>';
+  html+='</button>';
+  html+='</div>';
+
+  // ─── Q1 : Plan A ────────────────────────────────────────────────
   var roles=[
     {k:'commander',ico:'⚔',fr:'Mon commandant',desc:'Le commandant est le moteur principal. Sa protection et son retour en jeu sont prioritaires.'},
     {k:'creatures',ico:'👊',fr:'Créatures & combat',desc:'Victoire par dommages de combat, masse de créatures ou attaque large.'},
     {k:'combo',ico:'💥',fr:'Combo',desc:'Enchaîner des pièces pour gagner d\'un coup, souvent en fin de partie.'},
     {k:'control',ico:'🌊',fr:'Contrôle',desc:'Beaucoup d\'interactions et de pioche. Gagner dans la durée en épuisant les adversaires.'}
   ];
-  html+='<div style="font-size:12px;font-weight:bold;color:var(--tx2);margin-bottom:2px">1 · Comment gagnez-vous principalement ? <span style="font-weight:normal;font-size:10px;color:var(--tx3)">(Plan A)</span></div>';
-  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">Votre stratégie de victoire principale. L\'analyse favorisera les cartes qui servent ce plan.</div>';
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">';
+  html+='<div style="'+TIT+'">1 · Plan de victoire principal <span style="font-weight:normal;font-size:11px;color:var(--tx3);margin-left:4px">Plan A</span></div>';
+  html+='<div style="'+SUB+'">Votre stratégie de victoire principale. L\'analyse favorisera les cartes qui servent ce plan.</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px">';
   roles.forEach(function(r){
     var active=qs.role===r.k;
     html+='<button id="qrole-'+deckId+'-'+r.k+'" onclick="_anaQSetRole(\''+deckId+'\',\''+r.k+'\')" ';
-    html+='style="padding:8px 10px;text-align:left;border-radius:9px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
-    html+='<div style="font-size:16px;margin-bottom:3px">'+r.ico+'</div>';
-    html+='<div style="font-size:11px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+r.fr+'</div>';
-    html+='<div style="font-size:9px;color:var(--tx3);margin-top:3px;line-height:1.35">'+r.desc+'</div>';
+    html+='style="padding:9px 11px;text-align:left;border-radius:9px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+    html+='<div style="font-size:18px;margin-bottom:4px">'+r.ico+'</div>';
+    html+='<div style="font-size:12px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+r.fr+'</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;line-height:1.35">'+r.desc+'</div>';
     html+='</button>';
   });
   html+='</div>';
 
-  // Q2: Plan B
-  html+='<div style="font-size:12px;font-weight:bold;color:var(--tx2);margin-bottom:2px">2 · Avez-vous un plan B ? <span style="font-weight:normal;font-size:10px;color:var(--tx3)">(optionnel)</span></div>';
-  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">Stratégie secondaire si le plan A est bloqué. Sera boostée à ~60 % du plan A. L\'option déjà choisie en plan A est grisée.</div>';
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">';
+  // ─── Q2 : Plan B ────────────────────────────────────────────────
+  html+='<div style="'+TIT+'">2 · Plan de repli <span style="font-weight:normal;font-size:11px;color:var(--tx3);margin-left:4px">Plan B · optionnel</span></div>';
+  html+='<div style="'+SUB+'">Stratégie secondaire si le plan A est bloqué. Sera pondérée à ~60 % du plan A. L\'option du plan A est grisée.</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px">';
   roles.forEach(function(r){
     var dis=qs.role===r.k;
     var active=qs.role2===r.k&&!dis;
     html+='<button id="qrole2-'+deckId+'-'+r.k+'" onclick="_anaQSetRole2(\''+deckId+'\',\''+r.k+'\')" ';
-    html+='style="padding:8px 10px;text-align:left;border-radius:9px;cursor:'+(dis?'default':'pointer')+';border:.5px solid '+(active?'#5b8cf5':'var(--bd2)')+';background:'+(active?'rgba(91,140,245,.15)':'var(--s2)')+';opacity:'+(dis?'0.28':'1')+';">';
-    html+='<div style="font-size:16px;margin-bottom:3px">'+r.ico+'</div>';
-    html+='<div style="font-size:11px;font-weight:bold;color:'+(active?'#8ab0ff':'var(--tx2)')+'">'+r.fr+'</div>';
-    html+='<div style="font-size:9px;color:var(--tx3);margin-top:3px;line-height:1.35">'+r.desc+'</div>';
+    html+='style="padding:9px 11px;text-align:left;border-radius:9px;cursor:'+(dis?'default':'pointer')+';border:.5px solid '+(active?'#5b8cf5':'var(--bd2)')+';background:'+(active?'rgba(91,140,245,.15)':'var(--s2)')+';opacity:'+(dis?'0.28':'1')+';">';
+    html+='<div style="font-size:18px;margin-bottom:4px">'+r.ico+'</div>';
+    html+='<div style="font-size:12px;font-weight:bold;color:'+(active?'#8ab0ff':'var(--tx2)')+'">'+r.fr+'</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;line-height:1.35">'+r.desc+'</div>';
     html+='</button>';
   });
   html+='</div>';
 
-  // Q3/Q4/Q5: 3-column grid
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">';
+  // ─── Grille Q3/Q4/Q5 ─────────────────────────────────────────────
+  // Q3 (commandant) seulement si format commander
+  var gridCols=isCmd?3:2;
+  html+='<div style="display:grid;grid-template-columns:repeat('+gridCols+',1fr);gap:12px;margin-bottom:16px">';
 
-  // Q3: Commander dependency
-  var cdeps=[
-    {k:'critical',fr:'⭐ Indispensable',desc:'Sans lui le deck ne fonctionne pas'},
-    {k:'important',fr:'✓ Important',desc:'Utile mais le deck survit sans lui'},
-    {k:'accessory',fr:'○ Accessoire',desc:'Le deck gagne facilement sans lui'}
-  ];
-  html+='<div><div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:2px">3 · Commandant</div>';
-  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:6px">À quel point en avez-vous besoin ?</div>';
-  cdeps.forEach(function(v){
-    var active=(qs.cmdDep||'important')===v.k;
-    html+='<button id="qcdep-'+deckId+'-'+v.k+'" onclick="_anaQSetCmdDep(\''+deckId+'\',\''+v.k+'\')" ';
-    html+='style="width:100%;display:block;padding:6px 8px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
-    html+='<div style="font-size:10px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
-    html+='<div style="font-size:8px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
-    html+='</button>';
-  });
-  html+='</div>';
+  if(isCmd){
+    var cdeps=[
+      {k:'critical',fr:'⭐ Indispensable',desc:'Sans lui le deck ne fonctionne pas du tout'},
+      {k:'important',fr:'✓ Important',desc:'Utile mais le deck survit sans lui'},
+      {k:'accessory',fr:'○ Accessoire',desc:'Le deck gagne facilement sans lui'}
+    ];
+    html+='<div><div style="'+TITS+'">3 · Rôle du commandant</div>';
+    html+='<div style="'+SUBS+'">À quel point votre commandant est-il central à la stratégie ?</div>';
+    cdeps.forEach(function(v){
+      var active=(qs.cmdDep||'important')===v.k;
+      html+='<button id="qcdep-'+deckId+'-'+v.k+'" onclick="_anaQSetCmdDep(\''+deckId+'\',\''+v.k+'\')" ';
+      html+='style="width:100%;display:block;padding:7px 9px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+      html+='<div style="font-size:11px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
+      html+='<div style="font-size:9px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
+      html+='</button>';
+    });
+    html+='</div>';
+  }
 
-  // Q4: Speed
+  var qOffset=isCmd?4:3;
   var speeds=[
     {k:'fast',fr:'⚡ Rapide',desc:'Victoire attendue avant le tour 7'},
     {k:'mid',fr:'⚖ Milieu',desc:'Victoire autour des tours 8-11'},
-    {k:'slow',fr:'🐢 Long',desc:'Victoire en fin de partie (12+)'}
+    {k:'slow',fr:'🐢 Long',desc:'Victoire en fin de partie (tour 12+)'}
   ];
-  html+='<div><div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:2px">4 · Vitesse</div>';
-  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:6px">À quel tour visez-vous la victoire ?</div>';
+  html+='<div><div style="'+TITS+'">'+qOffset+' · Vitesse du deck</div>';
+  html+='<div style="'+SUBS+'">À quel tour visez-vous généralement la victoire ?</div>';
   speeds.forEach(function(v){
     var active=(qs.speed||'mid')===v.k;
     html+='<button id="qspd-'+deckId+'-'+v.k+'" onclick="_anaQSetSpeed(\''+deckId+'\',\''+v.k+'\')" ';
-    html+='style="width:100%;display:block;padding:6px 8px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
-    html+='<div style="font-size:10px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
-    html+='<div style="font-size:8px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
+    html+='style="width:100%;display:block;padding:7px 9px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+    html+='<div style="font-size:11px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
+    html+='<div style="font-size:9px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
     html+='</button>';
   });
   html+='</div>';
 
-  // Q5: Interaction
   var ints=[
-    {k:'focused',fr:'🎯 Ciblé',desc:'Peu de réponses, deck très linéaire et direct'},
+    {k:'focused',fr:'🎯 Ciblé',desc:'Peu de réponses, deck très linéaire'},
     {k:'balanced',fr:'⚖ Équilibré',desc:'Quelques réponses sans dénaturer le plan'},
     {k:'control',fr:'🌊 Contrôle',desc:'Beaucoup de réponses, perturber activement'}
   ];
-  html+='<div><div style="font-size:11px;font-weight:bold;color:var(--tx2);margin-bottom:2px">5 · Interaction</div>';
-  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:6px">Quel niveau d\'interaction voulez-vous ?</div>';
+  html+='<div><div style="'+TITS+'">'+(qOffset+1)+' · Niveau d\'interaction</div>';
+  html+='<div style="'+SUBS+'">Quelle quantité de réponses et perturbateurs souhaitez-vous ?</div>';
   ints.forEach(function(v){
     var active=(qs.interaction||'balanced')===v.k;
     html+='<button id="qint-'+deckId+'-'+v.k+'" onclick="_anaQSetInteract(\''+deckId+'\',\''+v.k+'\')" ';
-    html+='style="width:100%;display:block;padding:6px 8px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
-    html+='<div style="font-size:10px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
-    html+='<div style="font-size:8px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
+    html+='style="width:100%;display:block;padding:7px 9px;margin-bottom:4px;text-align:left;border-radius:7px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.18)':'var(--s2)')+';">';
+    html+='<div style="font-size:11px;font-weight:bold;color:'+(active?'var(--gold2)':'var(--tx2)')+'">'+v.fr+'</div>';
+    html+='<div style="font-size:9px;color:var(--tx3);line-height:1.3;margin-top:2px">'+v.desc+'</div>';
     html+='</button>';
   });
   html+='</div>';
+  html+='</div>'; // fin grille
 
-  html+='</div>'; // end 3-col grid
-
-  // Q6: Synergies
-  html+='<div style="font-size:12px;font-weight:bold;color:var(--tx2);margin-bottom:2px">6 · Synergies du deck</div>';
-  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">Cochez toutes les mécaniques importantes dans votre deck. Plusieurs choix possibles. Survolez pour la description.</div>';
-  html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">';
+  // ─── Synergies ───────────────────────────────────────────────────
+  html+='<div style="'+TIT+'">'+(qOffset+2)+' · Synergies du deck</div>';
+  html+='<div style="'+SUB+'">Cochez toutes les mécaniques importantes dans votre deck. Plusieurs choix possibles. Survolez pour la description.</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:16px">';
   _anaQSynOpts.forEach(function(s){
     var active=qs.synergies.indexOf(s.k)>=0;
     html+='<button id="qsyn-'+deckId+'-'+s.k+'" onclick="_anaQToggleSyn(\''+deckId+'\',\''+s.k+'\')" title="'+esc(s.hint)+'" ';
-    html+='style="padding:5px 10px;font-size:11px;border-radius:16px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(active?'var(--gold2)':'var(--tx3)')+';">';
+    html+='style="padding:5px 11px;font-size:11px;border-radius:16px;cursor:pointer;border:.5px solid '+(active?'var(--gold2)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(active?'var(--gold2)':'var(--tx3)')+';">';
     html+=(active?'✓ ':'')+s.ico+' '+s.fr+'</button>';
   });
   html+='</div>';
 
-  // Fine-tuning sliders in <details>
+  // Fine-tuning
   html+='<details style="margin-bottom:12px">';
   html+='<summary style="font-size:10px;color:var(--tx3);cursor:pointer;padding:4px 0;user-select:none">⚙ Fine-tuning avancé <span style="font-size:9px;opacity:.6">(optionnel · pour utilisateurs avancés)</span></summary>';
   html+='<div style="margin-top:8px;padding:10px;background:var(--s2);border-radius:8px;border:.5px solid var(--bd2)">';
-  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">1.0 = neutre · 2.0 = important · 3.0 = central. Les valeurs sont auto-calculées depuis vos réponses — ne modifiez que si les suggestions ne correspondent pas.</div>';
+  html+='<div style="font-size:9px;color:var(--tx3);margin-bottom:8px">1.0 = neutre · 2.0 = important · 3.0 = central. Valeurs auto-calculées depuis vos réponses.</div>';
   _anaThemeMeta.forEach(function(tm){
     var val=parseFloat(cur[tm.k]||0).toFixed(1);
     html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">';
@@ -16556,11 +16616,11 @@ function anaShowPreEditor(noToggle){
   });
   html+='</div></details>';
 
-  // Buttons
+  // Boutons d'action
   html+='<div style="display:flex;gap:6px">';
-  html+='<button onclick="_anaApplyPreTheme(\''+deckId+'\')" style="flex:1;padding:9px;background:var(--gold2);color:#000;border:none;border-radius:8px;font-family:\'Goudy Mediaeval\',serif;font-size:12px;cursor:pointer;font-weight:bold">✓ Enregistrer & analyser</button>';
-  if(hasOv)html+='<button onclick="_anaResetPreTheme(\''+deckId+'\')" style="padding:9px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:8px;font-size:11px;cursor:pointer" title="Réinitialiser aux valeurs auto">↩ Auto</button>';
-  html+='<button onclick="document.getElementById(\'ana-pretheme\').style.display=\'none\'" style="padding:9px 12px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:8px;font-size:11px;cursor:pointer" title="Fermer sans sauvegarder">✕</button>';
+  html+='<button onclick="_anaApplyPreTheme(\''+deckId+'\')" style="flex:1;padding:10px;background:var(--gold2);color:#000;border:none;border-radius:8px;font-family:\'Goudy Mediaeval\',serif;font-size:13px;cursor:pointer;font-weight:bold">✓ Enregistrer &amp; analyser</button>';
+  if(hasOv)html+='<button onclick="_anaResetPreTheme(\''+deckId+'\')" style="padding:10px 14px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:8px;font-size:11px;cursor:pointer" title="Réinitialiser aux valeurs auto">↩ Auto</button>';
+  html+='<button onclick="document.getElementById(\'ana-pretheme\').style.display=\'none\'" style="padding:10px 12px;background:var(--s2);color:var(--tx3);border:.5px solid var(--bd2);border-radius:8px;font-size:11px;cursor:pointer" title="Fermer sans sauvegarder">✕</button>';
   html+='</div>';
 
   html+='</div>';
@@ -17847,7 +17907,8 @@ function anaRefreshMatrix(){
   var libUser=_anaState.libUser;
   var fullOpt=_anaState.fullOpt;
   var cmdUser=_anaState.cmdUser||null;
-  var fmt=(_anaState.deck&&_anaState.deck.format)||'';
+  var _deckId2=document.getElementById('ana-deck-sel').value;
+  var fmt=_anaGetFmt(_deckId2,_anaState.deck);
   var overall=_anaState.overall;
   var grade=anaGrade(overall);
   if(!libUser||libUser.length<20){wrap.innerHTML='<div style="color:var(--tx3);font-size:11px;font-style:italic">Pas assez de cartes en cache (min. 20).</div>';return;}
@@ -18018,7 +18079,7 @@ function _anaFormatWarnings(deck,fmt,totalCards){
 function anaRender(deckId){
   var deck=_anaGetDeck(deckId);if(!deck)return;
   // Themes du commandant : auto-détection puis application des overrides utilisateur
-  var fmt=deck.format||'';
+  var fmt=_anaGetFmt(deckId,deck);
   var _autoDetectedThemes=_anaCommanderThemes(deck);
   if(anaIsCommanderFormat(fmt)){if(!(_autoDetectedThemes.protection>1))_autoDetectedThemes.protection=1;}
   else{_autoDetectedThemes.protection=0;}
