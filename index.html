@@ -15606,7 +15606,8 @@ function _anaIngestCard(card,nlHint){
   // legal OR banned in Pauper → card has at least one Common printing
   var _p=card.legalities&&card.legalities.pauper;
   var _rar=(_p==='legal'||_p==='banned')?'common':(card.rarity||'');
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou};
+  var _mc=card.mana_cost||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].mana_cost)||'';
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -18304,6 +18305,24 @@ function anaResetAnalysis(){
   var rr=document.getElementById('ana-reset-row');
   if(rr)rr.style.display='none';
 }
+/* ----- Comptage de pips colorés depuis le coût de mana Scryfall ----- */
+function _countColorPips(manaCost){
+  var pips={W:0,U:0,B:0,R:0,G:0};
+  if(!manaCost)return pips;
+  var ms=manaCost.match(/\{([^}]+)\}/g)||[];
+  ms.forEach(function(sym){
+    var inner=sym.slice(1,-1);
+    // Couleur pure {W} {U} {B} {R} {G}
+    if(pips[inner]!==undefined){pips[inner]++;return;}
+    // Hybride {W/U} {B/R} etc. → 0.5 pour chaque couleur
+    if(inner.indexOf('/')>=0){
+      inner.split('/').forEach(function(p){if(pips[p]!==undefined)pips[p]+=0.5;});
+    }
+    // Générique {1}{2}{X}{C} → ignoré
+  });
+  return pips;
+}
+
 /* ----- Bi-terrains mode image ----- */
 var _bilandsImgMode=false;
 try{_bilandsImgMode=!!localStorage.getItem('mtg_bilands_img');}catch(e){}
@@ -19201,24 +19220,39 @@ function anaRender(deckId){
     ['W','U','B','R','G'].forEach(function(c){if(!_basicCnt[c])return;html+='<span class="pip pip-'+c+'" style="font-size:11px;padding:2px 8px">'+_basicCnt[c]+'×</span>';});
     html+='</div>';
   }
-  // Ratio recommandé de basics (basé sur les pips couleur des sorts)
+  // Ratio recommandé de basics — comptage de pips colorés réels (Frank Karsten)
   (function(){
     var _pipCnt={W:0,U:0,B:0,R:0,G:0};var _totalPips=0;
     rows.forEach(function(r){
       if(!r.inCache||!r.roles||r.roles.land)return;
       var qty=r.card.qty||1;
-      ((r.meta&&r.meta.colors)||[]).forEach(function(col){if(_pipCnt[col]!==undefined){_pipCnt[col]+=qty;_totalPips+=qty;}});
+      var mc=r.meta&&r.meta.manaCost;
+      if(mc){
+        var _p=_countColorPips(mc);
+        ['W','U','B','R','G'].forEach(function(col){var v=_p[col]*qty;_pipCnt[col]+=v;_totalPips+=v;});
+      } else {
+        // Fallback si manaCost absent (cartes pas encore ré-analysées)
+        ((r.meta&&r.meta.colors)||[]).forEach(function(col){if(_pipCnt[col]!==undefined){_pipCnt[col]+=qty;_totalPips+=qty;}});
+      }
     });
     var _basicsNeeded=Math.max(0,_idealLands-_dualLandN);
     if(_totalPips>0&&_basicsNeeded>0){
       var _reco={};
       ['W','U','B','R','G'].forEach(function(col){if(_pipCnt[col]>0)_reco[col]=Math.round(_pipCnt[col]/_totalPips*_basicsNeeded);});
+      // Ajustement arrondi pour coller exactement à _basicsNeeded
       var _recoTotal=Object.keys(_reco).reduce(function(s,k){return s+_reco[k];},0);
       var _diff=_basicsNeeded-_recoTotal;
-      if(_diff!==0){var _srt=Object.keys(_reco).filter(function(k){return _reco[k]>0;}).sort(function(a,b){return _reco[b]-_reco[a];});if(_srt.length)_reco[_srt[0]]=Math.max(0,_reco[_srt[0]]+_diff);}
-      var _recoStr=['W','U','B','R','G'].filter(function(c){return _reco[c]>0;}).map(function(c){return '<span class="pip pip-'+c+'" style="font-size:11px;padding:2px 8px">'+_reco[c]+'×</span>';}).join('');
+      if(_diff!==0){
+        var _srt=Object.keys(_reco).filter(function(k){return _reco[k]>0;}).sort(function(a,b){return (_pipCnt[b]||0)-(_pipCnt[a]||0);});
+        if(_srt.length)_reco[_srt[0]]=Math.max(0,_reco[_srt[0]]+_diff);
+      }
+      var _totalPipsRnd=Math.round(_totalPips);
+      var _recoStr=['W','U','B','R','G'].filter(function(c){return _reco[c]>0;}).map(function(c){
+        var pct=_totalPips>0?Math.round(_pipCnt[c]/_totalPips*100):0;
+        return '<span class="pip pip-'+c+'" style="font-size:11px;padding:2px 8px" title="'+Math.round(_pipCnt[c])+' pips '+c+' sur '+_totalPipsRnd+' ('+pct+'%)">'+_reco[c]+'×</span>';
+      }).join('');
       if(_recoStr){
-        html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">Ratio recommandé ('+_basicsNeeded+' basics sur base des pips) :</div>';
+        html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">Ratio recommandé — '+_basicsNeeded+' basics ('+_totalPipsRnd+' pips colorés comptés) :</div>';
         html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+_recoStr+'</div>';
       }
     }
