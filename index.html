@@ -16968,9 +16968,32 @@ function _anaBuildSimLib(deck){
     var power=roles.creature?(meta.power!=null?meta.power:Math.max(1,Math.floor((meta.cmc||0)*0.85+1.2))):0;
     var toughness=roles.creature?(meta.toughness!=null?meta.toughness:Math.max(1,power+1)):0;
     var millAmt=(roles.mill&&meta.tags)?meta.tags.millAmt||8:0;
+    var _o=(meta.oracleText||'').toLowerCase();
+    // Détection taxe prison (Thalia, Sphere of Resistance, etc.)
+    var prisonFlag=0;
+    if(!roles.land){
+      if(/noncreature spells? cost(?:s)? \{1\} more to cast/.test(_o))prisonFlag=1;
+      if(/spells? (?:(?:your |each )?opponents? )?cast(?:s)? cost(?:s)? \{[12]\} more/.test(_o))prisonFlag=1;
+      if(/each spell (?:a player |players? )?cast(?:s)? cost(?:s)? \{[12]\} more/.test(_o))prisonFlag=1;
+      if(/can.t cast more than one (?:spell|noncreature spell) each turn/.test(_o))prisonFlag=1;
+      if(/opponents? can.t cast (?:spells?|noncreature spells?) unless they pay \{/.test(_o))prisonFlag=1;
+    }
+    // Détection dégâts directs (Lightning Bolt, Rift Bolt, etc.)
+    var faceDmgVal=0;
+    if(!roles.creature&&!roles.land){
+      var _dm=_o.match(/deals? (\d+) damage to (?:any target|(?:each|target) opponent|each player)/);
+      if(_dm)faceDmgVal=parseInt(_dm[1])||0;
+    }
+    // Détection ramp explosif (Nykthos, Cabal Coffers, doubleurs)
+    var rampDoubleFlag=0;
+    if(roles.ramp){
+      if(/add (?:mana equal to|x \{)/i.test(_o))rampDoubleFlag=1;
+      if(/doubles? (?:the amount of|all) (?:colored )?mana/i.test(_o))rampDoubleFlag=1;
+      if(/adds? \{[cmwubrgCMWUBRG]\}\{[cmwubrgCMWUBRG]\}\{[cmwubrgCMWUBRG]\}/.test(_o))rampDoubleFlag=1;
+    }
     var qty=c.qty||1;
     for(var i=0;i<qty;i++){
-      lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power,toughness:toughness,millAmt:millAmt});
+      lib.push({name:c.name,nl:c.nl,cmc:meta.cmc||0,isLand:!!roles.land,roles:roles,power:power,toughness:toughness,millAmt:millAmt,prison:prisonFlag,faceDmg:faceDmgVal,rampDouble:rampDoubleFlag});
     }
   });
   return lib;
@@ -17013,12 +17036,14 @@ function _archetypeDeck(kind,targetSize){
       add(13,function(){var c=3+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{interaction:1},power:0};});
     } else if(kind==='combo'){
       add(37,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
-      add(16,function(){var c=1+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0};});
-      add(10,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{ramp:1},power:0};});
+      add(10,function(){var c=1+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0,combopiece:1};});
+      add(6,function(){var c=1+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0};});
+      add(8,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{ramp:1},power:0,combopiece:1};});
+      add(4,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{ramp:1},power:0};});
       add(10,function(){var c=1+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{interaction:1,counter:1},power:0};});
       add(8,function(){return {cmc:4,isLand:false,roles:{creature:1,wincon:1},power:6};});
       add(6,function(){return {cmc:5,isLand:false,roles:{wincon:1,creature:1},power:8};});
-      add(12,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{removal:1,interaction:1},power:0};});
+      add(10,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{removal:1,interaction:1},power:0};});
     } else if(kind==='tempo'){
       add(37,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
       add(18,function(){var c=1+Math.floor(Math.random()*2);var p=c+1;return {cmc:c,isLand:false,roles:{creature:1,wincon:c>=3?1:0},power:p,toughness:p};});
@@ -17029,7 +17054,8 @@ function _archetypeDeck(kind,targetSize){
       add(9,function(){return {cmc:2,isLand:false,roles:{ramp:1},power:0};});
     } else if(kind==='bigmana'){
       add(37,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
-      add(16,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{ramp:1},power:0};});
+      add(8,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{ramp:1},power:0,rampDouble:1};});
+      add(8,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{ramp:1},power:0};});
       add(10,function(){var c=3+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0};});
       add(8,function(){return {cmc:7+Math.floor(Math.random()*3),isLand:false,roles:{creature:1,wincon:1},power:9+Math.floor(Math.random()*3)};});
       add(6,function(){return {cmc:5,isLand:false,roles:{creature:1,wincon:1},power:7};});
@@ -17048,14 +17074,15 @@ function _archetypeDeck(kind,targetSize){
       add(5,function(){var c=3+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{interaction:1},power:0};});
     } else if(kind==='prison'){
       add(37,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
-      add(14,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{interaction:1},power:0};});
+      add(6,function(){return {cmc:1,isLand:false,roles:{creature:1,interaction:1},power:2,toughness:1,prison:1};});
+      add(6,function(){return {cmc:2,isLand:false,roles:{interaction:1},power:0,prison:1};});
       add(10,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{removal:1,interaction:1},power:0};});
-      add(10,function(){var c=2+Math.floor(Math.random()*3);return {cmc:c,isLand:false,roles:{creature:1},power:Math.floor(c*0.7)+1};});
+      add(8,function(){var c=2+Math.floor(Math.random()*3);return {cmc:c,isLand:false,roles:{creature:1},power:Math.floor(c*0.7)+1};});
       add(5,function(){return {cmc:4,isLand:false,roles:{removal:1,wrath:1},power:0};});
       add(5,function(){return {cmc:5,isLand:false,roles:{creature:1,wincon:1},power:6};});
       add(5,function(){return {cmc:3,isLand:false,roles:{ramp:1},power:0};});
       add(7,function(){var c=2+Math.floor(Math.random()*2);return {cmc:c,isLand:false,roles:{draw:1},power:0};});
-      add(6,function(){return {cmc:3,isLand:false,roles:{interaction:1,counter:1},power:0};});
+      add(10,function(){return {cmc:3,isLand:false,roles:{interaction:1,counter:1},power:0};});
     } else {
       return _archetypeDeck('midrange',targetSize);
     }
@@ -17066,7 +17093,8 @@ function _archetypeDeck(kind,targetSize){
   function add(n,builder){for(var i=0;i<n*scale;i++)deck.push(builder());}
   if(kind==='aggro'){
     add(22,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
-    add(20,function(){var cmc=1+Math.floor(Math.random()*2);var p=cmc+1;return {cmc:cmc,isLand:false,roles:{creature:1,wincon:cmc>=3?1:0},power:p,toughness:Math.max(1,p-1)};});
+    add(14,function(){return {cmc:1,isLand:false,roles:{creature:1},power:2,toughness:1};});
+    add(6,function(){return {cmc:2,isLand:false,roles:{creature:1,wincon:1},power:3,toughness:2};});
     add(10,function(){return {cmc:1,isLand:false,roles:{removal:1,interaction:1},power:0,faceDmg:3};});
     add(4,function(){return {cmc:3,isLand:false,roles:{creature:1,wincon:1},power:5,toughness:3};});
     add(4,function(){return {cmc:2,isLand:false,roles:{creature:1},power:3,toughness:2,anthem:1};});
@@ -17085,11 +17113,13 @@ function _archetypeDeck(kind,targetSize){
     add(4,function(){return {cmc:6,isLand:false,roles:{creature:1,wincon:1},power:7};});
   } else if(kind==='combo'){
     add(22,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
-    add(12,function(){var cmc=1+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{draw:1},power:0};});
-    add(8,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{ramp:1},power:0};});
-    add(8,function(){var cmc=1+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{interaction:1,counter:1},power:0};});
-    add(6,function(){return {cmc:4,isLand:false,roles:{creature:1,wincon:1},power:8};});
-    add(4,function(){return {cmc:5,isLand:false,roles:{wincon:1,creature:1},power:10};});
+    add(8,function(){var cmc=1+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{draw:1},power:0,combopiece:1};});
+    add(5,function(){var cmc=1+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{draw:1},power:0};});
+    add(5,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{ramp:1},power:0,combopiece:1};});
+    add(4,function(){return {cmc:2,isLand:false,roles:{ramp:1},power:0};});
+    add(6,function(){var cmc=1+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{interaction:1,counter:1},power:0};});
+    add(4,function(){return {cmc:4,isLand:false,roles:{creature:1,wincon:1},power:8};});
+    add(6,function(){return {cmc:5,isLand:false,roles:{wincon:1,creature:1},power:10};});
   } else if(kind==='tempo'){
     add(22,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
     add(16,function(){var cmc=1+Math.floor(Math.random()*2);var p=cmc+1;return {cmc:cmc,isLand:false,roles:{creature:1,wincon:cmc>=3?1:0},power:p,toughness:p};});
@@ -17098,7 +17128,8 @@ function _archetypeDeck(kind,targetSize){
     add(4,function(){return {cmc:3,isLand:false,roles:{creature:1,wincon:1},power:4};});
   } else if(kind==='bigmana'){
     add(26,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
-    add(14,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{ramp:1},power:0};});
+    add(7,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{ramp:1},power:0,rampDouble:1};});
+    add(7,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{ramp:1},power:0};});
     add(8,function(){var cmc=3+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{draw:1},power:0};});
     add(6,function(){return {cmc:6+Math.floor(Math.random()*3),isLand:false,roles:{creature:1,wincon:1},power:8+Math.floor(Math.random()*3)};});
     add(6,function(){var cmc=3+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{removal:1,interaction:1},power:0};});
@@ -17111,11 +17142,13 @@ function _archetypeDeck(kind,targetSize){
     add(4,function(){return {cmc:4,isLand:false,roles:{removal:1,wrath:1},power:0};});
   } else if(kind==='prison'){
     add(24,function(){return {isLand:true,cmc:0,roles:{land:1},power:0};});
-    add(12,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{interaction:1},power:0};});
+    add(4,function(){return {cmc:1,isLand:false,roles:{creature:1,interaction:1},power:2,toughness:1,prison:1};});
+    add(4,function(){return {cmc:2,isLand:false,roles:{interaction:1},power:0,prison:1};});
     add(8,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{removal:1,interaction:1},power:0};});
     add(8,function(){var cmc=2+Math.floor(Math.random()*3);return {cmc:cmc,isLand:false,roles:{creature:1},power:Math.floor(cmc*0.7)+1};});
     add(4,function(){return {cmc:5,isLand:false,roles:{creature:1,wincon:1},power:6};});
     add(4,function(){return {cmc:4,isLand:false,roles:{removal:1,wrath:1},power:0};});
+    add(4,function(){var cmc=2+Math.floor(Math.random()*2);return {cmc:cmc,isLand:false,roles:{draw:1},power:0};});
   } else {
     return _archetypeDeck('midrange');
   }
@@ -17277,13 +17310,14 @@ function _wrCell(wr){
 }
 
 /* ----- Moteur de match head-to-head ----- */
-function _matchPlayer(lib,startLife){return {life:startLife||20,lib:_anaShuffle(lib.slice()),hand:[],bf:[],lastCast:null,cmd:null,cmdTax:0};}
+function _matchPlayer(lib,startLife){return {life:startLife||20,lib:_anaShuffle(lib.slice()),hand:[],bf:[],lastCast:null,cmd:null,cmdTax:0,comboFired:0};}
 function _matchDraw(p,n){n=n||1;for(var i=0;i<n;i++){if(p.lib.length)p.hand.push(p.lib.shift());else p.milledOut=true;}}
 function _castPriority(c,opp,turn,self){
   var oppHasCreature=opp.bf.some(function(x){return x.roles&&x.roles.creature;});
   var oppHasWincon=opp.bf.some(function(x){return x.roles&&x.roles.wincon;});
   if(c.roles.wrath&&oppHasCreature)return 200;
   if(c.roles.mill&&opp.lib&&opp.lib.length<25)return 190;
+  if(c.faceDmg&&opp.life<=c.faceDmg*3)return 185; // burn pour finir si vie basse
   if(c.roles.removal&&oppHasWincon)return 180;
   if(c.roles.removal&&oppHasCreature)return 130;
   if(c.roles.ramp&&turn<=4)return 110;
@@ -17325,6 +17359,7 @@ function _applySpell(c,self,opp){
   var isCreature=!!(c.roles.creature||c.roles.wincon);
   if(isCreature){
     c.justCast=true;self.bf.push(c);self.lastCast=c;
+    if(c.combopiece)self.comboFired=(self.comboFired||0)+1;
     // ETB-drain du commandant (Purphoros, Wayta…)
     if(!c.isCommander&&self.cmd&&self.cmd.cmdPassive&&self.cmd.cmdPassive.etbDrain&&self.bf.some(function(x){return x===self.cmd;}))
       opp.life-=self.cmd.cmdPassive.etbDrain;
@@ -17345,7 +17380,9 @@ function _applySpell(c,self,opp){
 
   // Ramp ETB (Wood Elves, Solemn Simulacrum…) ou sort de ramp
   if(c.roles.ramp){
-    self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});
+    var _rampN=c.rampDouble?2:1;
+    for(var _ri=0;_ri<_rampN;_ri++)self.bf.push({isLand:true,cmc:0,roles:{land:1},power:0});
+    if(c.combopiece)self.comboFired=(self.comboFired||0)+1;
     if(!isCreature)return;
   }
 
@@ -17365,6 +17402,7 @@ function _applySpell(c,self,opp){
   // Pioche ETB (Notion Thief, Jace's Archivist, Consecrated Sphinx…) ou sort de pioche
   if(c.roles.draw){
     var draws=2;
+    if(c.combopiece)self.comboFired=(self.comboFired||0)+1;
     _matchDraw(self,draws);
     // Drain passif du commandant : Queza, Nekusar, Niv-Mizzet…
     if(self.cmd&&self.cmd.cmdPassive&&self.bf.some(function(x){return x===self.cmd;})){
@@ -17389,7 +17427,8 @@ function _matchTurn(self,opp,turn,onPlay){
   var li=-1;for(var i=0;i<self.hand.length;i++)if(self.hand[i].isLand){li=i;break;}
   if(li>=0)self.bf.push(self.hand.splice(li,1)[0]);
   // Mana disponible
-  var mana=self.bf.filter(function(c){return c.isLand;}).length;
+  var prisonPenalty=opp.bf.reduce(function(s,c){return s+(c.prison||0);},0);
+  var mana=Math.max(0,self.bf.filter(function(c){return c.isLand;}).length-prisonPenalty);
   var hasCounter=self.hand.some(function(c){return c.roles&&c.roles.counter;});
   var hasWrath=self.hand.some(function(c){return c.roles&&c.roles.wrath;});
   var castable=self.hand.filter(function(c){return !c.isLand&&c.cmc<=mana;}).slice();
@@ -17413,6 +17452,8 @@ function _matchTurn(self,opp,turn,onPlay){
       self.lastCast=self.cmd;
     }
   }
+  // Combo kill : assez de pièces assemblées → combo "tourne" et tue
+  if((self.comboFired||0)>=3&&mana>=2){opp.life=0;}
   // Réaction instantanée : opp contre le dernier sort avant le combat (simule instant-speed)
   if(self.lastCast&&self.lastCast.roles&&(self.lastCast.roles.creature||self.lastCast.roles.wincon)){
     var oppLands=opp.bf.filter(function(x){return x.isLand;}).length;
