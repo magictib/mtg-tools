@@ -1606,12 +1606,29 @@ body.mana-cursor{cursor:none}
         <button class="dm" data-col="G" onclick="setFiltColor('G',this)"><i class="ms ms-g ms-cost" style="font-size:.8rem"></i></button>
         <button class="dm" data-col="C" onclick="setFiltColor('C',this)"><i class="ms ms-c ms-cost" style="font-size:.8rem"></i></button>
       </div>
-      <div id="set-rarity-btns" style="display:flex;gap:4px;flex-wrap:wrap">
+      <div id="set-rarity-btns" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
         <button class="dm active" onclick="setFiltRarity('',this)">Toutes</button>
         <button class="dm" onclick="setFiltRarity('common',this)">Commune</button>
         <button class="dm" onclick="setFiltRarity('uncommon',this)">Peu commune</button>
         <button class="dm" onclick="setFiltRarity('rare',this)">Rare</button>
         <button class="dm" onclick="setFiltRarity('mythic',this)">Mythique</button>
+      </div>
+      <div id="set-type-btns" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
+        <button class="dm active" onclick="setFiltType('',this)">Tous types</button>
+        <button class="dm" data-type="Land"        onclick="setFiltType('Land',this)">⛰ Terrain</button>
+        <button class="dm" data-type="Creature"    onclick="setFiltType('Creature',this)">👊 Créature</button>
+        <button class="dm" data-type="Instant"     onclick="setFiltType('Instant',this)">⚡ Éphémère</button>
+        <button class="dm" data-type="Sorcery"     onclick="setFiltType('Sorcery',this)">🌀 Rituel</button>
+        <button class="dm" data-type="Enchantment" onclick="setFiltType('Enchantment',this)">✨ Enchantement</button>
+        <button class="dm" data-type="Artifact"    onclick="setFiltType('Artifact',this)">⚙ Artefact</button>
+        <button class="dm" data-type="Planeswalker" onclick="setFiltType('Planeswalker',this)">🌟 Planeswalker</button>
+      </div>
+      <div id="set-price-btns" style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="dm active" onclick="setFiltPrice('',this)">Tous prix</button>
+        <button class="dm" data-price="0-1"     onclick="setFiltPrice('0-1',this)">&lt; 1 €</button>
+        <button class="dm" data-price="1-5"     onclick="setFiltPrice('1-5',this)">1 – 5 €</button>
+        <button class="dm" data-price="5-15"    onclick="setFiltPrice('5-15',this)">5 – 15 €</button>
+        <button class="dm" data-price="15-9999" onclick="setFiltPrice('15-9999',this)">&gt; 15 €</button>
       </div>
     </div>
     <div class="edh-grid" id="set-grid"></div>
@@ -7014,8 +7031,20 @@ function dlTxt(content,filename){
 var setNextPage=null;
 var _setsLoaded=false;
 var _setAllCards=[];
-var _setFiltColors=[], _setFiltRarity='';
+var _setFiltColors=[], _setFiltRarity='', _setFiltType='', _setFiltPrice='';
 
+function setFiltType(v,btn){
+  _setFiltType=v;
+  document.querySelectorAll('#set-type-btns .dm').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  applySetFilters();
+}
+function setFiltPrice(v,btn){
+  _setFiltPrice=v;
+  document.querySelectorAll('#set-price-btns .dm').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  applySetFilters();
+}
 function setFiltColor(v,btn){
   if(!v){
     _setFiltColors=[];
@@ -7052,6 +7081,17 @@ function applySetFilters(){
         return fc==='C'?colors.length===0:colors.indexOf(fc)>=0;
       });
       if(!match)return false;
+    }
+    if(_setFiltType){
+      var tl=c.type_line||'';
+      if(tl.indexOf(_setFiltType)<0)return false;
+    }
+    if(_setFiltPrice){
+      var parts=_setFiltPrice.split('-');
+      var lo=parseFloat(parts[0]),hi=parseFloat(parts[1]);
+      var eur=c.prices&&c.prices.eur?parseFloat(c.prices.eur):null;
+      if(eur===null||isNaN(eur))return false;
+      if(eur<lo||eur>hi)return false;
     }
     return true;
   });
@@ -7145,9 +7185,9 @@ function setSelPick(code){
 }
 function setSearch(){
   var q=(document.getElementById('set-in')||{value:''}).value.trim();if(!q)return;
-  setNextPage=null;_setAllCards=[];_setFiltColors=[];_setFiltRarity='';
-  var loadEl=document.getElementById('set-load');
-  loadEl.textContent='Chargement…';loadEl.style.display='block';
+  setNextPage=null;_setAllCards=[];_setFiltColors=[];_setFiltRarity='';_setFiltType='';_setFiltPrice='';
+  _showLoader('Chargement de l\'extension…');
+  document.getElementById('set-load').style.display='none';
   document.getElementById('set-err').style.display='none';
   document.getElementById('set-grid').innerHTML='';
   document.getElementById('set-info').innerHTML='';
@@ -7157,6 +7197,10 @@ function setSearch(){
   document.querySelector('#set-color-btns .dm').classList.add('active');
   document.querySelectorAll('#set-rarity-btns .dm').forEach(function(b){b.classList.remove('active');});
   document.querySelector('#set-rarity-btns .dm').classList.add('active');
+  document.querySelectorAll('#set-type-btns .dm').forEach(function(b){b.classList.remove('active');});
+  document.querySelector('#set-type-btns .dm').classList.add('active');
+  document.querySelectorAll('#set-price-btns .dm').forEach(function(b){b.classList.remove('active');});
+  document.querySelector('#set-price-btns .dm').classList.add('active');
   var code=q.replace(/\s+/g,'').toLowerCase();
   fetch('https://api.scryfall.com/sets/'+encodeURIComponent(code))
     .then(function(r){return r.json();})
@@ -7172,7 +7216,7 @@ function setSearch(){
     .then(function(r){return r.json();})
     .then(function(d){setRenderRes(d,false);})
     .catch(function(){
-      document.getElementById('set-load').style.display='none';
+      _hideLoader();
       var e=document.getElementById('set-err');
       e.textContent='Extension non trouvée : "'+q+'". Utilisez le code Scryfall (ex: mh3, blb, otj).';
       e.style.display='block';
@@ -7180,25 +7224,26 @@ function setSearch(){
 }
 function setRenderRes(data,append){
   if(!data.data||!data.data.length){
-    document.getElementById('set-load').style.display='none';
+    _hideLoader();
     if(!append){var e=document.getElementById('set-err');e.textContent='Aucune carte trouvée.';e.style.display='block';}
     else{document.getElementById('set-filters').style.display='block';applySetFilters();}
     return;
   }
   _setAllCards=append?_setAllCards.concat(data.data):data.data;
   if(data.has_more&&data.next_page){
-    document.getElementById('set-load').textContent='Chargement… ('+_setAllCards.length+' / '+(data.total_cards||'?')+' cartes)';
+    // Mise à jour du texte de progression dans le loader
+    var _ldrTe=document.getElementById('mtg-loader-txt');
+    if(_ldrTe)_ldrTe.textContent=_setAllCards.length+' / '+(data.total_cards||'?')+' cartes chargées…';
     fetch(data.next_page)
       .then(function(r){return r.json();})
       .then(function(d){setRenderRes(d,true);})
       .catch(function(){
-        document.getElementById('set-load').style.display='none';
+        _hideLoader();
         document.getElementById('set-filters').style.display='block';
-        document.getElementById('set-morebtn').style.display='none';
         applySetFilters();
       });
   }else{
-    document.getElementById('set-load').style.display='none';
+    _hideLoader();
     document.getElementById('set-filters').style.display='block';
     document.getElementById('set-morebtn').style.display='none';
     applySetFilters();
