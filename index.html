@@ -20911,21 +20911,46 @@ function metaCopyDeck(){
 function metaCreateDeck(){
   var txt=_metaCurDeckTxt();if(!txt)return;
   // Parser le texte MTGO en cartes pour le builder
-  var main=[],side=[],inSide=false;
+  var parsed=[],inSide=false;
   txt.split('\n').forEach(function(line){
     line=line.trim();if(!line)return;
     if(/^sideboard/i.test(line)){inSide=true;return;}
     var m=line.match(/^(\d+)\s+(.+)$/);if(!m)return;
-    var card={name:m[2].trim(),qty:parseInt(m[1])};
-    if(inSide)side.push(card);else main.push(card);
+    parsed.push({name:m[2].trim(),qty:parseInt(m[1]),side:inSide});
   });
-  // Peupler le builder
-  bldCurDeckId=null;bldMain=main;bldSide=side;bldAvoir=[];bldOublie=[];
+  if(!parsed.length)return;
+  bldCurDeckId=null;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];
   _bldSwaps=[];_bldSugs=[];_bldSwapSel=null;_bldChecked={};
   goTab('build');
-  setTimeout(function(){
+  // Batch fetch Scryfall pour enrichir cmc/colors/type/rarity (même logique que bldLoadSelectedDeck)
+  var names=parsed.map(function(c){return c.name;});
+  var missing=names.filter(function(n){return !bldData[n.toLowerCase()];});
+  function afterFetch(){
+    parsed.forEach(function(c){
+      var d=bldData[c.name.toLowerCase()];
+      var card;
+      if(d){card=Object.assign({},d,{qty:c.qty});}
+      else{
+        var nl=stripDFC(c.name||'').toLowerCase();
+        var am=_anaData[nl];
+        if(am)card={name:c.name,qty:c.qty,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||'',legalities:{}};
+        else card={name:c.name,qty:c.qty,cmc:0,colors:[],type:'',rarity:'',img:'',legalities:{}};
+      }
+      if(c.side)bldSide.push(card);else bldMain.push(card);
+    });
     renderBldDecks();renderBldStats();_bldShowBuilder();
-  },100);
+  }
+  if(!missing.length){afterFetch();return;}
+  var _batches=[];for(var _bi=0;_bi<missing.length;_bi+=75)_batches.push(missing.slice(_bi,_bi+75));
+  function _nextBatch(){
+    if(!_batches.length){afterFetch();return;}
+    var ids=_batches.shift().map(function(n){return{name:n};});
+    fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:ids})})
+      .then(function(r){return r.json();})
+      .then(function(data){(data.data||[]).forEach(function(c){bldData[bldCardObj(c).name.toLowerCase()]=bldCardObj(c);});_nextBatch();})
+      .catch(function(){_nextBatch();});
+  }
+  _nextBatch();
 }
 
 // Apply background texture based on theme (inline style, highest priority)
