@@ -2106,12 +2106,18 @@ body.mana-cursor{cursor:none}
 <!-- BUILDER -->
 <div class="page" id="pg-build">
 
+<!-- Barre de navigation partagée : toujours au même endroit -->
+<div id="bld-topbar" style="display:none;align-items:center;gap:8px;margin-bottom:10px">
+  <button class="btn btnsm" onclick="_bldTopbarBack()">← Retour</button>
+  <span id="bld-topbar-title" style="font-size:.85rem;color:var(--tx3);font-style:italic"></span>
+  <button id="bld-topbar-prop" class="btn btnsm btnp" style="display:none" onclick="_propBackToResults()">← Propositions</button>
+</div>
+
 <!-- ===== GESTIONNAIRE LISTES D'ACHAT PARTAGÉES ===== -->
 <div id="purchase-mgr" style="display:none">
   <!-- Barre d'outils -->
   <div class="card" style="margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <button class="btn btnsm" onclick="closePurchaseMgr()">← Retour</button>
       <div class="lbl" style="margin:0">🛒 Achats en cours</div>
       <select id="pur-list-sel" onchange="selectPurList(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:120px;max-width:180px"></select>
       <button class="btn btnsm btnp" onclick="newPurchaseList()">+ Nouvelle liste</button>
@@ -2302,8 +2308,7 @@ body.mana-cursor{cursor:none}
 
 <!-- ZONE COMMANDANT (contenu migré depuis ex-onglet Commandants) -->
 <div id="bld-cmd-zone" style="display:none">
-  <div style="margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <button class="btn btnsm" onclick="_bldBackToWizard()">← Retour</button>
+  <div style="margin-bottom:8px">
     <span id="bld-cmd-zone-title" style="font-size:.85rem;color:var(--tx3);font-style:italic"></span>
   </div>
   <div id="bld-cmd-arch-bar" style="display:none;margin-bottom:10px">
@@ -2455,8 +2460,7 @@ body.mana-cursor{cursor:none}
 
 <!-- ZONE DECK VIERGE -->
 <div id="bld-blank-zone" style="display:none;max-width:520px;margin:0 auto">
-  <div style="margin-bottom:8px;display:flex;align-items:center;gap:10px">
-    <button class="btn btnsm" onclick="_bldBackToWizard()">← Retour</button>
+  <div style="margin-bottom:8px">
     <span style="font-size:.85rem;color:var(--tx3);font-style:italic">Nouveau deck vierge</span>
   </div>
   <div class="card" style="margin-bottom:10px">
@@ -2479,10 +2483,6 @@ body.mana-cursor{cursor:none}
   <button class="btn btnp" style="width:100%;font-size:.9rem;padding:.6rem" onclick="_bldStartBlank()">Commencer →</button>
 </div>
 
-<div id="bld-back-row" style="display:none;margin-bottom:8px">
-  <button class="btn btnsm" onclick="_bldBackToWizard()">← Retour</button>
-  <button id="bld-back-prop-btn" class="btn btnsm btnp" style="display:none;margin-left:8px" onclick="_propBackToResults()">← Propositions</button>
-</div>
 <div id="bld-cols" style="display:none">
 <div id="bld-left">
   <!-- Setup : format + charger deck -->
@@ -4884,14 +4884,37 @@ function _bldRefreshView(){
   var wiz=document.getElementById('bld-wizard');
   var cmd=document.getElementById('bld-cmd-zone');
   var cols=document.getElementById('bld-cols');
-  var backRow=document.getElementById('bld-back-row');
   var blank=document.getElementById('bld-blank-zone');
+  var pm=document.getElementById('purchase-mgr');
   if(wiz)wiz.style.display=_bldView==='wizard'?'block':'none';
   if(cmd)cmd.style.display=_bldView==='cmd'?'block':'none';
   if(blank)blank.style.display=_bldView==='blank'?'block':'none';
   if(cols)cols.style.display=_bldView==='builder'?'flex':'none';
-  if(backRow)backRow.style.display=_bldView==='builder'?'block':'none';
-  if(_bldView==='wizard')bldInitEntryDeckSel();
+  // Barre navigation unique
+  var isPm=pm&&pm.style.display!=='none';
+  _bldUpdateTopbar(isPm);
+  if(_bldView==='wizard'&&!isPm)bldInitEntryDeckSel();
+}
+function _bldUpdateTopbar(isPurchaseMgr){
+  var bar=document.getElementById('bld-topbar');
+  var title=document.getElementById('bld-topbar-title');
+  var propBtn=document.getElementById('bld-topbar-prop');
+  if(!bar)return;
+  var show=isPurchaseMgr||(_bldView&&_bldView!=='wizard');
+  bar.style.display=show?'flex':'none';
+  if(title){
+    if(isPurchaseMgr)title.textContent='Achats en cours';
+    else if(_bldView==='cmd'){var t=document.getElementById('bld-cmd-zone-title');title.textContent=t?t.textContent:'';}
+    else if(_bldView==='blank')title.textContent='Nouveau deck vierge';
+    else title.textContent='';
+  }
+  // Le bouton ← Propositions est géré par _propBackToResults / _bldBackToWizard
+  if(propBtn&&!isPurchaseMgr)propBtn.style.display='none';
+}
+function _bldTopbarBack(){
+  var pm=document.getElementById('purchase-mgr');
+  if(pm&&pm.style.display!=='none'){closePurchaseMgr();return;}
+  _bldBackToWizard();
 }
 function _bldEntryCmd(title){
   _bldView='cmd';
@@ -4976,7 +4999,7 @@ function _bldBackToWizard(){
   _bldView='wizard';
   _bldThemeSel={};
   document.querySelectorAll('#bld-arch-btns .dm').forEach(function(b){b.classList.remove('active');});
-  var btn=document.getElementById('bld-back-prop-btn');if(btn)btn.style.display='none';
+  var btn=document.getElementById('bld-topbar-prop');if(btn)btn.style.display='none';
   _bldRefreshView();
 }
 function _bldShowBuilder(){_bldView='builder';_bldRefreshView();}
@@ -7413,6 +7436,7 @@ function openPurchaseMgr(){
   if(cols)cols.style.display='none';
   if(cmd)cmd.style.display='none';
   if(blank)blank.style.display='none';
+  _bldUpdateTopbar(true);
 }
 
 function closePurchaseMgr(){
@@ -21531,7 +21555,7 @@ function _propBackToResults(){
   _bldBackToWizard();
   var wrap=document.getElementById('bld-propose-wrap');
   if(wrap&&wrap.innerHTML)wrap.style.display='block';
-  var btn=document.getElementById('bld-back-prop-btn');if(btn)btn.style.display='none';
+  var btn=document.getElementById('bld-topbar-prop');if(btn)btn.style.display='none';
   setTimeout(function(){if(wrap)wrap.scrollIntoView({behavior:'smooth',block:'start'});},100);
 }
 
@@ -21539,7 +21563,7 @@ function _propLoadDeck(idx){
   var r=_propResults[idx];if(!r)return;
   var cards=r.cards;
   var raw=cards.map(function(c){return c.qty+' '+c.name;}).join('\n');
-  var btn=document.getElementById('bld-back-prop-btn');if(btn)btn.style.display='inline-block';
+  var btn=document.getElementById('bld-topbar-prop');if(btn)btn.style.display='inline-block';
   _bldEntryBlank();
   setTimeout(function(){
     var ta=document.getElementById('bld-blank-import');
