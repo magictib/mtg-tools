@@ -2135,7 +2135,7 @@ body.mana-cursor{cursor:none}
   <!-- Barre d'outils -->
   <div class="card" style="margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <div class="lbl" style="margin:0">🛒 Achats en cours</div>
+      <div class="lbl" style="margin:0">🤝 Liste partagée</div>
       <select id="pur-list-sel" onchange="selectPurList(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:120px;max-width:180px"></select>
       <button class="btn btnsm btnp" onclick="newPurchaseList()">+ Nouvelle liste</button>
       <span style="color:var(--tx3);font-size:.75rem">vs</span>
@@ -2145,6 +2145,7 @@ body.mana-cursor{cursor:none}
       <input type="file" id="pur-file-in" accept=".txt,.csv" style="display:none" onchange="purHandleFileImport(event)">
       <button class="btn btnsm" onclick="purTogglePastePanel()" title="Coller une liste de cartes directement">📋 Coller liste</button>
       <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter .txt</button>
+      <button class="btn btnsm" id="pur-view-btn" onclick="togglePurImgMode()" style="display:none">🖼 Images</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
     </div>
     <!-- Panneau coller liste -->
@@ -2272,7 +2273,7 @@ body.mana-cursor{cursor:none}
     </div>
     <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openPurchaseMgr()">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🛒</div>
-      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Achats en cours</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Liste partagée</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Gérer les listes d'achat partagées entre profils</div>
     </div>
   </div>
@@ -4956,7 +4957,7 @@ function _bldUpdateTopbar(isPurchaseMgr){
   var show=isPurchaseMgr||(_bldView&&_bldView!=='wizard');
   bar.style.display=show?'flex':'none';
   if(title){
-    if(isPurchaseMgr)title.textContent='Achats en cours';
+    if(isPurchaseMgr)title.textContent='Liste partagée';
     else if(_bldView==='cmd'){var t=document.getElementById('bld-cmd-zone-title');title.textContent=t?t.textContent:'';}
     else if(_bldView==='blank')title.textContent='Nouveau deck vierge';
     else title.textContent='';
@@ -6053,6 +6054,7 @@ function newDeck(){
 }
 function loadDeck(id){
   var d=decks[id];if(!d)return;
+  if(actDeck===id){actDeck=null;dCards=[];document.getElementById('deckres').style.display='none';renderDBar();return;}
   actDeck=id;
   // Toujours re-parser depuis rawName si dispo : auto-repare les decks sauvegardes avec d'anciens parsers (truncation)
   var freshCards=d.rawName?parseList(d.rawName):null;
@@ -7579,6 +7581,7 @@ function renderPurchaseMgr(){
   _purRenderFriendSel();
   var importBtn=document.getElementById('pur-import-btn');
   var exportBtn=document.getElementById('pur-export-btn');
+  var viewBtn=document.getElementById('pur-view-btn');
   var delBtn=document.getElementById('pur-del-btn');
   var wrap=document.getElementById('pur-table-wrap');
   if(!wrap)return;
@@ -7598,6 +7601,7 @@ function renderPurchaseMgr(){
       +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer fichier</button>'
       +'</td></tr>';
     if(exportBtn)exportBtn.style.display='none';
+    if(viewBtn)viewBtn.style.display='none';
     if(delBtn)delBtn.style.display='none';
     html+='</tbody></table>';
     wrap.innerHTML=html;
@@ -7605,6 +7609,7 @@ function renderPurchaseMgr(){
     return;
   }
   if(exportBtn)exportBtn.style.display='';
+  if(viewBtn){viewBtn.style.display='';viewBtn.textContent=_purImgMode?'≡ Liste':'🖼 Images';}
   if(delBtn)delBtn.style.display='';
   var lst=_purchaseLists[_activePurListId];
   var cards=lst.cards||[];
@@ -7652,24 +7657,24 @@ function renderPurchaseMgr(){
           var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           var recv=!!c.received;
           var nm='<span>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
-          var db='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
           var lb=recv
-            ?'<button onclick="togglePurReceived(\''+sid+'\')" title="Annuler" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--gr2)">✓ Prêt OK</button>'
+            ?'<button onclick="togglePurReceived(\''+sid+'\')" title="Annuler l\'acceptation" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--gr2)">✓ Prêt OK</button>'
             :'<button onclick="togglePurReceived(\''+sid+'\')" title="Accepter le prêt" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--tx3)">✓</button>'
              +'<button onclick="purRefuseLoan(\''+sid+'\')" title="Refuser — devient un achat pour '+esc(p1)+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--am)">✗</button>';
-          return '↔ '+nm+' '+lb+db+(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'');
+          return '↔ '+nm+' '+lb+(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'');
         }
 
-        var td0Html=c0?_mkCell(c0):'';
-        var td1Html='';
         var rowExtraCls='';
+        var td0Html='',td1Html='';
         if(cX){
           var xRecv=!!cX.received;
           rowExtraCls=' pur-exch-row'+(xRecv?' pur-loan-ok':'');
-          td1Html=_mkExch(cX);
-          if(c1)td1Html+='<br>'+_mkCell(c1); // même carte aussi en achat
-        }else if(c1){
-          td1Html=_mkCell(c1);
+          // L'emprunt s'affiche dans la colonne du prêteur (td0)
+          td0Html=(c0?_mkCell(c0)+'<br>':'')+_mkExch(cX);
+          td1Html=c1?_mkCell(c1):'';
+        }else{
+          td0Html=c0?_mkCell(c0):'';
+          td1Html=c1?_mkCell(c1):'';
         }
 
         var dkLabel=pureExch&&dk&&dk!=='(sans deck)'?'<span style="font-style:italic;color:var(--tx3);font-size:.72rem">'+esc(dk)+'</span>':'';
@@ -7684,8 +7689,72 @@ function renderPurchaseMgr(){
     });
   }
   html+='</tbody></table>';
-  wrap.innerHTML=html;
-  purFilterDecks();
+  if(_purImgMode){
+    wrap.innerHTML=_purRenderImgGrid();
+  }else{
+    wrap.innerHTML=html;
+    purFilterDecks();
+  }
+}
+var _purImgMode=false;
+var _purImgCache={};
+function togglePurImgMode(){
+  _purImgMode=!_purImgMode;
+  if(_purImgMode)_purFetchAndRenderImages();
+  else renderPurchaseMgr();
+}
+function _purRenderImgGrid(){
+  if(!_activePurListId||!_purchaseLists[_activePurListId])return'';
+  var cards=(_purchaseLists[_activePurListId].cards||[]);
+  var p0lbl=PN[0]||'P1';var p1lbl=PN[_purFriendIdx]||'P2';
+  var colInfo={0:{bg:'rgba(201,168,76,.25)',lbl:p0lbl},1:{bg:'rgba(148,103,189,.25)',lbl:p1lbl},'-2':{bg:'rgba(14,165,233,.2)',lbl:'Emprunt'}};
+  var byNl={};
+  cards.forEach(function(c){
+    if(!byNl[c.nl])byNl[c.nl]={nl:c.nl,name:c.name,qty:0,col:c.column,received:c.received};
+    byNl[c.nl].qty+=(c.qty||1);
+    // Col priority: col0/col1 > colX
+    if(c.column!==-2)byNl[c.nl].col=c.column;
+    if(c.received)byNl[c.nl].received=true;
+  });
+  var items=Object.keys(byNl).map(function(k){return byNl[k];});
+  if(!items.length)return'<div style="text-align:center;padding:2rem;color:var(--tx3);font-style:italic">Aucune carte</div>';
+  return'<div style="display:flex;flex-wrap:wrap;gap:10px;padding:8px">'
+    +items.map(function(item){
+      var img=_purImgCache[item.nl]||dImgCache[item.nl]||'';
+      var ci=colInfo[String(item.col)]||colInfo['0'];
+      var border=item.received?'2px solid var(--gr2)':'1px solid var(--bd2)';
+      return'<div style="width:130px;text-align:center;position:relative">'
+        +(img
+          ?'<img src="'+img+'" style="width:130px;border-radius:7px;display:block;border:'+border+'" loading="lazy">'
+          :'<div style="width:130px;height:182px;background:var(--s3);border-radius:7px;border:'+border+';display:flex;align-items:center;justify-content:center;font-size:.68rem;color:var(--tx3);padding:6px;text-align:center">'+esc(item.name)+'</div>')
+        +'<div style="position:absolute;top:4px;left:4px;font-size:.6rem;background:'+ci.bg+';color:var(--tx);border-radius:3px;padding:1px 4px;pointer-events:none">'+esc(ci.lbl)+'</div>'
+        +(item.received?'<div style="position:absolute;top:4px;right:4px;font-size:.65rem;background:var(--gr2);color:#0a1a10;border-radius:3px;padding:1px 4px">✓</div>':'')
+        +'<div style="font-size:.65rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+(item.qty>1?item.qty+'× ':'')+esc(item.name)+'</div>'
+        +'</div>';
+    }).join('')
+    +'</div>';
+}
+function _purFetchAndRenderImages(){
+  var wrap=document.getElementById('pur-table-wrap');if(!wrap)return;
+  if(!_activePurListId||!_purchaseLists[_activePurListId]){wrap.innerHTML=_purRenderImgGrid();return;}
+  var cards=(_purchaseLists[_activePurListId].cards||[]);
+  var todo=[];var seen={};
+  cards.forEach(function(c){if(!seen[c.nl]&&!_purImgCache[c.nl]&&!dImgCache[c.nl]){seen[c.nl]=1;todo.push({nl:c.nl,name:c.name});}});
+  if(!todo.length){wrap.innerHTML=_purRenderImgGrid();return;}
+  var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
+  var done=0;
+  batches.forEach(function(batch){
+    fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        var nl=stripDFC(card.name).toLowerCase();
+        var img=card.image_uris?card.image_uris.normal:(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris?card.card_faces[0].image_uris.normal:null);
+        if(img){_purImgCache[nl]=img;dImgCache[nl]=img;}
+      });
+      if(++done===batches.length)wrap.innerHTML=_purRenderImgGrid();
+    }).catch(function(){if(++done===batches.length)wrap.innerHTML=_purRenderImgGrid();});
+  });
 }
 
 function purDragStart(e,cardId){
@@ -7722,7 +7791,14 @@ function removePurCard(cardId){
 function togglePurReceived(cardId){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   var card=(_purchaseLists[_activePurListId].cards||[]).find(function(c){return c.id===cardId;});
-  if(card){card.received=!card.received;savePurchaseList(_activePurListId);renderPurchaseMgr();}
+  if(!card)return;
+  if(card.column===-2){
+    // Accepter le prêt : passe dans la colonne de l'ami avec received=true (vert)
+    card.column=_purFriendIdx;card.received=true;
+  }else{
+    card.received=!card.received;
+  }
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
 }
 function purRefuseLoan(cardId){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
@@ -7964,8 +8040,8 @@ function purSrchRenderRes(data,append){
       +'<div style="font-size:.62rem;color:'+(rc[c.rarity]||'var(--tx3)')+'">'+esc(type)+(c.cmc!=null?' · '+c.cmc:'')+'</div>'
       +'</div>'
       +'<div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0">'
-      +'<button class="btn btnsm" onclick="purAddCard(\''+nm+'\',0)" style="padding:1px 5px;font-size:.63rem;color:var(--gold2)">+'+l0+'</button>'
-      +'<button class="btn btnsm" onclick="purAddCard(\''+nm+'\',1)" style="padding:1px 5px;font-size:.63rem;color:var(--ac2)">+'+l1+'</button>'
+      +'<button class="btn btnsm" onclick="purAddCard(\''+nm+'\',0)" style="padding:1px 5px;font-size:.63rem;color:var(--gold2)" title="Ajouter comme achat ('+l0+')">+Ajout</button>'
+      +'<button class="btn btnsm" onclick="purAddCard(\''+nm+'\',-2)" style="padding:1px 5px;font-size:.63rem;color:var(--ac2)" title="Ajouter comme emprunt ('+l1+')">+Emprunt</button>'
       +'</div></div>';
   }).join('');
   if(append)res.innerHTML+=html;else res.innerHTML=html;
@@ -8018,8 +8094,8 @@ function purShowDeckCards(deckId){
       var cn=(c.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
       return '<div class="pur-search-item">'
         +'<span style="flex:1;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(c.qty>1?c.qty+'× ':'')+esc(c.name||'')+'</span>'
-        +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',0,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--gold2)">+'+l0+'</button>'
-        +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',1,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--ac2)">+'+l1+'</button>'
+        +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',0,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--gold2)" title="Ajouter comme achat ('+l0+')">+Ajout</button>'
+        +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',-2,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--ac2)" title="Ajouter comme emprunt ('+l1+')">+Emprunt</button>'
         +'</div>';
     }).join('');
 }
