@@ -1120,6 +1120,7 @@ body.mana-cursor{cursor:none}
 .pur-col-td{min-width:180px}
 .pur-col-td.pur-drag-over{background:rgba(201,168,76,.11);outline:2px dashed rgba(201,168,76,.55)}
 .pur-exch-row td{color:var(--ac2);font-style:italic;background:rgba(148,130,80,.05)}
+.pur-exch-row.pur-loan-ok td{color:var(--gr2);font-style:normal;background:rgba(16,185,129,.07)}
 .pur-recv{text-decoration:line-through;opacity:.38}
 .pur-search-item{display:flex;align-items:center;gap:4px;padding:4px 2px;border-bottom:.5px solid var(--bd)}
 .pur-search-item:last-child{border-bottom:none}
@@ -7636,15 +7637,19 @@ function renderPurchaseMgr(){
         var c=item.c,col=item.col;
         var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
         var recv=!!c.received;
-        var nameHtml='<span class="'+(recv?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
+        var nameHtml='<span class="'+(recv&&col!==-2?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
         var recvBtn='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler réception':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
         var delBtn2='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
         if(col===-2){
           var dkLabel=pureExch&&dk&&dk!=='(sans deck)'?'<span style="font-style:italic;color:var(--tx3);font-size:.72rem">'+esc(dk)+'</span>':'';
-          html+='<tr class="pur-card-row pur-exch-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
+          var loanBtns=recv
+            ?'<button onclick="togglePurReceived(\''+sid+'\')" title="Annuler l\'acceptation" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--gr2)">✓ Prêt OK</button>'
+            :'<button onclick="togglePurReceived(\''+sid+'\')" title="Accepter le prêt" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--tx3)">✓</button>'
+             +'<button onclick="purRefuseLoan(\''+sid+'\')" title="Refuser — devient un achat pour '+esc(p1)+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--am)">✗</button>';
+          html+='<tr class="pur-card-row pur-exch-row'+(recv?' pur-loan-ok':'')+'" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
             +'<td>'+dkLabel+'</td>'
             +'<td colspan="2" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'
-            +'↔ '+nameHtml+recvBtn+delBtn2
+            +'↔ '+nameHtml+' '+loanBtns+delBtn2
             +(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')
             +'</td></tr>';
         }else{
@@ -7696,6 +7701,16 @@ function togglePurReceived(cardId){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   var card=(_purchaseLists[_activePurListId].cards||[]).find(function(c){return c.id===cardId;});
   if(card){card.received=!card.received;savePurchaseList(_activePurListId);renderPurchaseMgr();}
+}
+function purRefuseLoan(cardId){
+  if(!_activePurListId||!_purchaseLists[_activePurListId])return;
+  var card=(_purchaseLists[_activePurListId].cards||[]).find(function(c){return c.id===cardId;});
+  if(card&&card.column===-2){
+    card.column=_purFriendIdx;
+    card.received=false;
+    savePurchaseList(_activePurListId);
+    renderPurchaseMgr();
+  }
 }
 var _purAutoMatchTO=null;
 function _purBuildDeckCardMap(profIdx){
