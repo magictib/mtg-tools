@@ -7626,38 +7626,60 @@ function renderPurchaseMgr(){
       var g=groups[dk];
       var total=g.col0.length+g.col1.length+g.colX.length;
       if(!total)return;
-      // Groupes mixtes (achat + prêt) → header de deck normal
-      // Groupes purement prêts → pas de header, nom du deck inline sur chaque ligne
       var pureExch=g.col0.length===0&&g.col1.length===0;
       if(!pureExch)html+='<tr class="pur-dk-hdr"><td colspan="3">📖 '+esc(dk)+'</td></tr>';
-      var all=g.col0.map(function(c){return {c:c,col:0};})
-        .concat(g.col1.map(function(c){return {c:c,col:1};}))
-        .concat(g.colX.map(function(c){return {c:c,col:-2};}));
-      all.forEach(function(item){
-        var c=item.c,col=item.col;
-        var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-        var recv=!!c.received;
-        var nameHtml='<span class="'+(recv&&col!==-2?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
-        var recvBtn='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler réception':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
-        var delBtn2='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
-        if(col===-2){
-          var dkLabel=pureExch&&dk&&dk!=='(sans deck)'?'<span style="font-style:italic;color:var(--tx3);font-size:.72rem">'+esc(dk)+'</span>':'';
-          var loanBtns=recv
-            ?'<button onclick="togglePurReceived(\''+sid+'\')" title="Annuler l\'acceptation" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--gr2)">✓ Prêt OK</button>'
+
+      // Fusion par nom de carte : col0 → td0, col1/colX → td1 (même ligne si même carte)
+      var byNl={},nlOrder=[];
+      function _slot(c,key){if(!byNl[c.nl]){byNl[c.nl]={col0:null,col1:null,colX:null};nlOrder.push(c.nl);}byNl[c.nl][key]=c;}
+      g.col0.forEach(function(c){_slot(c,'col0');});
+      g.col1.forEach(function(c){_slot(c,'col1');});
+      g.colX.forEach(function(c){_slot(c,'colX');});
+
+      nlOrder.forEach(function(nl){
+        var r=byNl[nl];
+        var c0=r.col0,c1=r.col1,cX=r.colX;
+
+        function _mkCell(c){
+          var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          var recv=!!c.received;
+          var nm='<span class="'+(recv?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
+          var rb='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
+          var db='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
+          return nm+rb+db;
+        }
+        function _mkExch(c){
+          var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          var recv=!!c.received;
+          var nm='<span>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
+          var db='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
+          var lb=recv
+            ?'<button onclick="togglePurReceived(\''+sid+'\')" title="Annuler" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--gr2)">✓ Prêt OK</button>'
             :'<button onclick="togglePurReceived(\''+sid+'\')" title="Accepter le prêt" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--tx3)">✓</button>'
              +'<button onclick="purRefuseLoan(\''+sid+'\')" title="Refuser — devient un achat pour '+esc(p1)+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--am)">✗</button>';
-          html+='<tr class="pur-card-row pur-exch-row'+(recv?' pur-loan-ok':'')+'" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
-            +'<td>'+dkLabel+'</td>'
-            +'<td colspan="2" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'
-            +'↔ '+nameHtml+' '+loanBtns+delBtn2
-            +(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')
-            +'</td></tr>';
-        }else{
-          var td0='<td class="pur-col-td" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'+(col===0?nameHtml+recvBtn+delBtn2:'')+'</td>';
-          var td1='<td class="pur-col-td" ondragover="purColDragOver(event,1)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,1)">'+(col===1?nameHtml+recvBtn+delBtn2:'')+'</td>';
-          html+='<tr class="pur-card-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
-            +'<td></td>'+td0+td1+'</tr>';
+          return '↔ '+nm+' '+lb+db+(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'');
         }
+
+        var td0Html=c0?_mkCell(c0):'';
+        var td1Html='';
+        var rowExtraCls='';
+        if(cX){
+          var xRecv=!!cX.received;
+          rowExtraCls=' pur-exch-row'+(xRecv?' pur-loan-ok':'');
+          td1Html=_mkExch(cX);
+          if(c1)td1Html+='<br>'+_mkCell(c1); // même carte aussi en achat
+        }else if(c1){
+          td1Html=_mkCell(c1);
+        }
+
+        var dkLabel=pureExch&&dk&&dk!=='(sans deck)'?'<span style="font-style:italic;color:var(--tx3);font-size:.72rem">'+esc(dk)+'</span>':'';
+        var mainCard=c0||c1||cX;
+        var msid=mainCard.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        html+='<tr class="pur-card-row'+rowExtraCls+'" data-id="'+esc(mainCard.id)+'" draggable="true" ondragstart="purDragStart(event,\''+msid+'\')">'
+          +'<td>'+dkLabel+'</td>'
+          +'<td class="pur-col-td" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'+td0Html+'</td>'
+          +'<td class="pur-col-td" ondragover="purColDragOver(event,1)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,1)">'+td1Html+'</td>'
+          +'</tr>';
       });
     });
   }
@@ -8043,17 +8065,36 @@ function purBuildCardArray(text,filename){
   var p0lc=(PN[0]||'').toLowerCase();
   var p1lc=(PN[_purFriendIdx]||'').toLowerCase();
   var firstNonEmpty=lines.find(function(l){return l.trim().length>0;})||'';
-  var isExternalFormat=!firstNonEmpty.match(/^===\s*.+\s*===\s*$/);
-  if(isExternalFormat){
+  var _mkCard=function(name,qty,col,deck,recv){return {id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:deck||'',deckId:'',column:col,note:'',received:!!recv};};
+  // Détection du format :
+  // - Interne (export app) : commence par === titre ===
+  // - Externe app : contient "Propriétaire :" ou commence par "Liste d'achat"
+  // - Liste simple : tout le reste (1x Carte, 1 Carte, Carte)
+  var isInternalFmt=/^===\s*.+\s*===\s*$/.test(firstNonEmpty.trim());
+  var isAppExtFmt=!isInternalFmt&&(
+    lines.some(function(l){return /^propri[eé]taire\s*:/i.test(l.trim());})||
+    /^liste\s+d[''’]/i.test(firstNonEmpty.trim())
+  );
+  if(isAppExtFmt){
     var ownerCol=1,currentCol=1,currentDeck='';
     lines.forEach(function(line,i){
-      if(i===0&&line.trim()){listName=line.replace(/^liste\s+d['']achat\s*[—\-–]\s*/i,'').trim()||listName;return;}
+      if(i===0&&line.trim()){listName=line.replace(/^liste\s+d[''’]achat\s*[—\-–]\s*/i,'').trim()||listName;return;}
       var mOwner=line.match(/^propri[eé]taire\s*:\s*(.+)$/i);
       if(mOwner){var own=mOwner[1].trim().toLowerCase();ownerCol=1;if(own===p0lc){ownerCol=0;}else{for(var fi=1;fi<(PN.length||1);fi++){if((PN[fi]||'').toLowerCase()===own){ownerCol=fi;break;}}}currentCol=ownerCol;return;}
       var mSect=line.match(/^===\s*(.+?)\s*===\s*$/);
       if(mSect){var sn=mSect[1],snl=sn.toLowerCase();if(snl.indexOf('emprunt')>=0||snl.indexOf('change')>=0||snl.indexOf('prêt')>=0){currentCol=-2;currentDeck='';}else{currentCol=ownerCol;var mDk=sn.match(/\(([^)]+)\)/g);currentDeck='';if(mDk){for(var di=0;di<mDk.length;di++){var grp=mDk[di].replace(/^\(|\)$/g,'').trim();if(!/^\d+\s*cartes?$/i.test(grp)){currentDeck=grp;break;}}}}return;}
       var mCard=line.match(/^\s+(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
-      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});}
+      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push(_mkCard(name,qty,currentCol,currentDeck,recv));}
+    });
+  }else if(!isInternalFmt){
+    // Liste simple : chaque ligne = une carte (1x Nom, 1 Nom, Nom)
+    lines.forEach(function(line){
+      var l=line.trim();if(!l||l.startsWith('#'))return;
+      var m=l.match(/^(\d+)\s*[x×]\s+(.+?)(?:\s+\([A-Z0-9]{2,5}\)\s*\d*)?(?:\s+\*[FE]\*)?$/i);
+      if(m){var name=m[2].replace(/\s+\([A-Z0-9]{2,5}\)\s*\d*$/,'').trim();if(name)cards.push(_mkCard(name,parseInt(m[1])||1,0,'',false));return;}
+      var m2=l.match(/^(\d+)\s+(.+?)(?:\s+\([A-Z0-9]{2,5}\)\s*\d*)?$/i);
+      if(m2){var name=m2[2].replace(/\s+\([A-Z0-9]{2,5}\)\s*\d*$/,'').trim();if(name)cards.push(_mkCard(name,parseInt(m2[1])||1,0,'',false));return;}
+      if(/^[a-zA-ZÀ-ÿ]/.test(l)){var name=l.replace(/\s+\([A-Z0-9]{2,5}\)\s*\d*$/,'').trim();if(name&&name.length>1)cards.push(_mkCard(name,1,0,'',false));}
     });
   }else{
     var currentCol=0,currentDeck='';
@@ -8063,9 +8104,9 @@ function purBuildCardArray(text,filename){
       if(mSect){var sn=mSect[1].toLowerCase();if(sn===p0lc)currentCol=0;else if(sn===p1lc)currentCol=1;else if(sn.indexOf('change')>=0||sn.indexOf('emprunt')>=0)currentCol=-2;else currentCol=0;currentDeck='';return;}
       var mDeck=line.match(/^\s{2}\[(.+)\]\s*$/);if(mDeck){currentDeck=mDeck[1];return;}
       var mCard=line.match(/^\s{2,}(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
-      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});return;}
+      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push(_mkCard(name,qty,currentCol,currentDeck,recv));return;}
       var mCard2=line.match(/^\s{2,}([^\[\-=].+?)(\s+✓)?\s*$/);
-      if(mCard2){var name=mCard2[1].trim(),recv=!!mCard2[2];if(name&&name.length>1)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:1,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});}
+      if(mCard2){var name=mCard2[1].trim(),recv=!!mCard2[2];if(name&&name.length>1)cards.push(_mkCard(name,1,currentCol,currentDeck,recv));}
     });
   }
   var _amMap0=_purBuildDeckCardMap(0);
