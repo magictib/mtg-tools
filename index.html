@@ -1066,7 +1066,7 @@ body.mana-cursor{cursor:none}
 .meta-topcard-name{flex:1;font-size:.75rem;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:color .1s}
 .meta-topcard-name:hover{color:var(--gold2)}
 .meta-topcard-bar{width:32px;height:3px;background:var(--s3);border-radius:999px;flex-shrink:0}
-.meta-topcard-fill{height:3px;border-radius:999px;background:rgba(201,168,76,.55)}
+.meta-topcard-fill{height:3px;border-radius:999px;background:var(--gold2);opacity:.6}
 .meta-topcard-pct{font-size:.66rem;color:var(--tx3);min-width:28px;text-align:right;flex-shrink:0}
 /* ===== BUILDER AMÉLIORÉ ===== */
 .bld-grp-hdr{font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.1em;text-transform:uppercase;padding:6px 0 3px;border-bottom:.5px solid var(--bd);margin-bottom:3px;display:flex;align-items:center;gap:5px}
@@ -1080,13 +1080,13 @@ body.mana-cursor{cursor:none}
 /* META */
 .meta-fmt-btn{padding:4px 11px;border-radius:6px;border:.5px solid var(--bd2);background:transparent;color:var(--tx2);cursor:pointer;font-size:.78rem;transition:all .15s;font-family:inherit}
 .meta-fmt-btn:hover{border-color:var(--ac);color:var(--tx)}
-.meta-fmt-btn.active{background:var(--ac);color:#0c0a07;border-color:var(--ac);font-weight:600}
+.meta-fmt-btn.active{background:var(--ac2);color:var(--bg);border-color:var(--ac2);font-weight:600}
 .meta-cat-hdr{font-size:9px;font-family:'Goudy Mediaeval',serif;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3);padding:8px 0 4px;border-bottom:.5px solid var(--bd);margin-bottom:4px;display:flex;align-items:center;gap:8px}
 .meta-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:var(--s2);border:.5px solid var(--bd);margin-bottom:4px;cursor:pointer;transition:background .12s,border-color .12s}
 .meta-row:hover{background:var(--s3);border-color:rgba(201,168,76,.4)}
-.meta-row.meta-active{background:rgba(201,168,76,.1);border-color:rgba(201,168,76,.55)}
+.meta-row.meta-active{background:var(--glow1);border-color:var(--gold2)}
 .meta-pct-track{width:56px;height:4px;background:var(--s3);border-radius:999px;flex-shrink:0}
-.meta-pct-bar{height:4px;border-radius:999px;background:var(--ac)}
+.meta-pct-bar{height:4px;border-radius:999px;background:var(--gold2)}
 .meta-pip{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;font-size:.58rem;font-weight:700;border:.5px solid rgba(255,255,255,.15);flex-shrink:0}
 .meta-cardlist{columns:2 180px;column-gap:14px;font-size:.78rem;line-height:1.8}
 .meta-card-row{display:flex;gap:5px;break-inside:avoid}
@@ -1803,10 +1803,7 @@ body.mana-cursor{cursor:none}
   <div id="deck-modal-bar" style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div class="lbl" style="margin:0;font-size:1rem">♠ Mes decks</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="btn btnsm" onclick="openPurchaseMgr()">📋 Achats partagés</button>
-        <button class="btn btnsm" onclick="goTab('build')">← ♠ Deck</button>
-      </div>
+      <button class="btn btnsm" onclick="goTab('build')">← ♠ Deck</button>
     </div>
   </div>
   <div style="display:flex;gap:12px;align-items:start;flex-wrap:wrap;margin-bottom:1rem">
@@ -2133,6 +2130,11 @@ body.mana-cursor{cursor:none}
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">📋</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Mes decks</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Consulter et gérer mes decks sauvegardés</div>
+    </div>
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openPurchaseMgr()">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🛒</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Achats en cours</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Gérer les listes d'achat partagées entre profils</div>
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
@@ -7274,13 +7276,13 @@ function importAchatToPurchase(){
     if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.need);}
     else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.need,deckName:dn,deckId:deckId,column:0});}
   });
-  // Cartes à emprunter → colonne de l'ami concerné
+  // Cartes à emprunter → colonne Échange/Emprunt (-2) avec note de l'ami prêteur
   Object.keys(_achatRecap.borrow||{}).forEach(function(fi){
-    var col=parseInt(fi);
+    var friendName=PN[parseInt(fi)]||'ami';
     (_achatRecap.borrow[fi]||[]).forEach(function(r){
-      var idx=lst.cards.findIndex(function(c){return c.nl===(r.nl||r.name.toLowerCase())&&c.column===col;});
+      var idx=lst.cards.findIndex(function(c){return c.nl===(r.nl||r.name.toLowerCase())&&c.column===-2;});
       if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.qty);}
-      else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.qty,deckName:dn,deckId:deckId,column:col});}
+      else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.qty,deckName:dn,deckId:deckId,column:-2,note:'emprunt '+friendName});}
     });
   });
   savePurchaseList(_activePurListId);
@@ -7321,7 +7323,10 @@ function renderPurchaseMgr(){
   if(!colsEl)return;
   if(importBtn)importBtn.style.display=_achatRecap?'':'none';
   if(!_activePurListId||!_purchaseLists[_activePurListId]){
-    colsEl.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1.5rem 0">Créez une liste pour commencer.</div>';
+    colsEl.innerHTML='<div style="padding:1.5rem 0;text-align:center">'
+      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:12px">Aucune liste d\'achat — créez-en une pour commencer.</div>'
+      +'<button class="btn btnp btnsm" onclick="newPurchaseList()">+ Créer une liste</button>'
+      +'</div>';
     if(exportBtn)exportBtn.style.display='none';
     if(delBtn)delBtn.style.display='none';
     return;
@@ -7330,10 +7335,13 @@ function renderPurchaseMgr(){
   if(delBtn)delBtn.style.display='';
   var lst=_purchaseLists[_activePurListId];
   var cards=lst.cards||[];
-  // Colonnes : -1 non assigné, puis 0..n profils chargés
-  var cols=[{col:-1,label:'Non assigné',color:'var(--tx3)'}];
+  // Colonnes : -2 échange/emprunt, -1 non assigné, puis 0..n profils chargés
+  var cols=[
+    {col:-1,label:'Non assigné',color:'var(--tx3)'},
+    {col:-2,label:'Échange / Emprunt',color:'var(--am)'}
+  ];
   for(var i=0;i<profs.length;i++){
-    cols.push({col:i,label:PN[i]||('Profil '+(i+1)),color:i===0?'var(--bl2)':'var(--am)'});
+    cols.push({col:i,label:PN[i]||('Profil '+(i+1)),color:i===0?'var(--gold2)':'var(--ac2)'});
   }
   colsEl.innerHTML=cols.map(function(c){
     var colCards=cards.filter(function(cd){return cd.column===c.col;});
@@ -7346,6 +7354,7 @@ function renderPurchaseMgr(){
         +'<span onclick="removePurCard(\''+safeId+'\')" style="color:var(--rd2);cursor:pointer;font-size:.68rem;padding:1px 4px;opacity:.6;line-height:1" title="Retirer">✕</span>'
         +'</div>'
         +(card.deckName?'<div style="font-size:.65rem;color:var(--tx3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📖 '+esc(card.deckName)+'</div>':'')
+        +(card.note?'<div style="font-size:.63rem;color:var(--am);margin-top:1px;font-style:italic">'+esc(card.note)+'</div>':'')
         +'</div>';
     }).join('');
     return '<div class="pur-col">'
@@ -15397,52 +15406,62 @@ function setUserLang(lang){
 
 var _BG_MEDIEVAL='';
 var _BG_FUTURISTE=[
-  // ── Corps de Saturne (énorme, haut droit) ──
-  'radial-gradient(ellipse 38% 34% at 82% 24%,#f5d040 0%,#e8901c 38%,rgba(180,80,10,.55) 65%,transparent 82%)',
-  // Atmosphère lumineuse
-  'radial-gradient(ellipse 32% 28% at 82% 22%,rgba(255,250,160,.32) 0%,transparent 55%)',
-  // Ombre des anneaux sur la planète
-  'radial-gradient(ellipse 30% 6% at 82% 30%,rgba(40,20,0,.85) 0%,transparent 80%)',
+  // ── Planète gazeuse (haut droit, plus modeste) ──
+  'radial-gradient(ellipse 26% 23% at 82% 22%,rgba(210,175,60,.72) 0%,rgba(180,110,20,.42) 45%,rgba(120,55,5,.18) 70%,transparent 85%)',
+  // Bandes atmosphériques tamisées
+  'radial-gradient(ellipse 22% 18% at 82% 20%,rgba(240,210,100,.14) 0%,transparent 60%)',
+  // Ombre anneaux sur planète
+  'radial-gradient(ellipse 20% 4% at 82% 28%,rgba(30,15,0,.6) 0%,transparent 80%)',
   // Anneau large externe
-  'radial-gradient(ellipse 72% 14% at 82% 24%,transparent 46%,rgba(215,175,55,.72) 49%,rgba(245,205,70,.5) 55%,rgba(215,175,55,.62) 60%,transparent 63%)',
-  // Anneau intérieur lumineux
-  'radial-gradient(ellipse 58% 9% at 82% 24%,transparent 47%,rgba(255,220,90,.85) 49%,transparent 53%)',
-  // Halo vaste autour de Saturne
-  'radial-gradient(ellipse 52% 46% at 82% 24%,transparent 70%,rgba(220,160,20,.22) 82%,transparent 92%)',
-  // ── Nébuleuses très visibles ──
-  // Nébuleuse violette intense (bas-gauche)
-  'radial-gradient(ellipse 65% 55% at 5% 85%,rgba(110,0,240,.75) 0%,rgba(60,0,140,.45) 45%,transparent 70%)',
-  // Nébuleuse bleue-cyan (centre gauche)
-  'radial-gradient(ellipse 50% 40% at 22% 60%,rgba(0,80,255,.55) 0%,rgba(0,40,160,.28) 50%,transparent 72%)',
-  // Nébuleuse cyan (droite bas)
-  'radial-gradient(ellipse 45% 38% at 98% 75%,rgba(0,200,255,.6) 0%,rgba(0,90,190,.3) 50%,transparent 72%)',
-  // Nébuleuse rose/magenta (haut gauche)
-  'radial-gradient(ellipse 40% 35% at 2% 15%,rgba(200,0,255,.55) 0%,rgba(110,0,160,.28) 50%,transparent 72%)',
-  // Voie lactée brillante
-  'radial-gradient(ellipse 90% 18% at 48% 50%,rgba(130,100,255,.28) 0%,rgba(80,60,180,.14) 55%,transparent 72%)',
-  // Lueur profonde derrière Saturne
-  'radial-gradient(ellipse 60% 55% at 82% 24%,rgba(255,180,20,.1) 0%,transparent 60%)',
-  // ── Étoiles (plus grandes et lumineuses) ──
-  'radial-gradient(circle 3.5px at 6% 8%,#fff 0%,transparent 100%)',
-  'radial-gradient(circle 2.5px at 14% 35%,rgba(200,230,255,1) 0%,transparent 100%)',
-  'radial-gradient(circle 4px at 24% 15%,#fff 0%,transparent 100%)',
-  'radial-gradient(circle 3px at 33% 70%,rgba(180,220,255,1) 0%,transparent 100%)',
-  'radial-gradient(circle 3.5px at 43% 28%,#fff 0%,transparent 100%)',
-  'radial-gradient(circle 2.5px at 52% 88%,rgba(200,200,255,1) 0%,transparent 100%)',
-  'radial-gradient(circle 4px at 60% 10%,#fff 0%,transparent 100%)',
-  'radial-gradient(circle 3px at 68% 48%,rgba(220,240,255,1) 0%,transparent 100%)',
-  'radial-gradient(circle 3.5px at 90% 6%,#fff 0%,transparent 100%)',
-  'radial-gradient(circle 2.5px at 96% 40%,rgba(180,220,255,1) 0%,transparent 100%)',
-  'radial-gradient(circle 2.5px at 3% 58%,rgba(255,255,255,.9) 0%,transparent 100%)',
-  'radial-gradient(circle 2px at 18% 86%,rgba(255,255,255,.85) 0%,transparent 100%)',
-  'radial-gradient(circle 3px at 38% 53%,rgba(150,200,255,1) 0%,transparent 100%)',
-  'radial-gradient(circle 2.5px at 56% 42%,rgba(255,255,255,.95) 0%,transparent 100%)',
-  'radial-gradient(circle 3px at 72% 67%,rgba(255,255,255,.9) 0%,transparent 100%)',
-  'radial-gradient(circle 2px at 83% 25%,rgba(200,220,255,1) 0%,transparent 100%)',
-  'radial-gradient(circle 3.5px at 48% 5%,rgba(255,245,200,1) 0%,transparent 100%)',
-  'radial-gradient(circle 2.5px at 87% 87%,rgba(255,255,255,.95) 0%,transparent 100%)',
-  'radial-gradient(circle 2px at 10% 63%,rgba(255,255,255,.8) 0%,transparent 100%)',
-  'radial-gradient(circle 3px at 29% 41%,rgba(255,255,255,.85) 0%,transparent 100%)'
+  'radial-gradient(ellipse 62% 10% at 82% 22%,transparent 48%,rgba(200,160,45,.55) 51%,rgba(225,185,58,.38) 56%,rgba(200,160,45,.45) 61%,transparent 64%)',
+  // Anneau intérieur
+  'radial-gradient(ellipse 50% 6% at 82% 22%,transparent 49%,rgba(230,200,75,.55) 51%,transparent 54%)',
+  // Halo doux autour de la planète
+  'radial-gradient(ellipse 44% 38% at 82% 22%,transparent 72%,rgba(180,130,12,.12) 85%,transparent 95%)',
+  // ── Nébuleuses ──
+  'radial-gradient(ellipse 65% 55% at 5% 85%,rgba(90,0,200,.6) 0%,rgba(50,0,120,.35) 45%,transparent 70%)',
+  'radial-gradient(ellipse 50% 40% at 22% 60%,rgba(0,60,220,.45) 0%,rgba(0,30,130,.22) 50%,transparent 72%)',
+  'radial-gradient(ellipse 45% 38% at 98% 75%,rgba(0,170,235,.48) 0%,rgba(0,70,170,.24) 50%,transparent 72%)',
+  'radial-gradient(ellipse 40% 35% at 2% 15%,rgba(170,0,230,.44) 0%,rgba(90,0,140,.22) 50%,transparent 72%)',
+  // ── Voie lactée dense (bande diagonale + halos) ──
+  'radial-gradient(ellipse 95% 20% at 48% 50%,rgba(110,85,220,.22) 0%,rgba(65,50,160,.12) 55%,transparent 72%)',
+  'radial-gradient(ellipse 70% 12% at 55% 45%,rgba(140,110,255,.16) 0%,rgba(90,70,200,.08) 55%,transparent 72%)',
+  'radial-gradient(ellipse 80% 8% at 38% 52%,rgba(160,140,255,.12) 0%,transparent 70%)',
+  // ── Étoiles fines (voie lactée) — très nombreuses ──
+  'radial-gradient(circle 1px at 4% 12%,rgba(255,255,255,.9) 0%,transparent 100%)',
+  'radial-gradient(circle 1.5px at 8% 38%,rgba(210,235,255,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 11% 57%,rgba(255,255,255,.75) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 15% 22%,rgba(230,245,255,.95) 0%,transparent 100%)',
+  'radial-gradient(circle 2px at 19% 72%,rgba(200,220,255,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 23% 8%,rgba(255,255,255,.8) 0%,transparent 100%)',
+  'radial-gradient(circle 1.5px at 27% 45%,rgba(255,250,240,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 30% 81%,rgba(220,240,255,.88) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 34% 30%,rgba(255,255,255,.85) 0%,transparent 100%)',
+  'radial-gradient(circle 2px at 37% 63%,rgba(200,215,255,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 41% 17%,rgba(255,255,255,.9) 0%,transparent 100%)',
+  'radial-gradient(circle 1.5px at 44% 52%,rgba(240,248,255,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 48% 88%,rgba(210,235,255,.82) 0%,transparent 100%)',
+  'radial-gradient(circle 2.5px at 50% 6%,rgba(255,248,210,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 53% 41%,rgba(255,255,255,.78) 0%,transparent 100%)',
+  'radial-gradient(circle 1.5px at 57% 70%,rgba(225,242,255,.95) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 61% 25%,rgba(255,255,255,.88) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 64% 55%,rgba(215,235,255,.82) 0%,transparent 100%)',
+  'radial-gradient(circle 2px at 67% 82%,rgba(200,220,255,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 71% 14%,rgba(255,255,255,.85) 0%,transparent 100%)',
+  'radial-gradient(circle 1.5px at 74% 47%,rgba(240,250,255,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 77% 75%,rgba(225,240,255,.8) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 80% 32%,rgba(200,225,255,.9) 0%,transparent 100%)',
+  'radial-gradient(circle 2px at 84% 62%,rgba(220,238,255,1) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 88% 18%,rgba(255,255,255,.75) 0%,transparent 100%)',
+  'radial-gradient(circle 1.5px at 91% 50%,rgba(210,235,255,.95) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 94% 33%,rgba(255,255,255,.82) 0%,transparent 100%)',
+  'radial-gradient(circle 1px at 97% 68%,rgba(225,242,255,.78) 0%,transparent 100%)',
+  // ── Quelques étoiles brillantes (géantes) ──
+  'radial-gradient(circle 3px at 6% 8%,#fff 0%,rgba(200,230,255,.3) 100%)',
+  'radial-gradient(circle 3.5px at 24% 15%,#fff 0%,transparent 100%)',
+  'radial-gradient(circle 3px at 43% 28%,rgba(255,248,220,1) 0%,transparent 100%)',
+  'radial-gradient(circle 3.5px at 60% 10%,#fff 0%,transparent 100%)',
+  'radial-gradient(circle 3px at 90% 6%,#fff 0%,transparent 100%)'
 ].join(',');
 var _BG_HORREUR=[
   // ── Obscurité dense du haut ──
@@ -15515,6 +15534,7 @@ function _applyThemeBg(t){
       el.style.backgroundImage=_BG_FUTURISTE;
       el.style.backgroundSize='100% 100%';
       el.style.backgroundRepeat='no-repeat';
+      _futuristeExtras(el);
     } else if(t==='horreur'){
       el.style.backgroundColor='#1a0008';
       el.style.backgroundImage=_BG_HORREUR;
@@ -15533,6 +15553,52 @@ function _applyThemeBg(t){
       el.style.backgroundSize='';
       el.style.backgroundRepeat='';
     }
+  });
+}
+function _futuristeExtras(bgEl){
+  if(!document.getElementById('ml-ft-css')){
+    var s=document.createElement('style');s.id='ml-ft-css';
+    s.textContent=
+      '@keyframes ftdrift{0%{transform:translateX(0) translateY(0)}50%{transform:translateX(6px) translateY(-4px)}100%{transform:translateX(0) translateY(0)}}'+
+      '@keyframes ftdrift2{0%{transform:translateX(0) translateY(0)}50%{transform:translateX(-8px) translateY(3px)}100%{transform:translateX(0) translateY(0)}}'+
+      '.ml-ship{position:absolute;pointer-events:none}';
+    document.head.appendChild(s);
+  }
+  // Vaisseaux interstellaires en silhouette
+  var ships=[
+    {x:'12%',y:'18%',w:48,rot:-15,anim:'ftdrift 14s ease-in-out infinite',op:.38},
+    {x:'38%',y:'8%',w:32,rot:10,anim:'ftdrift2 18s ease-in-out infinite',op:.28},
+    {x:'58%',y:'32%',w:22,rot:-5,anim:'ftdrift 22s ease-in-out infinite',op:.22},
+    {x:'72%',y:'14%',w:16,rot:20,anim:'ftdrift2 26s ease-in-out infinite',op:.18},
+    {x:'28%',y:'36%',w:14,rot:-25,anim:'ftdrift 30s ease-in-out infinite',op:.15},
+    {x:'85%',y:'55%',w:20,rot:8,anim:'ftdrift2 20s ease-in-out infinite',op:.14}
+  ];
+  ships.forEach(function(sp){
+    var el=document.createElement('div');
+    el.className='ml-hx ml-ship';
+    el.style.cssText='left:'+sp.x+';top:'+sp.y+';opacity:'+sp.op+';animation:'+sp.anim+';transform:rotate('+sp.rot+'deg)';
+    var w=sp.w,h=Math.round(w*.38);
+    // Silhouette vaisseau : corps fuselé + ailes delta + nacelles
+    el.innerHTML='<svg width="'+w+'" height="'+h+'" viewBox="0 0 120 46" xmlns="http://www.w3.org/2000/svg">'
+      // Corps principal fuselé
+      +'<path d="M0,23 L18,30 L70,26 L110,23 L70,20 L18,16 Z" fill="rgba(160,210,255,.9)"/>'
+      // Pointe avant
+      +'<path d="M100,23 L120,23 L110,23 Z" fill="rgba(180,230,255,.95)"/>'
+      // Aile haute delta
+      +'<path d="M15,22 L50,22 L30,2 Z" fill="rgba(130,185,240,.85)"/>'
+      // Aile basse delta (symétrique)
+      +'<path d="M15,24 L50,24 L30,44 Z" fill="rgba(130,185,240,.85)"/>'
+      // Nacelle propulsion gauche
+      +'<ellipse cx="8" cy="18" rx="10" ry="3.5" fill="rgba(100,160,220,.75)"/>'
+      +'<ellipse cx="8" cy="28" rx="10" ry="3.5" fill="rgba(100,160,220,.75)"/>'
+      // Lueur propulsion
+      +'<ellipse cx="0" cy="18" rx="5" ry="2.5" fill="rgba(80,200,255,.65)"/>'
+      +'<ellipse cx="0" cy="28" rx="5" ry="2.5" fill="rgba(80,200,255,.65)"/>'
+      // Hublots
+      +'<circle cx="72" cy="23" r="2.5" fill="rgba(220,240,255,.8)"/>'
+      +'<circle cx="60" cy="23" r="2" fill="rgba(200,230,255,.6)"/>'
+      +'</svg>';
+    bgEl.appendChild(el);
   });
 }
 function _horreurExtras(bgEl){
@@ -15555,11 +15621,11 @@ function _horreurExtras(bgEl){
       '.ml-bat svg{display:block;animation:mlbwing .42s ease-in-out infinite;transform-origin:center 60%}'+
       '.ml-tents{position:fixed;inset:0;pointer-events:none;z-index:3}'+
       '.ml-eyes{position:fixed;inset:0;pointer-events:none;z-index:4}'+
-      '@keyframes mltsway{0%,100%{transform-origin:bottom center;transform:rotate(0deg)}35%{transform:rotate(3.2deg)}72%{transform:rotate(-2.5deg)}}'+
+      '@keyframes mltsway{0%,100%{transform:rotate(0deg)}35%{transform:rotate(3.2deg)}72%{transform:rotate(-2.5deg)}}'+
       '@keyframes mltpulse{0%,100%{opacity:.18}50%{opacity:.28}}'+
       '@keyframes mleyeblink{0%,90%,100%{transform:scaleY(1)}95%{transform:scaleY(0.05)}}'+
       '@keyframes mleyeglow{0%,100%{filter:drop-shadow(0 0 4px currentColor)}50%{filter:drop-shadow(0 0 10px currentColor)}}'+
-      '.ml-tents>svg .t-path{animation:mltsway ease-in-out infinite,mltpulse ease-in-out 4s infinite}'+
+      '.ml-tent-g{animation:mltsway ease-in-out infinite,mltpulse ease-in-out 4s infinite}'+
       '.ml-eye-grp{animation:mleyeblink 6s ease-in-out infinite,mleyeglow 3s ease-in-out infinite}';
     document.head.appendChild(s);
   }
@@ -15596,32 +15662,39 @@ function _horreurExtras(bgEl){
     return out;
   }
   tl.innerHTML='<svg width="100%" height="100%" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">'+
-    // ── Tentacule bas-gauche (le plus gros) ──
-    // Ombre portée (plus large, plus sombre)
-    '<path class="t-path" d="M-30,930 C25,850 8,772 72,700 C136,628 100,550 168,478 C236,406 196,332 258,270" stroke="rgba(15,0,22,1)" stroke-width="34" fill="none" stroke-linecap="round" style="animation-duration:7s;animation-delay:0s"/>'+
-    // Corps principal (couleur chair violacée)
-    '<path class="t-path" d="M-30,930 C25,850 8,772 72,700 C136,628 100,550 168,478 C236,406 196,332 258,270" stroke="rgba(72,8,100,.92)" stroke-width="24" fill="none" stroke-linecap="round" style="animation-duration:7s;animation-delay:0s"/>'+
-    // Reflet central (surbrillance)
-    '<path d="M-12,915 C38,840 24,766 84,696 C144,626 112,550 178,480 C244,410 206,338 268,278" stroke="rgba(160,80,200,.22)" stroke-width="8" fill="none" stroke-linecap="round"/>'+
-    suckers([[68,702],[104,658],[136,628],[100,554],[130,510],[168,478],[200,440],[230,406],[196,362],[234,328],[258,290]],7,'rgba(110,18,150,.9)')+
-    // ── Tentacule bas-droite ──
-    '<path class="t-path" d="M1470,930 C1412,845 1428,762 1368,690 C1308,618 1332,540 1268,468 C1204,396 1236,322 1174,258" stroke="rgba(15,0,22,1)" stroke-width="30" fill="none" stroke-linecap="round" style="animation-duration:8.5s;animation-delay:-2s"/>'+
-    '<path class="t-path" d="M1470,930 C1412,845 1428,762 1368,690 C1308,618 1332,540 1268,468 C1204,396 1236,322 1174,258" stroke="rgba(68,7,95,.88)" stroke-width="21" fill="none" stroke-linecap="round" style="animation-duration:8.5s;animation-delay:-2s"/>'+
-    '<path d="M1450,915 C1394,832 1412,752 1354,682 C1296,612 1318,536 1256,466 C1194,396 1224,324 1164,262" stroke="rgba(155,75,195,.2)" stroke-width="7" fill="none" stroke-linecap="round"/>'+
-    suckers([[1368,690],[1340,660],[1308,628],[1330,558],[1300,516],[1268,478],[1236,438],[1204,404],[1236,358],[1202,310],[1182,270]],6.5,'rgba(100,15,138,.88)')+
-    // ── Tentacule gauche, horizontal ──
-    '<path class="t-path" d="M-40,570 C58,548 36,506 138,484 C240,462 220,424 338,408 C456,392 462,360 576,348 C630,342 672,352 708,364" stroke="rgba(12,0,18,1)" stroke-width="22" fill="none" stroke-linecap="round" style="animation-duration:9s;animation-delay:-3.5s"/>'+
-    '<path class="t-path" d="M-40,570 C58,548 36,506 138,484 C240,462 220,424 338,408 C456,392 462,360 576,348 C630,342 672,352 708,364" stroke="rgba(60,6,88,.84)" stroke-width="15" fill="none" stroke-linecap="round" style="animation-duration:9s;animation-delay:-3.5s"/>'+
-    '<path d="M-20,565 C72,544 52,504 150,482 C248,460 230,422 348,406" stroke="rgba(140,65,185,.18)" stroke-width="5" fill="none" stroke-linecap="round"/>'+
-    suckers([[130,486],[228,465],[336,410],[462,394],[574,350],[700,366]],5,'rgba(90,12,124,.85)')+
-    // ── Tentacule droite, horizontal ──
-    '<path class="t-path" d="M1480,468 C1384,450 1402,412 1308,396 C1214,380 1228,344 1134,330 C1040,316 1032,286 938,276 C886,270 848,280 816,292" stroke="rgba(12,0,18,1)" stroke-width="19" fill="none" stroke-linecap="round" style="animation-duration:10s;animation-delay:-1.5s"/>'+
-    '<path class="t-path" d="M1480,468 C1384,450 1402,412 1308,396 C1214,380 1228,344 1134,330 C1040,316 1032,286 938,276 C886,270 848,280 816,292" stroke="rgba(58,6,84,.8)" stroke-width="13" fill="none" stroke-linecap="round" style="animation-duration:10s;animation-delay:-1.5s"/>'+
-    suckers([[1310,398],[1222,360],[1136,332],[1046,298],[942,280],[820,294]],4.5,'rgba(85,10,118,.82)')+
-    // ── Tentacule bas-centre ──
-    '<path class="t-path" d="M668,945 C684,875 650,828 676,768 C702,708 666,660 692,600 C718,540 682,494 710,434 C726,394 756,374 784,358" stroke="rgba(12,0,18,1)" stroke-width="18" fill="none" stroke-linecap="round" style="animation-duration:11.5s;animation-delay:-5s"/>'+
-    '<path class="t-path" d="M668,945 C684,875 650,828 676,768 C702,708 666,660 692,600 C718,540 682,494 710,434 C726,394 756,374 784,358" stroke="rgba(56,5,80,.78)" stroke-width="12" fill="none" stroke-linecap="round" style="animation-duration:11.5s;animation-delay:-5s"/>'+
-    suckers([[676,768],[690,726],[666,664],[694,604],[718,562],[684,498],[712,438],[750,396],[784,360]],4,'rgba(80,8,112,.8)')+
+    // ── Tentacule bas-gauche (le plus gros) — pivot à l'entrée bas-gauche ──
+    '<g class="ml-tent-g" style="animation-duration:7s;animation-delay:0s;transform-origin:-30px 930px">'+
+      '<path d="M-30,930 C25,850 8,772 72,700 C136,628 100,550 168,478 C236,406 196,332 258,270" stroke="rgba(15,0,22,1)" stroke-width="34" fill="none" stroke-linecap="round"/>'+
+      '<path d="M-30,930 C25,850 8,772 72,700 C136,628 100,550 168,478 C236,406 196,332 258,270" stroke="rgba(72,8,100,.92)" stroke-width="24" fill="none" stroke-linecap="round"/>'+
+      '<path d="M-12,915 C38,840 24,766 84,696 C144,626 112,550 178,480 C244,410 206,338 268,278" stroke="rgba(160,80,200,.22)" stroke-width="8" fill="none" stroke-linecap="round"/>'+
+      suckers([[68,702],[104,658],[136,628],[100,554],[130,510],[168,478],[200,440],[230,406],[196,362],[234,328],[258,290]],7,'rgba(110,18,150,.9)')+
+    '</g>'+
+    // ── Tentacule bas-droite — pivot à 1470,930 ──
+    '<g class="ml-tent-g" style="animation-duration:8.5s;animation-delay:-2s;transform-origin:1470px 930px">'+
+      '<path d="M1470,930 C1412,845 1428,762 1368,690 C1308,618 1332,540 1268,468 C1204,396 1236,322 1174,258" stroke="rgba(15,0,22,1)" stroke-width="30" fill="none" stroke-linecap="round"/>'+
+      '<path d="M1470,930 C1412,845 1428,762 1368,690 C1308,618 1332,540 1268,468 C1204,396 1236,322 1174,258" stroke="rgba(68,7,95,.88)" stroke-width="21" fill="none" stroke-linecap="round"/>'+
+      '<path d="M1450,915 C1394,832 1412,752 1354,682 C1296,612 1318,536 1256,466 C1194,396 1224,324 1164,262" stroke="rgba(155,75,195,.2)" stroke-width="7" fill="none" stroke-linecap="round"/>'+
+      suckers([[1368,690],[1340,660],[1308,628],[1330,558],[1300,516],[1268,478],[1236,438],[1204,404],[1236,358],[1202,310],[1182,270]],6.5,'rgba(100,15,138,.88)')+
+    '</g>'+
+    // ── Tentacule gauche horizontal — pivot à -40,570 ──
+    '<g class="ml-tent-g" style="animation-duration:9s;animation-delay:-3.5s;transform-origin:-40px 570px">'+
+      '<path d="M-40,570 C58,548 36,506 138,484 C240,462 220,424 338,408 C456,392 462,360 576,348 C630,342 672,352 708,364" stroke="rgba(12,0,18,1)" stroke-width="22" fill="none" stroke-linecap="round"/>'+
+      '<path d="M-40,570 C58,548 36,506 138,484 C240,462 220,424 338,408 C456,392 462,360 576,348 C630,342 672,352 708,364" stroke="rgba(60,6,88,.84)" stroke-width="15" fill="none" stroke-linecap="round"/>'+
+      '<path d="M-20,565 C72,544 52,504 150,482 C248,460 230,422 348,406" stroke="rgba(140,65,185,.18)" stroke-width="5" fill="none" stroke-linecap="round"/>'+
+      suckers([[130,486],[228,465],[336,410],[462,394],[574,350],[700,366]],5,'rgba(90,12,124,.85)')+
+    '</g>'+
+    // ── Tentacule droite horizontal — pivot à 1480,468 ──
+    '<g class="ml-tent-g" style="animation-duration:10s;animation-delay:-1.5s;transform-origin:1480px 468px">'+
+      '<path d="M1480,468 C1384,450 1402,412 1308,396 C1214,380 1228,344 1134,330 C1040,316 1032,286 938,276 C886,270 848,280 816,292" stroke="rgba(12,0,18,1)" stroke-width="19" fill="none" stroke-linecap="round"/>'+
+      '<path d="M1480,468 C1384,450 1402,412 1308,396 C1214,380 1228,344 1134,330 C1040,316 1032,286 938,276 C886,270 848,280 816,292" stroke="rgba(58,6,84,.8)" stroke-width="13" fill="none" stroke-linecap="round"/>'+
+      suckers([[1310,398],[1222,360],[1136,332],[1046,298],[942,280],[820,294]],4.5,'rgba(85,10,118,.82)')+
+    '</g>'+
+    // ── Tentacule bas-centre — pivot à 668,945 ──
+    '<g class="ml-tent-g" style="animation-duration:11.5s;animation-delay:-5s;transform-origin:668px 945px">'+
+      '<path d="M668,945 C684,875 650,828 676,768 C702,708 666,660 692,600 C718,540 682,494 710,434 C726,394 756,374 784,358" stroke="rgba(12,0,18,1)" stroke-width="18" fill="none" stroke-linecap="round"/>'+
+      '<path d="M668,945 C684,875 650,828 676,768 C702,708 666,660 692,600 C718,540 682,494 710,434 C726,394 756,374 784,358" stroke="rgba(56,5,80,.78)" stroke-width="12" fill="none" stroke-linecap="round"/>'+
+      suckers([[676,768],[690,726],[666,664],[694,604],[718,562],[684,498],[712,438],[750,396],[784,360]],4,'rgba(80,8,112,.8)')+
+    '</g>'+
     '</svg>';
   document.body.appendChild(tl);
   // ── Yeux de démons réalistes (SVG flottant au-dessus du brouillard) ──
@@ -15675,8 +15748,34 @@ function _steampunkExtras(bgEl){
       '.ml-stpf{position:absolute;border-radius:50%;background:rgba(210,185,145,.38);filter:blur(8px);pointer-events:none;animation:mlstm ease-out infinite}';
     document.head.appendChild(s);
   }
-  function gp(cx,cy,ro,ri,n){var d='';for(var i=0;i<n*2;i++){var a=i*Math.PI/n-Math.PI/2;var r=i%2===0?ro:ri;d+=(i===0?'M':'L')+(cx+r*Math.cos(a)).toFixed(1)+','+(cy+r*Math.sin(a)).toFixed(1)+' ';}return d+'Z';}
-  function gsvg(sz,n,col){var c=sz/2,ro=c*.94,ri=c*.72,rh=c*.28;return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'" xmlns="http://www.w3.org/2000/svg"><path d="'+gp(c,c,ro,ri,n)+'" fill="'+col+'"/><circle cx="'+c+'" cy="'+c+'" r="'+rh.toFixed(1)+'" fill="rgba(8,3,0,.88)"/><circle cx="'+c+'" cy="'+c+'" r="'+(rh*.42).toFixed(1)+'" fill="rgba(180,120,30,.5)"/></svg>';}
+  // Engrenage réaliste : dents plates (crenellations)
+  function gp(cx,cy,ro,ri,n){
+    var d='';var period=2*Math.PI/n;var th=period*0.28;var vh=period*0.22;
+    for(var i=0;i<n;i++){
+      var tc=i*period-Math.PI/2;var vc=tc+period*0.5;
+      var p=i===0?'M':'L';
+      d+=p+(cx+ro*Math.cos(tc-th)).toFixed(1)+','+(cy+ro*Math.sin(tc-th)).toFixed(1)+' ';
+      d+='L'+(cx+ro*Math.cos(tc+th)).toFixed(1)+','+(cy+ro*Math.sin(tc+th)).toFixed(1)+' ';
+      d+='L'+(cx+ri*Math.cos(vc-vh)).toFixed(1)+','+(cy+ri*Math.sin(vc-vh)).toFixed(1)+' ';
+      d+='L'+(cx+ri*Math.cos(vc+vh)).toFixed(1)+','+(cy+ri*Math.sin(vc+vh)).toFixed(1)+' ';
+    }
+    return d+'Z';
+  }
+  function gsvg(sz,n,col){
+    var c=sz/2,ro=c*.93,ri=c*.70,rh=c*.28,rb=c*.18;
+    var teeth=gp(c,c,ro,ri,n);
+    // Rayons internes (spokes)
+    var spokes='';var ns=Math.min(n,8);
+    for(var s=0;s<ns;s++){var a=s*2*Math.PI/ns-Math.PI/2;spokes+='<line x1="'+(c+rh*Math.cos(a)).toFixed(1)+'" y1="'+(c+rh*Math.sin(a)).toFixed(1)+'" x2="'+(c+ri*.88*Math.cos(a)).toFixed(1)+'" y2="'+(c+ri*.88*Math.sin(a)).toFixed(1)+'" stroke="rgba(8,3,0,.6)" stroke-width="2.5"/>';}
+    return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'" xmlns="http://www.w3.org/2000/svg">'
+      +'<path d="'+teeth+'" fill="'+col+'"/>'
+      +'<circle cx="'+c+'" cy="'+c+'" r="'+(ri*.55).toFixed(1)+'" fill="rgba(10,5,0,.92)"/>'
+      +spokes
+      +'<circle cx="'+c+'" cy="'+c+'" r="'+rh.toFixed(1)+'" fill="'+col+'" opacity=".7"/>'
+      +'<circle cx="'+c+'" cy="'+c+'" r="'+rb.toFixed(1)+'" fill="rgba(6,3,0,.95)"/>'
+      +'<circle cx="'+(c-rh*.22).toFixed(1)+'" cy="'+(c-rh*.22).toFixed(1)+'" r="'+(rb*.5).toFixed(1)+'" fill="rgba(220,170,60,.35)"/>'
+      +'</svg>';
+  }
   [{top:'-55px',right:'-55px',sz:190,n:14,cw:true,dur:'32s',op:.14},
    {top:'16px',right:'90px',sz:88,n:9,cw:false,dur:'16s',op:.12},
    {bottom:'-35px',left:'-35px',sz:135,n:12,cw:false,dur:'26s',op:.13},
@@ -15694,10 +15793,54 @@ function _steampunkExtras(bgEl){
     el.innerHTML=gsvg(c.sz,c.n,'rgba(170,110,32,1)');
     bgEl.appendChild(el);
   });
-  [{l:'16%',w:18,dur:'4.8s',del:'0s'},{l:'42%',w:24,dur:'6.2s',del:'-2.3s'},{l:'68%',w:16,dur:'5.5s',del:'-1.4s'},{l:'28%',w:14,dur:'4.4s',del:'-3.1s'}].forEach(function(p){
+  // Silhouette fonderie en bas + fumées montantes
+  var foundry=document.createElement('div');
+  foundry.className='ml-hx';
+  foundry.style.cssText='position:absolute;bottom:0;left:0;width:100%;pointer-events:none';
+  foundry.innerHTML='<svg viewBox="0 0 1440 280" preserveAspectRatio="xMidYMax meet" width="100%" height="280" xmlns="http://www.w3.org/2000/svg">'
+    // Bâtiment principal
+    +'<rect x="180" y="130" width="1080" height="150" fill="rgba(8,4,1,.98)"/>'
+    // Contreforts / arches
+    +'<rect x="180" y="110" width="60" height="20" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="320" y="105" width="80" height="25" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="520" y="100" width="70" height="30" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="700" y="95" width="80" height="35" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="900" y="100" width="70" height="30" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="1080" y="108" width="75" height="22" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="1220" y="115" width="40" height="15" fill="rgba(8,4,1,.98)"/>'
+    // Grandes cheminées
+    +'<rect x="270" y="30" width="38" height="102" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="268" y="28" width="42" height="6" fill="rgba(12,7,2,.98)"/>'
+    +'<rect x="440" y="12" width="44" height="120" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="438" y="10" width="48" height="7" fill="rgba(12,7,2,.98)"/>'
+    +'<rect x="620" y="0" width="50" height="132" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="618" y="0" width="54" height="8" fill="rgba(12,7,2,.98)"/>'
+    +'<rect x="820" y="5" width="46" height="127" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="818" y="3" width="50" height="7" fill="rgba(12,7,2,.98)"/>'
+    +'<rect x="1010" y="18" width="42" height="114" fill="rgba(8,4,1,.98)"/>'
+    +'<rect x="1008" y="16" width="46" height="7" fill="rgba(12,7,2,.98)"/>'
+    +'<rect x="1160" y="38" width="36" height="94" fill="rgba(8,4,1,.98)"/>'
+    // Fenêtres illuminées (lueur forgée)
+    +'<rect x="220" y="148" width="22" height="16" fill="rgba(255,130,15,.55)" rx="2"/>'
+    +'<rect x="360" y="145" width="28" height="18" fill="rgba(255,100,10,.5)" rx="2"/>'
+    +'<rect x="500" y="142" width="24" height="20" fill="rgba(255,140,20,.6)" rx="2"/>'
+    +'<rect x="650" y="140" width="30" height="22" fill="rgba(255,120,12,.55)" rx="2"/>'
+    +'<rect x="810" y="143" width="26" height="18" fill="rgba(255,110,8,.5)" rx="2"/>'
+    +'<rect x="960" y="145" width="24" height="20" fill="rgba(255,130,15,.55)" rx="2"/>'
+    +'<rect x="1100" y="148" width="22" height="16" fill="rgba(255,100,10,.5)" rx="2"/>'
+    +'<rect x="1230" y="150" width="18" height="14" fill="rgba(255,120,12,.45)" rx="2"/>'
+    // Lueur de la forge au sol
+    +'<ellipse cx="720" cy="280" rx="480" ry="40" fill="rgba(220,80,5,.22)"/>'
+    +'<ellipse cx="720" cy="280" rx="260" ry="22" fill="rgba(255,120,10,.18)"/>'
+    +'</svg>';
+  bgEl.appendChild(foundry);
+  // Fumées des cheminées
+  [{l:'19.5%',w:22,dur:'5.2s',del:'0s'},{l:'32%',w:28,dur:'6.8s',del:'-2.3s'},
+   {l:'44.5%',w:32,dur:'7.4s',del:'-1.1s'},{l:'58.5%',w:30,dur:'6.2s',del:'-3.8s'},
+   {l:'72%',w:26,dur:'7.8s',del:'-0.7s'},{l:'82%',w:20,dur:'5.6s',del:'-4.2s'}].forEach(function(p){
     var st=document.createElement('div');
     st.className='ml-hx ml-stpf';
-    st.style.cssText='bottom:4px;left:'+p.l+';width:'+p.w+'px;height:'+p.w+'px;animation-duration:'+p.dur+';animation-delay:'+p.del;
+    st.style.cssText='bottom:272px;left:'+p.l+';width:'+p.w+'px;height:'+p.w+'px;animation-duration:'+p.dur+';animation-delay:'+p.del;
     bgEl.appendChild(st);
   });
 }
