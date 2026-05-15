@@ -7804,50 +7804,116 @@ function purHandleFileImport(e){
   e.target.value='';
 }
 function purParseImportedList(text,filename){
-  var lines=text.split('\n');
-  // Nom de la liste depuis la première ligne === ... === ou le nom de fichier
-  var listName=filename.replace(/\.txt$/i,'').replace(/_/g,' ');
+  var lines=text.split('\n').map(function(l){return l.replace(/\r$/,'');});
   var cards=[];
-  var currentCol=0;
-  var currentDeck='';
-  var p0lc=(PN[0]||'profil 1').toLowerCase();
-  var p1lc=(PN[_purFriendIdx]||'profil 2').toLowerCase();
-  lines.forEach(function(raw){
-    var line=raw.replace(/\r$/,'');
-    // === Nom de liste ===
-    var mTitle=line.match(/^===\s*(.+?)\s*===\s*$/);
-    if(mTitle){listName=mTitle[1];return;}
-    // --- Section profil ---
-    var mSect=line.match(/^---\s*(.+?)\s*---\s*$/);
-    if(mSect){
-      var sn=mSect[1].toLowerCase();
-      if(sn===p0lc)currentCol=0;
-      else if(sn===p1lc)currentCol=1;
-      else if(sn.indexOf('change')>=0||sn.indexOf('emprunt')>=0)currentCol=-2;
-      else currentCol=0;
-      currentDeck='';
-      return;
-    }
-    // [Nom du deck]
-    var mDeck=line.match(/^\s{2}\[(.+)\]\s*$/);
-    if(mDeck){currentDeck=mDeck[1];return;}
-    // Nx Carte (ou 1x Carte ou juste Carte)
-    var mCard=line.match(/^\s{2,}(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
-    if(mCard){
-      var qty=parseInt(mCard[1])||1;
-      var name=mCard[2].trim();
-      var recv=!!mCard[3];
-      if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
-      return;
-    }
-    // Ligne sans quantité (fallback)
-    var mCard2=line.match(/^\s{2,}([^\[\-=].+?)(\s+✓)?\s*$/);
-    if(mCard2){
-      var name=mCard2[1].trim();
-      var recv=!!mCard2[2];
-      if(name&&name.length>1)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:1,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
-    }
-  });
+  var listName=filename.replace(/\.txt$/i,'').replace(/_/g,' ');
+  var p0lc=(PN[0]||'').toLowerCase();
+  var p1lc=(PN[_purFriendIdx]||'').toLowerCase();
+
+  // Détecte format externe (pas de --- sections, commence par texte libre)
+  var firstNonEmpty=lines.find(function(l){return l.trim().length>0;})||'';
+  var isExternalFormat=!firstNonEmpty.match(/^===\s*.+\s*===\s*$/);
+
+  if(isExternalFormat){
+    // Format externe : "Liste d'achat — Deck sans nom" / "Propriétaire : X" / "=== Section ==="
+    var ownerCol=1; // par défaut l'ami possède la liste
+    var currentCol=1;
+    var currentDeck='';
+    lines.forEach(function(line,i){
+      if(i===0&&line.trim()){
+        // Extrait le nom depuis la première ligne
+        listName=line.replace(/^liste\s+d['']achat\s*[—\-–]\s*/i,'').trim()||listName;
+        return;
+      }
+      // Propriétaire : X
+      var mOwner=line.match(/^propri[eé]taire\s*:\s*(.+)$/i);
+      if(mOwner){
+        var own=mOwner[1].trim().toLowerCase();
+        if(own===p0lc)ownerCol=0;
+        else if(own===p1lc)ownerCol=1;
+        else{
+          // cherche parmi tous les profils amis
+          ownerCol=1;
+          for(var fi=1;fi<(PN.length||1);fi++){
+            if((PN[fi]||'').toLowerCase()===own){ownerCol=fi;break;}
+          }
+        }
+        currentCol=ownerCol;
+        return;
+      }
+      // === Emprunter à X === ou === À acheter (Deck) (N cartes) ===
+      var mSect=line.match(/^===\s*(.+?)\s*===\s*$/);
+      if(mSect){
+        var sn=mSect[1];
+        var snl=sn.toLowerCase();
+        if(snl.indexOf('emprunt')>=0||snl.indexOf('change')>=0||snl.indexOf('prêt')>=0){
+          currentCol=-2;
+          currentDeck='';
+        } else {
+          currentCol=ownerCol;
+          // Extrait le nom du deck depuis "(DeckName) (N cartes)"
+          var mDk=sn.match(/\(([^)]+)\)/g);
+          currentDeck='';
+          if(mDk){
+            // Prend le premier groupe qui n'est pas "N cartes"
+            for(var di=0;di<mDk.length;di++){
+              var grp=mDk[di].replace(/^\(|\)$/g,'').trim();
+              if(!/^\d+\s*cartes?$/i.test(grp)){currentDeck=grp;break;}
+            }
+          }
+        }
+        return;
+      }
+      // Nx Carte
+      var mCard=line.match(/^\s+(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
+      if(mCard){
+        var qty=parseInt(mCard[1])||1;
+        var name=mCard[2].trim();
+        var recv=!!mCard[3];
+        if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
+      }
+    });
+  } else {
+    // Format interne (ancien export de l'app)
+    var currentCol=0;
+    var currentDeck='';
+    lines.forEach(function(line){
+      // === Nom de liste ===
+      var mTitle=line.match(/^===\s*(.+?)\s*===\s*$/);
+      if(mTitle){listName=mTitle[1];return;}
+      // --- Section profil ---
+      var mSect=line.match(/^---\s*(.+?)\s*---\s*$/);
+      if(mSect){
+        var sn=mSect[1].toLowerCase();
+        if(sn===p0lc)currentCol=0;
+        else if(sn===p1lc)currentCol=1;
+        else if(sn.indexOf('change')>=0||sn.indexOf('emprunt')>=0)currentCol=-2;
+        else currentCol=0;
+        currentDeck='';
+        return;
+      }
+      // [Nom du deck]
+      var mDeck=line.match(/^\s{2}\[(.+)\]\s*$/);
+      if(mDeck){currentDeck=mDeck[1];return;}
+      // Nx Carte
+      var mCard=line.match(/^\s{2,}(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
+      if(mCard){
+        var qty=parseInt(mCard[1])||1;
+        var name=mCard[2].trim();
+        var recv=!!mCard[3];
+        if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
+        return;
+      }
+      // Ligne sans quantité (fallback)
+      var mCard2=line.match(/^\s{2,}([^\[\-=].+?)(\s+✓)?\s*$/);
+      if(mCard2){
+        var name=mCard2[1].trim();
+        var recv=!!mCard2[2];
+        if(name&&name.length>1)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:1,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
+      }
+    });
+  }
+
   var id='pl_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
   _purchaseLists[id]={name:listName,createdAt:Date.now(),cards:cards};
   _activePurListId=id;
