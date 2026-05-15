@@ -2150,9 +2150,10 @@ body.mana-cursor{cursor:none}
     <div id="pur-paste-panel" style="display:none;margin-top:10px;border-top:.5px solid var(--bd);padding-top:10px">
       <div style="font-size:.75rem;color:var(--tx3);margin-bottom:5px">Collez une liste de cartes (format : <code>1x Nom</code> ou <code>1 Nom (SET) num</code>) :</div>
       <textarea id="pur-paste-area" rows="5" placeholder="1x Sol Ring&#10;2x Lightning Bolt&#10;..." style="width:100%;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:6px 8px;font-size:.78rem;resize:vertical;box-sizing:border-box;font-family:monospace"></textarea>
-      <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
-        <input type="text" id="pur-paste-name" placeholder="Nom de la liste…" style="flex:1;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.78rem">
-        <button class="btn btnsm btnp" onclick="purImportPasted()">⬇ Importer</button>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="pur-paste-name" placeholder="Nom de la liste…" style="flex:1;min-width:120px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.78rem">
+        <button class="btn btnsm btnp" onclick="purImportPasted(true)" title="Ajouter ces cartes à la liste active">✚ Ajouter à la liste</button>
+        <button class="btn btnsm" onclick="purImportPasted(false)" title="Créer une nouvelle liste avec ces cartes">⬇ Nouvelle liste</button>
         <button class="btn btnsm" onclick="purTogglePastePanel(false)">✕</button>
       </div>
     </div>
@@ -7741,15 +7742,34 @@ function purTogglePastePanel(show){
   p.style.display=show?'block':'none';
   if(show){var ta=document.getElementById('pur-paste-area');if(ta)setTimeout(function(){ta.focus();},50);}
 }
-function purImportPasted(){
+function purImportPasted(addToCurrent){
   var ta=document.getElementById('pur-paste-area');
   var ni=document.getElementById('pur-paste-name');
   var text=(ta?ta.value:'').trim();
   if(!text){alert('La zone de texte est vide.');return;}
   var name=(ni?ni.value.trim():'')||'Liste collée';
   purTogglePastePanel(false);
-  purParseImportedList(text,name+'.txt');
+  if(addToCurrent&&_activePurListId&&_purchaseLists[_activePurListId]){
+    purMergeIntoCurrentList(text,name+'.txt');
+  }else{
+    purParseImportedList(text,name+'.txt');
+  }
   if(ta)ta.value='';if(ni)ni.value='';
+}
+function purMergeIntoCurrentList(text,filename){
+  var parsed=purBuildCardArray(text,filename);
+  if(!parsed)return;
+  var lst=_purchaseLists[_activePurListId];
+  lst.cards=lst.cards||[];
+  var added=0;
+  parsed.cards.forEach(function(c){
+    var existing=lst.cards.find(function(e){return e.nl===c.nl&&e.column===c.column&&(e.deckName||'')===(c.deckName||'');});
+    if(existing){existing.qty=(existing.qty||1)+(c.qty||1);}
+    else{lst.cards.push(c);added++;}
+  });
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+  alert(parsed.count+' carte(s) ajoutée(s) à "'+lst.name+'".'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
 }
 function _purAutoMatchDeck(cardName,profIdx){
   if(profIdx===undefined)profIdx=0;
@@ -8001,157 +8021,66 @@ function purHandleFileImport(e){
   reader.readAsText(file,'UTF-8');
   e.target.value='';
 }
-function purParseImportedList(text,filename){
+function purBuildCardArray(text,filename){
   var lines=text.split('\n').map(function(l){return l.replace(/\r$/,'');});
   var cards=[];
   var listName=filename.replace(/\.txt$/i,'').replace(/_/g,' ');
   var p0lc=(PN[0]||'').toLowerCase();
   var p1lc=(PN[_purFriendIdx]||'').toLowerCase();
-
-  // Détecte format externe (pas de --- sections, commence par texte libre)
   var firstNonEmpty=lines.find(function(l){return l.trim().length>0;})||'';
   var isExternalFormat=!firstNonEmpty.match(/^===\s*.+\s*===\s*$/);
-
   if(isExternalFormat){
-    // Format externe : "Liste d'achat — Deck sans nom" / "Propriétaire : X" / "=== Section ==="
-    var ownerCol=1; // par défaut l'ami possède la liste
-    var currentCol=1;
-    var currentDeck='';
+    var ownerCol=1,currentCol=1,currentDeck='';
     lines.forEach(function(line,i){
-      if(i===0&&line.trim()){
-        // Extrait le nom depuis la première ligne
-        listName=line.replace(/^liste\s+d['']achat\s*[—\-–]\s*/i,'').trim()||listName;
-        return;
-      }
-      // Propriétaire : X
+      if(i===0&&line.trim()){listName=line.replace(/^liste\s+d['']achat\s*[—\-–]\s*/i,'').trim()||listName;return;}
       var mOwner=line.match(/^propri[eé]taire\s*:\s*(.+)$/i);
-      if(mOwner){
-        var own=mOwner[1].trim().toLowerCase();
-        if(own===p0lc)ownerCol=0;
-        else if(own===p1lc)ownerCol=1;
-        else{
-          // cherche parmi tous les profils amis
-          ownerCol=1;
-          for(var fi=1;fi<(PN.length||1);fi++){
-            if((PN[fi]||'').toLowerCase()===own){ownerCol=fi;break;}
-          }
-        }
-        currentCol=ownerCol;
-        return;
-      }
-      // === Emprunter à X === ou === À acheter (Deck) (N cartes) ===
+      if(mOwner){var own=mOwner[1].trim().toLowerCase();ownerCol=1;if(own===p0lc){ownerCol=0;}else{for(var fi=1;fi<(PN.length||1);fi++){if((PN[fi]||'').toLowerCase()===own){ownerCol=fi;break;}}}currentCol=ownerCol;return;}
       var mSect=line.match(/^===\s*(.+?)\s*===\s*$/);
-      if(mSect){
-        var sn=mSect[1];
-        var snl=sn.toLowerCase();
-        if(snl.indexOf('emprunt')>=0||snl.indexOf('change')>=0||snl.indexOf('prêt')>=0){
-          currentCol=-2;
-          currentDeck='';
-        } else {
-          currentCol=ownerCol;
-          // Extrait le nom du deck depuis "(DeckName) (N cartes)"
-          var mDk=sn.match(/\(([^)]+)\)/g);
-          currentDeck='';
-          if(mDk){
-            // Prend le premier groupe qui n'est pas "N cartes"
-            for(var di=0;di<mDk.length;di++){
-              var grp=mDk[di].replace(/^\(|\)$/g,'').trim();
-              if(!/^\d+\s*cartes?$/i.test(grp)){currentDeck=grp;break;}
-            }
-          }
-        }
-        return;
-      }
-      // Nx Carte
+      if(mSect){var sn=mSect[1],snl=sn.toLowerCase();if(snl.indexOf('emprunt')>=0||snl.indexOf('change')>=0||snl.indexOf('prêt')>=0){currentCol=-2;currentDeck='';}else{currentCol=ownerCol;var mDk=sn.match(/\(([^)]+)\)/g);currentDeck='';if(mDk){for(var di=0;di<mDk.length;di++){var grp=mDk[di].replace(/^\(|\)$/g,'').trim();if(!/^\d+\s*cartes?$/i.test(grp)){currentDeck=grp;break;}}}}return;}
       var mCard=line.match(/^\s+(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
-      if(mCard){
-        var qty=parseInt(mCard[1])||1;
-        var name=mCard[2].trim();
-        var recv=!!mCard[3];
-        if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
-      }
+      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});}
     });
-  } else {
-    // Format interne (ancien export de l'app)
-    var currentCol=0;
-    var currentDeck='';
+  }else{
+    var currentCol=0,currentDeck='';
     lines.forEach(function(line){
-      // === Nom de liste ===
-      var mTitle=line.match(/^===\s*(.+?)\s*===\s*$/);
-      if(mTitle){listName=mTitle[1];return;}
-      // --- Section profil ---
+      var mTitle=line.match(/^===\s*(.+?)\s*===\s*$/);if(mTitle){listName=mTitle[1];return;}
       var mSect=line.match(/^---\s*(.+?)\s*---\s*$/);
-      if(mSect){
-        var sn=mSect[1].toLowerCase();
-        if(sn===p0lc)currentCol=0;
-        else if(sn===p1lc)currentCol=1;
-        else if(sn.indexOf('change')>=0||sn.indexOf('emprunt')>=0)currentCol=-2;
-        else currentCol=0;
-        currentDeck='';
-        return;
-      }
-      // [Nom du deck]
-      var mDeck=line.match(/^\s{2}\[(.+)\]\s*$/);
-      if(mDeck){currentDeck=mDeck[1];return;}
-      // Nx Carte
+      if(mSect){var sn=mSect[1].toLowerCase();if(sn===p0lc)currentCol=0;else if(sn===p1lc)currentCol=1;else if(sn.indexOf('change')>=0||sn.indexOf('emprunt')>=0)currentCol=-2;else currentCol=0;currentDeck='';return;}
+      var mDeck=line.match(/^\s{2}\[(.+)\]\s*$/);if(mDeck){currentDeck=mDeck[1];return;}
       var mCard=line.match(/^\s{2,}(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
-      if(mCard){
-        var qty=parseInt(mCard[1])||1;
-        var name=mCard[2].trim();
-        var recv=!!mCard[3];
-        if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
-        return;
-      }
-      // Ligne sans quantité (fallback)
+      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});return;}
       var mCard2=line.match(/^\s{2,}([^\[\-=].+?)(\s+✓)?\s*$/);
-      if(mCard2){
-        var name=mCard2[1].trim();
-        var recv=!!mCard2[2];
-        if(name&&name.length>1)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:1,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
-      }
+      if(mCard2){var name=mCard2[1].trim(),recv=!!mCard2[2];if(name&&name.length>1)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:1,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});}
     });
   }
-
-  // Auto-match : assigne un deck aux cartes sans nom de deck
   var _amMap0=_purBuildDeckCardMap(0);
   var _amMapF=_purBuildDeckCardMapForFriend(_purFriendIdx);
-  var autoCount=0;
-  var finalCards=[];
+  var autoCount=0,finalCards=[];
   cards.forEach(function(card){
     if(!card.deckName){
-      // col=0 → decks user ; col>=1 ou col=-2 → decks ami (il emprunte pour ses decks)
       var matchMap=card.column===0?_amMap0:_amMapF;
       var matches=matchMap[card.nl]||[];
-      // Fallback sur decks user si aucun match côté ami
       if(!matches.length&&card.column!==0)matches=_amMap0[card.nl]||[];
-      if(matches.length===1){
-        card.deckName=matches[0].name;card.deckId=matches[0].id;autoCount++;
-        finalCards.push(card);
-      } else if(matches.length>1){
-        // Pour les prêts (col=-2) on ne crée qu'une entrée (premier deck) pour éviter les doublons
+      if(matches.length===1){card.deckName=matches[0].name;card.deckId=matches[0].id;autoCount++;finalCards.push(card);}
+      else if(matches.length>1){
         var matchSet=card.column===-2?matches.slice(0,1):matches;
-        matchSet.forEach(function(m,mi){
-          var c2=Object.assign({},card);
-          c2.id='pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)+(mi>0?mi:'');
-          c2.deckName=m.name;c2.deckId=m.id;
-          finalCards.push(c2);
-        });
+        matchSet.forEach(function(m,mi){var c2=Object.assign({},card);c2.id='pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)+(mi>0?mi:'');c2.deckName=m.name;c2.deckId=m.id;finalCards.push(c2);});
         autoCount++;
-      } else {
-        finalCards.push(card);
-      }
-    } else {
-      finalCards.push(card);
-    }
+      }else{finalCards.push(card);}
+    }else{finalCards.push(card);}
   });
-  var msg='"'+listName+'" : '+finalCards.length+' carte(s) importée(s).'+(autoCount?' '+autoCount+' carte(s) auto-associée(s) à un deck.':'');
+  return {listName:listName,cards:finalCards,count:finalCards.length,autoCount:autoCount};
+}
+function purParseImportedList(text,filename){
+  var parsed=purBuildCardArray(text,filename);
+  if(!parsed)return;
   var id='pl_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  _purchaseLists[id]={name:listName,createdAt:Date.now(),cards:finalCards};
+  _purchaseLists[id]={name:parsed.listName,createdAt:Date.now(),cards:parsed.cards};
   _activePurListId=id;
   savePurchaseList(id);
   renderPurListSel();
   renderPurchaseMgr();
-  alert(msg);
+  alert('"'+parsed.listName+'" : '+parsed.count+' carte(s) importée(s).'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
 }
 
 // ===== BIBLIOTHÈQUE — RECHERCHE PAR EXTENSION =====

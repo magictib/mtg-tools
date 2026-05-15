@@ -1,4 +1,4 @@
-const CACHE = 'manalab-v26';
+const CACHE = 'manalab-v27';
 const STATIC = [
   './',
   './index.html',
