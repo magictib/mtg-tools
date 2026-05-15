@@ -1102,13 +1102,19 @@ body.mana-cursor{cursor:none}
 .bld-ministat .sl{font-size:.58rem;color:var(--tx3)}
 .edh-card.bld-banned{outline:2px solid var(--rd2);outline-offset:-2px}
 .edh-card.bld-notlegal{opacity:.5;filter:grayscale(.5)}
-.pur-col{background:var(--s3);border-radius:8px;padding:10px;min-width:180px;flex:1}
-.pur-col-hdr{font-size:.76rem;font-weight:600;color:var(--tx2);margin-bottom:8px;padding-bottom:6px;border-bottom:.5px solid var(--bd)}
-.pur-card{background:var(--s2);border:1px solid var(--bd2);border-radius:6px;padding:6px 8px;margin-bottom:5px;cursor:grab;font-size:.78rem;transition:opacity .15s,box-shadow .15s}
-.pur-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.25)}
-.pur-card:active{cursor:grabbing;opacity:.7}
-.pur-drop-zone{min-height:70px;border-radius:6px;padding:2px;transition:background .15s,border .15s;border:1.5px solid transparent}
-.pur-drop-zone.drag-over{background:rgba(201,168,76,.08);border-color:var(--gold2)}
+.pur-table{width:100%;border-collapse:collapse}
+.pur-table th{background:var(--s3);padding:7px 10px;font-size:.8rem;font-weight:700;text-align:left;border-bottom:.5px solid var(--bd2);position:sticky;top:0;z-index:1}
+.pur-table td{padding:4px 8px;border-bottom:.5px solid var(--bd);vertical-align:middle;font-size:.79rem}
+.pur-dk-hdr td{background:var(--s2);color:var(--gold2);font-weight:600;font-size:.77rem;padding:5px 10px;border-top:.5px solid var(--bd2)}
+.pur-card-row{cursor:grab;transition:background .1s}
+.pur-card-row:hover{background:rgba(255,255,255,.03)}
+.pur-card-row:active{cursor:grabbing;opacity:.6}
+.pur-col-td{min-width:180px}
+.pur-col-td.pur-drag-over{background:rgba(201,168,76,.11);outline:2px dashed rgba(201,168,76,.55)}
+.pur-exch-row td{color:var(--ac2);font-style:italic;background:rgba(148,130,80,.05)}
+.pur-recv{text-decoration:line-through;opacity:.38}
+.pur-search-item{display:flex;align-items:center;gap:4px;padding:4px 2px;border-bottom:.5px solid var(--bd)}
+.pur-search-item:last-child{border-bottom:none}
 </style>
 </head>
 <body>
@@ -2102,18 +2108,47 @@ body.mana-cursor{cursor:none}
 
 <!-- ===== GESTIONNAIRE LISTES D'ACHAT PARTAGÉES ===== -->
 <div id="purchase-mgr" style="display:none">
+  <!-- Barre d'outils -->
   <div class="card" style="margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <button class="btn btnsm" onclick="closePurchaseMgr()">← Retour</button>
-      <div class="lbl" style="margin:0">📋 Listes d'achat partagées</div>
-      <select id="pur-list-sel" onchange="selectPurList(this.value)" style="flex:1;min-width:120px;max-width:200px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem"></select>
+      <div class="lbl" style="margin:0">🛒 Achats en cours</div>
+      <select id="pur-list-sel" onchange="selectPurList(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:120px;max-width:180px"></select>
       <button class="btn btnsm btnp" onclick="newPurchaseList()">+ Nouvelle liste</button>
+      <span style="color:var(--tx3);font-size:.75rem">vs</span>
+      <select id="pur-friend-sel" onchange="purSetFriend(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:90px;max-width:140px"></select>
       <button class="btn btnsm" id="pur-import-btn" onclick="importAchatToPurchase()" title="Importe les cartes du panneau 🛒 Achat du deck actuellement ouvert" style="display:none">⬇ Importer achat</button>
       <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
     </div>
   </div>
-  <div id="pur-cols" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;align-items:start"></div>
+  <!-- Corps : tableau à gauche + recherche à droite -->
+  <div style="display:flex;gap:12px;align-items:start">
+    <!-- Tableau principal -->
+    <div style="flex:1;min-width:0;overflow-x:auto;max-height:calc(100vh - 180px);overflow-y:auto">
+      <div id="pur-table-wrap"></div>
+    </div>
+    <!-- Panneau de recherche -->
+    <div style="width:258px;flex-shrink:0">
+      <div class="card" style="padding:10px 12px">
+        <div style="display:flex;gap:4px;margin-bottom:10px">
+          <button class="btn btnsm active" id="pur-sm-card" onclick="purSearchMode('card')" style="flex:1;font-size:.73rem">🔍 Carte</button>
+          <button class="btn btnsm" id="pur-sm-deck" onclick="purSearchMode('deck')" style="flex:1;font-size:.73rem">📖 Deck</button>
+        </div>
+        <!-- Recherche carte Scryfall -->
+        <div id="pur-search-card">
+          <input id="pur-card-q" type="text" placeholder="Nom de carte (anglais)…" oninput="purSearchCard()" style="width:100%;box-sizing:border-box;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:5px 8px;font-size:.77rem;outline:none;margin-bottom:6px">
+          <div id="pur-card-res" style="max-height:360px;overflow-y:auto"></div>
+        </div>
+        <!-- Recherche dans mes decks -->
+        <div id="pur-search-deck" style="display:none">
+          <input id="pur-deck-q" type="text" placeholder="Nom du deck…" oninput="purFilterDecks()" style="width:100%;box-sizing:border-box;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:5px 8px;font-size:.77rem;outline:none;margin-bottom:6px">
+          <div id="pur-deck-list" style="max-height:180px;overflow-y:auto;margin-bottom:8px"></div>
+          <div id="pur-deck-cards" style="max-height:200px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- WIZARD: écran d'entrée -->
@@ -7212,9 +7247,13 @@ function dlTxt(content,filename){
 }
 
 // ===== GESTIONNAIRE LISTES D'ACHAT PARTAGÉES =====
+// ===== PURCHASE MANAGER =====
 var _purchaseLists={};
 var _activePurListId=null;
 var _purDragCardId=null;
+var _purFriendIdx=1;
+var _purSearchMode='card';
+var _purCardSearchTO=null;
 
 function loadPurchaseLists(){
   if(!userId)return;
@@ -7223,6 +7262,7 @@ function loadPurchaseLists(){
       _purchaseLists={};
       snap.forEach(function(doc){_purchaseLists[doc.id]=doc.data();});
       renderPurListSel();
+      renderPurchaseMgr();
     })
     .catch(function(e){console.warn('loadPurchaseLists',e);});
 }
@@ -7252,6 +7292,11 @@ function selectPurList(id){
   renderPurchaseMgr();
 }
 
+function purSetFriend(idx){
+  _purFriendIdx=parseInt(idx)||1;
+  renderPurchaseMgr();
+}
+
 function deletePurchaseList(){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   if(!confirm('Supprimer la liste "'+_purchaseLists[_activePurListId].name+'" ?'))return;
@@ -7271,20 +7316,19 @@ function importAchatToPurchase(){
   if(!lst.cards)lst.cards=[];
   var dn=_achatRecap.dn||'';
   var deckId=actDeck||'';
-  function mkId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
-  // Cartes à acheter → colonne 0 (user courant)
+  function mkId(){return 'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
   (_achatRecap.buy||[]).forEach(function(r){
-    var idx=lst.cards.findIndex(function(c){return c.nl===r.nl&&c.column===0;});
+    var idx=lst.cards.findIndex(function(c){return c.nl===r.nl&&c.column===0&&(c.deckName||'')===(dn||'');});
     if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.need);}
-    else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.need,deckName:dn,deckId:deckId,column:0});}
+    else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.need,deckName:dn,deckId:deckId,column:0,note:'',received:false});}
   });
-  // Cartes à emprunter → colonne Échange/Emprunt (-2) avec note de l'ami prêteur
   Object.keys(_achatRecap.borrow||{}).forEach(function(fi){
     var friendName=PN[parseInt(fi)]||'ami';
     (_achatRecap.borrow[fi]||[]).forEach(function(r){
-      var idx=lst.cards.findIndex(function(c){return c.nl===(r.nl||r.name.toLowerCase())&&c.column===-2;});
+      var nl=r.nl||r.name.toLowerCase();
+      var idx=lst.cards.findIndex(function(c){return c.nl===nl&&c.column===-2&&(c.deckName||'')===(dn||'');});
       if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.qty);}
-      else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.qty,deckName:dn,deckId:deckId,column:-2,note:'emprunt '+friendName});}
+      else{lst.cards.push({id:mkId(),name:r.name,nl:nl,qty:r.qty,deckName:dn,deckId:deckId,column:-2,note:'emprunt '+friendName,received:false});}
     });
   });
   savePurchaseList(_activePurListId);
@@ -7294,13 +7338,11 @@ function importAchatToPurchase(){
 function openPurchaseMgr(){
   loadPurchaseLists();
   var pm=document.getElementById('purchase-mgr');
-  var dr=document.getElementById('deckres');
   var wiz=document.getElementById('bld-wizard');
   var cols=document.getElementById('bld-cols');
   var cmd=document.getElementById('bld-cmd-zone');
   var blank=document.getElementById('bld-blank-zone');
   if(pm)pm.style.display='';
-  if(dr)dr.style.display='none';
   if(wiz)wiz.style.display='none';
   if(cols)cols.style.display='none';
   if(cmd)cmd.style.display='none';
@@ -7310,11 +7352,8 @@ function openPurchaseMgr(){
 function closePurchaseMgr(){
   var pm=document.getElementById('purchase-mgr');
   if(pm)pm.style.display='none';
-  // Restaure la vue deck normale via _bldRefreshView
-  if(typeof _bldRefreshView==='function') _bldRefreshView();
-  // Si aucune vue active, affiche le wizard
-  if(typeof _bldView==='undefined'||!_bldView) _bldView='wizard';
-  if(typeof _bldRefreshView==='function') _bldRefreshView();
+  if(typeof _bldView==='undefined'||!_bldView)_bldView='wizard';
+  if(typeof _bldRefreshView==='function')_bldRefreshView();
 }
 
 function renderPurListSel(){
@@ -7328,16 +7367,29 @@ function renderPurListSel(){
   }).join('');
 }
 
+function _purRenderFriendSel(){
+  var sel=document.getElementById('pur-friend-sel');
+  if(!sel)return;
+  var opts='';
+  for(var i=1;i<profs.length;i++){
+    opts+='<option value="'+i+'"'+(i===_purFriendIdx?' selected':'')+'>'+esc(PN[i]||'Profil '+(i+1))+'</option>';
+  }
+  if(!opts)opts='<option value="1">— Aucun ami —</option>';
+  sel.innerHTML=opts;
+}
+
 function renderPurchaseMgr(){
+  renderPurListSel();
+  _purRenderFriendSel();
   var importBtn=document.getElementById('pur-import-btn');
   var exportBtn=document.getElementById('pur-export-btn');
   var delBtn=document.getElementById('pur-del-btn');
-  var colsEl=document.getElementById('pur-cols');
-  if(!colsEl)return;
+  var wrap=document.getElementById('pur-table-wrap');
+  if(!wrap)return;
   if(importBtn)importBtn.style.display=_achatRecap?'':'none';
   if(!_activePurListId||!_purchaseLists[_activePurListId]){
-    colsEl.innerHTML='<div style="padding:1.5rem 0;text-align:center">'
-      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:12px">Aucune liste d\'achat — créez-en une pour commencer.</div>'
+    wrap.innerHTML='<div style="padding:2.5rem;text-align:center">'
+      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste d\'achat — créez-en une pour commencer.</div>'
       +'<button class="btn btnp btnsm" onclick="newPurchaseList()">+ Créer une liste</button>'
       +'</div>';
     if(exportBtn)exportBtn.style.display='none';
@@ -7348,59 +7400,85 @@ function renderPurchaseMgr(){
   if(delBtn)delBtn.style.display='';
   var lst=_purchaseLists[_activePurListId];
   var cards=lst.cards||[];
-  // Colonnes : -2 échange/emprunt, -1 non assigné, puis 0..n profils chargés
-  var cols=[
-    {col:-1,label:'Non assigné',color:'var(--tx3)'},
-    {col:-2,label:'Échange / Emprunt',color:'var(--am)'}
-  ];
-  for(var i=0;i<profs.length;i++){
-    cols.push({col:i,label:PN[i]||('Profil '+(i+1)),color:i===0?'var(--gold2)':'var(--ac2)'});
+  var p0=esc(PN[0]||'Profil 1');
+  var p1=esc(PN[_purFriendIdx]||'Profil 2');
+  // Regroupement par deck
+  var groups={};
+  var deckOrder=[];
+  cards.forEach(function(c){
+    var dk=c.deckName||'(sans deck)';
+    if(!groups[dk]){groups[dk]={col0:[],col1:[],colX:[]};deckOrder.push(dk);}
+    if(c.column===0)groups[dk].col0.push(c);
+    else if(c.column===1)groups[dk].col1.push(c);
+    else groups[dk].colX.push(c);
+  });
+  if(!deckOrder.length){
+    wrap.innerHTML='<div style="padding:2rem;text-align:center;color:var(--tx3);font-style:italic;font-size:.82rem">Liste vide — utilisez le panneau de droite pour ajouter des cartes.</div>';
+    return;
   }
-  colsEl.innerHTML=cols.map(function(c){
-    var colCards=cards.filter(function(cd){return cd.column===c.col;});
-    var cardHtml=colCards.map(function(card){
-      var safeId=card.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-      return '<div class="pur-card" draggable="true" ondragstart="purDragStart(event,\''+safeId+'\')">'
-        +'<div style="display:flex;align-items:center;gap:5px">'
-        +'<span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:.7rem;min-width:22px">'+card.qty+'×</span>'
-        +'<span style="flex:1;font-weight:500">'+esc(card.name)+'</span>'
-        +'<span onclick="removePurCard(\''+safeId+'\')" style="color:var(--rd2);cursor:pointer;font-size:.68rem;padding:1px 4px;opacity:.6;line-height:1" title="Retirer">✕</span>'
-        +'</div>'
-        +(card.deckName?'<div style="font-size:.65rem;color:var(--tx3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📖 '+esc(card.deckName)+'</div>':'')
-        +(card.note?'<div style="font-size:.63rem;color:var(--am);margin-top:1px;font-style:italic">'+esc(card.note)+'</div>':'')
-        +'</div>';
-    }).join('');
-    return '<div class="pur-col">'
-      +'<div class="pur-col-hdr" style="color:'+c.color+'">'+esc(c.label)
-      +' <span style="font-weight:400;color:var(--tx3);font-size:.7rem">('+colCards.length+')</span></div>'
-      +'<div class="pur-drop-zone" data-col="'+c.col+'" ondragover="purDragOver(event)" ondragleave="purDragLeave(event)" ondrop="purDrop(event,'+c.col+')">'
-      +cardHtml
-      +(colCards.length===0?'<div style="color:var(--tx3);font-size:.72rem;font-style:italic;padding:6px 2px">Glisse des cartes ici</div>':'')
-      +'</div>'
-      +'</div>';
-  }).join('');
+  var html='<table class="pur-table"><thead><tr>'
+    +'<th style="width:36%">Deck / Carte</th>'
+    +'<th class="pur-col-td" style="color:var(--gold2);width:32%">'+p0+'</th>'
+    +'<th class="pur-col-td" style="color:var(--ac2);width:32%">'+p1+'</th>'
+    +'</tr></thead><tbody>';
+  deckOrder.forEach(function(dk){
+    var g=groups[dk];
+    var total=g.col0.length+g.col1.length+g.colX.length;
+    if(!total)return;
+    html+='<tr class="pur-dk-hdr"><td colspan="3">📖 '+esc(dk)+'</td></tr>';
+    var all=g.col0.map(function(c){return {c:c,col:0};})
+      .concat(g.col1.map(function(c){return {c:c,col:1};}))
+      .concat(g.colX.map(function(c){return {c:c,col:-2};}));
+    all.forEach(function(item){
+      var c=item.c,col=item.col;
+      var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      var recv=!!c.received;
+      var nameHtml='<span class="'+(recv?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
+      var recvBtn='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler réception':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
+      var delBtn2='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
+      if(col===-2){
+        // Échange/emprunt : ligne distincte sur toute la largeur
+        html+='<tr class="pur-card-row pur-exch-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
+          +'<td></td>'
+          +'<td colspan="2" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'
+          +'↔ '+nameHtml+recvBtn+delBtn2
+          +(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')
+          +'</td></tr>';
+      }else{
+        var td0='<td class="pur-col-td" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'+(col===0?nameHtml+recvBtn+delBtn2:'')+'</td>';
+        var td1='<td class="pur-col-td" ondragover="purColDragOver(event,1)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,1)">'+(col===1?nameHtml+recvBtn+delBtn2:'')+'</td>';
+        html+='<tr class="pur-card-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
+          +'<td></td>'+td0+td1+'</tr>';
+      }
+    });
+  });
+  html+='</tbody></table>';
+  wrap.innerHTML=html;
+  purFilterDecks();
 }
 
 function purDragStart(e,cardId){
   _purDragCardId=cardId;
   e.dataTransfer.effectAllowed='move';
   e.dataTransfer.setData('text/plain',cardId);
+  var tr=e.currentTarget;
+  setTimeout(function(){if(tr)tr.style.opacity='.35';},0);
 }
-function purDragOver(e){
+function purColDragOver(e,col){
   e.preventDefault();
-  e.currentTarget.classList.add('drag-over');
+  e.currentTarget.classList.add('pur-drag-over');
 }
-function purDragLeave(e){
-  e.currentTarget.classList.remove('drag-over');
+function purColDragLeave(e){
+  e.currentTarget.classList.remove('pur-drag-over');
 }
-function purDrop(e,newCol){
+function purColDrop(e,col){
   e.preventDefault();
-  e.currentTarget.classList.remove('drag-over');
+  e.currentTarget.classList.remove('pur-drag-over');
   var cardId=_purDragCardId||e.dataTransfer.getData('text/plain');
   if(!cardId||!_activePurListId)return;
   var lst=_purchaseLists[_activePurListId];
   var card=(lst.cards||[]).find(function(c){return c.id===cardId;});
-  if(card){card.column=newCol;savePurchaseList(_activePurListId);renderPurchaseMgr();}
+  if(card){card.column=col;savePurchaseList(_activePurListId);renderPurchaseMgr();}
   _purDragCardId=null;
 }
 function removePurCard(cardId){
@@ -7410,18 +7488,117 @@ function removePurCard(cardId){
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
 }
+function togglePurReceived(cardId){
+  if(!_activePurListId||!_purchaseLists[_activePurListId])return;
+  var card=(_purchaseLists[_activePurListId].cards||[]).find(function(c){return c.id===cardId;});
+  if(card){card.received=!card.received;savePurchaseList(_activePurListId);renderPurchaseMgr();}
+}
+function purAddCard(name,col,deckName){
+  if(!_activePurListId){alert('Créez d\'abord une liste.');return;}
+  var lst=_purchaseLists[_activePurListId];
+  var nl=stripDFC(name).toLowerCase();
+  var dk=deckName||'';
+  var existing=(lst.cards||[]).find(function(c){return c.nl===nl&&c.column===col&&(c.deckName||'')===dk;});
+  if(existing){existing.qty=(existing.qty||1)+1;}
+  else{
+    lst.cards=lst.cards||[];
+    lst.cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:1,deckName:dk,deckId:'',column:col,note:'',received:false});
+  }
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+}
+function purSearchMode(mode){
+  _purSearchMode=mode;
+  var sc=document.getElementById('pur-search-card');
+  var sd=document.getElementById('pur-search-deck');
+  if(sc)sc.style.display=mode==='card'?'':'none';
+  if(sd)sd.style.display=mode==='deck'?'':'none';
+  var bc=document.getElementById('pur-sm-card');
+  var bd=document.getElementById('pur-sm-deck');
+  if(bc){bc.classList.toggle('active',mode==='card');}
+  if(bd){bd.classList.toggle('active',mode==='deck');}
+  if(mode==='deck')purFilterDecks();
+}
+function purSearchCard(){
+  clearTimeout(_purCardSearchTO);
+  var q=((document.getElementById('pur-card-q')||{}).value||'').trim();
+  var res=document.getElementById('pur-card-res');
+  if(!res)return;
+  if(q.length<2){res.innerHTML='';return;}
+  _purCardSearchTO=setTimeout(function(){
+    fetch('https://api.scryfall.com/cards/autocomplete?q='+encodeURIComponent(q))
+      .then(function(r){return r.json();})
+      .then(function(data){
+        var names=data.data||[];
+        if(!names.length){res.innerHTML='<div style="color:var(--tx3);font-size:.75rem;font-style:italic;padding:4px">Aucun résultat</div>';return;}
+        var l0=esc((PN[0]||'P1').slice(0,3));
+        var l1=esc((PN[_purFriendIdx]||'P2').slice(0,3));
+        res.innerHTML=names.slice(0,14).map(function(n){
+          var sn=n.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+          return '<div class="pur-search-item">'
+            +'<span style="flex:1;font-size:.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(n)+'</span>'
+            +'<button class="btn btnsm" onclick="purAddCard(\''+sn+'\',0)" style="padding:1px 5px;font-size:.64rem;color:var(--gold2)" title="Ajouter pour '+esc(PN[0]||'P1')+'">+'+l0+'</button>'
+            +'<button class="btn btnsm" onclick="purAddCard(\''+sn+'\',1)" style="padding:1px 5px;font-size:.64rem;color:var(--ac2)" title="Ajouter pour '+esc(PN[_purFriendIdx]||'P2')+'">+'+l1+'</button>'
+            +'</div>';
+        }).join('');
+      }).catch(function(){});
+  },300);
+}
+function purFilterDecks(){
+  var q=((document.getElementById('pur-deck-q')||{}).value||'').toLowerCase().trim();
+  var listEl=document.getElementById('pur-deck-list');
+  if(!listEl)return;
+  var myDecks=Object.entries(decks||{}).filter(function(e){return !q||(e[1].name||'').toLowerCase().indexOf(q)>=0;});
+  if(!myDecks.length){listEl.innerHTML='<div style="color:var(--tx3);font-size:.75rem;font-style:italic;padding:4px">Aucun deck</div>';return;}
+  var l0=esc((PN[0]||'P1').slice(0,3));
+  var l1=esc((PN[_purFriendIdx]||'P2').slice(0,3));
+  listEl.innerHTML=myDecks.map(function(kv){
+    var id=kv[0],dk=kv[1];
+    var sid=id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<div class="pur-search-item" style="cursor:pointer" onclick="purShowDeckCards(\''+sid+'\')">'
+      +'<span style="flex:1;font-size:.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(dk.name||'—')+'</span>'
+      +'<span style="font-size:.67rem;color:var(--tx3)">'+((dk.cards||[]).length)+'c</span>'
+      +'</div>';
+  }).join('');
+}
+function purShowDeckCards(deckId){
+  var dk=(decks||{})[deckId];
+  if(!dk)return;
+  var el=document.getElementById('pur-deck-cards');
+  if(!el)return;
+  var cards=dk.cards||[];
+  if(!cards.length){el.innerHTML='<div style="color:var(--tx3);font-size:.75rem;padding:4px">Deck vide</div>';return;}
+  var dkn=(dk.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var l0=esc((PN[0]||'P1').slice(0,3));
+  var l1=esc((PN[_purFriendIdx]||'P2').slice(0,3));
+  el.innerHTML='<div style="font-size:.72rem;color:var(--gold2);font-weight:600;margin-bottom:5px;padding-bottom:3px;border-bottom:.5px solid var(--bd2)">'+esc(dk.name||'')+'</div>'
+    +cards.map(function(c){
+      var cn=(c.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      return '<div class="pur-search-item">'
+        +'<span style="flex:1;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name||'')+'</span>'
+        +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',0,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--gold2)">+'+l0+'</button>'
+        +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',1,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--ac2)">+'+l1+'</button>'
+        +'</div>';
+    }).join('');
+}
 function exportPurchaseList(){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   var lst=_purchaseLists[_activePurListId];
   var cards=lst.cards||[];
+  var p0=PN[0]||'Profil 1';
+  var p1=PN[_purFriendIdx]||'Profil 2';
   var lines=['=== '+lst.name+' ===','Exporté le '+new Date().toLocaleDateString('fr-FR'),''];
-  var colLabels={'-1':'Non assigné'};
-  for(var i=0;i<profs.length;i++){colLabels[i]=PN[i]||'Profil '+(i+1);}
-  Object.keys(colLabels).forEach(function(col){
-    var colCards=cards.filter(function(c){return c.column===parseInt(col);});
+  [[0,p0],[1,p1],[-2,'Échange / Emprunt']].forEach(function(pair){
+    var col=pair[0],label=pair[1];
+    var colCards=cards.filter(function(c){return c.column===col;});
     if(!colCards.length)return;
-    lines.push('--- '+colLabels[col]+' ---');
-    colCards.forEach(function(c){lines.push('  '+c.qty+'x '+c.name+(c.deckName?' ['+c.deckName+']':''));});
+    lines.push('--- '+label+' ---');
+    var byDeck={};
+    colCards.forEach(function(c){var dk=c.deckName||'(sans deck)';if(!byDeck[dk])byDeck[dk]=[];byDeck[dk].push(c);});
+    Object.keys(byDeck).forEach(function(dk){
+      lines.push('  ['+dk+']');
+      byDeck[dk].forEach(function(c){lines.push('  '+c.qty+'x '+c.name+(c.received?' ✓':''));});
+    });
     lines.push('');
   });
   dlTxt(lines.join('\n'),lst.name.replace(/[\s/\\:*?"<>|]+/g,'_')+'.txt');
