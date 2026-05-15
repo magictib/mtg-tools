@@ -2150,6 +2150,7 @@ body.mana-cursor{cursor:none}
   <div style="display:flex;gap:12px;align-items:start">
     <!-- Tableau principal -->
     <div style="flex:1;min-width:0;overflow-x:auto;max-height:calc(100vh - 180px);overflow-y:auto">
+      <div id="pur-automatch-msg" style="display:none;background:rgba(201,168,76,.12);border:.5px solid rgba(201,168,76,.3);border-radius:6px;padding:5px 10px;font-size:.75rem;color:var(--gold2);margin-bottom:6px"></div>
       <div id="pur-table-wrap"></div>
     </div>
     <!-- Panneau de recherche -->
@@ -7678,17 +7679,63 @@ function togglePurReceived(cardId){
   var card=(_purchaseLists[_activePurListId].cards||[]).find(function(c){return c.id===cardId;});
   if(card){card.received=!card.received;savePurchaseList(_activePurListId);renderPurchaseMgr();}
 }
+var _purAutoMatchTO=null;
+function _purBuildDeckCardMap(profIdx){
+  if(profIdx===undefined)profIdx=0;
+  var collNorms={};
+  (profs[profIdx]||[]).forEach(function(c){var n=_normNl(c.name||'');collNorms[n]=(collNorms[n]||0)+(c.qty||1);});
+  var map={};
+  getDeckOrder(profIdx).forEach(function(id){
+    var dk=decks[id];if(!dk||!_deckBelongsTo(dk,profIdx))return;
+    var deckCards=parseList(dk.rawName||'');
+    var needed={};
+    deckCards.forEach(function(c){var n=_normNl(c.name||'');needed[n]=(needed[n]||0)+(c.qty||1);});
+    Object.keys(needed).forEach(function(n){
+      var missing=Math.max(0,needed[n]-(collNorms[n]||0));
+      if(missing>0){if(!map[n])map[n]=[];map[n].push({id:id,name:dk.name||id,missing:missing});}
+    });
+  });
+  return map;
+}
+function _purAutoMatchDeck(cardName,profIdx){
+  if(profIdx===undefined)profIdx=0;
+  var norm=_normNl(cardName);
+  var map=_purBuildDeckCardMap(profIdx);
+  return map[norm]||[];
+}
+function _purShowAutoMatchMsg(cardName,deckNames){
+  var el=document.getElementById('pur-automatch-msg');if(!el)return;
+  var txt=deckNames.length===1
+    ?'🎯 "'+cardName.slice(0,22)+'" → deck : '+deckNames[0]
+    :'🎯 "'+cardName.slice(0,22)+'" → '+deckNames.length+' decks : '+deckNames.slice(0,3).join(', ')+(deckNames.length>3?'…':'');
+  el.textContent=txt;el.style.display='block';
+  clearTimeout(_purAutoMatchTO);
+  _purAutoMatchTO=setTimeout(function(){el.style.display='none';},3000);
+}
 function purAddCard(name,col,deckName){
   if(!_activePurListId){alert('Créez d\'abord une liste.');return;}
   var lst=_purchaseLists[_activePurListId];
   var nl=stripDFC(name).toLowerCase();
   var dk=deckName||'';
+  if(!dk){
+    // Auto-match : cherche les decks qui ont cette carte dans leurs manquantes
+    var matches=_purAutoMatchDeck(name,col===0?0:_purFriendIdx);
+    if(matches.length>0){
+      var addedDecks=[];
+      matches.forEach(function(m){
+        var existing=(lst.cards||[]).find(function(c){return c.nl===nl&&c.column===col&&(c.deckName||'')===m.name;});
+        if(existing){existing.qty=(existing.qty||1)+1;}
+        else{lst.cards=lst.cards||[];lst.cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:1,deckName:m.name,deckId:m.id,column:col,note:'',received:false});}
+        addedDecks.push(m.name);
+      });
+      savePurchaseList(_activePurListId);renderPurchaseMgr();
+      _purShowAutoMatchMsg(name,addedDecks);
+      return;
+    }
+  }
   var existing=(lst.cards||[]).find(function(c){return c.nl===nl&&c.column===col&&(c.deckName||'')===dk;});
   if(existing){existing.qty=(existing.qty||1)+1;}
-  else{
-    lst.cards=lst.cards||[];
-    lst.cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:1,deckName:dk,deckId:'',column:col,note:'',received:false});
-  }
+  else{lst.cards=lst.cards||[];lst.cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:1,deckName:dk,deckId:'',column:col,note:'',received:false});}
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
 }
@@ -8004,13 +8051,40 @@ function purParseImportedList(text,filename){
     });
   }
 
+  // Auto-match : assigne un deck aux cartes sans nom de deck
+  var _amMap=_purBuildDeckCardMap(0);
+  var autoCount=0;
+  var finalCards=[];
+  cards.forEach(function(card){
+    if(!card.deckName&&card.column>=0){
+      var matches=_amMap[card.nl]||[];
+      if(matches.length===1){
+        card.deckName=matches[0].name;card.deckId=matches[0].id;autoCount++;
+        finalCards.push(card);
+      } else if(matches.length>1){
+        // Crée une entrée par deck manquant
+        matches.forEach(function(m,mi){
+          var c2=Object.assign({},card);
+          c2.id='pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)+(mi>0?mi:'');
+          c2.deckName=m.name;c2.deckId=m.id;
+          finalCards.push(c2);
+        });
+        autoCount++;
+      } else {
+        finalCards.push(card);
+      }
+    } else {
+      finalCards.push(card);
+    }
+  });
+  var msg='"'+listName+'" : '+finalCards.length+' carte(s) importée(s).'+(autoCount?' '+autoCount+' carte(s) auto-associée(s) à un deck.':'');
   var id='pl_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  _purchaseLists[id]={name:listName,createdAt:Date.now(),cards:cards};
+  _purchaseLists[id]={name:listName,createdAt:Date.now(),cards:finalCards};
   _activePurListId=id;
   savePurchaseList(id);
   renderPurListSel();
   renderPurchaseMgr();
-  alert('Liste "'+listName+'" importée avec '+cards.length+' carte(s).');
+  alert(msg);
 }
 
 // ===== BIBLIOTHÈQUE — RECHERCHE PAR EXTENSION =====
