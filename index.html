@@ -7624,7 +7624,10 @@ function renderPurchaseMgr(){
       var g=groups[dk];
       var total=g.col0.length+g.col1.length+g.colX.length;
       if(!total)return;
-      html+='<tr class="pur-dk-hdr"><td colspan="3">📖 '+esc(dk)+'</td></tr>';
+      // Groupes mixtes (achat + prêt) → header de deck normal
+      // Groupes purement prêts → pas de header, nom du deck inline sur chaque ligne
+      var pureExch=g.col0.length===0&&g.col1.length===0;
+      if(!pureExch)html+='<tr class="pur-dk-hdr"><td colspan="3">📖 '+esc(dk)+'</td></tr>';
       var all=g.col0.map(function(c){return {c:c,col:0};})
         .concat(g.col1.map(function(c){return {c:c,col:1};}))
         .concat(g.colX.map(function(c){return {c:c,col:-2};}));
@@ -7636,8 +7639,9 @@ function renderPurchaseMgr(){
         var recvBtn='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler réception':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
         var delBtn2='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
         if(col===-2){
+          var dkLabel=pureExch&&dk&&dk!=='(sans deck)'?'<span style="font-style:italic;color:var(--tx3);font-size:.72rem">'+esc(dk)+'</span>':'';
           html+='<tr class="pur-card-row pur-exch-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
-            +'<td></td>'
+            +'<td>'+dkLabel+'</td>'
             +'<td colspan="2" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'
             +'↔ '+nameHtml+recvBtn+delBtn2
             +(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')
@@ -7777,7 +7781,9 @@ function purAddCard(name,col,deckName){
     if(!matches.length&&col!==-0)matches=(_purBuildDeckCardMap(0))[nl]||[];
     if(matches.length>0){
       var addedDecks=[];
-      matches.forEach(function(m){
+      // Pour les prêts (col=-2) on ne rattache qu'au premier deck trouvé (évite les doublons)
+      var toMatch=col===-2?matches.slice(0,1):matches;
+      toMatch.forEach(function(m){
         var existing=(lst.cards||[]).find(function(c){return c.nl===nl&&c.column===col&&(c.deckName||'')===m.name;});
         if(existing){existing.qty=(existing.qty||1)+1;}
         else{lst.cards=lst.cards||[];lst.cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:1,deckName:m.name,deckId:m.id,column:col,note:'',received:false});}
@@ -8122,7 +8128,9 @@ function purParseImportedList(text,filename){
         card.deckName=matches[0].name;card.deckId=matches[0].id;autoCount++;
         finalCards.push(card);
       } else if(matches.length>1){
-        matches.forEach(function(m,mi){
+        // Pour les prêts (col=-2) on ne crée qu'une entrée (premier deck) pour éviter les doublons
+        var matchSet=card.column===-2?matches.slice(0,1):matches;
+        matchSet.forEach(function(m,mi){
           var c2=Object.assign({},card);
           c2.id='pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)+(mi>0?mi:'');
           c2.deckName=m.name;c2.deckId=m.id;
