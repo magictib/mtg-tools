@@ -2142,7 +2142,16 @@ body.mana-cursor{cursor:none}
         </div>
         <!-- Recherche dans mes decks -->
         <div id="pur-search-deck" style="display:none">
-          <input id="pur-deck-q" type="text" placeholder="Nom du deck…" oninput="purFilterDecks()" style="width:100%;box-sizing:border-box;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:5px 8px;font-size:.77rem;outline:none;margin-bottom:6px">
+          <input id="pur-deck-q" type="text" placeholder="Nom du deck…" oninput="purFilterDecks()" style="width:100%;box-sizing:border-box;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:5px 8px;font-size:.77rem;outline:none;margin-bottom:5px">
+          <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center">
+            <span style="font-size:.7rem;color:var(--tx3);flex-shrink:0">Tri</span>
+            <select id="pur-deck-sort" onchange="purFilterDecks()" style="flex:1;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:5px;padding:3px 5px;font-size:.72rem;outline:none">
+              <option value="order">Ordre perso</option>
+              <option value="name">Nom A→Z</option>
+              <option value="date">Date récente</option>
+              <option value="format">Format</option>
+            </select>
+          </div>
           <div id="pur-deck-list" style="max-height:180px;overflow-y:auto;margin-bottom:8px"></div>
           <div id="pur-deck-cards" style="max-height:200px;overflow-y:auto"></div>
         </div>
@@ -7546,18 +7555,31 @@ function purSearchCard(){
 }
 function purFilterDecks(){
   var q=((document.getElementById('pur-deck-q')||{}).value||'').toLowerCase().trim();
+  var sortMode=((document.getElementById('pur-deck-sort')||{}).value)||'order';
   var listEl=document.getElementById('pur-deck-list');
   if(!listEl)return;
-  var myDecks=Object.entries(decks||{}).filter(function(e){return !q||(e[1].name||'').toLowerCase().indexOf(q)>=0;});
-  if(!myDecks.length){listEl.innerHTML='<div style="color:var(--tx3);font-size:.75rem;font-style:italic;padding:4px">Aucun deck</div>';return;}
-  var l0=esc((PN[0]||'P1').slice(0,3));
-  var l1=esc((PN[_purFriendIdx]||'P2').slice(0,3));
-  listEl.innerHTML=myDecks.map(function(kv){
-    var id=kv[0],dk=kv[1];
+  // Source canonique : même filtre que le wizard (getDeckOrder + _deckBelongsTo)
+  var ids=(typeof getDeckOrder==='function')?getDeckOrder(0):Object.keys(decks||{});
+  var filtered=ids.filter(function(id){
+    var dk=(decks||{})[id];
+    if(!dk)return false;
+    if(typeof _deckBelongsTo==='function'&&!_deckBelongsTo(dk,0))return false;
+    return !q||(dk.name||'').toLowerCase().indexOf(q)>=0;
+  });
+  // Tri
+  if(sortMode==='name'){filtered=filtered.slice().sort(function(a,b){return ((decks[a]||{}).name||'').localeCompare((decks[b]||{}).name||'');});}
+  else if(sortMode==='date'){filtered=filtered.slice().sort(function(a,b){return ((decks[b]||{}).savedAt||(decks[b]||{}).createdAt||0)-((decks[a]||{}).savedAt||(decks[a]||{}).createdAt||0);});}
+  else if(sortMode==='format'){filtered=filtered.slice().sort(function(a,b){return ((decks[a]||{}).format||'zzz').localeCompare((decks[b]||{}).format||'zzz');});}
+  if(!filtered.length){listEl.innerHTML='<div style="color:var(--tx3);font-size:.75rem;font-style:italic;padding:4px">Aucun deck</div>';return;}
+  listEl.innerHTML=filtered.map(function(id){
+    var dk=(decks||{})[id];
     var sid=id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var cards=dk.rawName?parseList(dk.rawName):(dk.cards||[]);
+    var fmtBadge=dk.format?'<span style="font-size:.62rem;color:var(--tx3);margin-right:3px">'+esc(dk.format)+'</span>':'';
     return '<div class="pur-search-item" style="cursor:pointer" onclick="purShowDeckCards(\''+sid+'\')">'
       +'<span style="flex:1;font-size:.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(dk.name||'—')+'</span>'
-      +'<span style="font-size:.67rem;color:var(--tx3)">'+((dk.cards||[]).length)+'c</span>'
+      +fmtBadge
+      +'<span style="font-size:.67rem;color:var(--tx3)">'+cards.length+'c</span>'
       +'</div>';
   }).join('');
 }
@@ -7566,16 +7588,18 @@ function purShowDeckCards(deckId){
   if(!dk)return;
   var el=document.getElementById('pur-deck-cards');
   if(!el)return;
-  var cards=dk.cards||[];
+  // rawName est la source de vérité (comme le reste de l'app)
+  var cards=dk.rawName?parseList(dk.rawName):(dk.cards||[]);
   if(!cards.length){el.innerHTML='<div style="color:var(--tx3);font-size:.75rem;padding:4px">Deck vide</div>';return;}
   var dkn=(dk.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   var l0=esc((PN[0]||'P1').slice(0,3));
   var l1=esc((PN[_purFriendIdx]||'P2').slice(0,3));
-  el.innerHTML='<div style="font-size:.72rem;color:var(--gold2);font-weight:600;margin-bottom:5px;padding-bottom:3px;border-bottom:.5px solid var(--bd2)">'+esc(dk.name||'')+'</div>'
+  el.innerHTML='<div style="font-size:.72rem;color:var(--gold2);font-weight:600;margin-bottom:5px;padding-bottom:3px;border-bottom:.5px solid var(--bd2)">'
+    +esc(dk.name||'')+' <span style="font-weight:400;color:var(--tx3)">('+cards.length+')</span></div>'
     +cards.map(function(c){
       var cn=(c.name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
       return '<div class="pur-search-item">'
-        +'<span style="flex:1;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name||'')+'</span>'
+        +'<span style="flex:1;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(c.qty>1?c.qty+'× ':'')+esc(c.name||'')+'</span>'
         +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',0,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--gold2)">+'+l0+'</button>'
         +'<button class="btn btnsm" onclick="purAddCard(\''+cn+'\',1,\''+dkn+'\')" style="padding:1px 5px;font-size:.63rem;color:var(--ac2)">+'+l1+'</button>'
         +'</div>';
