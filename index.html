@@ -537,6 +537,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 /* Badges prêts/commandes */
 .badge-loan{display:inline-block;background:var(--am);color:#1a1400;font-size:.62rem;font-weight:700;border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle;cursor:default}
 .badge-pend{display:inline-block;background:var(--ac);color:#fff;font-size:.62rem;font-weight:700;border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle;cursor:default}
+.badge-deck{display:inline-block;background:rgba(201,168,76,.18);color:var(--gold2);border:.5px solid rgba(201,168,76,.4);font-size:.62rem;font-weight:700;border-radius:3px;padding:0 4px;margin-left:3px;vertical-align:middle;cursor:default}
 .cname-loan{color:var(--am) !important}.cname-recv{color:var(--gr2) !important}
 /* Deck — cartes commandées */
 .rpend .dname{color:var(--am);font-style:italic}.rpend .dq{color:var(--am)}
@@ -7293,15 +7294,26 @@ function openPurchaseMgr(){
   loadPurchaseLists();
   var pm=document.getElementById('purchase-mgr');
   var dr=document.getElementById('deckres');
+  var wiz=document.getElementById('bld-wizard');
+  var cols=document.getElementById('bld-cols');
+  var cmd=document.getElementById('bld-cmd-zone');
+  var blank=document.getElementById('bld-blank-zone');
   if(pm)pm.style.display='';
   if(dr)dr.style.display='none';
+  if(wiz)wiz.style.display='none';
+  if(cols)cols.style.display='none';
+  if(cmd)cmd.style.display='none';
+  if(blank)blank.style.display='none';
 }
 
 function closePurchaseMgr(){
   var pm=document.getElementById('purchase-mgr');
-  var dr=document.getElementById('deckres');
   if(pm)pm.style.display='none';
-  if(dr)dr.style.display='';
+  // Restaure la vue deck normale via _bldRefreshView
+  if(typeof _bldRefreshView==='function') _bldRefreshView();
+  // Si aucune vue active, affiche le wizard
+  if(typeof _bldView==='undefined'||!_bldView) _bldView='wizard';
+  if(typeof _bldRefreshView==='function') _bldRefreshView();
 }
 
 function renderPurListSel(){
@@ -12683,16 +12695,27 @@ function renderColl(){
     document.getElementById('colllist').innerHTML='<div style="text-align:center;color:var(--tx3);padding:1rem;font-style:italic">Aucune carte trouvée</div>';
     return;
   }
+  // Précalcul index carte → noms de decks (profil courant uniquement)
+  var _deckIdx={};
+  Object.values(decks||{}).filter(function(dk){return !dk.prof||dk.prof===collP;}).forEach(function(dk){
+    (dk.cards||[]).forEach(function(c){
+      var nl=stripDFC(c.name||'').toLowerCase();
+      if(!_deckIdx[nl])_deckIdx[nl]=[];
+      if(_deckIdx[nl].indexOf(dk.name||'?')<0)_deckIdx[nl].push(dk.name||'?');
+    });
+  });
   document.getElementById('colllist').innerHTML=filtered.map(function(c){
     var foilStr=fNF(c.finish)==='foil'?'✦':'';
     var priceStr=c.price>0?c.price.toFixed(2)+'€':'—';
     var nm=esc(c.name);
     var lOut=loans.filter(function(l){return l.from===collP&&l.name.toLowerCase()===c.name.toLowerCase();}).reduce(function(s,l){return s+l.qty;},0);
     var pQty=pending.filter(function(p){return p.prof===collP&&p.name.toLowerCase()===c.name.toLowerCase();}).reduce(function(s,p){return s+p.qty;},0);
+    var cardDecks=_deckIdx[stripDFC(c.name||'').toLowerCase()]||[];
+    var deckBdg=cardDecks.length?'<span class="badge-deck" title="📖 '+esc(cardDecks.join(' · '))+'">📖'+(cardDecks.length===1?esc(cardDecks[0].length>12?cardDecks[0].slice(0,11)+'…':cardDecks[0]):cardDecks.length+'×')+'</span>':'';
     var rowBdg=(lOut?'<span class="badge-loan" title="'+lOut+'× prêtée(s)">⟳'+lOut+'</span>':'')+(pQty?'<span class="badge-pend" title="'+pQty+'× commandée(s)">⏳'+pQty+'</span>':'');
     var nClass='cname'+(lOut?' cname-loan':'');
     return '<div class="collrow" data-nm="'+nm+'" onclick="toggleCollDetail(this,this.dataset.nm)" onmouseenter="showTip(this.dataset.nm,event)" onmouseleave="hideTip()">'+
-      '<div class="'+nClass+'" title="'+esc(c.name)+'">'+esc(c.name)+rowBdg+'</div>'+
+      '<div class="'+nClass+'" title="'+esc(c.name)+'">'+esc(c.name)+deckBdg+rowBdg+'</div>'+
       '<div class="cset">'+esc(c.set)+'</div>'+
       '<div class="cqty">'+c.qty+'</div>'+
       '<div class="ccond">'+esc(c.cond)+'</div>'+
