@@ -2140,10 +2140,21 @@ body.mana-cursor{cursor:none}
       <span style="color:var(--tx3);font-size:.75rem">vs</span>
       <select id="pur-friend-sel" onchange="purSetFriend(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:90px;max-width:140px"></select>
       <button class="btn btnsm" id="pur-import-btn" onclick="importAchatToPurchase()" title="Importe les cartes du panneau 🛒 Achat du deck actuellement ouvert" style="display:none">⬇ Importer achat</button>
-      <button class="btn btnsm" onclick="purImportFile()" title="Importer une liste depuis un fichier .txt">📂 Importer fichier</button>
+      <button class="btn btnsm" onclick="purImportFile()" title="Importer une liste depuis un fichier .txt">📂 Fichier</button>
       <input type="file" id="pur-file-in" accept=".txt,.csv" style="display:none" onchange="purHandleFileImport(event)">
+      <button class="btn btnsm" onclick="purTogglePastePanel()" title="Coller une liste de cartes directement">📋 Coller liste</button>
       <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter .txt</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
+    </div>
+    <!-- Panneau coller liste -->
+    <div id="pur-paste-panel" style="display:none;margin-top:10px;border-top:.5px solid var(--bd);padding-top:10px">
+      <div style="font-size:.75rem;color:var(--tx3);margin-bottom:5px">Collez une liste de cartes (format : <code>1x Nom</code> ou <code>1 Nom (SET) num</code>) :</div>
+      <textarea id="pur-paste-area" rows="5" placeholder="1x Sol Ring&#10;2x Lightning Bolt&#10;..." style="width:100%;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:6px 8px;font-size:.78rem;resize:vertical;box-sizing:border-box;font-family:monospace"></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+        <input type="text" id="pur-paste-name" placeholder="Nom de la liste…" style="flex:1;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.78rem">
+        <button class="btn btnsm btnp" onclick="purImportPasted()">⬇ Importer</button>
+        <button class="btn btnsm" onclick="purTogglePastePanel(false)">✕</button>
+      </div>
     </div>
   </div>
   <!-- Corps : tableau à gauche + recherche à droite -->
@@ -7697,6 +7708,43 @@ function _purBuildDeckCardMap(profIdx){
   });
   return map;
 }
+function _purBuildDeckCardMapForFriend(friendIdx){
+  var ep=(_epSlots.build||[])[friendIdx-1];
+  if(!ep||!ep.uid)return {};
+  var uid=ep.uid;
+  var friendCards=_epCards[uid]||[];
+  var friendDecks=_epDecks[uid]||{};
+  var collNorms={};
+  friendCards.forEach(function(c){var n=_normNl(c.name||'');collNorms[n]=(collNorms[n]||0)+(c.qty||1);});
+  var map={};
+  Object.keys(friendDecks).forEach(function(id){
+    var dk=friendDecks[id];if(!dk)return;
+    var deckCards=parseList(dk.rawName||'');
+    var needed={};
+    deckCards.forEach(function(c){var n=_normNl(c.name||'');needed[n]=(needed[n]||0)+(c.qty||1);});
+    Object.keys(needed).forEach(function(n){
+      var missing=Math.max(0,needed[n]-(collNorms[n]||0));
+      if(missing>0){if(!map[n])map[n]=[];map[n].push({id:id,name:dk.name||id,missing:missing});}
+    });
+  });
+  return map;
+}
+function purTogglePastePanel(show){
+  var p=document.getElementById('pur-paste-panel');if(!p)return;
+  if(show===undefined)show=p.style.display==='none';
+  p.style.display=show?'block':'none';
+  if(show){var ta=document.getElementById('pur-paste-area');if(ta)setTimeout(function(){ta.focus();},50);}
+}
+function purImportPasted(){
+  var ta=document.getElementById('pur-paste-area');
+  var ni=document.getElementById('pur-paste-name');
+  var text=(ta?ta.value:'').trim();
+  if(!text){alert('La zone de texte est vide.');return;}
+  var name=(ni?ni.value.trim():'')||'Liste collée';
+  purTogglePastePanel(false);
+  purParseImportedList(text,name+'.txt');
+  if(ta)ta.value='';if(ni)ni.value='';
+}
 function _purAutoMatchDeck(cardName,profIdx){
   if(profIdx===undefined)profIdx=0;
   var norm=_normNl(cardName);
@@ -7718,8 +7766,13 @@ function purAddCard(name,col,deckName){
   var nl=stripDFC(name).toLowerCase();
   var dk=deckName||'';
   if(!dk){
-    // Auto-match : cherche les decks qui ont cette carte dans leurs manquantes
-    var matches=_purAutoMatchDeck(name,col===0?0:_purFriendIdx);
+    // Auto-match : col=0 → decks user ; col>=1 ou col=-2 → decks ami (il emprunte pour ses decks)
+    var matchMap;
+    if(col===0)matchMap=_purBuildDeckCardMap(0);
+    else matchMap=_purBuildDeckCardMapForFriend(_purFriendIdx);
+    var matches=matchMap[nl]||[];
+    // Fallback sur decks user si aucun match côté ami
+    if(!matches.length&&col!==-0)matches=(_purBuildDeckCardMap(0))[nl]||[];
     if(matches.length>0){
       var addedDecks=[];
       matches.forEach(function(m){
@@ -8052,17 +8105,21 @@ function purParseImportedList(text,filename){
   }
 
   // Auto-match : assigne un deck aux cartes sans nom de deck
-  var _amMap=_purBuildDeckCardMap(0);
+  var _amMap0=_purBuildDeckCardMap(0);
+  var _amMapF=_purBuildDeckCardMapForFriend(_purFriendIdx);
   var autoCount=0;
   var finalCards=[];
   cards.forEach(function(card){
-    if(!card.deckName&&card.column>=0){
-      var matches=_amMap[card.nl]||[];
+    if(!card.deckName){
+      // col=0 → decks user ; col>=1 ou col=-2 → decks ami (il emprunte pour ses decks)
+      var matchMap=card.column===0?_amMap0:_amMapF;
+      var matches=matchMap[card.nl]||[];
+      // Fallback sur decks user si aucun match côté ami
+      if(!matches.length&&card.column!==0)matches=_amMap0[card.nl]||[];
       if(matches.length===1){
         card.deckName=matches[0].name;card.deckId=matches[0].id;autoCount++;
         finalCards.push(card);
       } else if(matches.length>1){
-        // Crée une entrée par deck manquant
         matches.forEach(function(m,mi){
           var c2=Object.assign({},card);
           c2.id='pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)+(mi>0?mi:'');
