@@ -2118,7 +2118,9 @@ body.mana-cursor{cursor:none}
       <span style="color:var(--tx3);font-size:.75rem">vs</span>
       <select id="pur-friend-sel" onchange="purSetFriend(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:90px;max-width:140px"></select>
       <button class="btn btnsm" id="pur-import-btn" onclick="importAchatToPurchase()" title="Importe les cartes du panneau 🛒 Achat du deck actuellement ouvert" style="display:none">⬇ Importer achat</button>
-      <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter</button>
+      <button class="btn btnsm" onclick="purImportFile()" title="Importer une liste depuis un fichier .txt">📂 Importer fichier</button>
+      <input type="file" id="pur-file-in" accept=".txt,.csv" style="display:none" onchange="purHandleFileImport(event)">
+      <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter .txt</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
     </div>
   </div>
@@ -7396,21 +7398,31 @@ function renderPurchaseMgr(){
   var wrap=document.getElementById('pur-table-wrap');
   if(!wrap)return;
   if(importBtn)importBtn.style.display=_achatRecap?'':'none';
+  var p0=esc(PN[0]||'Profil 1');
+  var p1=esc(PN[_purFriendIdx]||'Profil 2');
+  // En-tête du tableau toujours présent
+  var html='<table class="pur-table"><thead><tr>'
+    +'<th style="width:36%">Deck / Carte</th>'
+    +'<th class="pur-col-td" style="color:var(--gold2);width:32%">'+p0+'</th>'
+    +'<th class="pur-col-td" style="color:var(--ac2);width:32%">'+p1+'</th>'
+    +'</tr></thead><tbody>';
   if(!_activePurListId||!_purchaseLists[_activePurListId]){
-    wrap.innerHTML='<div style="padding:2.5rem;text-align:center">'
-      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste d\'achat — créez-en une pour commencer.</div>'
-      +'<button class="btn btnp btnsm" onclick="newPurchaseList()">+ Créer une liste</button>'
-      +'</div>';
+    html+='<tr><td colspan="3" style="text-align:center;padding:2.5rem 1rem">'
+      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste — créez-en une ou importez un fichier.</div>'
+      +'<button class="btn btnp btnsm" onclick="newPurchaseList()" style="margin-right:6px">+ Créer une liste</button>'
+      +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer fichier</button>'
+      +'</td></tr>';
     if(exportBtn)exportBtn.style.display='none';
     if(delBtn)delBtn.style.display='none';
+    html+='</tbody></table>';
+    wrap.innerHTML=html;
+    purFilterDecks();
     return;
   }
   if(exportBtn)exportBtn.style.display='';
   if(delBtn)delBtn.style.display='';
   var lst=_purchaseLists[_activePurListId];
   var cards=lst.cards||[];
-  var p0=esc(PN[0]||'Profil 1');
-  var p1=esc(PN[_purFriendIdx]||'Profil 2');
   // Regroupement par deck
   var groups={};
   var deckOrder=[];
@@ -7422,45 +7434,40 @@ function renderPurchaseMgr(){
     else groups[dk].colX.push(c);
   });
   if(!deckOrder.length){
-    wrap.innerHTML='<div style="padding:2rem;text-align:center;color:var(--tx3);font-style:italic;font-size:.82rem">Liste vide — utilisez le panneau de droite pour ajouter des cartes.</div>';
-    return;
-  }
-  var html='<table class="pur-table"><thead><tr>'
-    +'<th style="width:36%">Deck / Carte</th>'
-    +'<th class="pur-col-td" style="color:var(--gold2);width:32%">'+p0+'</th>'
-    +'<th class="pur-col-td" style="color:var(--ac2);width:32%">'+p1+'</th>'
-    +'</tr></thead><tbody>';
-  deckOrder.forEach(function(dk){
-    var g=groups[dk];
-    var total=g.col0.length+g.col1.length+g.colX.length;
-    if(!total)return;
-    html+='<tr class="pur-dk-hdr"><td colspan="3">📖 '+esc(dk)+'</td></tr>';
-    var all=g.col0.map(function(c){return {c:c,col:0};})
-      .concat(g.col1.map(function(c){return {c:c,col:1};}))
-      .concat(g.colX.map(function(c){return {c:c,col:-2};}));
-    all.forEach(function(item){
-      var c=item.c,col=item.col;
-      var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-      var recv=!!c.received;
-      var nameHtml='<span class="'+(recv?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
-      var recvBtn='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler réception':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
-      var delBtn2='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
-      if(col===-2){
-        // Échange/emprunt : ligne distincte sur toute la largeur
-        html+='<tr class="pur-card-row pur-exch-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
-          +'<td></td>'
-          +'<td colspan="2" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'
-          +'↔ '+nameHtml+recvBtn+delBtn2
-          +(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')
-          +'</td></tr>';
-      }else{
-        var td0='<td class="pur-col-td" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'+(col===0?nameHtml+recvBtn+delBtn2:'')+'</td>';
-        var td1='<td class="pur-col-td" ondragover="purColDragOver(event,1)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,1)">'+(col===1?nameHtml+recvBtn+delBtn2:'')+'</td>';
-        html+='<tr class="pur-card-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
-          +'<td></td>'+td0+td1+'</tr>';
-      }
+    html+='<tr><td colspan="3" style="text-align:center;padding:2rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">'
+      +'Liste vide — utilisez le panneau de droite pour ajouter des cartes.</td></tr>';
+  }else{
+    deckOrder.forEach(function(dk){
+      var g=groups[dk];
+      var total=g.col0.length+g.col1.length+g.colX.length;
+      if(!total)return;
+      html+='<tr class="pur-dk-hdr"><td colspan="3">📖 '+esc(dk)+'</td></tr>';
+      var all=g.col0.map(function(c){return {c:c,col:0};})
+        .concat(g.col1.map(function(c){return {c:c,col:1};}))
+        .concat(g.colX.map(function(c){return {c:c,col:-2};}));
+      all.forEach(function(item){
+        var c=item.c,col=item.col;
+        var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        var recv=!!c.received;
+        var nameHtml='<span class="'+(recv?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
+        var recvBtn='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler réception':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
+        var delBtn2='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
+        if(col===-2){
+          html+='<tr class="pur-card-row pur-exch-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
+            +'<td></td>'
+            +'<td colspan="2" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'
+            +'↔ '+nameHtml+recvBtn+delBtn2
+            +(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')
+            +'</td></tr>';
+        }else{
+          var td0='<td class="pur-col-td" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'+(col===0?nameHtml+recvBtn+delBtn2:'')+'</td>';
+          var td1='<td class="pur-col-td" ondragover="purColDragOver(event,1)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,1)">'+(col===1?nameHtml+recvBtn+delBtn2:'')+'</td>';
+          html+='<tr class="pur-card-row" data-id="'+esc(c.id)+'" draggable="true" ondragstart="purDragStart(event,\''+sid+'\')">'
+            +'<td></td>'+td0+td1+'</tr>';
+        }
+      });
     });
-  });
+  }
   html+='</tbody></table>';
   wrap.innerHTML=html;
   purFilterDecks();
@@ -7626,6 +7633,72 @@ function exportPurchaseList(){
     lines.push('');
   });
   dlTxt(lines.join('\n'),lst.name.replace(/[\s/\\:*?"<>|]+/g,'_')+'.txt');
+}
+
+function purImportFile(){
+  var inp=document.getElementById('pur-file-in');
+  if(inp)inp.click();
+}
+function purHandleFileImport(e){
+  var file=e.target.files&&e.target.files[0];
+  if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(ev){purParseImportedList(ev.target.result||'',file.name);};
+  reader.readAsText(file,'UTF-8');
+  e.target.value='';
+}
+function purParseImportedList(text,filename){
+  var lines=text.split('\n');
+  // Nom de la liste depuis la première ligne === ... === ou le nom de fichier
+  var listName=filename.replace(/\.txt$/i,'').replace(/_/g,' ');
+  var cards=[];
+  var currentCol=0;
+  var currentDeck='';
+  var p0lc=(PN[0]||'profil 1').toLowerCase();
+  var p1lc=(PN[_purFriendIdx]||'profil 2').toLowerCase();
+  lines.forEach(function(raw){
+    var line=raw.replace(/\r$/,'');
+    // === Nom de liste ===
+    var mTitle=line.match(/^===\s*(.+?)\s*===\s*$/);
+    if(mTitle){listName=mTitle[1];return;}
+    // --- Section profil ---
+    var mSect=line.match(/^---\s*(.+?)\s*---\s*$/);
+    if(mSect){
+      var sn=mSect[1].toLowerCase();
+      if(sn===p0lc)currentCol=0;
+      else if(sn===p1lc)currentCol=1;
+      else if(sn.indexOf('change')>=0||sn.indexOf('emprunt')>=0)currentCol=-2;
+      else currentCol=0;
+      currentDeck='';
+      return;
+    }
+    // [Nom du deck]
+    var mDeck=line.match(/^\s{2}\[(.+)\]\s*$/);
+    if(mDeck){currentDeck=mDeck[1];return;}
+    // Nx Carte (ou 1x Carte ou juste Carte)
+    var mCard=line.match(/^\s{2,}(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
+    if(mCard){
+      var qty=parseInt(mCard[1])||1;
+      var name=mCard[2].trim();
+      var recv=!!mCard[3];
+      if(name)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
+      return;
+    }
+    // Ligne sans quantité (fallback)
+    var mCard2=line.match(/^\s{2,}([^\[\-=].+?)(\s+✓)?\s*$/);
+    if(mCard2){
+      var name=mCard2[1].trim();
+      var recv=!!mCard2[2];
+      if(name&&name.length>1)cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:1,deckName:currentDeck,deckId:'',column:currentCol,note:'',received:recv});
+    }
+  });
+  var id='pl_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  _purchaseLists[id]={name:listName,createdAt:Date.now(),cards:cards};
+  _activePurListId=id;
+  savePurchaseList(id);
+  renderPurListSel();
+  renderPurchaseMgr();
+  alert('Liste "'+listName+'" importée avec '+cards.length+' carte(s).');
 }
 
 // ===== BIBLIOTHÈQUE — RECHERCHE PAR EXTENSION =====
