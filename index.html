@@ -6111,7 +6111,7 @@ function newDeck(){
   var sp=document.getElementById('deck-stats-panel');if(sp)sp.style.display='none';
   var sdp=document.getElementById('smart-deck-panel');if(sdp)sdp.style.display='none';
   _smartEdhCache={};_smartEdhPending={};
-  document.querySelectorAll('#deck-stats-panel .dm').forEach(function(b){b.classList.remove('active');});
+  document.querySelectorAll('[id^="dsort-"]').forEach(function(b){b.classList.remove('active');});
   var sb=document.getElementById('dsort-sec');if(sb)sb.classList.add('active');
   document.querySelectorAll('.dview-btn').forEach(function(b){b.classList.toggle('active',b.dataset.mode==='list');});
   document.getElementById('dnamein').value='';
@@ -6620,7 +6620,7 @@ function fetchMinRarity(){
 }
 function setDSort(mode,btn){
   dSortMode=mode;
-  document.querySelectorAll('#deck-stats-panel .dm').forEach(function(b){b.classList.remove('active');});
+  document.querySelectorAll('[id^="dsort-"]').forEach(function(b){b.classList.remove('active');});
   if(btn)btn.classList.add('active');
   renderDeck();
 }
@@ -7486,44 +7486,57 @@ function renderDeckMontage(quietUpdate){
     +'</div>';
   if(complete)html+='<div class="montage-confetti">🎉 Deck assemblé ! 🎉</div>';
   html+='</div>';
-  // Split : restantes vs déjà placées
-  var pending=[],done=[];
-  dCards.forEach(function(c){
-    var b=Math.min(c.qty,d[c.nl]||0);
-    (b<c.qty?pending:done).push(c);
-  });
-  // Tri : pending par nom, done par nom
-  pending.sort(function(a,b){return a.name.localeCompare(b.name);});
-  done.sort(function(a,b){return a.name.localeCompare(b.name);});
-  function renderSec(title,color,list){
-    if(!list.length)return '';
-    var s='<div class="montage-sec" style="color:'+color+'">'+title+' <span style="color:var(--tx3);font-weight:400">('+list.length+')</span></div>';
-    list.forEach(function(c){
-      var b=Math.min(c.qty,d[c.nl]||0);
-      var owned=(pm.get(getKey(c))||0);
-      var inOther=(ownerUsg.get(c.nl)||{qty:0}).qty;
-      var statusTag=b<c.qty?_montageStatusTag(c,owned,inOther):'';
-      var rowCls='montage-row';
-      if(b===c.qty)rowCls+=' montage-row-done';
-      else if(b>0)rowCls+=' montage-row-partial';
-      else if(owned>0)rowCls+=' montage-row-ready';
-      else rowCls+=' montage-row-missing';
-      s+='<div class="'+rowCls+'" onclick="if(event.shiftKey)montageDec(\''+esc(c.nl)+'\');else montageInc(\''+esc(c.nl)+'\');" title="Clic = +1 placée • Shift+clic = -1">'
-        +'<div class="montage-qty">'+c.qty+'×</div>'
-        +'<div class="montage-name">'+esc(c.name)+'</div>'
-        +'<div class="montage-status">'+statusTag+'</div>'
-        +'<div class="montage-blocks">'+_montageMiniBlocks(b,c.qty)+'</div>'
-        +'<div class="montage-counter">'+b+'/'+c.qty+'</div>'
-        +'<div class="montage-ctrls" onclick="event.stopPropagation()">'
-        +'<button class="btn btnsm" onclick="montageDec(\''+esc(c.nl)+'\')" style="padding:1px 7px;font-size:.85rem">−</button>'
-        +'<button class="btn btnsm btnp" onclick="montageInc(\''+esc(c.nl)+'\')" style="padding:1px 7px;font-size:.85rem">+</button>'
-        +'</div>'
-        +'</div>';
+  // Tri selon dSortMode (Section / Type / CMC / Nom / Couleur)
+  var sorted=dCards.slice();
+  if(dSortMode==='name')sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
+  else if(dSortMode==='cmc')sorted.sort(function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);});
+  else if(dSortMode==='color'){
+    var _CORD={W:0,U:1,B:2,R:3,G:4};
+    var _RORD={mythic:0,rare:1,uncommon:2,common:3};
+    function _clrKey(c){var m=dCardMeta[c.nl]||{};var tl=(m.typeLine||'').toLowerCase();if(tl.indexOf('land')>=0)return 7;var cc=m.colors||[];if(!cc.length)return 6;if(cc.length>1)return 5;return _CORD[cc[0]]!==undefined?_CORD[cc[0]]:4;}
+    sorted.sort(function(a,b){
+      var oa=_clrKey(a),ob=_clrKey(b);if(oa!==ob)return oa-ob;
+      var ma=dCardMeta[a.nl]||{},mb=dCardMeta[b.nl]||{};
+      var ra=_RORD[ma.rarity]!==undefined?_RORD[ma.rarity]:4,rb=_RORD[mb.rarity]!==undefined?_RORD[mb.rarity]:4;
+      if(ra!==rb)return ra-rb;return a.name.localeCompare(b.name);
     });
-    return s;
+  } else sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
+  // Sections via getVSec
+  var secs=[];
+  sorted.forEach(function(c){var s=getVSec(c);if(secs.indexOf(s)<0)secs.push(s);});
+  if(dSortMode==='type')secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});
+  else if(dSortMode==='cmc')secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});
+  else if(dSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
+  function renderRow(c){
+    var b=Math.min(c.qty,d[c.nl]||0);
+    var owned=(pm.get(getKey(c))||0);
+    var inOther=(ownerUsg.get(c.nl)||{qty:0}).qty;
+    var statusTag=b<c.qty?_montageStatusTag(c,owned,inOther):'';
+    var rowCls='montage-row';
+    if(b===c.qty)rowCls+=' montage-row-done';
+    else if(b>0)rowCls+=' montage-row-partial';
+    else if(owned>0)rowCls+=' montage-row-ready';
+    else rowCls+=' montage-row-missing';
+    return '<div class="'+rowCls+'" onclick="if(event.shiftKey)montageDec(\''+esc(c.nl)+'\');else montageInc(\''+esc(c.nl)+'\');" title="Clic = +1 placée • Shift+clic = -1">'
+      +'<div class="montage-qty">'+c.qty+'×</div>'
+      +'<div class="montage-name">'+esc(c.name)+'</div>'
+      +'<div class="montage-status">'+statusTag+'</div>'
+      +'<div class="montage-blocks">'+_montageMiniBlocks(b,c.qty)+'</div>'
+      +'<div class="montage-counter">'+b+'/'+c.qty+'</div>'
+      +'<div class="montage-ctrls" onclick="event.stopPropagation()">'
+      +'<button class="btn btnsm" onclick="montageDec(\''+esc(c.nl)+'\')" style="padding:1px 7px;font-size:.85rem">−</button>'
+      +'<button class="btn btnsm btnp" onclick="montageInc(\''+esc(c.nl)+'\')" style="padding:1px 7px;font-size:.85rem">+</button>'
+      +'</div>'
+      +'</div>';
   }
-  html+=renderSec('🎯 Restantes à placer','var(--am)',pending);
-  html+=renderSec('✓ Déjà dans le deck','var(--gr2)',done);
+  secs.forEach(function(sec){
+    var subs=sorted.filter(function(c){return getVSec(c)===sec;});
+    if(!subs.length)return;
+    var subBuilt=subs.reduce(function(s,c){return s+Math.min(c.qty,d[c.nl]||0);},0);
+    var subTot=subs.reduce(function(s,c){return s+(c.qty||0);},0);
+    html+='<div class="montage-sec" style="color:var(--gold2)">'+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBuilt+'/'+subTot+')</span></div>';
+    subs.forEach(function(c){html+=renderRow(c);});
+  });
   el.innerHTML=html;
   // Refocus pour assemblage rapide
   if(!quietUpdate){var inp=document.getElementById('montage-quickadd');if(inp)inp.focus();}
