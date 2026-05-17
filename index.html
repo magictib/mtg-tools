@@ -755,6 +755,25 @@ body.mana-cursor{cursor:none}
 /* ===== ARENA ===== */
 #arena-ov{position:fixed;inset:0;z-index:500;background:var(--bg);display:none;flex-direction:column;overflow:hidden}
 #arena-ov.ar-on{display:flex}
+/* Journal & chat slide-in droite */
+#ar-log-panel{position:absolute;top:0;right:-360px;bottom:0;width:340px;background:linear-gradient(180deg,#1a120a,#0e0905);border-left:1px solid rgba(201,168,76,.35);box-shadow:-4px 0 18px rgba(0,0,0,.5);z-index:600;display:flex;flex-direction:column;transition:right .25s ease;font-size:.78rem}
+#arena-ov.ar-log-open #ar-log-panel{right:0}
+.ar-log-hdr{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:10px 12px;border-bottom:.5px solid rgba(201,168,76,.25);background:rgba(0,0,0,.4);flex-shrink:0}
+#ar-log-list{flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:5px;scrollbar-width:thin}
+#ar-log-list::-webkit-scrollbar{width:6px}
+#ar-log-list::-webkit-scrollbar-thumb{background:rgba(201,168,76,.3);border-radius:3px}
+.ar-log-entry{padding:5px 8px;border-radius:6px;line-height:1.35;font-size:.72rem;color:var(--tx2);background:rgba(255,255,255,.02);border-left:2px solid rgba(255,255,255,.06)}
+.ar-log-entry.mine{border-left-color:var(--gold2);background:rgba(201,168,76,.06)}
+.ar-log-entry.opp{border-left-color:var(--ac2);background:rgba(148,103,189,.06)}
+.ar-log-entry.system{border-left-color:rgba(255,255,255,.15);color:var(--tx3);font-style:italic}
+.ar-log-entry.chat{border-left-color:#7eb0e3;background:rgba(126,176,227,.08);color:var(--tx)}
+.ar-log-entry .ar-log-by{color:var(--gold2);font-weight:600;font-size:.7rem;margin-right:4px}
+.ar-log-entry.opp .ar-log-by{color:var(--ac2)}
+.ar-log-entry .ar-log-ts{color:var(--tx3);font-size:.6rem;opacity:.7;margin-right:4px}
+.ar-log-input{display:flex;gap:6px;padding:8px 10px;border-top:.5px solid rgba(201,168,76,.25);background:rgba(0,0,0,.3);flex-shrink:0}
+.ar-log-input input{flex:1;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:5px 8px;font-size:.78rem;outline:none}
+.ar-log-input input:focus{border-color:var(--gold2)}
+@media (max-width:640px){#ar-log-panel{width:100%;right:-100%}}
 #ar-topbar{height:50px;flex-shrink:0;background:linear-gradient(to bottom,rgba(0,0,0,.75),rgba(0,0,0,.5));display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid rgba(201,168,76,.2)}
 #ar-topbar .ar-sep{width:1px;height:26px;background:rgba(255,255,255,.1);flex-shrink:0}
 #ar-content{flex:1;display:flex;overflow:hidden}
@@ -3515,6 +3534,9 @@ body.mana-cursor{cursor:none}
     <button class="ar-btn" onclick="arHandZoom(-15)" title="Réduire les cartes" style="padding:4px 7px">🃏−</button>
     <button class="ar-btn" onclick="arHandZoom(15)" title="Agrandir les cartes" style="padding:4px 7px">🃏+</button>
     <div class="ar-sep"></div>
+    <!-- Journal/Chat toggle -->
+    <button class="ar-btn" onclick="arToggleLog()" id="ar-log-btn" title="Journal d'actions & chat" style="position:relative">💬 Journal<span id="ar-log-unread" style="display:none;position:absolute;top:-3px;right:-3px;background:var(--rd2);color:#fff;border-radius:8px;padding:0 4px;font-size:.6rem;font-weight:700;min-width:12px;text-align:center">0</span></button>
+    <div class="ar-sep"></div>
     <!-- Tools dropdown -->
     <div style="position:relative" id="ar-tools-wrap">
       <button class="ar-btn" onclick="arToggleToolsMenu()" id="ar-tools-btn" title="Outils de partie">⚙ Outils</button>
@@ -3927,6 +3949,18 @@ body.mana-cursor{cursor:none}
         <button class="ar-btn ar-btn-gold" onclick="arShuffleAfterSearch()" title="Remélanger le deck pour ne plus connaître l'ordre">🔀 Remélanger</button>
         <button class="ar-btn" onclick="document.getElementById('ar-deck-search-ov').style.display='none'">Fermer</button>
       </div>
+    </div>
+  </div>
+  <!-- Journal d'actions & chat (slide-in droite) -->
+  <div id="ar-log-panel">
+    <div class="ar-log-hdr">
+      <span style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.92rem">💬 Journal & Chat</span>
+      <button class="ar-btn" onclick="arToggleLog()" style="padding:2px 8px;font-size:.8rem">✕</button>
+    </div>
+    <div id="ar-log-list"></div>
+    <div class="ar-log-input">
+      <input type="text" id="ar-chat-input" placeholder="Message…" onkeydown="if(event.key==='Enter'){arSendChat();event.preventDefault();}" maxlength="200">
+      <button class="ar-btn ar-btn-gold" onclick="arSendChat()" style="padding:3px 8px">✉</button>
     </div>
   </div>
 </div>
@@ -10215,6 +10249,7 @@ function arLifeAdj(n){
     setTimeout(function(){if(d.parentNode)d.parentNode.removeChild(d);},950);
   }
   _arSyncToRoom();
+  arLogAction('life',{delta:n,life:_ar.life});
 }
 function arShowFullCard(name){
   var ov=document.getElementById('ar-fullcard-ov');
@@ -10225,7 +10260,11 @@ function arShowFullCard(name){
   ov.style.display='flex';
 }
 
-function arSetPhase(n){_ar.phase=n;arRenderTopbar();}
+function arSetPhase(n){
+  _ar.phase=n;arRenderTopbar();
+  var names=['Pioche','Main 1','Combat','Main 2','Fin'];
+  arLogAction('phase',{idx:n,name:names[n]||('phase '+n)});
+}
 
 function arNextTurn(){
   if(_ar.mulPhase)return;
@@ -10235,20 +10274,22 @@ function arNextTurn(){
   _ar.attackers=[];_ar.blockers=[];
   _ar.turn++;_ar.phase=1;
   if(_ar.ss)_ar.ss.turns++;
-  arDrawCard();
+  arDrawCard(true);
   arRender();
+  arLogAction('turn',{turn:_ar.turn});
 }
 
-function arDrawCard(){
+function arDrawCard(silent){
   if(!_ar.lib.length){alert('Bibliothèque vide !');return;}
   _ar.hand.push(_ar.lib.pop());
   if(_ar.ss)_ar.ss.drawn++;
   arRenderHand();arRenderRight();
   var hint=document.getElementById('ar-field-hint');
   if(hint)hint.style.display=(_ar.field.length||_ar.fieldUsed)?'none':'flex';
+  if(!silent)arLogAction('draw',{n:1});
 }
 
-function arShuffle(){_arShuffle(_ar.lib);arRenderRight();}
+function arShuffle(){_arShuffle(_ar.lib);arRenderRight();arLogAction('shuffle',{});}
 function arTapAllLands(){
   var all=(_ar.lands||[]);if(!all.length)return;
   var anyUntapped=all.some(function(c){return !c.tapped;});
@@ -10313,6 +10354,7 @@ function arMulligan(){
   for(var i=0;i<7;i++)if(_ar.lib.length)_ar.hand.push(_ar.lib.pop());
   if(_ar.muls>0){_ar.mulPhase=true;_ar.mulSel=[];}
   arRender();
+  arLogAction('mulligan',{count:_ar.muls});
 }
 
 function arToggleMulSel(id){
@@ -10384,6 +10426,7 @@ function arPlayCard(id,x,y){
   _ar.field.push(card);
   _ar.fieldUsed=true;
   _arSyncToRoom();
+  arLogAction('play',{name:card.name});
 }
 
 function arMv(id,from,to){
@@ -11231,8 +11274,10 @@ function arCreateRoom(){
     p1:{uid:uid,name:name,life:40,handCount:0,libCount:0,cmd:null,cmdCasts:0},
     p2:null,
     field:[],p1_lands:[],p2_lands:[],p1_grave:[],p2_grave:[],p1_exile:[],p2_exile:[],
+    actions:[],
     active:false,createdAt:new Date().toISOString()
   }).then(function(){
+    _arActionLog=[];_arLogSeenIds={};
     _arRoom={id:code,code:code,playerNum:1};
     var s=document.getElementById('ar-room-status');
     if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
@@ -11260,6 +11305,7 @@ function arJoinRoom(){
     return db.collection('arena_rooms').doc(code).update({
       p2:{uid:uid,name:name,life:40,handCount:0,libCount:0,cmd:null,cmdCasts:0}
     }).then(function(){
+      _arActionLog=[];_arLogSeenIds={};
       _arRoom={id:code,code:code,playerNum:2};
       var s=document.getElementById('ar-room-status');
       if(s)s.innerHTML='Rejoint !'
@@ -11369,6 +11415,8 @@ function _arApplyRemoteState(data){
   }
   // Sync shared field from remote (avoid overwriting if this player just sent it)
   if(data.field)_ar.field=data.field;
+  // Ingérer le journal d'actions
+  if(Array.isArray(data.actions))_arIngestActionsFromRemote(data.actions);
   arRenderField();
   arRenderRight();
 }
@@ -11392,7 +11440,131 @@ function _arSyncToRoom(){
       .catch(function(e){console.warn('arSync',e);});
   },350);
 }
+// ===== JOURNAL D'ACTIONS & CHAT =====
+// Cycle de vie : on stocke actions:[] dans le doc Firestore et chaque joueur append via arrayUnion.
+// Cap à 200 entrées affichées (pour perf), trim automatique à 400 dans le doc.
+var _arActionLog=[]; // dernier snapshot des actions appliquées localement
+var _arLogSeenIds={}; // ids déjà rendus
+var _arLogUnread=0;
+var _arLogOpen=false;
+
+function arToggleLog(){
+  _arLogOpen=!_arLogOpen;
+  var ov=document.getElementById('arena-ov');
+  if(ov)ov.classList.toggle('ar-log-open',_arLogOpen);
+  if(_arLogOpen){
+    _arLogUnread=0;
+    var b=document.getElementById('ar-log-unread');if(b)b.style.display='none';
+    var inp=document.getElementById('ar-chat-input');if(inp)setTimeout(function(){inp.focus();},250);
+    // Auto-scroll en bas
+    var list=document.getElementById('ar-log-list');
+    if(list)list.scrollTop=list.scrollHeight;
+  }
+}
+
+function _arMakeActionId(){return 'a_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+
+function arLogAction(type,payload){
+  if(!_arRoom||!window.db||!_ar.active)return;
+  var pn=_arRoom.playerNum||0;
+  var entry={id:_arMakeActionId(),ts:Date.now(),by:pn,type:type,payload:payload||{}};
+  // Push optimiste local
+  _arActionLog.push(entry);_arLogSeenIds[entry.id]=1;
+  _arRenderLogIfOpen(entry);
+  // Push Firestore via arrayUnion
+  if(typeof firebase!=='undefined'&&firebase.firestore){
+    db.collection('arena_rooms').doc(_arRoom.id).update({
+      actions:firebase.firestore.FieldValue.arrayUnion(entry)
+    }).catch(function(e){console.warn('arLogAction',e);});
+  }
+}
+
+function arSendChat(){
+  var inp=document.getElementById('ar-chat-input');if(!inp)return;
+  var txt=(inp.value||'').trim();if(!txt)return;
+  inp.value='';
+  arLogAction('chat',{text:txt});
+}
+
+function _arActionToText(a){
+  var pn=_arRoom?_arRoom.playerNum:0;
+  var byName=(a.by===pn)?(PN[0]||'Moi'):(_arOpName()||'Adversaire');
+  var p=a.payload||{};
+  switch(a.type){
+    case 'chat':return {cls:'chat',by:byName,text:esc(p.text||'')};
+    case 'play':return {cls:a.by===pn?'mine':'opp',by:byName,text:'joue '+esc(p.name||'une carte')};
+    case 'move_zone':return {cls:a.by===pn?'mine':'opp',by:byName,text:esc(p.name||'')+' → '+esc(p.to||'?')};
+    case 'tap':return {cls:'system',text:byName+' tap '+esc(p.name||'')};
+    case 'untap':return {cls:'system',text:byName+' redresse '+esc(p.name||'')};
+    case 'life':return {cls:a.by===pn?'mine':'opp',by:byName,text:'vie '+(p.delta>0?'+':'')+p.delta+' → '+p.life};
+    case 'draw':return {cls:'system',text:byName+' pioche '+(p.n||1)+' carte(s)'};
+    case 'mulligan':return {cls:'system',text:byName+' mulligan ('+p.count+' renvoyée(s))'};
+    case 'turn':return {cls:'system',text:'— Tour '+p.turn+' — '+byName+' commence'};
+    case 'phase':return {cls:'system',text:byName+' → phase '+esc(p.name||'')};
+    case 'shuffle':return {cls:'system',text:byName+' mélange'};
+    case 'token':return {cls:a.by===pn?'mine':'opp',by:byName,text:'crée un jeton '+esc(p.name||'')};
+    default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
+  }
+}
+function _arOpName(){
+  if(!_arRoom)return '';
+  var el=document.getElementById('ar-op-name');return el?el.textContent:'';
+}
+function _arFormatTs(ts){var d=new Date(ts);return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
+
+function _arRenderLogIfOpen(newEntry){
+  // Si panneau fermé : juste maj le badge unread
+  if(!_arLogOpen){
+    if(newEntry&&_arRoom&&newEntry.by!==_arRoom.playerNum){
+      _arLogUnread++;
+      var b=document.getElementById('ar-log-unread');
+      if(b){b.style.display='inline-block';b.textContent=_arLogUnread>9?'9+':_arLogUnread;}
+    }
+    return;
+  }
+  _arRenderLogFull();
+}
+function _arRenderLogFull(){
+  var list=document.getElementById('ar-log-list');if(!list)return;
+  var arr=_arActionLog.slice(-200);
+  list.innerHTML=arr.map(function(a){
+    var t=_arActionToText(a);
+    var ts='<span class="ar-log-ts">'+_arFormatTs(a.ts)+'</span>';
+    var by=t.by?'<span class="ar-log-by">'+esc(t.by)+'</span>':'';
+    return '<div class="ar-log-entry '+(t.cls||'system')+'">'+ts+by+t.text+'</div>';
+  }).join('');
+  list.scrollTop=list.scrollHeight;
+}
+
+function _arIngestActionsFromRemote(remoteActions){
+  if(!Array.isArray(remoteActions))return;
+  var hadNew=false;
+  remoteActions.forEach(function(a){
+    if(a&&a.id&&!_arLogSeenIds[a.id]){
+      _arLogSeenIds[a.id]=1;
+      _arActionLog.push(a);
+      hadNew=true;
+      // Si autre joueur et panneau fermé : incrément unread
+      if(_arRoom&&a.by!==_arRoom.playerNum&&!_arLogOpen){
+        _arLogUnread++;
+        var b=document.getElementById('ar-log-unread');
+        if(b){b.style.display='inline-block';b.textContent=_arLogUnread>9?'9+':_arLogUnread;}
+      }
+    }
+  });
+  if(hadNew){
+    // Garde le tableau local borné
+    if(_arActionLog.length>500){_arActionLog=_arActionLog.slice(-300);}
+    // Tri par ts pour gérer les arrivées non ordonnées
+    _arActionLog.sort(function(x,y){return (x.ts||0)-(y.ts||0);});
+    if(_arLogOpen)_arRenderLogFull();
+  }
+}
+
 function arLeaveRoom(){
+  // Reset journal côté UI mais garde la trace logique si on rejoint
+  _arLogUnread=0;
+  var b=document.getElementById('ar-log-unread');if(b){b.style.display='none';b.textContent='0';}
   if(_arRoomUnsub){_arRoomUnsub();_arRoomUnsub=null;}
   _arRoom=null;
   var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.remove('mp-on');
