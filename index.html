@@ -5146,17 +5146,36 @@ function toggleMap() {
   document.getElementById('maplbl').textContent=open?'▼ Masquer':'▶ Afficher';
 }
 function parseCSV(txt) {
-  var lines=txt.trim().split(/\r?\n/);
-  var sep=(txt.match(/,/g)||[]).length>(txt.match(/;/g)||[]).length?',':';';
-  function pl(line) {
-    var res=[],cur='',inq=false;
-    for(var i=0;i<line.length;i++){var c=line[i];if(c==='"'){inq=!inq;}else if(c===sep&&!inq){res.push(cur.trim());cur='';}else cur+=c;}
-    res.push(cur.trim());return res;
+  // Détecte le séparateur sur la 1ère ligne uniquement (les champs cités d'après peuvent contenir des virgules)
+  var firstNl=txt.indexOf('\n');
+  var firstLine=firstNl>=0?txt.slice(0,firstNl):txt;
+  var sep=(firstLine.match(/,/g)||[]).length>(firstLine.match(/;/g)||[]).length?',':';';
+  // Parseur caractère-par-caractère : \n et \r dans un champ cité sont préservés ("" = guillemet littéral)
+  var rows=[],row=[],cur='',inq=false;
+  for(var i=0;i<txt.length;i++){
+    var c=txt[i];
+    if(inq){
+      if(c==='"'){
+        if(txt[i+1]==='"'){cur+='"';i++;}
+        else inq=false;
+      } else cur+=c;
+    } else {
+      if(c==='"') inq=true;
+      else if(c===sep){row.push(cur.trim());cur='';}
+      else if(c==='\n'||c==='\r'){
+        if(c==='\r'&&txt[i+1]==='\n')i++;
+        row.push(cur.trim());cur='';
+        if(row.length>1||(row.length===1&&row[0]!=='')) rows.push(row);
+        row=[];
+      } else cur+=c;
+    }
   }
-  var hdrs=pl(lines[0]);
-  var data=lines.slice(1).filter(function(l){return l.trim();}).map(function(l){
-    var v=pl(l);var o={};
-    hdrs.forEach(function(h,i){o[h]=(v[i]||'').replace(/^"|"$/g,'');});
+  if(cur!==''||row.length){row.push(cur.trim());if(row.length>1||(row.length===1&&row[0]!=='')) rows.push(row);}
+  if(!rows.length) return {hdrs:[],data:[]};
+  var hdrs=rows[0];
+  var data=rows.slice(1).map(function(v){
+    var o={};
+    hdrs.forEach(function(h,i){o[h]=v[i]||'';});
     return o;
   });
   return {hdrs:hdrs,data:data};
