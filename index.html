@@ -20059,6 +20059,8 @@ function anaOptimize(scoredRows,pool,maxSwaps,counts,targets,avgCmc){
   }
   // Pré-calcul des rôles du pool (stable entre itérations)
   var poolRoles=poolCopy.map(function(s){return anaRoles(s.meta||{});});
+  // Cartes ajoutées par les swaps précédents — ne doivent pas être proposées au cut (sinon plan contradictoire)
+  var addedNls={};
   for(var iter=0;iter<maxSwaps;iter++){
     // Rescorer le deck courant (tient compte des counts mis à jour)
     current=current.map(function(r){
@@ -20069,6 +20071,7 @@ function anaOptimize(scoredRows,pool,maxSwaps,counts,targets,avgCmc){
     var nonLand=current.filter(function(r){
       if(!r.meta.tags||r.meta.tags.isLand)return false;
       if(r.meta.tags.manarock&&_mrC<=6)return false;
+      if(addedNls[r.card.nl])return false; // n'autorise pas le cut d'une carte qu'on vient d'ajouter
       return true;
     });
     if(!nonLand.length||!poolCopy.length)break;
@@ -20096,6 +20099,7 @@ function anaOptimize(scoredRows,pool,maxSwaps,counts,targets,avgCmc){
     if(!bestSwap)break;
     var sw=bestSwap;
     swaps.push({cut:sw.cutRow.card,cutScore:sw.cutRow.score,add:{name:sw.addCand.name,nl:sw.addCand.nl,meta:sw.addCand.meta},addScore:sw.addCand.score,gain:Math.round(sw.gain*100)/100,phase:sw.phase});
+    addedNls[sw.addCand.nl]=true;
     // Mettre à jour projCounts
     if(projCounts){
       var cRl=sw.cutRow.roles;var aRl=poolRoles[sw.pi];
