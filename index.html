@@ -9232,19 +9232,29 @@ function importAchatToPurchase(){
   if(!lst.cards)lst.cards=[];
   var dn=_achatRecap.dn||'';
   var deckId=actDeck||'';
+  // Construit map nl → {set, num} depuis le rawName du deck source si dispo (versions VERSIONS-1)
+  var versionMap={};
+  if(deckId&&decks[deckId]&&decks[deckId].rawName){
+    try{
+      var parsedDeck=typeof parseList==='function'?parseList(decks[deckId].rawName):[];
+      parsedDeck.forEach(function(pc){if(pc.set&&pc.num)versionMap[pc.nl]={set:pc.set.toUpperCase(),num:pc.num};});
+    }catch(e){}
+  }
   function mkId(){return 'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+  function lookupVer(nl){return versionMap[nl]||{set:'',num:''};}
   (_achatRecap.buy||[]).forEach(function(r){
-    var idx=lst.cards.findIndex(function(c){return c.nl===r.nl&&c.buyer===userId&&!c.borrower&&(c.deckName||'')===(dn||'');});
+    var nl=r.nl||r.name.toLowerCase();var v=lookupVer(nl);
+    var idx=lst.cards.findIndex(function(c){return c.nl===nl&&c.buyer===userId&&!c.borrower&&(c.deckName||'')===(dn||'')&&(c.set||'')===v.set&&(c.num||'')===v.num;});
     if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.need);}
-    else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.need,deckName:dn,deckId:deckId,column:0,note:'',received:false,buyer:userId,borrower:userId,status:'proposed',addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()});}
+    else{lst.cards.push({id:mkId(),name:r.name,nl:nl,qty:r.need,deckName:dn,deckId:deckId,column:0,note:'',received:false,set:v.set,num:v.num,buyer:userId,borrower:userId,status:'proposed',addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()});}
   });
   Object.keys(_achatRecap.borrow||{}).forEach(function(fi){
     var friendName=PN[parseInt(fi)]||'ami';
     (_achatRecap.borrow[fi]||[]).forEach(function(r){
-      var nl=r.nl||r.name.toLowerCase();
-      var idx=lst.cards.findIndex(function(c){return c.nl===nl&&c.borrower===userId&&!c.buyer&&(c.deckName||'')===(dn||'');});
+      var nl=r.nl||r.name.toLowerCase();var v=lookupVer(nl);
+      var idx=lst.cards.findIndex(function(c){return c.nl===nl&&c.borrower===userId&&!c.buyer&&(c.deckName||'')===(dn||'')&&(c.set||'')===v.set&&(c.num||'')===v.num;});
       if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.qty);}
-      else{lst.cards.push({id:mkId(),name:r.name,nl:nl,qty:r.qty,deckName:dn,deckId:deckId,column:-2,note:'emprunt '+friendName,received:false,buyer:null,borrower:userId,status:'proposed',addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()});}
+      else{lst.cards.push({id:mkId(),name:r.name,nl:nl,qty:r.qty,deckName:dn,deckId:deckId,column:-2,note:'emprunt '+friendName,received:false,set:v.set,num:v.num,buyer:null,borrower:userId,status:'proposed',addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()});}
     });
   });
   savePurchaseList(_activePurListId);
@@ -9561,6 +9571,7 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
         +'<img src="'+_purImgSrc(c)+'" loading="lazy" onerror="this.onerror=null;this.src=\'https://api.scryfall.com/cards/named?format=image&amp;version=small&amp;fuzzy='+encodeURIComponent(c.name)+'\'" style="width:28px;height:40px;border-radius:3px;object-fit:cover;flex-shrink:0;cursor:zoom-in;background:#222" onclick="_purShowZoom('+zoomIdx+')" title="Zoom (←/→ pour naviguer, Échap pour fermer)">'
         +'<div style="flex:1;min-width:0;cursor:zoom-in" onclick="_purShowZoom('+zoomIdx+')" title="Zoom carte">'
         +'<div style="font-size:.82rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</strong>'+_purTxBadge(c)+'</div>'
+        +(c.set&&c.num?'<div style="font-size:.62rem;color:var(--gold2);font-family:monospace">'+esc(c.set)+' #'+esc(c.num)+'</div>':'')
         +(c.lenderName?'<div style="font-size:.65rem;color:var(--tx3)">→ '+esc(c.lenderName)+'</div>':'')
         +'</div>'
         +'<div style="flex-shrink:0;text-align:right;min-width:60px">'+_purPriceBadge(c)+'</div>'
@@ -10196,10 +10207,18 @@ function purExportCardmarket(){
     return r==='buy_mine'||r==='buy_mine_refused';
   });
   if(!toBuy.length){mlAlert('Rien à exporter','Tu n\'as aucune carte à acheter dans cette liste.');return;}
-  // Regroupe par nom (somme qty)
-  var byName={};
-  toBuy.forEach(function(c){byName[c.name]=(byName[c.name]||0)+(c.qty||1);});
-  var lines=Object.keys(byName).sort().map(function(n){return byName[n]+' '+n;});
+  // Regroupe par nom+set+num (préserve les versions choisies)
+  var byKey={};
+  toBuy.forEach(function(c){
+    var k=c.name+'|'+(c.set||'')+'|'+(c.num||'');
+    if(!byKey[k])byKey[k]={name:c.name,set:c.set||'',num:c.num||'',qty:0};
+    byKey[k].qty+=(c.qty||1);
+  });
+  var entries=Object.keys(byKey).map(function(k){return byKey[k];}).sort(function(a,b){return a.name.localeCompare(b.name);});
+  var lines=entries.map(function(e){
+    var ver=(e.set&&e.num)?(' ('+e.set+') '+e.num):'';
+    return e.qty+' '+e.name+ver;
+  });
   var listText=lines.join('\n');
   var total=Object.keys(byName).reduce(function(s,n){var p=_purPriceCache[(n||'').toLowerCase()];return s+(p||0)*byName[n];},0);
   // Modale d'export
@@ -10968,8 +10987,11 @@ function exportPurchaseList(){
     var byDeck={};
     colCards.forEach(function(c){var dk=c.deckName||'(sans deck)';if(!byDeck[dk])byDeck[dk]=[];byDeck[dk].push(c);});
     Object.keys(byDeck).forEach(function(dk){
-      lines.push('  ['+dk+']');
-      byDeck[dk].forEach(function(c){lines.push('  '+c.qty+'x '+c.name+(c.received?' ✓':''));});
+      lines.push('['+dk+']');
+      byDeck[dk].forEach(function(c){
+        var ver=(c.set&&c.num)?(' ('+c.set+') '+c.num):'';
+        lines.push(c.qty+'x '+c.name+ver+(c.received?' ✓':''));
+      });
     });
     lines.push('');
   });
@@ -10995,10 +11017,18 @@ function purBuildCardArray(text,filename){
   var p0lc=(PN[0]||'').toLowerCase();
   var p1lc=(PN[_purFriendIdx]||'').toLowerCase();
   var firstNonEmpty=lines.find(function(l){return l.trim().length>0;})||'';
-  var _mkCard=function(name,qty,col,deck,recv){
+  // Extrait set/num d'un nom au format "Name (SET) num" — retourne {name, set, num}
+  var _extractSetNum=function(rawName){
+    var m=rawName.match(/^(.+?)\s*\(([A-Z0-9]{2,5})\)\s*([\w-]+)?\s*$/i);
+    if(m){return {name:m[1].trim(),set:m[2].toUpperCase(),num:m[3]||''};}
+    return {name:rawName.trim(),set:'',num:''};
+  };
+  var _mkCard=function(rawName,qty,col,deck,recv){
     var d=_purDefaultsForCol(col);
-    var nl=(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase();
-    return {id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:qty,deckName:deck||'',deckId:'',column:col,note:'',received:!!recv,
+    var pn=_extractSetNum(rawName);
+    var nl=(typeof stripDFC==='function'?stripDFC(pn.name):pn.name).toLowerCase();
+    return {id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:pn.name,nl:nl,qty:qty,deckName:deck||'',deckId:'',column:col,note:'',received:!!recv,
+      set:pn.set,num:pn.num,
       buyer:d.buyer,borrower:d.borrower,status:recv?'delivered':d.status,addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()};
   };
   // Détection du format :
@@ -11030,13 +11060,16 @@ function purBuildCardArray(text,filename){
     });
   }else if(!isInternalFmt){
     // Liste simple : chaque ligne = une carte (1x Nom, 1 Nom, Nom)
+    // On garde le set/num intact dans la chaîne passée à _mkCard qui parsera
     lines.forEach(function(line){
       var l=line.trim();if(!l||l.startsWith('#'))return;
-      var m=l.match(/^(\d+)\s*[x×]\s+(.+?)(?:\s+\([A-Z0-9]{2,5}\)\s*\d*)?(?:\s+\*[FE]\*)?$/i);
-      if(m){var name=m[2].replace(/\s+\([A-Z0-9]{2,5}\)\s*\d*$/,'').trim();if(name)cards.push(_mkCard(name,parseInt(m[1])||1,0,'',false));return;}
-      var m2=l.match(/^(\d+)\s+(.+?)(?:\s+\([A-Z0-9]{2,5}\)\s*\d*)?$/i);
-      if(m2){var name=m2[2].replace(/\s+\([A-Z0-9]{2,5}\)\s*\d*$/,'').trim();if(name)cards.push(_mkCard(name,parseInt(m2[1])||1,0,'',false));return;}
-      if(/^[a-zA-ZÀ-ÿ]/.test(l)){var name=l.replace(/\s+\([A-Z0-9]{2,5}\)\s*\d*$/,'').trim();if(name&&name.length>1)cards.push(_mkCard(name,1,0,'',false));}
+      // Strip *F*/*E* (foil markers) avant parsing
+      l=l.replace(/\s+\*[FE]\*\s*$/i,'');
+      var m=l.match(/^(\d+)\s*[x×]\s+(.+)$/i);
+      if(m){var name=m[2].trim();if(name)cards.push(_mkCard(name,parseInt(m[1])||1,0,'',false));return;}
+      var m2=l.match(/^(\d+)\s+(.+)$/i);
+      if(m2){var name=m2[2].trim();if(name)cards.push(_mkCard(name,parseInt(m2[1])||1,0,'',false));return;}
+      if(/^[a-zA-ZÀ-ÿ]/.test(l)){var name=l.trim();if(name&&name.length>1)cards.push(_mkCard(name,1,0,'',false));}
     });
   }else{
     var currentCol=0,currentDeck='';
@@ -11044,10 +11077,10 @@ function purBuildCardArray(text,filename){
       var mTitle=line.match(/^===\s*(.+?)\s*===\s*$/);if(mTitle){listName=mTitle[1];return;}
       var mSect=line.match(/^---\s*(.+?)\s*---\s*$/);
       if(mSect){var sn=mSect[1].toLowerCase();if(sn===p0lc)currentCol=0;else if(sn===p1lc)currentCol=1;else if(sn.indexOf('change')>=0||sn.indexOf('emprunt')>=0)currentCol=-2;else currentCol=0;currentDeck='';return;}
-      var mDeck=line.match(/^\s{2}\[(.+)\]\s*$/);if(mDeck){currentDeck=mDeck[1];return;}
-      var mCard=line.match(/^\s{2,}(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
+      var mDeck=line.match(/^\s*\[(.+)\]\s*$/);if(mDeck){currentDeck=mDeck[1];return;}
+      var mCard=line.match(/^\s*(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
       if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push(_mkCard(name,qty,currentCol,currentDeck,recv));return;}
-      var mCard2=line.match(/^\s{2,}([^\[\-=].+?)(\s+✓)?\s*$/);
+      var mCard2=line.match(/^\s*([^\[\-=].+?)(\s+✓)?\s*$/);
       if(mCard2){var name=mCard2[1].trim(),recv=!!mCard2[2];if(name&&name.length>1)cards.push(_mkCard(name,1,currentCol,currentDeck,recv));}
     });
   }
