@@ -8955,6 +8955,65 @@ function purSetViewMode(mode){
   document.querySelectorAll('.pur-viewmode').forEach(function(b){b.classList.toggle('active',b.dataset.mode===_purViewMode);});
   renderPurchaseMgr();
 }
+// Prix Scryfall (cache global pour les listes partagées)
+var _purPriceCache={}; // {nl: float_eur}
+var _purPriceFetching={}; // {nl: true} pour éviter les doublons
+function _purExtractPriceEur(prices){
+  if(!prices)return 0;
+  var eur=parseFloat(prices.eur)||parseFloat(prices.eur_foil);
+  if(eur>0)return eur;
+  var usd=parseFloat(prices.usd)||parseFloat(prices.usd_foil);
+  return usd>0?usd*0.92:0;
+}
+function _purFetchPricesFor(cards,cb){
+  cb=cb||function(){};
+  var toFetch=[];
+  cards.forEach(function(c){
+    var nl=(c.nl||'').toLowerCase();
+    if(!nl||_purPriceCache[nl]!=null||_purPriceFetching[nl])return;
+    _purPriceFetching[nl]=true;
+    toFetch.push({name:c.name,nl:nl});
+  });
+  if(!toFetch.length){cb();return;}
+  // Batch 75 par 75 via /cards/collection
+  var chunks=[];for(var i=0;i<toFetch.length;i+=75)chunks.push(toFetch.slice(i,i+75));
+  var remaining=chunks.length;
+  chunks.forEach(function(chunk){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:chunk.map(function(c){return{name:c.name};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        var nl=(card.name||'').toLowerCase();
+        _purPriceCache[nl]=_purExtractPriceEur(card.prices);
+        delete _purPriceFetching[nl];
+        // Si DFC, mapper aussi le nom complet "X // Y"
+        if(card.card_faces&&card.card_faces.length){
+          var dfcNl=card.card_faces[0].name.toLowerCase();
+          if(_purPriceCache[dfcNl]==null)_purPriceCache[dfcNl]=_purPriceCache[nl];
+        }
+      });
+      // Pour ceux non trouvés, marque 0 pour éviter de re-fetch
+      chunk.forEach(function(c){if(_purPriceCache[c.nl]==null){_purPriceCache[c.nl]=0;delete _purPriceFetching[c.nl];}});
+      remaining--;
+      if(remaining===0)cb();
+    }).catch(function(){
+      chunk.forEach(function(c){_purPriceCache[c.nl]=0;delete _purPriceFetching[c.nl];});
+      remaining--;if(remaining===0)cb();
+    });
+  });
+}
+function _purPriceBadge(card){
+  var nl=(card.nl||'').toLowerCase();
+  if(!nl)return '';
+  var p=_purPriceCache[nl];
+  if(p==null)return '<span style="font-size:.66rem;color:var(--tx3)" title="Chargement…">…</span>';
+  if(p===0)return '<span style="font-size:.66rem;color:var(--tx3)" title="Prix indisponible">—</span>';
+  var total=p*(card.qty||1);
+  var totalStr=card.qty>1?' <span style="color:var(--tx3);font-size:.58rem">(×'+card.qty+'='+total.toFixed(2)+'€)</span>':'';
+  return '<span style="font-size:.7rem;color:var(--gold2);font-family:monospace;white-space:nowrap" title="Prix Scryfall'+(card.qty>1?' (×'+card.qty+'='+total.toFixed(2)+'€)':'')+'">'+p.toFixed(2)+'€'+totalStr+'</span>';
+}
+
 // Cache des Maps de possession pour éviter de les recalculer à chaque ligne
 var _purPossessCache=null;
 var _purUsageCache={};
@@ -9049,6 +9108,7 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
         +'<div style="font-size:.82rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</strong></div>'
         +(c.lenderName?'<div style="font-size:.65rem;color:var(--tx3)">→ '+esc(c.lenderName)+'</div>':'')
         +'</div>'
+        +'<div style="flex-shrink:0;text-align:right;min-width:60px">'+_purPriceBadge(c)+'</div>'
         +'<div style="flex-shrink:0">'+_purPossessBadge(c)+'</div>'
         +'<div style="display:flex;gap:4px;flex-shrink:0">'+actionsBuilder(c,sid)+'</div>'
         +'</div>';
@@ -9086,12 +9146,24 @@ function _purRenderSummaryBanner(allCards){
   html+=chip('🛒 Mes achats',nBuyMine,'#e8c860','rgba(40,30,10,.4)','buy');
   if(nOfferSent+nOfferReceived>0)html+=chip('🤝 Offres prêt',nOfferSent+nOfferReceived,'#90e8c0','rgba(20,60,40,.4)','offer');
   html+=chip('ℹ Achats autres',nOthersBuy,'var(--tx3)','rgba(20,20,30,.4)','others');
+  // Total prix à acheter (mes achats + cartes refusées au prêt à racheter)
+  var totalBuy=0,totalAll=0,unknownCount=0;
+  allCards.forEach(function(c){
+    var p=_purPriceCache[(c.nl||'').toLowerCase()];
+    if(p==null){unknownCount++;return;}
+    var line=p*(c.qty||1);
+    totalAll+=line;
+    var r=_purCardRoleForMe(c);
+    if(r==='buy_mine'||r==='buy_mine_refused')totalBuy+=line;
+  });
   html+='<div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;padding:0 6px">'
     +'<span style="font-size:.7rem;color:var(--tx3)">Progression</span>'
     +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:1rem;color:var(--gold2)">'+nDone+' / '+nTotal+'</span>'
     +'<div style="width:120px;height:5px;background:rgba(0,0,0,.5);border-radius:3px;margin-top:3px;overflow:hidden">'
     +'<div style="width:'+(nTotal?Math.round(nDone/nTotal*100):0)+'%;height:100%;background:linear-gradient(90deg,var(--gold),#ffc848);transition:width .3s"></div>'
-    +'</div></div>';
+    +'</div>'
+    +(totalBuy>0||totalAll>0?'<span style="font-size:.65rem;color:var(--tx2);margin-top:4px" title="'+unknownCount+' carte(s) sans prix connu">À acheter : <strong style="color:var(--gold2)">'+totalBuy.toFixed(2)+'€</strong> · Total liste : '+totalAll.toFixed(2)+'€</span>':'')
+    +'</div>';
   html+='</div>';
   return html;
 }
@@ -9245,6 +9317,14 @@ function renderPurchaseMgr(){
     _purInvalidatePossessCache();
     wrap.innerHTML=_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
     purFilterDecks();
+    // Fetch des prix manquants en arrière-plan, puis re-render léger
+    _purFetchPricesFor(lst.cards||[],function(){
+      // Re-render uniquement si on est toujours sur l'Action Center et la même liste
+      if(_purViewMode==='action'&&_purchaseLists[_activePurListId]===lst){
+        var w=document.getElementById('pur-table-wrap');
+        if(w)w.innerHTML=_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
+      }
+    });
     return;
   }
   // Mode tableau : Deck / Carte / Statut / Acheteur / Emprunteur / Actions
