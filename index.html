@@ -1825,9 +1825,9 @@ body.mana-cursor{cursor:none}
 <!-- DECK -->
 <div class="page" id="pg-deck">
   <div id="deck-modal-bar" style="margin-bottom:12px">
-    <div style="display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;justify-content:flex-start;align-items:center;gap:12px">
+      <button class="btn btnsm" onclick="goTab('build')">← Retour</button>
       <div class="lbl" style="margin:0;font-size:1rem">♠ Mes decks</div>
-      <button class="btn btnsm" onclick="goTab('build')">← ♠ Deck</button>
     </div>
   </div>
   <div style="display:flex;gap:12px;align-items:start;flex-wrap:wrap;margin-bottom:1rem">
@@ -2331,6 +2331,11 @@ body.mana-cursor{cursor:none}
         <option value="EDH">Commander</option>
       </select>
       <select id="prop-prof-sel" onclick="event.stopPropagation()" style="width:100%;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none;margin-bottom:8px"></select>
+      <select id="prop-sort-sel" onclick="event.stopPropagation()" title="Critère de tri" style="width:100%;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx);outline:none;margin-bottom:8px">
+        <option value="missing">Tri : cartes manquantes (possession)</option>
+        <option value="completeprice">Tri : moins cher à compléter</option>
+        <option value="totalprice">Tri : moins cher total (collection ignorée)</option>
+      </select>
       <button class="btn btnsm btnp" style="width:100%" onclick="event.stopPropagation();_bldWizardClose();proposeDecks()">Proposer 5 decks</button>
     </div>
   </div>
@@ -4874,8 +4879,10 @@ function _bldThemeToggle(theme,btn){
 }
 
 function _bldThemeMultiSearch(){
+  try{
   _bldWizardClose();
   var keys=Object.keys(_bldThemeSel);
+  console.log('[synergies] click, keys=',keys);
   if(!keys.length){alert('Sélectionnez au moins une synergie');return;}
   var label=keys.map(function(k){return _BLD_THEME_LABELS[k]||k;}).join(' + ');
   _bldEntryCmd(label);
@@ -4908,6 +4915,10 @@ function _bldThemeMultiSearch(){
       if(cmdload)cmdload.style.display='none';
       if(cmdres)cmdres.innerHTML='<div class="card" style="color:var(--rd2)">⚠ Erreur : '+esc(e&&e.message||'inconnue')+'</div>';
     });
+  }catch(err){
+    console.error('[synergies] erreur:',err);
+    alert('Erreur synergies : '+(err&&err.message||err));
+  }
 }
 var _BLD_THEME_QUERIES={
   tokens:      'is:commander (o:"create a" o:"token")',
@@ -21672,14 +21683,7 @@ function parseMtg8DeckPage(html){
   return cards;
 }
 
-function _fetchMissingPrices(top5,cb){
-  var names=[];var seen={};
-  top5.forEach(function(r){
-    r.missing.missing.forEach(function(c){
-      var k=c.name.toLowerCase();
-      if(!seen[k]&&!allPriceMap[k]){seen[k]=1;names.push(c.name);}
-    });
-  });
+function _fetchPricesByNames(names,cb){
   if(!names.length){cb();return;}
   var batches=[];for(var i=0;i<names.length;i+=75)batches.push(names.slice(i,i+75));
   var left=batches.length;
@@ -21699,6 +21703,62 @@ function _fetchMissingPrices(top5,cb){
       });
     }).catch(function(){}).then(function(){if(!--left)cb();});
   });
+}
+function _fetchMissingPrices(top5,cb){
+  var names=[];var seen={};
+  top5.forEach(function(r){
+    r.missing.missing.forEach(function(c){
+      var k=c.name.toLowerCase();
+      if(!seen[k]&&!allPriceMap[k]){seen[k]=1;names.push(c.name);}
+    });
+  });
+  _fetchPricesByNames(names,cb);
+}
+function _fetchAllCardPrices(results,cb){
+  var names=[];var seen={};
+  results.forEach(function(r){
+    (r.cards||[]).forEach(function(c){
+      var k=(c.name||'').toLowerCase();
+      if(!k)return;
+      if(!seen[k]&&!allPriceMap[k]){seen[k]=1;names.push(c.name);}
+    });
+  });
+  _fetchPricesByNames(names,cb);
+}
+function _filterExistingDecks(results){
+  var existing={};
+  if(typeof decks==='object'&&decks){
+    Object.keys(decks).forEach(function(id){
+      var n=((decks[id]||{}).name||'').toLowerCase().trim();
+      if(n)existing[n]=1;
+    });
+  }
+  return results.filter(function(r){
+    var k=(r.arch||'').toLowerCase().trim();
+    return !k||!existing[k];
+  });
+}
+function _propTotalPrice(r){
+  return (r.cards||[]).reduce(function(s,c){return s+(allPriceMap[(c.name||'').toLowerCase()]||0)*(c.qty||1);},0);
+}
+function _propMissingPrice(r){
+  return ((r.missing||{}).missing||[]).reduce(function(s,c){return s+(allPriceMap[(c.name||'').toLowerCase()]||0)*c.need;},0);
+}
+function _propSortMode(){
+  var s=document.getElementById('prop-sort-sel');
+  return s?s.value:'missing';
+}
+function _propSortAndSlice(results,mode){
+  var arr=results.slice();
+  if(mode==='completeprice')arr.sort(function(a,b){return _propMissingPrice(a)-_propMissingPrice(b);});
+  else if(mode==='totalprice')arr.sort(function(a,b){return _propTotalPrice(a)-_propTotalPrice(b);});
+  else arr.sort(function(a,b){return a.missing.totalMissing-b.missing.totalMissing;});
+  return arr.slice(0,5);
+}
+function _propHeaderNote(mode){
+  if(mode==='completeprice')return 'Classées par prix des cartes restantes à acheter (selon votre collection).';
+  if(mode==='totalprice')return 'Classées par prix total du deck (votre collection est ignorée).';
+  return 'Classées par nombre de cartes manquantes dans votre collection.';
 }
 
 function _propMissing(deckCards,profIdx){
@@ -21722,9 +21782,10 @@ function _edhFetchJSON(path){
     });
 }
 
-function _renderPropHtml(top5,profIdx,fmtLabel){
+function _renderPropHtml(top5,profIdx,fmtLabel,sortMode){
+  sortMode=sortMode||'missing';
   var html='<div class="card"><div class="lbl">🏆 Propositions — '+esc(fmtLabel)+' (profil : '+(PN[profIdx]||'Profil '+profIdx)+')</div>';
-  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">Classées par nombre de cartes manquantes dans votre collection.</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">'+_propHeaderNote(sortMode)+'</div>';
   top5.forEach(function(r,i){
     var pct=r.cards.length?Math.round((r.missing.total-r.missing.totalMissing)/r.missing.total*100):0;
     var pctCol=pct>=80?'#78c890':pct>=50?'#f5b95b':'#e07070';
@@ -21748,6 +21809,7 @@ function _renderPropHtml(top5,profIdx,fmtLabel){
     html+='<span>'+r.cards.length+' cartes</span>';
     html+='<span><b style="color:'+pctCol+'">'+r.missing.totalMissing+'</b> manquantes</span>';
     if(missingPrice>0)html+='<span style="color:var(--gold2)">💰 '+missingPrice.toFixed(2)+'€ à acheter</span>';
+    if(sortMode==='totalprice'){var tp=_propTotalPrice(r);if(tp>0)html+='<span style="color:var(--gold2)">📦 '+tp.toFixed(2)+'€ total</span>';}
     html+='</div>';
     html+='<div style="height:6px;background:rgba(0,0,0,.4);border-radius:3px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:'+pct+'%;background:'+pctCol+';border-radius:3px"></div></div>';
     if(r.missing.missing.length){
@@ -21804,14 +21866,20 @@ function proposeDecksPDH(profIdx,wrap){
       return {arch:r.name,cards:deckCards,missing:_propMissing(deckCards,profIdx),fmt:'PDH'};
     });
     if(!decks.length){_hideLoader();wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Données EDHREC insuffisantes pour le PDH.</div></div>';return;}
-    decks.sort(function(a,b){return a.missing.totalMissing-b.missing.totalMissing;});
-    var top5=decks.slice(0,5);
-    _propResults=top5;
+    // Renommer la variable pour ne pas masquer la collection globale `decks` dans les helpers
+    var pdhResults=decks;
+    pdhResults=_filterExistingDecks(pdhResults);
+    if(!pdhResults.length){_hideLoader();wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Tous les decks PDH proposés sont déjà dans votre liste.</div></div>';return;}
+    var sortMode=_propSortMode();
     if(prog)prog.textContent='Récupération des prix Scryfall…';
     _setLoaderTxt('Récupération des prix Scryfall…');
-    _fetchMissingPrices(top5,function(){
+    var priceFetch=(sortMode==='totalprice')?_fetchAllCardPrices:_fetchMissingPrices;
+    var preSorted=(sortMode==='missing')?_propSortAndSlice(pdhResults,'missing'):pdhResults;
+    priceFetch(preSorted,function(){
+      var top5=_propSortAndSlice(preSorted,sortMode);
+      _propResults=top5;
       _hideLoader();
-      wrap.innerHTML=_renderPropHtml(top5,profIdx,'Pauper Commander (PDH)');
+      wrap.innerHTML=_renderPropHtml(top5,profIdx,'Pauper Commander (PDH)',sortMode);
     });
   }).catch(function(){
     _hideLoader();
@@ -21869,17 +21937,25 @@ function proposeDecks(){
           return {arch:d.arch,eid:d.eid,did:d.did,fmt:fmt,cards:cards,missing:miss};
         });
         results=results.filter(function(r){return r.cards.length>0;});
-        results.sort(function(a,b){return a.missing.totalMissing-b.missing.totalMissing;});
-        var top5=results.slice(0,5);
-        if(!top5.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Impossible de récupérer les decklists (les decklists de ce format ne sont peut-être pas disponibles).</div></div>';_hideLoader();return;}
-        _propResults=top5;
+        // Exclure les decks déjà présents dans la liste de l'utilisateur
+        results=_filterExistingDecks(results);
+        if(!results.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Impossible de récupérer les decklists ou tous les archétypes sont déjà dans votre liste.</div></div>';_hideLoader();return;}
+        var sortMode=_propSortMode();
         if(prog)prog.textContent='Récupération des prix Scryfall…';
         _setLoaderTxt('Récupération des prix Scryfall…');
-        _fetchMissingPrices(top5,function(){
+        // Pour trier par prix, on a besoin des prix de TOUS les candidats avant le slice
+        var priceFetch=(sortMode==='totalprice')?_fetchAllCardPrices
+                      :(sortMode==='completeprice')?_fetchMissingPrices
+                      :_fetchMissingPrices; // missing : on peut sortir/slicer d'abord pour économiser
+        var preSorted=(sortMode==='missing')?_propSortAndSlice(results,'missing'):results;
+        priceFetch(preSorted,function(){
+        var top5=_propSortAndSlice(preSorted,sortMode);
+        if(!top5.length){wrap.innerHTML='<div class="card"><div style="color:var(--tx3)">Aucun deck restant.</div></div>';_hideLoader();return;}
+        _propResults=top5;
         _hideLoader();
         // Render
         var html='<div class="card"><div class="lbl">🏆 Propositions — '+fmt+' (profil : '+(PN[profIdx]||'Profil '+profIdx)+')</div>';
-        html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">Classées par nombre de cartes manquantes dans votre collection.</div>';
+        html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">'+_propHeaderNote(sortMode)+'</div>';
         top5.forEach(function(r,i){
           var pct=r.cards.length?Math.round((r.missing.total-r.missing.totalMissing)/r.missing.total*100):0;
           var pctCol=pct>=80?'#78c890':pct>=50?'#f5b95b':'#e07070';
@@ -21906,6 +21982,7 @@ function proposeDecks(){
           html+='<span>'+r.cards.length+' cartes</span>';
           html+='<span><b style="color:'+pctCol+'">'+r.missing.totalMissing+'</b> manquantes</span>';
           if(missingPrice>0)html+='<span style="color:var(--gold2)">💰 '+missingPrice.toFixed(2)+'€ à acheter</span>';
+          if(sortMode==='totalprice'){var tp=_propTotalPrice(r);if(tp>0)html+='<span style="color:var(--gold2)">📦 '+tp.toFixed(2)+'€ total</span>';}
           html+='</div>';
           html+='<div style="height:6px;background:rgba(0,0,0,.4);border-radius:3px;overflow:hidden;margin-bottom:6px"><div style="height:100%;width:'+pct+'%;background:'+pctCol+';border-radius:3px"></div></div>';
           if(r.missing.missing.length){
@@ -21923,7 +22000,7 @@ function proposeDecks(){
         });
         html+='</div>';
         wrap.innerHTML=html;
-        });// end _fetchMissingPrices
+        });// end price fetch
       });
     });
   }).catch(function(e){
