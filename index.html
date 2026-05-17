@@ -8817,31 +8817,170 @@ function _purFindCard(cardId){
 }
 function _purStamp(card){card.lastChangeBy=userId;card.lastChangeAt=Date.now();}
 var _PUR_TRANSACTION_TYPES={loan:{icon:'🤝',lbl:'Prêt'},sale:{icon:'💶',lbl:'Vente'},gift:{icon:'🎁',lbl:'Don'},exchange:{icon:'🔄',lbl:'Échange'}};
-function purAcceptLend(cardId){
+function purAcceptLend(cardId,evt){
   // Ouvre un mini-menu pour choisir le type de transaction
-  _purShowTxTypeMenu(cardId);
+  _purShowTxTypeMenu(cardId,evt||(typeof event!=='undefined'?event:null));
 }
 function purAcceptLendAs(cardId,txType){
   var c=_purFindCard(cardId);if(!c)return;
-  c.status='lend_accepted';c.lender=userId;c.transactionType=txType||'loan';
-  _purStamp(c);
-  // Si vente → propose le prix Scryfall comme défaut
-  if(txType==='sale'&&c.salePrice==null){
-    var p=_purPriceCache[(c.nl||'').toLowerCase()];
-    if(p>0)c.salePrice=Math.round(p*100)/100;
-  }
-  savePurchaseList(_activePurListId);renderPurchaseMgr();
   _purHideTxTypeMenu();
+  // Échange → ouvre le modal de sélection dans la collection du demandeur AVANT d'accepter
+  if(txType==='exchange'){
+    purOpenExchangeModal(cardId);
+    return;
+  }
+  c.status='lend_accepted';c.lender=userId;c.transactionType=txType||'loan';
+  // Si vente → propose le prix Scryfall comme défaut + propose édition
+  if(txType==='sale'){
+    var p=_purPriceCache[(c.nl||'').toLowerCase()];
+    var def=(p>0?p.toFixed(2):'');
+    var v=prompt('Prix de vente (€) ?\n\nPrix Scryfall : '+(p>0?p.toFixed(2)+'€':'inconnu'),def);
+    if(v===null){return;} // annulation : on n'accepte pas
+    var price=parseFloat(v.replace(',','.'));
+    c.salePrice=isNaN(price)?(p||0):price;
+  }
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
 }
-function _purShowTxTypeMenu(cardId){
+function purEditSalePrice(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  var p=_purPriceCache[(c.nl||'').toLowerCase()];
+  var v=prompt('Nouveau prix de vente (€) ?\n\nPrix Scryfall : '+(p>0?p.toFixed(2)+'€':'inconnu'),(c.salePrice!=null?c.salePrice.toFixed(2):''));
+  if(v===null)return;
+  var np=parseFloat(v.replace(',','.'));
+  c.salePrice=isNaN(np)?(p||0):np;
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+
+// ===== ÉCHANGE : recherche dans la collection du demandeur =====
+function _purFindProfIdxByUid(uid){
+  // Cherche le slot _epSlots où ce uid est présent
+  if(typeof _epSlots==='undefined')return -1;
+  var contexts=Object.keys(_epSlots);
+  for(var ci=0;ci<contexts.length;ci++){
+    var slots=_epSlots[contexts[ci]]||[];
+    for(var i=0;i<slots.length;i++){
+      if(slots[i]&&slots[i].uid===uid)return i+1;
+    }
+  }
+  return -1;
+}
+function purOpenExchangeModal(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  var borrowerUid=c.borrower;
+  if(!borrowerUid){alert('Carte sans demandeur identifié — impossible de chercher dans sa collection.');return;}
+  // Trouve l'index du prof pour ce uid
+  var profIdx=_purFindProfIdxByUid(borrowerUid);
+  if(profIdx<0||!profs[profIdx]||!profs[profIdx].length){
+    alert('La collection de '+_purMemberName(borrowerUid)+' n\'est pas chargée. Va dans Decks → onglet de l\'ami pour la charger une fois.');
+    return;
+  }
+  var myCardPrice=_purPriceCache[(c.nl||'').toLowerCase()]||0;
+  // Construit la liste des cartes du demandeur avec leur nl (déduplication)
+  var theirCards={};
+  profs[profIdx].forEach(function(card){
+    var nm=(typeof card==='string'?(card.split('||')[0]):card.name);
+    if(!nm)return;
+    var nlk=(typeof stripDFC==='function'?stripDFC(nm):nm).toLowerCase();
+    if(!theirCards[nlk])theirCards[nlk]={nl:nlk,name:nm,qty:0};
+    theirCards[nlk].qty+=(typeof card==='object'?(card.qty||1):1);
+  });
+  var theirList=Object.values(theirCards);
+  // Cache de filtre pour la modal
+  _purExchangeState={cardId:cardId,myNl:c.nl,myName:c.name,myPrice:myCardPrice,borrowerUid:borrowerUid,profIdx:profIdx,theirCards:theirList,range:2,search:''};
+  // Pre-fetch prices for visible cards (top 200 by name) — incremental
+  _purFetchPricesFor(theirList.slice(0,200),function(){_purRenderExchangeModal();});
+  _purRenderExchangeModal();
+}
+function _purRenderExchangeModal(){
+  var st=_purExchangeState;if(!st)return;
+  var ov=document.getElementById('pur-exchange-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='pur-exchange-ov';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.86);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+    ov.onclick=function(e){if(e.target===ov)purCloseExchangeModal();};
+    document.body.appendChild(ov);
+  }
+  // Filtre prix
+  var minP=Math.max(0,st.myPrice-st.range);
+  var maxP=st.myPrice+st.range;
+  var lcs=(st.search||'').toLowerCase();
+  var visible=st.theirCards.filter(function(card){
+    var p=_purPriceCache[card.nl];
+    if(p==null)return lcs?card.name.toLowerCase().indexOf(lcs)>=0:true; // sans prix : on garde si match recherche
+    if(p<minP||p>maxP)return false;
+    if(lcs&&card.name.toLowerCase().indexOf(lcs)<0)return false;
+    return true;
+  }).sort(function(a,b){
+    var pa=_purPriceCache[a.nl]||0,pb=_purPriceCache[b.nl]||0;
+    return Math.abs(pa-st.myPrice)-Math.abs(pb-st.myPrice); // tri par proximité du prix cible
+  }).slice(0,80);
+  var html='<div style="background:linear-gradient(180deg,rgba(15,8,30,.98),rgba(8,4,20,.99));border:1.5px solid rgba(180,140,255,.5);border-radius:14px;padding:18px;max-width:780px;width:95%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 22px 60px rgba(0,0,0,.85)">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+    +'<span style="font-family:\'Goudy Mediaeval\',serif;color:#c8a8ff;font-size:1rem;letter-spacing:.06em">🔄 Échange contre une carte de '+esc(_purMemberName(st.borrowerUid))+'</span>'
+    +'<div style="flex:1"></div>'
+    +'<button class="btn btnsm" onclick="purCloseExchangeModal()">✕ Annuler</button>'
+    +'</div>'
+    +'<div style="display:flex;gap:14px;align-items:center;padding:8px 12px;background:rgba(0,0,0,.35);border-radius:8px;margin-bottom:10px;font-size:.78rem;color:var(--tx2)">'
+    +'<span>Ta carte : <strong style="color:#fff">'+esc(st.myName)+'</strong> <span style="color:var(--gold2);font-family:monospace">'+(st.myPrice>0?st.myPrice.toFixed(2)+'€':'prix ?')+'</span></span>'
+    +'<span style="color:var(--tx3)">→</span>'
+    +'<span>Tolérance : <strong style="color:#c8a8ff">±'+st.range+'€</strong> (fourchette '+minP.toFixed(2)+'€ — '+maxP.toFixed(2)+'€)</span>'
+    +'<input type="range" min="0" max="20" step="0.5" value="'+st.range+'" oninput="_purSetExchangeRange(this.value)" style="flex:1;max-width:140px">'
+    +'</div>'
+    +'<input type="text" placeholder="🔍 Recherche par nom dans la collection…" value="'+esc(st.search)+'" oninput="_purSetExchangeSearch(this.value)" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);margin-bottom:10px;font-size:.82rem">'
+    +'<div style="flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:4px">';
+  if(!visible.length){
+    html+='<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--tx3);font-style:italic">Aucune carte dans la fourchette de prix. Élargis la tolérance.</div>';
+  }else{
+    visible.forEach(function(card){
+      var p=_purPriceCache[card.nl];
+      var pStr=p==null?'…':(p>0?p.toFixed(2)+'€':'—');
+      var color=p!=null&&p>0?(Math.abs(p-st.myPrice)<.5?'#80ff80':(Math.abs(p-st.myPrice)<1.5?'#ffc848':'var(--tx2)')):'var(--tx3)';
+      html+='<div style="background:rgba(0,0,0,.4);border:1px solid var(--bd);border-radius:8px;padding:6px;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;transition:transform .1s,border-color .1s" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.borderColor=\'rgba(180,140,255,.6)\'" onmouseout="this.style.transform=\'\';this.style.borderColor=\'var(--bd)\'" onclick="purSelectExchangeCard(\''+escJs(card.nl)+'\',\''+escJs(card.name)+'\','+(p||0)+')">'
+        +'<img src="https://api.scryfall.com/cards/named?format=image&version=small&exact='+encodeURIComponent(card.name)+'" onerror="this.style.display=\'none\'" style="width:100%;max-width:100px;border-radius:5px">'
+        +'<div style="font-size:.7rem;color:var(--tx);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">'+esc(card.name)+'</div>'
+        +'<div style="font-size:.7rem;color:'+color+';font-family:monospace">'+pStr+'</div>'
+        +(card.qty>1?'<div style="font-size:.6rem;color:var(--tx3)">×'+card.qty+' en collec</div>':'')
+        +'</div>';
+    });
+  }
+  html+='</div></div>';
+  ov.innerHTML=html;
+}
+function _purSetExchangeRange(v){if(_purExchangeState){_purExchangeState.range=parseFloat(v)||2;_purRenderExchangeModal();}}
+function _purSetExchangeSearch(v){if(_purExchangeState){_purExchangeState.search=v;_purRenderExchangeModal();}}
+function purSelectExchangeCard(nl,name,price){
+  var st=_purExchangeState;if(!st)return;
+  var c=_purFindCard(st.cardId);if(!c){purCloseExchangeModal();return;}
+  c.status='lend_accepted';c.lender=userId;c.transactionType='exchange';
+  c.exchangeFor={nl:nl,name:name,price:price};
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+  purCloseExchangeModal();
+}
+function purCloseExchangeModal(){
+  _purExchangeState=null;
+  var ov=document.getElementById('pur-exchange-ov');if(ov)ov.remove();
+}
+var _purExchangeState=null;
+function _purShowTxTypeMenu(cardId,evt){
   _purHideTxTypeMenu();
   // Trouve le bouton "✓ Je prête" qui vient d'être cliqué
-  var btn=event&&event.target;
-  if(!btn)return purAcceptLendAs(cardId,'loan');
-  var rect=btn.getBoundingClientRect();
+  var btn=evt&&evt.target;
+  var left,top;
+  if(btn&&btn.getBoundingClientRect){
+    var rect=btn.getBoundingClientRect();
+    left=Math.min(window.innerWidth-220,rect.left);
+    top=rect.bottom+4;
+  }else{
+    left=Math.max(20,window.innerWidth/2-110);
+    top=Math.max(40,window.innerHeight/2-100);
+  }
   var menu=document.createElement('div');
   menu.id='pur-tx-menu';
-  menu.style.cssText='position:fixed;left:'+Math.min(window.innerWidth-220,rect.left)+'px;top:'+(rect.bottom+4)+'px;z-index:200;background:linear-gradient(180deg,rgba(20,15,40,.98),rgba(10,5,25,.98));border:1.5px solid rgba(180,140,255,.55);border-radius:9px;padding:6px;display:flex;flex-direction:column;gap:3px;box-shadow:0 8px 22px rgba(0,0,0,.8);min-width:200px';
+  menu.style.cssText='position:fixed;left:'+left+'px;top:'+top+'px;z-index:200;background:linear-gradient(180deg,rgba(20,15,40,.98),rgba(10,5,25,.98));border:1.5px solid rgba(180,140,255,.55);border-radius:9px;padding:6px;display:flex;flex-direction:column;gap:3px;box-shadow:0 8px 22px rgba(0,0,0,.8);min-width:200px';
   menu.innerHTML='<div style="font-size:.7rem;color:#c8a8ff;padding:4px 6px 6px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:3px">Type d\'accord ?</div>'
     +Object.keys(_PUR_TRANSACTION_TYPES).map(function(t){var d=_PUR_TRANSACTION_TYPES[t];
       return '<button class="ar-cmenu-btn" onclick="purAcceptLendAs(\''+cardId+'\',\''+t+'\')" style="text-align:left;padding:6px 10px;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.05);border-radius:5px;color:var(--tx);cursor:pointer;font-size:.78rem;display:flex;align-items:center;gap:8px" onmouseover="this.style.background=\'rgba(180,140,255,.18)\'" onmouseout="this.style.background=\'rgba(0,0,0,.3)\'">'+d.icon+' '+d.lbl+'</button>';
@@ -9245,7 +9384,7 @@ function _purRenderActionCenter(allCards){
   var html='';
   // 🤝 À toi de décider
   html+=_purRenderRoleSection('🤝 À toi de décider','La personne te demande d\'emprunter',C_DECIDE,g.decide,function(c,sid){
-    return btn('purAcceptLend(\''+sid+'\')','✓ Je prête','border-color:rgba(80,180,140,.5);color:#90e8c0')
+    return btn('purAcceptLend(\''+sid+'\',event)','✓ Je prête ▾','border-color:rgba(80,180,140,.5);color:#90e8c0')
       +btn('purRefuseLend(\''+sid+'\')','✕ Pas dispo','border-color:rgba(255,100,100,.45);color:#ff9090');
   });
   // 📥 Mes emprunts (en attente)
@@ -9258,7 +9397,10 @@ function _purRenderActionCenter(allCards){
   });
   // 📤 Mes prêts à honorer
   html+=_purRenderRoleSection('📤 Tes prêts à honorer','Tu as accepté, ramène ces cartes',C_LEND,g.lend_confirmed,function(c,sid){
-    return btn('purMarkReceived(\''+sid+'\')','✓ Donnée','border-color:rgba(80,180,140,.5);color:#90e8c0');
+    var extra='';
+    if(c.transactionType==='sale')extra=btn('purEditSalePrice(\''+sid+'\')','✎ Prix','border-color:rgba(180,140,255,.4);color:#c8a8ff');
+    else if(c.transactionType==='exchange')extra=btn('purOpenExchangeModal(\''+sid+'\')','✎ Carte échange','border-color:rgba(180,140,255,.4);color:#c8a8ff');
+    return extra+btn('purMarkReceived(\''+sid+'\')','✓ Donnée','border-color:rgba(80,180,140,.5);color:#90e8c0');
   });
   // 🛒 Mes achats
   html+=_purRenderRoleSection('🛒 Tes achats','Pour tes propres decks',C_BUY,g.buy_mine,function(c,sid){
