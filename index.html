@@ -20542,34 +20542,54 @@ function adminSyncScryfall(){
   fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
     var oracle=(data.data||[]).find(function(d){return d.type==='all_cards';});
     if(!oracle)throw new Error('all_cards introuvable dans la réponse Scryfall');
-    var upd=oracle.updated_at,uri=oracle.download_uri,cnt=oracle.size||'?';
+    var upd=oracle.updated_at,uri=oracle.download_uri,sizeBytes=oracle.size||0;
     prog.textContent='Enregistrement des métadonnées…';
-    return db.collection('meta').doc('scryfall').set({updated_at:upd,download_uri:uri,card_count:cnt,synced_at:new Date().toISOString()}).then(function(){
-      prog.textContent='Téléchargement all_cards.json (~900 Mo, patientez…)';
+    return db.collection('meta').doc('scryfall').set({updated_at:upd,download_uri:uri,size_bytes:sizeBytes,synced_at:new Date().toISOString()},{merge:true}).then(function(){
+      prog.textContent='Téléchargement all_cards.json (~'+Math.round(sizeBytes/1024/1024)+' Mo, patientez…)';
       return _downloadAndPopulateIDB(uri,upd,function(phase,a,b){
-        if(phase==='dl')prog.textContent='Téléchargement… '+Math.round(a/1024/1024)+'/'+(b?Math.round(b/1024/1024):'?')+'Mo';
+        if(phase==='dl')prog.textContent='Téléchargement… '+Math.round(a/1024/1024)+'/'+(b?Math.round(b/1024/1024):'?')+' Mo';
         else if(phase==='parse')prog.textContent='Analyse JSON…';
-        else if(phase==='store')prog.textContent='Mise en cache IndexedDB… '+a+' cartes';
+        else if(phase==='store')prog.textContent='Mise en cache IndexedDB… '+a.toLocaleString('fr-FR')+' cartes';
       });
+    }).then(function(n){
+      // Maintenant qu'on connaît le vrai nombre de cartes, on l'écrit aussi
+      return db.collection('meta').doc('scryfall').set({card_count:n},{merge:true}).then(function(){return n;});
     });
   }).then(function(n){
-    prog.textContent='✓ '+n+' cartes en cache local';
+    prog.textContent='✓ '+n.toLocaleString('fr-FR')+' cartes en cache local';
     btn.disabled=false;
     _loadAdminScryfallStatus();
   }).catch(function(e){prog.textContent='Erreur : '+e.message;btn.disabled=false;});
 }
 function _loadAdminScryfallStatus(){
   var el=document.getElementById('admin-scryfall-status');if(!el)return;
-  Promise.all([db.collection('meta').doc('scryfall').get(),_idbCount(),_idbGetMeta('updated_at')]).then(function(r){
-    var d=r[0].data(),cnt=r[1],localUpd=r[2];
-    if(d){
-      var srvDate=d.updated_at?new Date(d.updated_at).toLocaleDateString('fr-FR'):'?';
-      var locDate=localUpd?new Date(localUpd).toLocaleDateString('fr-FR'):'aucun';
-      var ok=localUpd===d.updated_at;
-      el.innerHTML='Serveur : <b>'+d.card_count+' cartes</b> ('+srvDate+')'+(ok?' · Local : ✓ à jour':' · Local : <span style="color:var(--am)">'+cnt+' cartes ('+locDate+')</span>');
-    } else {
-      el.textContent='Pas encore synchronisé. Local : '+cnt+' cartes.';
+  el.textContent='Chargement…';
+  // Interroge Scryfall DIRECTEMENT pour la vraie dernière version + Firestore meta + IDB local
+  Promise.all([
+    fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).catch(function(){return null;}),
+    db.collection('meta').doc('scryfall').get().catch(function(){return null;}),
+    _idbCount(),
+    _idbGetMeta('updated_at')
+  ]).then(function(r){
+    var live=r[0],meta=r[1]&&r[1].data&&r[1].data(),cnt=r[2],localUpd=r[3];
+    var liveBulk=live&&(live.data||[]).find(function(d){return d.type==='all_cards';});
+    var lines=[];
+    if(liveBulk){
+      var ld=new Date(liveBulk.updated_at);
+      var ldStr=ld.toLocaleDateString('fr-FR')+' '+('0'+ld.getHours()).slice(-2)+'h';
+      var mb=Math.round((liveBulk.size||0)/1024/1024);
+      lines.push('Scryfall : '+mb+' Mo · MAJ '+ldStr);
     }
+    if(meta&&meta.synced_at){
+      var sd=new Date(meta.synced_at).toLocaleDateString('fr-FR');
+      var nbServer=meta.card_count?meta.card_count.toLocaleString('fr-FR')+' cartes ':'';
+      lines.push('Dernière sync admin : '+nbServer+'le '+sd);
+    }
+    var locDate=localUpd?new Date(localUpd).toLocaleDateString('fr-FR'):'aucune';
+    var ok=liveBulk&&localUpd===liveBulk.updated_at;
+    var localLine='Local : '+cnt.toLocaleString('fr-FR')+' carte(s) · '+(ok?'<span style="color:var(--gr2)">✓ à jour</span>':'<span style="color:var(--am)">MAJ disponible (local : '+locDate+')</span>');
+    lines.push(localLine);
+    el.innerHTML=lines.join('<br>');
   }).catch(function(){el.textContent='—';});
 }
 // Client: check if IDB needs update — interroge DIRECTEMENT Scryfall pour la vraie dernière
