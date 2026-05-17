@@ -2865,6 +2865,7 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" onclick="bldVerifyLegality()" title="Vérifier la légalité du deck dans le format choisi (bans + identité couleur Commander + singleton)" style="font-size:.74rem;white-space:nowrap">✅ Vérifier</button>
       <button class="btn btnsm" onclick="bldShowDeckStats()" title="Graphiques : courbe de mana, distribution des couleurs et types de cartes" style="font-size:.74rem;white-space:nowrap">📊 Stats</button>
       <button class="btn btnsm" onclick="bldOpenCompareDeck()" title="Comparer deux decks (uniques à chacun + communes)" style="font-size:.74rem;white-space:nowrap">🔄 Comparer</button>
+      <button class="btn btnsm" onclick="bldShareCurrent()" title="Publier le deck courant en lecture seule via URL partageable" style="font-size:.74rem;white-space:nowrap">🔗 Partager</button>
     </div>
     <div style="display:flex;gap:6px">
       <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
@@ -9497,6 +9498,67 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
   html+='</div></div>';
   return html;
 }
+// ===== SOCIAL-3 : Decks publics URL partageable =====
+function deckShare(deckId){
+  var dk=decks[deckId];if(!dk){mlAlert('Erreur','Deck introuvable.');return;}
+  if(!window.db){mlAlert('Erreur','Firestore non disponible.');return;}
+  mlConfirm('🔗 Partager publiquement','Va générer une URL publique en lecture seule du deck "'+dk.name+'".\n\nN\'importe qui avec le lien pourra voir les cartes (pas modifier). Tu peux supprimer le partage à tout moment.',{okLabel:'Publier',cancelLabel:'Annuler'}).then(function(ok){
+    if(!ok)return;
+    var pubId=dk.publicId||(deckId+'_'+Math.random().toString(36).slice(2,8));
+    var payload={
+      name:dk.name||'Deck partagé',
+      ownerName:PN[0]||'?',
+      createdBy:userId,
+      format:dk.format||'',
+      rawName:dk.rawName||'',
+      cards:dk.cards||[],
+      commander:dk.commander||null,
+      sharedAt:Date.now()
+    };
+    db.collection('public_decks').doc(pubId).set(payload).then(function(){
+      dk.publicId=pubId;
+      // Persiste l'id publique dans le doc deck Firestore aussi
+      if(typeof saveDeck==='function')saveDeck(deckId);
+      var url=window.location.origin+window.location.pathname+'#shareddeck='+pubId;
+      mlAlert('🔗 Deck publié !','<div style="text-align:center"><div style="font-size:.82rem;color:var(--tx2);margin-bottom:10px">Partage cette URL avec qui tu veux :</div><textarea readonly onclick="this.select()" style="width:100%;padding:8px;background:rgba(0,0,0,.5);border:1px solid var(--bd2);border-radius:6px;color:var(--gold2);font-family:monospace;font-size:.78rem;text-align:center;resize:none" rows="2">'+esc(url)+'</textarea><div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button class="btn btnp" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escJs(url)+'\').then(function(){mlToast(\'📋 URL copiée\')})">📋 Copier</button><button class="btn" onclick="deckUnshare(\''+escJs(deckId)+'\')">✕ Annuler le partage</button></div></div>',{html:true,okLabel:'Fermer'});
+    }).catch(function(e){mlAlert('Erreur','Impossible de publier : '+e.message);});
+  });
+}
+function deckUnshare(deckId){
+  var dk=decks[deckId];if(!dk||!dk.publicId){_mlClose(null);return;}
+  db.collection('public_decks').doc(dk.publicId).delete().then(function(){
+    delete dk.publicId;
+    if(typeof saveDeck==='function')saveDeck(deckId);
+    _mlClose(null);
+    mlToast('🔗 Partage public supprimé');
+  }).catch(function(){mlToast('Erreur suppression');});
+}
+function _checkSharedDeckUrl(){
+  var hash=window.location.hash||'';
+  var m=hash.match(/shareddeck=([\w-]+)/);
+  if(!m)return;
+  var pubId=m[1];
+  if(!window.db)return;
+  db.collection('public_decks').doc(pubId).get().then(function(doc){
+    if(!doc.exists){mlAlert('Deck introuvable','Le lien partagé n\'est plus valide (peut-être supprimé par l\'auteur).');return;}
+    var d=doc.data();
+    var cardsHtml=(d.cards||[]).map(function(c){return '<li>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</li>';}).join('');
+    var html='<div style="text-align:left;max-height:60vh;overflow-y:auto">'
+      +'<div style="font-size:.76rem;color:var(--tx3);margin-bottom:8px">Par <strong>'+esc(d.ownerName||'?')+'</strong>'+(d.format?' · format '+esc(d.format):'')+'</div>'
+      +(d.commander?'<div style="font-size:.82rem;color:#c8a8ff;margin-bottom:8px">👑 Commandant : '+esc(d.commander.name)+'</div>':'')
+      +'<div style="font-size:.78rem;color:var(--tx2);margin-bottom:6px">'+(d.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0)+' cartes :</div>'
+      +'<ul style="margin:0;padding-left:18px;font-size:.78rem;color:var(--tx2);line-height:1.5;column-count:2">'+cardsHtml+'</ul>'
+      +'</div>';
+    mlAlert('📖 '+(d.name||'Deck partagé'),html,{html:true,okLabel:'Fermer'});
+    // Clean l'URL
+    try{history.replaceState(null,'',window.location.pathname);}catch(e){}
+  });
+}
+// Trigger l'auto-check au démarrage
+if(typeof window!=='undefined'){
+  setTimeout(function(){if(typeof _checkSharedDeckUrl==='function')_checkSharedDeckUrl();},2000);
+}
+
 // ===== SOCIAL-1 : Wishlist matching cross-listes =====
 function mlScanWishlistMatching(){
   if(!Object.keys(_purchaseLists||{}).length){mlAlert('Wishlist','Aucune liste partagée à scanner.');return;}
@@ -18114,6 +18176,10 @@ function bldGetBanStatus(card){
 }
 // ===== VÉRIF LÉGALITÉ DECK (format + identité Commander) =====
 // ===== DECK-4 : Comparaison de 2 decks (diff) =====
+function bldShareCurrent(){
+  if(!bldCurDeckId){mlAlert('Partager','Charge ou sauvegarde d\'abord un deck.');return;}
+  deckShare(bldCurDeckId);
+}
 function bldOpenCompareDeck(){
   var ids=Object.keys(decks||{});
   if(ids.length<2){mlAlert('Comparaison','Il te faut au moins 2 decks pour comparer.');return;}
