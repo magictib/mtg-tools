@@ -248,6 +248,15 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 .bb{background:rgba(76,175,128,.2);color:var(--gr2);border:.5px solid rgba(76,175,128,.4)}
 .bc{background:rgba(201,168,76,.2);color:var(--gold2);border:.5px solid rgba(201,168,76,.4)}
 .bsuc{background:linear-gradient(180deg,#081e08 0%,#040e04 100%);color:#7ec880;border:1.5px solid rgba(60,140,70,.6);outline:1px solid rgba(60,140,70,.18);outline-offset:-4px;box-shadow:inset 0 1px 0 rgba(100,200,80,.08),0 0 0 1px rgba(0,0,0,.7),0 2px 0 rgba(0,0,0,.4),0 3px 8px rgba(0,0,0,.5)}
+/* Modal unifié */
+.ml-modal-title{font-family:'Goudy Mediaeval',serif;color:#c8a8ff;font-size:1.1rem;letter-spacing:.06em;margin-bottom:10px;text-shadow:0 0 12px rgba(180,140,255,.4)}
+.ml-modal-msg{color:var(--tx2);font-size:.88rem;line-height:1.55;margin-bottom:14px;white-space:pre-wrap}
+.ml-modal-input{width:100%;padding:8px 12px;background:rgba(0,0,0,.45);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem;margin-bottom:14px;font-family:inherit;outline:none;box-sizing:border-box}
+.ml-modal-input:focus{border-color:rgba(180,140,255,.6);box-shadow:0 0 0 2px rgba(180,140,255,.18)}
+.ml-modal-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center}
+@keyframes ml-modal-pop{0%{transform:scale(.92);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes ml-toast-in{0%{transform:translateX(-50%) translateY(20px);opacity:0}100%{transform:translateX(-50%) translateY(0);opacity:1}}
+@keyframes ml-toast-out{0%{opacity:1}100%{transform:translateX(-50%) translateY(20px);opacity:0}}
 .btn{padding:7px 16px;border-radius:4px;font-size:.9rem;font-family:var(--ff-head);font-weight:600;cursor:pointer;border:1.5px solid var(--btn-bd);background:var(--btn-bg);color:var(--btn-col);text-shadow:0 1px 2px rgba(0,0,0,.8);outline:1px solid var(--btn-out);outline-offset:-4px;box-shadow:inset 0 1px 0 rgba(255,190,50,.1),0 0 0 1px rgba(0,0,0,.75),0 2px 0 rgba(0,0,0,.5),0 3px 8px rgba(0,0,0,.55);transition:filter .15s,transform .1s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
 .btn:hover{filter:brightness(1.2)}.btn:active{transform:translateY(1px);box-shadow:inset 0 1px 4px rgba(0,0,0,.6),0 0 0 1px rgba(0,0,0,.75),0 1px 3px rgba(0,0,0,.5)}
 .btnp{background:var(--btnp-bg);border:2px solid var(--btnp-bd);outline:1px solid var(--btnp-out);outline-offset:-5px;box-shadow:inset 0 1px 0 rgba(255,210,80,.16),inset 0 -2px 4px rgba(0,0,0,.5),0 0 0 1px rgba(0,0,0,.9),0 3px 0 rgba(0,0,0,.65),0 6px 18px rgba(0,0,0,.85);color:var(--btnp-col);text-shadow:0 1px 3px rgba(0,0,0,.95);font-family:var(--ff-head);letter-spacing:.07em;border-radius:4px}
@@ -17415,6 +17424,112 @@ document.addEventListener('mousemove',function(e){posTip(e);});
 // ===== UTILS =====
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function escJs(s){return esc(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+
+// ===== MODAL UNIFIÉ (async, remplace alert/confirm/prompt) =====
+function _mlEnsureOv(){
+  var ov=document.getElementById('ml-modal-ov');
+  if(ov)return ov;
+  ov=document.createElement('div');
+  ov.id='ml-modal-ov';
+  ov.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:9999;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+  document.body.appendChild(ov);
+  return ov;
+}
+function _mlClose(value){
+  var ov=document.getElementById('ml-modal-ov');if(!ov)return;
+  ov.style.display='none';ov.innerHTML='';
+  if(_mlResolver){var r=_mlResolver;_mlResolver=null;r(value);}
+  document.removeEventListener('keydown',_mlKey);
+}
+var _mlResolver=null;
+function _mlKey(e){
+  if(e.key==='Escape')_mlClose(null);
+  else if(e.key==='Enter'){
+    var btn=document.querySelector('#ml-modal-ov .ml-btn-primary');
+    if(btn){e.preventDefault();btn.click();}
+  }
+}
+function _mlOpen(content,opts){
+  opts=opts||{};
+  var ov=_mlEnsureOv();
+  var box=document.createElement('div');
+  box.className='ml-modal-box';
+  box.style.cssText='background:linear-gradient(180deg,rgba(20,15,40,.99),rgba(10,5,25,.99));border:1.5px solid rgba(180,140,255,.5);border-radius:14px;padding:20px 22px;max-width:480px;width:100%;box-shadow:0 22px 60px rgba(0,0,0,.85),0 0 30px rgba(140,100,220,.25);color:var(--tx);font-family:inherit;animation:ml-modal-pop .2s ease-out';
+  box.innerHTML=content;
+  ov.innerHTML='';ov.appendChild(box);
+  ov.style.display='flex';
+  if(opts.closeOnBackdrop!==false){
+    ov.onclick=function(e){if(e.target===ov)_mlClose(null);};
+  }else{ov.onclick=null;}
+  document.addEventListener('keydown',_mlKey);
+  // Focus auto sur input ou bouton primary
+  setTimeout(function(){
+    var inp=box.querySelector('input,textarea,select');
+    if(inp){inp.focus();if(inp.select)inp.select();}
+    else{var b=box.querySelector('.ml-btn-primary');if(b)b.focus();}
+  },50);
+}
+function mlAlert(title,message,opts){
+  opts=opts||{};
+  return new Promise(function(resolve){
+    _mlResolver=resolve;
+    _mlOpen('<div class="ml-modal-title">'+esc(title||'Information')+'</div>'
+      +(message?'<div class="ml-modal-msg">'+(opts.html?message:esc(message))+'</div>':'')
+      +'<div class="ml-modal-actions"><button class="btn btnp ml-btn-primary" onclick="_mlClose(true)">'+esc(opts.okLabel||'OK')+'</button></div>',opts);
+  });
+}
+function mlConfirm(title,message,opts){
+  opts=opts||{};
+  return new Promise(function(resolve){
+    _mlResolver=resolve;
+    _mlOpen('<div class="ml-modal-title">'+esc(title||'Confirmation')+'</div>'
+      +(message?'<div class="ml-modal-msg">'+(opts.html?message:esc(message))+'</div>':'')
+      +'<div class="ml-modal-actions">'
+      +'<button class="btn" onclick="_mlClose(false)">'+esc(opts.cancelLabel||'Annuler')+'</button>'
+      +'<button class="btn '+(opts.danger?'btnrd':'btnp')+' ml-btn-primary" onclick="_mlClose(true)">'+esc(opts.okLabel||'Confirmer')+'</button>'
+      +'</div>',opts);
+  });
+}
+function mlPrompt(title,message,def,opts){
+  opts=opts||{};def=def==null?'':String(def);
+  return new Promise(function(resolve){
+    _mlResolver=resolve;
+    var inp='<input type="'+(opts.inputType||'text')+'" id="ml-modal-inp" class="ml-modal-input" value="'+esc(def)+'"'+(opts.placeholder?' placeholder="'+esc(opts.placeholder)+'"':'')+'>';
+    _mlOpen('<div class="ml-modal-title">'+esc(title||'Saisie')+'</div>'
+      +(message?'<div class="ml-modal-msg">'+(opts.html?message:esc(message))+'</div>':'')
+      +inp
+      +'<div class="ml-modal-actions">'
+      +'<button class="btn" onclick="_mlClose(null)">'+esc(opts.cancelLabel||'Annuler')+'</button>'
+      +'<button class="btn btnp ml-btn-primary" onclick="_mlClose((document.getElementById(\'ml-modal-inp\')||{}).value||\'\')">'+esc(opts.okLabel||'Valider')+'</button>'
+      +'</div>',opts);
+  });
+}
+function mlChoice(title,message,choices,opts){
+  // choices: [{value, label, icon?, danger?, primary?}]
+  opts=opts||{};
+  return new Promise(function(resolve){
+    _mlResolver=resolve;
+    var btnsHtml=choices.map(function(c,i){
+      var cls='btn'+(c.primary?' btnp ml-btn-primary':'')+(c.danger?' btnrd':'');
+      return '<button class="'+cls+'" onclick="_mlClose('+JSON.stringify(c.value)+')" style="margin:3px;flex:0 1 auto">'+(c.icon?c.icon+' ':'')+esc(c.label)+'</button>';
+    }).join('');
+    _mlOpen('<div class="ml-modal-title">'+esc(title||'Choisir')+'</div>'
+      +(message?'<div class="ml-modal-msg">'+(opts.html?message:esc(message))+'</div>':'')
+      +'<div class="ml-modal-actions" style="flex-wrap:wrap">'+btnsHtml
+      +(opts.cancelable!==false?'<button class="btn" onclick="_mlClose(null)" style="margin:3px">'+esc(opts.cancelLabel||'Annuler')+'</button>':'')
+      +'</div>',opts);
+  });
+}
+// Toast léger (auto-dismiss)
+function mlToast(message,opts){
+  opts=opts||{};var ms=opts.duration||3000;
+  var t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:linear-gradient(180deg,rgba(20,15,40,.97),rgba(10,5,25,.97));border:1px solid '+(opts.color||'rgba(180,140,255,.55)')+';color:'+(opts.textColor||'#fff')+';padding:9px 16px;border-radius:8px;font-size:.82rem;z-index:10000;box-shadow:0 6px 20px rgba(0,0,0,.7);animation:ml-toast-in .3s ease-out;max-width:90%';
+  t.textContent=message;
+  document.body.appendChild(t);
+  setTimeout(function(){t.style.animation='ml-toast-out .3s ease-in forwards';},ms-300);
+  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},ms);
+}
 
 // ===== PENDING / LOANS / TRADES — LOGIQUE =====
 function receivePending(id){
