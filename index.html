@@ -1130,6 +1130,9 @@ body.mana-cursor{cursor:none}
 .montage-bar{height:10px;background:rgba(0,0,0,.4);border-radius:5px;overflow:hidden;border:.5px solid var(--bd2);position:relative}
 .montage-bar-fill{height:100%;background:linear-gradient(90deg,#8a6e30 0%,#c9a84c 50%,#e8c878 100%);border-radius:5px;transition:width .4s ease;box-shadow:0 0 8px rgba(201,168,76,.45) inset}
 .montage-sec{font-family:'Goudy Mediaeval',serif;letter-spacing:.05em;font-size:.92rem;padding:14px 0 8px;border-bottom:.5px solid var(--bd);margin-bottom:6px;font-weight:600}
+.mm-sec-clickable{cursor:pointer;user-select:none;transition:background .12s}
+.mm-sec-clickable:hover{background:rgba(255,255,255,.03)}
+.mm-caret{display:inline-block;font-size:.7rem;color:var(--tx3);transition:transform .15s;margin-right:4px;vertical-align:middle;width:10px;text-align:center}
 .montage-row{display:grid;grid-template-columns:36px 1fr auto 70px 56px auto;gap:8px;align-items:center;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:.84rem;border:.5px solid transparent;transition:background .15s,border-color .15s}
 .montage-row:hover{background:rgba(255,255,255,.04);border-color:var(--bd2)}
 .montage-row-done{background:rgba(16,185,129,.06);color:var(--gr2);opacity:.85}
@@ -1926,7 +1929,9 @@ body.mana-cursor{cursor:none}
         <button class="dm mm-sort-btn" data-mode="type" onclick="mmSetSort('type')">Type</button>
         <button class="dm mm-sort-btn" data-mode="cmc" onclick="mmSetSort('cmc')">CMC</button>
         <button class="dm mm-sort-btn" data-mode="name" onclick="mmSetSort('name')">Nom</button>
-        <button class="btn btnsm" onclick="mmFillOwned()" style="margin-left:auto" title="Place ce que vous possédez (libre) dans les decks de la liste">⚡ Placer ce que j'ai</button>
+        <button class="btn btnsm" onclick="mmCollapseAllDone()" style="margin-left:auto" title="Replie toutes les sections complétées à 100%">▶ Replier les ✓</button>
+        <button class="btn btnsm" onclick="mmExpandAll()" title="Étend toutes les sections">▼ Tout étendre</button>
+        <button class="btn btnsm" onclick="mmFillOwned()" title="Place ce que vous possédez (libre) dans les decks de la liste">⚡ Placer ce que j'ai</button>
         <button class="btn btnsm btnrd" onclick="mmReset()" title="Réinitialiser tous les compteurs des decks sélectionnés">⟲ Réinitialiser</button>
       </div>
       <div class="montage-bar" id="mm-bar"><div class="montage-bar-fill" id="mm-bar-fill" style="width:0%"></div></div>
@@ -7684,6 +7689,8 @@ function renderDeckMontage(quietUpdate){
     if(!subs.length)return;
     var subBuilt=subs.reduce(function(s,c){return s+Math.min(c.qty,d[c.nl]||0);},0);
     var subTot=subs.reduce(function(s,c){return s+(c.qty||0);},0);
+    var isDone=subBuilt>=subTot&&subTot>0;
+    var collapsed=!!_montageCollapsed[sec];
     var secColor=(dSortMode==='color'&&_SEC_COLOR_HEX[sec])?_SEC_COLOR_HEX[sec]:'var(--gold2)';
     var secIcon='';
     if(dSortMode==='color'){
@@ -7693,8 +7700,10 @@ function renderDeckMontage(quietUpdate){
       else if(ic==='land')secIcon='<span style="margin-right:6px">⛰</span>';
       else if(ic)secIcon='<i class="ms ms-'+ic+' ms-cost" style="font-size:.95rem;margin-right:6px;vertical-align:middle"></i>';
     }
-    html+='<div class="montage-sec" style="color:'+secColor+';border-left:3px solid '+secColor+';padding-left:8px">'+secIcon+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBuilt+'/'+subTot+')</span></div>';
-    subs.forEach(function(c){html+=renderRow(c);});
+    var caret=collapsed?'▶':'▼';
+    var doneBadge=isDone?' <span style="color:var(--gr2);font-size:.78rem;margin-left:6px">✓</span>':'';
+    html+='<div class="montage-sec mm-sec-clickable" onclick="montageToggleSection(\''+escJs(sec)+'\')" style="color:'+secColor+';border-left:3px solid '+secColor+';padding-left:8px"><span class="mm-caret">'+caret+'</span> '+secIcon+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBuilt+'/'+subTot+')</span>'+doneBadge+'</div>';
+    if(!collapsed){subs.forEach(function(c){html+=renderRow(c);});}
   });
   el.innerHTML=html;
   // Refocus pour assemblage rapide
@@ -7750,6 +7759,18 @@ var _mmSelectedDeckIds=[];
 var _mmSortMode='color';
 var _mmGroupByDeck=false;
 var _mmSaveTO=null;
+var _mmCollapsed={}; // sec name -> true si replié
+var _montageCollapsed={}; // idem pour Montage single deck
+
+function mmToggleSection(sec){_mmCollapsed[sec]=!_mmCollapsed[sec];renderMultiMontage();}
+function mmCollapseAllDone(){
+  // Replie toutes les sections 100% montées (utile pour gagner de l'espace)
+  if(typeof _mmLastSecStats!=='object')return;
+  Object.keys(_mmLastSecStats).forEach(function(s){if(_mmLastSecStats[s].done)_mmCollapsed[s]=true;});
+  renderMultiMontage();
+}
+function mmExpandAll(){_mmCollapsed={};renderMultiMontage();}
+function montageToggleSection(sec){_montageCollapsed[sec]=!_montageCollapsed[sec];renderDeckMontage(true);}
 
 function openMultiMontage(){
   var pg=document.getElementById('pg-deck');if(!pg)return;
@@ -8006,12 +8027,16 @@ function renderMultiMontage(){
     +'<div class="mm-h" style="text-align:center">Placé</div><div class="mm-h" style="text-align:center">±</div>';
   // Préparer la liste de zoom (ordre d'affichage final)
   _zoomList=[];
+  _mmLastSecStats={};
   var html='<div class="mm-row mm-header">'+headerCells+'</div>';
   secs.forEach(function(sec){
     var subs=entries.filter(function(e){return _sec(e)===sec;});
     if(!subs.length)return;
     var subTot=subs.reduce(function(s,e){return s+e.totalQty;},0);
     var subBd=subs.reduce(function(s,e){return s+e.totalBuilt;},0);
+    var isDone=subBd>=subTot&&subTot>0;
+    _mmLastSecStats[sec]={done:isDone,total:subTot,built:subBd};
+    var collapsed=!!_mmCollapsed[sec];
     var secColor=(_mmSortMode==='color'&&_SEC_COLOR_HEX[sec])?_SEC_COLOR_HEX[sec]:'var(--gold2)';
     var secIcon='';
     if(_mmSortMode==='color'){
@@ -8021,11 +8046,19 @@ function renderMultiMontage(){
       else if(ic==='land')secIcon='<span style="margin-right:6px">⛰</span>';
       else if(ic)secIcon='<i class="ms ms-'+ic+' ms-cost" style="font-size:.95rem;margin-right:6px;vertical-align:middle"></i>';
     }
-    html+='<div class="montage-sec" style="color:'+secColor+';border-left:3px solid '+secColor+';padding-left:8px">'+secIcon+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBd+'/'+subTot+')</span></div>';
-    subs.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});html+=_mmRenderRow(e,deckIdsActive);});
+    var caret=collapsed?'▶':'▼';
+    var doneBadge=isDone?' <span style="color:var(--gr2);font-size:.78rem;margin-left:6px">✓</span>':'';
+    html+='<div class="montage-sec mm-sec-clickable" onclick="mmToggleSection(\''+escJs(sec)+'\')" style="color:'+secColor+';border-left:3px solid '+secColor+';padding-left:8px"><span class="mm-caret">'+caret+'</span> '+secIcon+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBd+'/'+subTot+')</span>'+doneBadge+'</div>';
+    if(!collapsed){
+      subs.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});html+=_mmRenderRow(e,deckIdsActive);});
+    } else {
+      // toujours pousser dans _zoomList pour cohérence navigation
+      subs.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});});
+    }
   });
   listEl.innerHTML=html;
 }
+var _mmLastSecStats={};
 
 function toggleAchatPanel(){
   var p=document.getElementById('achat-panel');
