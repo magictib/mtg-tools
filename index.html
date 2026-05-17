@@ -929,6 +929,9 @@ body.mana-cursor{cursor:none}
 /* Multiplayer opponent bar */
 #ar-opponent-bar{background:rgba(0,0,0,.5);border-bottom:1px solid rgba(80,140,255,.22);padding:5px 12px;display:none;flex-shrink:0;gap:16px;align-items:center;font-size:.78rem;color:var(--tx2)}
 #ar-opponent-bar.mp-on{display:flex}
+.ar-opp-card:hover{background:rgba(0,0,0,.45)!important;border-color:rgba(80,140,255,.4)!important}
+.ar-life-val-mini{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem}
+.ar-mini-btn{padding:2px 5px;font-size:.65rem;min-width:0}
 .ar-phase-bar{display:flex;align-items:center;gap:2px}
 .ar-ph-btn{padding:3px 7px;border-radius:4px;border:.5px solid transparent;color:var(--tx3);font-size:.68rem;cursor:pointer;background:transparent;transition:all .1s;font-family:'Crimson Pro',serif;white-space:nowrap;line-height:1}
 .ar-ph-btn.on{background:rgba(201,168,76,.18);border-color:rgba(201,168,76,.5);color:var(--gold2);font-weight:600}
@@ -3442,13 +3445,21 @@ body.mana-cursor{cursor:none}
         <button class="btn btnp" onclick="arOpen()" style="width:100%;padding:10px;font-size:.9rem">▶ Lancer (solo)</button>
         <div id="ar-setup-msg" style="margin-top:8px;font-size:.78rem;color:var(--rd2);min-height:1rem"></div>
         <div style="margin-top:12px;border-top:.5px solid var(--bd);padding-top:10px">
-          <div class="lbl" style="margin-bottom:6px;font-size:.78rem">🎮 Partie 2 joueurs (en ligne)</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn" onclick="arCreateRoom()" style="flex:1;min-width:100px;font-size:.78rem">Créer une partie</button>
-            <div style="display:flex;gap:4px;flex:1;min-width:100px">
-              <input type="text" id="ar-room-code-in" placeholder="Code (6 car.)" maxlength="6" style="flex:1;font-size:.78rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;text-transform:uppercase">
-              <button class="btn" onclick="arJoinRoom()" style="font-size:.78rem">Rejoindre</button>
+          <div class="lbl" style="margin-bottom:6px;font-size:.78rem">🎮 Partie multijoueur en ligne (2-4 joueurs)</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx2)">
+              Joueurs :
+              <select id="ar-create-numplayers" style="font-size:.78rem;padding:4px 7px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+                <option value="2" selected>2</option>
+                <option value="3">3 (Commander)</option>
+                <option value="4">4 (Commander)</option>
+              </select>
             </div>
+            <button class="btn" onclick="arCreateRoom()" style="flex:1;min-width:100px;font-size:.78rem">Créer une partie</button>
+          </div>
+          <div style="display:flex;gap:4px">
+            <input type="text" id="ar-room-code-in" placeholder="Code (6 car.)" maxlength="6" style="flex:1;font-size:.78rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;text-transform:uppercase">
+            <button class="btn" onclick="arJoinRoom()" style="font-size:.78rem">Rejoindre</button>
           </div>
           <div id="ar-room-status" style="font-size:.74rem;color:var(--tx2);margin-top:5px;min-height:1.1em"></div>
         </div>
@@ -3649,16 +3660,8 @@ body.mana-cursor{cursor:none}
 
   <!-- Opponent info bar (multiplayer) -->
   <div id="ar-opponent-bar">
-    <span id="ar-op-conn" title="Connexion adversaire" style="display:none;width:8px;height:8px;border-radius:50%;background:#3c8;box-shadow:0 0 6px currentColor"></span>
-    <span id="ar-op-name" style="font-family:'Goudy Mediaeval',serif;color:var(--gold2)">Adversaire</span>
-    <span>❤ <span id="ar-op-life">—</span></span>
-    <span>🂠 <span id="ar-op-hand">—</span> en main</span>
-    <span>📚 <span id="ar-op-lib">—</span></span>
-    <span style="font-size:.7rem;color:var(--tx3)" id="ar-op-cmd"></span>
-    <div style="flex:1"></div>
-    <button class="ar-btn" onclick="arViewOpGrave()" title="Cimetière adversaire">🪦 <span id="ar-op-grave-cnt">0</span></button>
-    <button class="ar-btn" onclick="arViewOpExile()" title="Exile adversaire">✦ <span id="ar-op-exile-cnt">0</span></button>
-    <button class="ar-btn ar-btn-red" onclick="arCancelRoom()" title="Quitter la partie en ligne" style="margin-left:6px">✕ Annuler</button>
+    <div id="ar-opponents-list" style="display:flex;gap:14px;flex-wrap:wrap;flex:1;align-items:center"></div>
+    <button class="ar-btn ar-btn-red" onclick="arCancelRoom()" title="Quitter la partie en ligne" style="margin-left:6px">✕ Quitter</button>
   </div>
 
   <!-- Priority bar -->
@@ -4945,16 +4948,16 @@ function adminCleanupPending(uid,name,btn){
       return batch.commit();
     })
     .then(function(){
-      // Arena rooms ou l'utilisateur est p1 ou p2
+      // Arena rooms ou l'utilisateur est p1..p4
       return db.collection('arena_rooms').get();
     })
     .then(function(snap){
       var batch=db.batch();
       snap.docs.forEach(function(doc){
         var r=doc.data();
-        if((r.p1&&r.p1.uid===uid)||(r.p2&&r.p2.uid===uid)){
-          batch.update(doc.ref,{active:false});totalUpdated++;
-        }
+        var mine=false;
+        for(var i=1;i<=4;i++){if(r['p'+i]&&r['p'+i].uid===uid){mine=true;break;}}
+        if(mine){batch.update(doc.ref,{active:false});totalUpdated++;}
       });
       return batch.commit();
     })
@@ -10252,11 +10255,16 @@ function arRenderField(){
     el.style.left=c.x+'px';el.style.top=c.y+'px';
     el.classList.toggle('tapped',!!c.tapped);
     el.classList.toggle('ar-multi-sel',(_ar.multiSel||[]).indexOf(c.id)>=0);
-    var opAtk=(_arRoom&&_arRoom._opAtk)||[];
-    var opBlk=(_arRoom&&_arRoom._opBlk)||[];
-    el.classList.toggle('ar-attacker',(!isOp&&(_ar.attackers||[]).indexOf(c.id)>=0)||(isOp&&opAtk.indexOf(c.id)>=0));
-    el.classList.toggle('ar-blocker',(!isOp&&(_ar.blockers||[]).indexOf(c.id)>=0)||(isOp&&opBlk.indexOf(c.id)>=0));
-    el.classList.toggle('ar-op-combat',isOp&&(opAtk.indexOf(c.id)>=0||opBlk.indexOf(c.id)>=0));
+    var opAtkMap=(_arRoom&&_arRoom._opAtk)||{};
+    var opBlkMap=(_arRoom&&_arRoom._opBlk)||{};
+    var isOpAtk=false,isOpBlk=false;
+    if(isOp&&_arRoom){
+      Object.keys(opAtkMap).forEach(function(k){if(opAtkMap[k].indexOf(c.id)>=0)isOpAtk=true;});
+      Object.keys(opBlkMap).forEach(function(k){if(opBlkMap[k].indexOf(c.id)>=0)isOpBlk=true;});
+    }
+    el.classList.toggle('ar-attacker',(!isOp&&(_ar.attackers||[]).indexOf(c.id)>=0)||isOpAtk);
+    el.classList.toggle('ar-blocker',(!isOp&&(_ar.blockers||[]).indexOf(c.id)>=0)||isOpBlk);
+    el.classList.toggle('ar-op-combat',isOp&&(isOpAtk||isOpBlk));
     // Counter badge
     var badge=el.querySelector('.ar-counter');
     if(c.counters){if(!badge){badge=document.createElement('div');badge.className='ar-counter';el.appendChild(badge);}badge.textContent=(c.counters>0?'+':'')+c.counters+'/+'+(c.counters>0?c.counters:0);}
@@ -10375,17 +10383,18 @@ function arNextTurn(){
   _arMana={W:0,U:0,B:0,R:0,G:0,C:0};
   if(_ar.ss)_ar.ss.turns++;
   arDrawCard(true);
-  // En online : passe le tour à l'adversaire
+  // En online : passe le tour au joueur suivant (rotation)
   if(_arRoom&&!_arBot){
     var myPn=_arRoom.playerNum;
-    var nextPn=myPn===1?2:1;
+    var N=_arRoom.numPlayers||2;
+    var nextPn=_arNextPlayer(myPn,N);
     db.collection('arena_rooms').doc(_arRoom.id).update({currentPlayer:nextPn}).catch(function(){});
   }
   arRender();_arSyncToRoom();_arUpdateCombatBar();
   arLogAction('turn',{turn:_ar.turn});
 }
 
-function _arSetOnlineTurnIndicator(myTurn){
+function _arSetOnlineTurnIndicator(myTurn,curPn){
   var band=document.getElementById('ar-turn-band');
   var txt=document.getElementById('ar-turn-band-txt');
   var sub=document.getElementById('ar-turn-band-sub');
@@ -10400,8 +10409,10 @@ function _arSetOnlineTurnIndicator(myTurn){
     if(ov){ov.classList.add('player-turn');ov.classList.remove('bot-turn');}
   }else{
     band.className='on bot-turn';
-    if(txt)txt.textContent="TOUR DE L'ADVERSAIRE";
-    if(sub)sub.textContent=_arOpName()||'';
+    var who='Adversaire';
+    if(curPn&&_arRoom.opps&&_arRoom.opps[curPn])who='J'+curPn+' '+(_arRoom.opps[curPn].slot.name||'');
+    if(txt)txt.textContent='TOUR DE '+who.toUpperCase();
+    if(sub)sub.textContent='';
     if(ov){ov.classList.add('bot-turn');ov.classList.remove('player-turn');}
   }
 }
@@ -11213,9 +11224,18 @@ function arMvHover(dest){
 function arToggleAttacker(id){
   if(!_arIsOwnCard(id))return;
   if(!_ar.attackers)_ar.attackers=[];
+  if(!_ar.atkTargets)_ar.atkTargets={};
   var idx=_ar.attackers.indexOf(id);
-  if(idx>=0)_ar.attackers.splice(idx,1);
-  else{_ar.attackers.push(id);var bi=(_ar.blockers||[]).indexOf(id);if(bi>=0)_ar.blockers.splice(bi,1);}
+  if(idx>=0){_ar.attackers.splice(idx,1);delete _ar.atkTargets[id];}
+  else{
+    _ar.attackers.push(id);
+    var bi=(_ar.blockers||[]).indexOf(id);if(bi>=0)_ar.blockers.splice(bi,1);
+    // Cible par défaut : _defaultTargetPn ou next clockwise
+    if(_arRoom){
+      var N=_arRoom.numPlayers||2;
+      _ar.atkTargets[id]=_arRoom._defaultTargetPn||_arDefaultTargetPn(_arRoom.playerNum,N);
+    }
+  }
   arRenderField();_arSyncToRoom();_arUpdateCombatBar();
   if(_arBot){var b=document.getElementById('ar-declare-atk-btn');if(b)b.style.display=_ar.attackers.length?'inline-flex':'none';}
 }
@@ -11456,23 +11476,33 @@ function arCreateRoom(){
   var code=_arGenCode();
   var uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||'anon';
   var name=PN[0]||'Joueur 1';
-  db.collection('arena_rooms').doc(code).set({
+  var npEl=document.getElementById('ar-create-numplayers');
+  var numPlayers=npEl?Math.max(2,Math.min(4,parseInt(npEl.value)||2)):2;
+  var lifeEl=document.getElementById('ar-setup-life');
+  var startLife=numPlayers>2?40:(lifeEl?parseInt(lifeEl.value)||40:40);
+  var doc={
     code:code,
-    p1:{uid:uid,name:name,life:40,handCount:0,libCount:0,cmd:null,cmdCasts:0},
-    p2:null,
-    field:[],p1_lands:[],p2_lands:[],p1_grave:[],p2_grave:[],p1_exile:[],p2_exile:[],
-    p1_attackers:[],p2_attackers:[],p1_blockers:[],p2_blockers:[],
+    numPlayers:numPlayers,
+    p1:{uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0},
+    field:[],
     stack:[],
     actions:[],
     currentPlayer:1,
     active:false,createdAt:new Date().toISOString()
-  }).then(function(){
+  };
+  for(var i=2;i<=4;i++){doc['p'+i]=null;}
+  for(var j=1;j<=4;j++){
+    doc['p'+j+'_lands']=[];doc['p'+j+'_grave']=[];doc['p'+j+'_exile']=[];
+    doc['p'+j+'_attackers']=[];doc['p'+j+'_blockers']=[];doc['p'+j+'_atkTargets']={};
+  }
+  db.collection('arena_rooms').doc(code).set(doc).then(function(){
     _arActionLog=[];_arLogSeenIds={};
     _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-    _arRoom={id:code,code:code,playerNum:1};
+    _arRoom={id:code,code:code,playerNum:1,numPlayers:numPlayers};
     var s=document.getElementById('ar-room-status');
     if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
-      +'<br><span style="color:var(--tx3);font-size:.7rem">En attente d\'un adversaire…</span>'
+      +' · '+numPlayers+' joueurs'
+      +'<br><span style="color:var(--tx3);font-size:.7rem">En attente des autres joueurs…</span>'
       +'<div style="display:flex;gap:6px;margin-top:6px">'
       +'<button class="btn btnsm" onclick="arOpenInviteModal(\''+code+'\')" style="flex:1;font-size:.72rem">📨 Inviter un ami</button>'
       +'<button class="btn btnsm btnp" onclick="arOpen()" style="flex:1;font-size:.72rem">▶ Lancer</button>'
@@ -11488,19 +11518,23 @@ function arJoinRoom(){
   if(code.length!==6){alert('Entrez un code à 6 caractères');return;}
   if(!window.db){alert('Firestore non disponible');return;}
   var uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||'anon';
-  var name=PN[0]||'Joueur 2';
+  var name=PN[0]||'Joueur';
   db.collection('arena_rooms').doc(code).get().then(function(doc){
     if(!doc.exists){var s=document.getElementById('ar-room-status');if(s)s.textContent='Partie introuvable';return;}
     var data=doc.data();
-    if(data.p2){var s=document.getElementById('ar-room-status');if(s)s.textContent='Partie déjà complète';return;}
-    return db.collection('arena_rooms').doc(code).update({
-      p2:{uid:uid,name:name,life:40,handCount:0,libCount:0,cmd:null,cmdCasts:0}
-    }).then(function(){
+    var N=data.numPlayers||2;
+    // Trouve le premier slot libre
+    var mySlot=0;
+    for(var i=1;i<=N;i++){if(!data['p'+i]){mySlot=i;break;}}
+    if(!mySlot){var s=document.getElementById('ar-room-status');if(s)s.textContent='Partie complète ('+N+' joueurs)';return;}
+    var startLife=(data.p1&&data.p1.life)||40;
+    var upd={};upd['p'+mySlot]={uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0};
+    return db.collection('arena_rooms').doc(code).update(upd).then(function(){
       _arActionLog=[];_arLogSeenIds={};
       _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-      _arRoom={id:code,code:code,playerNum:2};
+      _arRoom={id:code,code:code,playerNum:mySlot,numPlayers:N};
       var s=document.getElementById('ar-room-status');
-      if(s)s.innerHTML='Rejoint !'
+      if(s)s.innerHTML='Rejoint ! Vous êtes joueur '+mySlot+'/'+N
         +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
       arListenRoom();
     });
@@ -11552,7 +11586,7 @@ function arTryRestoreSession(){
     if(data.active===false){_arClearSession();return;}
     var slot=data['p'+s.playerNum];
     if(!slot||slot.uid!==uid){_arClearSession();return;}
-    _arRoom={id:s.code,code:s.code,playerNum:s.playerNum,_restored:true};
+    _arRoom={id:s.code,code:s.code,playerNum:s.playerNum,numPlayers:(data.numPlayers||2),_restored:true};
     _arActionLog=[];_arLogSeenIds={};
     _arSharedStack=[];_arSharedStackDirty=false;
     // Restaure le mini-état local depuis la slot
@@ -11596,28 +11630,124 @@ function _arStartConnUiTick(){
 }
 function _arStopConnUiTick(){if(_arConnUiInt){clearInterval(_arConnUiInt);_arConnUiInt=null;}}
 function _arUpdateConnUi(){
-  var dot=document.getElementById('ar-op-conn');if(!dot)return;
-  if(!_arRoom||!_arOpLastHb){dot.style.display='none';return;}
-  var lag=Date.now()-_arOpLastHb;
-  dot.style.display='inline-block';
-  var color='#3c8',title='Connecté';
-  if(lag>30000){color='#e44';title='Déconnecté ('+Math.floor(lag/1000)+'s)';}
-  else if(lag>10000){color='#fb3';title='Lent ('+Math.floor(lag/1000)+'s)';}
-  dot.style.background=color;
-  dot.title='Adversaire : '+title;
+  if(!_arRoom)return;
+  // Met à jour chaque pastille .ar-conn-dot[data-pn] depuis _arRoom.opps + heartbeat data
+  document.querySelectorAll('.ar-conn-dot[data-pn]').forEach(function(dot){
+    var pn=parseInt(dot.getAttribute('data-pn'));
+    var hb=(_arRoom._opHbs&&_arRoom._opHbs[pn])||0;
+    if(!hb){dot.style.background='#777';dot.title='J'+pn+' : ?';return;}
+    var lag=Date.now()-hb;
+    var color='#3c8',title='Connecté';
+    if(lag>30000){color='#e44';title='Déconnecté ('+Math.floor(lag/1000)+'s)';}
+    else if(lag>10000){color='#fb3';title='Lent ('+Math.floor(lag/1000)+'s)';}
+    dot.style.background=color;dot.title='J'+pn+' : '+title;
+  });
+}
+function _arGetOpponents(data,myPn){
+  var N=data.numPlayers||2;
+  var opps=[];
+  for(var i=1;i<=N;i++){if(i!==myPn&&data['p'+i])opps.push({pn:i,slot:data['p'+i]});}
+  return opps;
+}
+function _arNextPlayer(curPn,N){return (curPn%N)+1;}
+function _arDefaultTargetPn(myPn,N){return _arNextPlayer(myPn,N);}
+function _arRenderOpponentBars(){
+  var container=document.getElementById('ar-opponents-list');
+  if(!container||!_arRoom||!_arRoom.opps)return;
+  var bar=document.getElementById('ar-opponent-bar');
+  if(bar)bar.classList.add('mp-on');
+  var divLine=document.getElementById('ar-divider-line');if(divLine)divLine.classList.add('mp-on');
+  var opLands=document.getElementById('ar-op-lands');if(opLands)opLands.classList.add('mp-on');
+  var pns=Object.keys(_arRoom.opps).map(Number).sort();
+  var existing={};
+  container.querySelectorAll('.ar-opp-card').forEach(function(e){existing[e.dataset.pn]=e;});
+  Object.keys(existing).forEach(function(p){if(pns.indexOf(parseInt(p))<0)container.removeChild(existing[p]);});
+  pns.forEach(function(pn){
+    var o=_arRoom.opps[pn];
+    var el=existing[pn];
+    if(!el){
+      el=document.createElement('div');el.className='ar-opp-card';el.dataset.pn=pn;
+      el.style.cssText='display:flex;gap:8px;align-items:center;font-size:.78rem;padding:2px 8px;border-radius:7px;background:rgba(0,0,0,.32);border:1px solid rgba(80,140,255,.18);cursor:pointer';
+      el.title='Cliquer pour cibler ce joueur lors de la prochaine déclaration d\'attaque';
+      el.onclick=function(){_arSetDefaultAttackTarget(pn);};
+      container.appendChild(el);
+    }
+    var lifeStr=(o.slot.life!=null?o.slot.life:'—');
+    var isTarget=_arRoom._defaultTargetPn===pn;
+    el.style.borderColor=isTarget?'rgba(255,140,50,.7)':'rgba(80,140,255,.18)';
+    el.innerHTML='<span class="ar-conn-dot" data-pn="'+pn+'" title="Connexion" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3c8;box-shadow:0 0 5px currentColor"></span>'
+      +'<span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2)">J'+pn+' '+esc(o.slot.name||'')+'</span>'
+      +'<span>❤ <span id="ar-op-life-'+pn+'" class="ar-life-val-mini">'+lifeStr+'</span></span>'
+      +'<span title="Cartes en main">🂠 '+(o.slot.handCount||0)+'</span>'
+      +'<span title="Bibliothèque">📚 '+(o.slot.libCount||0)+'</span>'
+      +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpGravePn('+pn+')" title="Cimetière">🪦'+o.grave+'</button>'
+      +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpExilePn('+pn+')" title="Exile">✦'+o.exile+'</button>'
+      +(isTarget?'<span style="color:#ff8060;font-size:.65rem">🎯</span>':'');
+  });
+}
+function _arRenderAllOpLands(allCards){
+  var opLandsEl=document.getElementById('ar-op-lands');
+  if(!opLandsEl)return;
+  var hint=document.getElementById('ar-op-lands-hint');
+  if(hint)hint.style.display=allCards.length?'none':'flex';
+  var existingOp={};
+  opLandsEl.querySelectorAll('.ar-op-land-card').forEach(function(e){existingOp[e.dataset.id]=e;});
+  Object.keys(existingOp).forEach(function(id){if(!allCards.some(function(c){return c.id===id;}))opLandsEl.removeChild(existingOp[id]);});
+  allCards.forEach(function(c){
+    var le=existingOp[c.id];
+    if(!le){
+      le=document.createElement('div');le.className='ar-op-land-card';le.dataset.id=c.id;
+      var li=document.createElement('img');li.alt=c.name;li.src=_arImgCache[(c.name||'').toLowerCase()]||_AR_BACK;
+      le.appendChild(li);
+      le.onmouseenter=function(ev){arShowTip(c.name+(c._byPn?' (J'+c._byPn+')':''),ev);};le.onmouseleave=arHideTip;
+      opLandsEl.appendChild(le);
+      _arLoadImg(c.name,li);
+    }
+    le.style.left=c.x+'px';le.style.top=c.y+'px';
+    le.classList.toggle('tapped',!!c.tapped);
+  });
+}
+function _arSetDefaultAttackTarget(pn){
+  if(!_arRoom)return;
+  _arRoom._defaultTargetPn=pn;
+  _arRenderOpponentBars();
+  // Met à jour les targets de tous mes attaquants actuels
+  if((_ar.attackers||[]).length){
+    _ar.atkTargets=_ar.atkTargets||{};
+    _ar.attackers.forEach(function(id){_ar.atkTargets[id]=pn;});
+    _arSyncToRoom();
+    arRenderField();
+  }
+}
+function arViewOpGravePn(pn){
+  if(!_arRoom||!window.db)return;
+  db.collection('arena_rooms').doc(_arRoom.id).get().then(function(doc){
+    var g=doc.data()['p'+pn+'_grave']||[];
+    if(!g.length){alert('Cimetière J'+pn+' vide');return;}
+    alert('Cimetière J'+pn+' :\n'+g.map(function(c){return '• '+c.name;}).join('\n'));
+  });
+}
+function arViewOpExilePn(pn){
+  if(!_arRoom||!window.db)return;
+  db.collection('arena_rooms').doc(_arRoom.id).get().then(function(doc){
+    var e=doc.data()['p'+pn+'_exile']||[];
+    if(!e.length){alert('Exile J'+pn+' vide');return;}
+    alert('Exile J'+pn+' :\n'+e.map(function(c){return '• '+c.name;}).join('\n'));
+  });
 }
 function _arApplyRemoteState(data){
   if(!data||!_arRoom)return;
-  var pn=_arRoom.playerNum,opn=pn===1?2:1;
-  var op=data['p'+(opn>0?opn:'2')]||data['p2']||null;
-  if(pn===2)op=data.p1||null;
+  var pn=_arRoom.playerNum;
+  var N=data.numPlayers||2;
+  _arRoom.numPlayers=N;
+  var opps=_arGetOpponents(data,pn);
+  var anyOpp=opps.length>0;
   // Etat initial : on ignore tant qu'aucune partie n'a ete lancee ni aucun adversaire connu
   var isFirst=_arRoom._firstSnapshot;
   _arRoom._firstSnapshot=false;
-  // Opponent left: room marked inactive — uniquement si on avait deja un game actif OU un adversaire
+  // Opponent left: room marked inactive
   if(data.active===false&&(_arRoom._wasActive||_arRoom._hadOpponent)&&!isFirst){
     if(_ar.active){
-      // Game was running — close arena and notify
       arLeaveRoom();
       _ar.active=false;
       document.getElementById('arena-ov').classList.remove('ar-on');
@@ -11625,95 +11755,75 @@ function _arApplyRemoteState(data){
       document.getElementById('ar-end-ov').style.display='none';
       arRenderStats();
       var s=document.getElementById('ar-room-status');if(s)s.textContent='';
-      alert('Votre adversaire a quitté la partie. L\'arène est fermée.');
+      alert('La partie a été terminée par un joueur. L\'arène est fermée.');
     }else{
-      // Still in lobby — just leave the room
       arLeaveRoom();
       var s=document.getElementById('ar-room-status');
-      if(s)s.textContent='La partie a été annulée par l\'adversaire.';
+      if(s)s.textContent='La partie a été annulée.';
     }
     return;
   }
-  // Marquer les transitions d'etat pour la detection de cancel
   if(data.active===true)_arRoom._wasActive=true;
-  if(op||data.p2)_arRoom._hadOpponent=true;
-  // Sync shared field (only if it differs — avoid overwrite loop)
+  if(anyOpp)_arRoom._hadOpponent=true;
+  // Lobby state : ne lance pas la partie tant qu'on n'a pas tout le monde (sauf pn=1 qui peut quand même start)
   if(!_ar.active){
-    // Game not yet open: just update room status UI
-    if(pn===1&&data.p2&&data.active!==false){
+    if(pn===1&&anyOpp&&data.active!==false){
       var s=document.getElementById('ar-room-status');
-      if(s)s.innerHTML='<span style="color:var(--gr2)">'+esc(data.p2.name||'Joueur 2')+' a rejoint !</span>'
-        +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
-    } else if(pn===1&&data.p2){
-      // p2 a rejoint mais active est false : meme afficher l'invitation a lancer
+      if(s){
+        var names=opps.map(function(o){return esc(o.slot.name||('J'+o.pn));}).join(', ');
+        s.innerHTML='<span style="color:var(--gr2)">'+names+' a/ont rejoint !</span> '+opps.length+'/'+(N-1)+' adversaire(s)'
+          +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
+      }
+    } else if(pn===1&&anyOpp){
       var s=document.getElementById('ar-room-status');
-      if(s&&s.textContent.indexOf(data.p2.name)<0){
-        s.innerHTML='<span style="color:var(--gr2)">'+esc(data.p2.name||'Joueur 2')+' a rejoint !</span>'
+      var names=opps.map(function(o){return esc(o.slot.name||('J'+o.pn));}).join(', ');
+      if(s&&s.textContent.indexOf(opps[0].slot.name)<0){
+        s.innerHTML='<span style="color:var(--gr2)">'+names+' a/ont rejoint !</span>'
           +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
       }
     }
     return;
   }
-  // Apply opponent info to UI
-  if(op){
-    var opBar=document.getElementById('ar-opponent-bar');
-    if(opBar){opBar.classList.add('mp-on');}
-    var divLine=document.getElementById('ar-divider-line');if(divLine)divLine.classList.add('mp-on');
-    var opLands=document.getElementById('ar-op-lands');if(opLands)opLands.classList.add('mp-on');
-    var el=document.getElementById('ar-op-name');if(el)el.textContent=op.name||'Adversaire';
-    el=document.getElementById('ar-op-life');if(el)el.textContent=op.life||'—';
-    el=document.getElementById('ar-op-hand');if(el)el.textContent=op.handCount||0;
-    el=document.getElementById('ar-op-lib');if(el)el.textContent=op.libCount||0;
-    el=document.getElementById('ar-op-cmd');if(el)el.textContent=op.cmd?(op.cmd.name+''):' ';
-    el=document.getElementById('ar-op-grave-cnt');if(el)el.textContent=(data['p'+opn+'_grave']||[]).length;
-    el=document.getElementById('ar-op-exile-cnt');if(el)el.textContent=(data['p'+opn+'_exile']||[]).length;
-    // Render opponent lands
-    var opLandsEl=document.getElementById('ar-op-lands');
-    if(opLandsEl){
-      var opLandCards=data['p'+opn+'_lands']||[];
-      var hint=document.getElementById('ar-op-lands-hint');
-      if(hint)hint.style.display=opLandCards.length?'none':'flex';
-      var existingOp={};
-      opLandsEl.querySelectorAll('.ar-op-land-card').forEach(function(e){existingOp[e.dataset.id]=e;});
-      Object.keys(existingOp).forEach(function(id){if(!opLandCards.some(function(c){return c.id===id;}))opLandsEl.removeChild(existingOp[id]);});
-      opLandCards.forEach(function(c){
-        var le=existingOp[c.id];
-        if(!le){
-          le=document.createElement('div');le.className='ar-op-land-card';le.dataset.id=c.id;
-          var li=document.createElement('img');li.alt=c.name;li.src=_arImgCache[(c.name||'').toLowerCase()]||_AR_BACK;
-          le.appendChild(li);
-          le.onmouseenter=function(ev){arShowTip(c.name,ev);};le.onmouseleave=arHideTip;
-          opLandsEl.appendChild(le);
-          _arLoadImg(c.name,li);
-        }
-        le.style.left=c.x+'px';le.style.top=c.y+'px';
-        le.classList.toggle('tapped',!!c.tapped);
-      });
-    }
-  }
-  // Sync shared field from remote (avoid overwriting if this player just sent it)
+  // Apply opponents info to UI (n-player)
+  _arRoom.opps={};
+  _arRoom._opAtk={};
+  _arRoom._opBlk={};
+  _arRoom._opAtkTargets={};
+  opps.forEach(function(o){
+    _arRoom.opps[o.pn]={slot:o.slot,grave:(data['p'+o.pn+'_grave']||[]).length,exile:(data['p'+o.pn+'_exile']||[]).length,lands:data['p'+o.pn+'_lands']||[]};
+    _arRoom._opAtk[o.pn]=data['p'+o.pn+'_attackers']||[];
+    _arRoom._opBlk[o.pn]=data['p'+o.pn+'_blockers']||[];
+    _arRoom._opAtkTargets[o.pn]=data['p'+o.pn+'_atkTargets']||{};
+  });
+  _arRenderOpponentBars();
+  // Render landed opp lands (combined area : aggregate of all opponents)
+  var allOpLands=[];
+  opps.forEach(function(o){(data['p'+o.pn+'_lands']||[]).forEach(function(c){allOpLands.push(Object.assign({},c,{_byPn:o.pn}));});});
+  _arRenderAllOpLands(allOpLands);
+  // Sync shared field from remote
   if(data.field)_ar.field=data.field;
-  // Combat : récupère les attaquants/bloqueurs de l'adversaire
-  var prevOpAtkN=(_arRoom._opAtk||[]).length;
-  _arRoom._opAtk=data['p'+opn+'_attackers']||[];
-  _arRoom._opBlk=data['p'+opn+'_blockers']||[];
-  // Notification sonore/visuelle si l'adversaire vient de déclarer des attaquants
-  if(_arRoom._opAtk.length>prevOpAtkN&&_ar.phase===2){
+  // Combat : check if any opponent just declared more attackers
+  var prevTotalOpAtk=_arRoom._prevTotalOpAtk||0;
+  var totalOpAtk=0;Object.keys(_arRoom._opAtk).forEach(function(k){totalOpAtk+=_arRoom._opAtk[k].length;});
+  if(totalOpAtk>prevTotalOpAtk&&_ar.phase===2){
     var bar=document.getElementById('ar-combat-bar');
     if(bar){bar.classList.add('on');var info=document.getElementById('ar-combat-info');
-      if(info)info.innerHTML='⚠ <strong style="color:#ff8060">L\'adversaire attaque avec '+_arRoom._opAtk.length+' créature(s)</strong> — déclarez vos bloqueurs';}
+      if(info)info.innerHTML='⚠ <strong style="color:#ff8060">Adversaire attaque avec '+totalOpAtk+' créature(s)</strong> — déclarez vos bloqueurs';}
   }
-  // Heartbeat adversaire
-  var hb=data['p'+opn+'_hb'];if(hb)_arOpLastHb=hb;
+  _arRoom._prevTotalOpAtk=totalOpAtk;
+  // Heartbeat adversaires : stocke par pn
+  _arRoom._opHbs={};
+  opps.forEach(function(o){_arRoom._opHbs[o.pn]=data['p'+o.pn+'_hb']||0;});
   _arUpdateConnUi();
   // Tour courant
-  if(data.currentPlayer){_arSetOnlineTurnIndicator(data.currentPlayer===pn);}
-  // Anim secousse sur changement de vie adversaire
-  var prevOpLife=_arRoom._opLife;
-  if(op&&typeof op.life==='number'){
-    if(prevOpLife!=null&&op.life<prevOpLife){_arShakeEl('ar-op-life',op.life-prevOpLife);}
-    _arRoom._opLife=op.life;
-  }
+  if(data.currentPlayer){_arSetOnlineTurnIndicator(data.currentPlayer===pn,data.currentPlayer);}
+  // Anim secousse sur changement de vie de chaque adversaire
+  _arRoom._opLives=_arRoom._opLives||{};
+  opps.forEach(function(o){
+    var prev=_arRoom._opLives[o.pn];
+    if(prev!=null&&o.slot.life<prev){_arShakeEl('ar-op-life-'+o.pn,o.slot.life-prev);}
+    _arRoom._opLives[o.pn]=o.slot.life;
+  });
   // Synchronise la pile partagée
   if(Array.isArray(data.stack)){
     _arSharedStack=data.stack.slice();
@@ -11741,6 +11851,7 @@ function _arSyncToRoom(){
     upd['p'+pn+'_exile']=_ar.exile||[];
     upd['p'+pn+'_attackers']=_ar.attackers||[];
     upd['p'+pn+'_blockers']=_ar.blockers||[];
+    upd['p'+pn+'_atkTargets']=_ar.atkTargets||{};
     if(_arSharedStackDirty){upd.stack=_arSharedStack||[];_arSharedStackDirty=false;}
     upd.active=true;
     db.collection('arena_rooms').doc(_arRoom.id).update(upd)
@@ -11765,15 +11876,18 @@ function _arDrawArrows(){
   var ctx=cv.getContext('2d');
   ctx.clearRect(0,0,cv.width,cv.height);
   if(!_arRoom||_arBot){return;} // pas d'overlay flèches en solo/bot
-  // Calcule mes attaquants/bloqueurs + ceux de l'adversaire
   var myAtk=_ar.attackers||[];
   var myBlk=_ar.blockers||[];
-  var opAtk=(_arRoom._opAtk)||[];
-  var opBlk=(_arRoom._opBlk)||[];
-  if(!myAtk.length&&!myBlk.length&&!opAtk.length&&!opBlk.length){return;}
-  // Points d'ancrage des joueurs
-  var opAnchor={x:rect.width/2,y:8};
-  var meAnchor={x:rect.width/2,y:rect.height-8};
+  var opAtkMap=_arRoom._opAtk||{};
+  var opBlkMap=_arRoom._opBlk||{};
+  var opAtkTargetsMap=_arRoom._opAtkTargets||{};
+  var myAtkTargets=_ar.atkTargets||{};
+  var N=_arRoom.numPlayers||2;
+  var myPn=_arRoom.playerNum;
+  // Aucune combat declared : skip
+  var anyAtk=myAtk.length||Object.keys(opAtkMap).some(function(k){return opAtkMap[k].length;});
+  var anyBlk=myBlk.length||Object.keys(opBlkMap).some(function(k){return opBlkMap[k].length;});
+  if(!anyAtk&&!anyBlk)return;
   // Helper : centre d'une carte par id
   function cardCenter(id){
     var el=field.querySelector('.ar-field-card[data-id="'+id+'"]');
@@ -11781,18 +11895,50 @@ function _arDrawArrows(){
     var r=el.getBoundingClientRect();
     return {x:r.left-rect.left+r.width/2,y:r.top-rect.top+r.height/2};
   }
-  // Premiers attaquants pour le ciblage des bloqueurs
-  var firstMyAtk=null,firstOpAtk=null;
-  for(var i=0;i<myAtk.length;i++){var c=cardCenter(myAtk[i]);if(c){firstMyAtk=c;break;}}
-  for(var j=0;j<opAtk.length;j++){var c2=cardCenter(opAtk[j]);if(c2){firstOpAtk=c2;break;}}
-  // Mes attaquants → joueur adverse
-  myAtk.forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,opAnchor,'#ff5000');});
-  // Adversaire attaquants → moi
-  opAtk.forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,meAnchor,'#ff8040');});
-  // Mes bloqueurs → premier attaquant adverse (ou centre haut si aucun)
-  myBlk.forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,firstOpAtk||opAnchor,'#3090ff');});
-  // Adversaire bloqueurs → premier de mes attaquants (ou centre bas si aucun)
-  opBlk.forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,firstMyAtk||meAnchor,'#50b0ff');});
+  // Points d'ancrage des joueurs : moi en bas centre, opponents répartis sur la barre haute
+  var meAnchor={x:rect.width/2,y:rect.height-8};
+  var opps=[];
+  for(var i=1;i<=N;i++){if(i!==myPn)opps.push(i);}
+  var anchorsByPn={};
+  // Mes propres dégâts vont vers mon ancre
+  anchorsByPn[myPn]=meAnchor;
+  opps.forEach(function(pn,idx){
+    var x=(idx+1)/(opps.length+1)*rect.width;
+    anchorsByPn[pn]={x:x,y:8};
+  });
+  // Mes attaquants → leur cible déclarée (ou target par défaut = next pn)
+  var defaultTargetPn=_arRoom._defaultTargetPn||_arDefaultTargetPn(myPn,N);
+  myAtk.forEach(function(id){
+    var c=cardCenter(id);if(!c)return;
+    var targetPn=myAtkTargets[id]||defaultTargetPn;
+    var anchor=anchorsByPn[targetPn]||anchorsByPn[opps[0]];
+    if(anchor)_arDrawArrow(ctx,c,anchor,'#ff5000');
+  });
+  // Attaquants adverses → leur cible (par défaut me si pas spécifié)
+  Object.keys(opAtkMap).forEach(function(opPnStr){
+    var opPn=parseInt(opPnStr);
+    var targets=opAtkTargetsMap[opPn]||{};
+    opAtkMap[opPn].forEach(function(id){
+      var c=cardCenter(id);if(!c)return;
+      var tPn=targets[id]||_arDefaultTargetPn(opPn,N);
+      var anchor=anchorsByPn[tPn]||meAnchor;
+      _arDrawArrow(ctx,c,anchor,'#ff8040');
+    });
+  });
+  // Premiers attaquants en face de mes bloqueurs
+  var firstOpAtkPos=null;
+  Object.keys(opAtkMap).some(function(opPn){
+    return opAtkMap[opPn].some(function(id){var c=cardCenter(id);if(c){firstOpAtkPos=c;return true;}return false;});
+  });
+  // Mes bloqueurs → premier attaquant adverse (ou centre haut)
+  myBlk.forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,firstOpAtkPos||anchorsByPn[opps[0]]||{x:rect.width/2,y:8},'#3090ff');});
+  // Premiers de mes attaquants
+  var firstMyAtkPos=null;
+  for(var k=0;k<myAtk.length;k++){var cc=cardCenter(myAtk[k]);if(cc){firstMyAtkPos=cc;break;}}
+  Object.keys(opBlkMap).forEach(function(opPnStr){
+    var opPn=parseInt(opPnStr);
+    opBlkMap[opPn].forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,firstMyAtkPos||meAnchor,'#50b0ff');});
+  });
 }
 function _arDrawArrow(ctx,from,to,color){
   var dx=to.x-from.x,dy=to.y-from.y;
@@ -11877,13 +12023,15 @@ function _arClearSharedStackTimer(){
 function arPassSharedStack(silent){
   if(!_arRoom||!_arSharedStack.length)return;
   var pn=_arRoom.playerNum||0;
+  var N=_arRoom.numPlayers||2;
   var top=_arSharedStack[_arSharedStack.length-1];
   top.passes=top.passes||[];
   if(top.passes.indexOf(pn)<0)top.passes.push(pn);
   _arSharedStackDirty=true;
   if(!silent)arLogAction('stack_pass',{name:top.name});
-  // Si les deux ont passé : résolution
-  if(top.passes.length>=2){
+  // Résout si TOUS les non-caster ont passé (N-1 passes hors caster)
+  var nonCasterPasses=top.passes.filter(function(p){return p!==top.by;}).length;
+  if(nonCasterPasses>=N-1){
     _arResolveSharedStackTop();
   }else{
     _arRenderSharedStack();
@@ -11942,7 +12090,9 @@ function _arRenderSharedStack(){
     var rest=_arSharedStack.slice(0,-1).reverse();
     var topCls=top.by===pn?'mine':'opp';
     var topImg='_arssi_'+top.id;
-    var passesTxt=(top.passes||[]).length?'<span style="color:#80ff80">'+(top.passes||[]).length+'/2 passés</span>':'<span style="color:var(--tx3)">0/2 passés</span>';
+    var N=(_arRoom.numPlayers||2);
+    var nonCasterPasses=(top.passes||[]).filter(function(p){return p!==top.by;}).length;
+    var passesTxt=nonCasterPasses?'<span style="color:#80ff80">'+nonCasterPasses+'/'+(N-1)+' passés</span>':'<span style="color:var(--tx3)">0/'+(N-1)+' passés</span>';
     var html='<div class="ar-shared-stack-top '+topCls+'">'
       +'<img id="'+topImg+'" src="'+_AR_BACK+'" style="width:92px;height:128px;border-radius:7px;object-fit:cover;display:block;margin:0 auto">'
       +'<div class="ar-shared-stack-name">'+esc(top.name)+'</div>'
