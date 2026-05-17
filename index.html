@@ -905,6 +905,8 @@ body.mana-cursor{cursor:none}
 .ar-field-card.ar-attacker{border-color:#ff3800!important;animation:ar-fire-pulse .55s ease-in-out infinite}
 @keyframes ar-fire-pulse{0%,100%{box-shadow:0 0 0 1.5px #ff5000,0 0 10px rgba(255,70,0,.7),0 4px 16px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 2.5px #ff9000,0 0 24px rgba(255,130,0,.9),0 0 38px rgba(255,90,0,.45)}}
 .ar-field-card.ar-blocker{border-color:#1090ff!important;animation:ar-water-pulse 1.0s ease-in-out infinite}
+.ar-combat-target{outline:3px dashed #ff5000!important;outline-offset:2px;box-shadow:0 0 18px rgba(255,80,0,.65)!important;animation:ar-combat-target-pulse .55s ease-in-out infinite}
+@keyframes ar-combat-target-pulse{0%,100%{outline-color:#ff5000;box-shadow:0 0 14px rgba(255,80,0,.5)}50%{outline-color:#ff9040;box-shadow:0 0 24px rgba(255,140,0,.85)}}
 @keyframes ar-water-pulse{0%,100%{box-shadow:0 0 0 1.5px #3090ff,0 0 10px rgba(30,120,255,.7),0 4px 16px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 2.5px #50c0ff,0 0 24px rgba(50,160,255,.9),0 0 38px rgba(30,100,255,.45)}}
 /* Opponent combat marker (small flag in corner so it shows even on rotated card) */
 .ar-field-card.ar-op-combat::after{content:'\2694';position:absolute;top:3px;left:3px;width:18px;height:18px;line-height:18px;text-align:center;font-size:.78rem;background:rgba(0,0,0,.78);color:#ffaa60;border-radius:50%;border:1.5px solid #ff5000;z-index:6;transform:rotate(180deg);pointer-events:none;text-shadow:0 0 4px rgba(255,80,0,.8)}
@@ -11812,6 +11814,8 @@ function _arApplyRemoteState(data){
     _arRoom._opAtk[o.pn]=data['p'+o.pn+'_attackers']||[];
     _arRoom._opBlk[o.pn]=data['p'+o.pn+'_blockers']||[];
     _arRoom._opAtkTargets[o.pn]=data['p'+o.pn+'_atkTargets']||{};
+    _arRoom._opBlkTargets=_arRoom._opBlkTargets||{};
+    _arRoom._opBlkTargets[o.pn]=data['p'+o.pn+'_blockTargets']||{};
   });
   _arRenderOpponentBars();
   // Render landed opp lands (combined area : aggregate of all opponents)
@@ -11871,6 +11875,7 @@ function _arSyncToRoom(){
     upd['p'+pn+'_attackers']=_ar.attackers||[];
     upd['p'+pn+'_blockers']=_ar.blockers||[];
     upd['p'+pn+'_atkTargets']=_ar.atkTargets||{};
+    upd['p'+pn+'_blockTargets']=_ar.blockTargets||{};
     if(_arSharedStackDirty){upd.stack=_arSharedStack||[];_arSharedStackDirty=false;}
     upd.active=true;
     db.collection('arena_rooms').doc(_arRoom.id).update(upd)
@@ -11949,14 +11954,27 @@ function _arDrawArrows(){
   Object.keys(opAtkMap).some(function(opPn){
     return opAtkMap[opPn].some(function(id){var c=cardCenter(id);if(c){firstOpAtkPos=c;return true;}return false;});
   });
-  // Mes bloqueurs → premier attaquant adverse (ou centre haut)
-  myBlk.forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,firstOpAtkPos||anchorsByPn[opps[0]]||{x:rect.width/2,y:8},'#3090ff');});
-  // Premiers de mes attaquants
+  // Mes bloqueurs → ciblage explicite (_ar.blockTargets) ou premier attaquant adverse
+  var myBlkTargets=_ar.blockTargets||{};
+  myBlk.forEach(function(id){
+    var c=cardCenter(id);if(!c)return;
+    var tgtId=myBlkTargets[id];
+    var tgtPos=tgtId?cardCenter(tgtId):null;
+    _arDrawArrow(ctx,c,tgtPos||firstOpAtkPos||anchorsByPn[opps[0]]||{x:rect.width/2,y:8},'#3090ff');
+  });
+  // Bloqueurs adverses : ciblage explicite ou premier de mes attaquants
   var firstMyAtkPos=null;
   for(var k=0;k<myAtk.length;k++){var cc=cardCenter(myAtk[k]);if(cc){firstMyAtkPos=cc;break;}}
+  var opBlkTargetsMap=_arRoom._opBlkTargets||{};
   Object.keys(opBlkMap).forEach(function(opPnStr){
     var opPn=parseInt(opPnStr);
-    opBlkMap[opPn].forEach(function(id){var c=cardCenter(id);if(c)_arDrawArrow(ctx,c,firstMyAtkPos||meAnchor,'#50b0ff');});
+    var bts=opBlkTargetsMap[opPn]||{};
+    opBlkMap[opPn].forEach(function(id){
+      var c=cardCenter(id);if(!c)return;
+      var tgtId=bts[id];
+      var tgtPos=tgtId?cardCenter(tgtId):null;
+      _arDrawArrow(ctx,c,tgtPos||firstMyAtkPos||meAnchor,'#50b0ff');
+    });
   });
 }
 function _arDrawArrow(ctx,from,to,color){
@@ -12437,6 +12455,17 @@ function arPtrMove(e){
   // Highlight lands zone separately
   var landsEl=document.getElementById('ar-lands');
   if(landsEl){var lr=landsEl.getBoundingClientRect();landsEl.classList.toggle('ar-drop-over',cx>=lr.left&&cx<=lr.right&&cy>=lr.top&&cy<=lr.bottom);}
+  // Highlight opponent bars + opponent creatures pour combat (drag depuis le field uniquement)
+  if(_arDrag.zone==='field'&&_arRoom&&!_arBot){
+    document.querySelectorAll('.ar-opp-card').forEach(function(el){
+      var rr=el.getBoundingClientRect();
+      el.classList.toggle('ar-combat-target',cx>=rr.left&&cx<=rr.right&&cy>=rr.top&&cy<=rr.bottom);
+    });
+    document.querySelectorAll('.ar-field-card.ar-opponent-card').forEach(function(el){
+      var rr=el.getBoundingClientRect();
+      el.classList.toggle('ar-combat-target',cx>=rr.left&&cx<=rr.right&&cy>=rr.top&&cy<=rr.bottom);
+    });
+  }
   // Highlight cmd zone when dragging a commander from field
   var cmdBox=document.getElementById('ar-pile-cmd');
   if(cmdBox&&_arDrag.zone==='field'){
@@ -12449,6 +12478,7 @@ function arPtrUp(e){
   if(_arLasso){arFinalizeLasso();return;}
   // Clear all drop highlights
   document.querySelectorAll('[data-drop-zone]').forEach(function(el){el.classList.remove('ar-drop-over');});
+  document.querySelectorAll('.ar-combat-target').forEach(function(el){el.classList.remove('ar-combat-target');});
   var landsEl=document.getElementById('ar-lands');if(landsEl)landsEl.classList.remove('ar-drop-over');
 
   if(!_arDrag){
@@ -12467,6 +12497,38 @@ function arPtrUp(e){
 
   var fromZone=_arDrag.zone,id=_arDrag.id,cx=e.clientX,cy=e.clientY;
   _arDrag=null;
+
+  // 0. Drop sur une barre adversaire = déclare attaque sur lui (online uniquement)
+  if(fromZone==='field'&&_arRoom&&!_arBot&&_arIsOwnCard(id)){
+    var oppHit=document.elementFromPoint(cx,cy);
+    var oppCard=oppHit&&oppHit.closest&&oppHit.closest('.ar-opp-card');
+    if(oppCard&&oppCard.dataset.pn){
+      var tgtPn=parseInt(oppCard.dataset.pn);
+      _ar.atkTargets=_ar.atkTargets||{};
+      if(!_ar.attackers)_ar.attackers=[];
+      if(_ar.attackers.indexOf(id)<0)_ar.attackers.push(id);
+      var bi=(_ar.blockers||[]).indexOf(id);if(bi>=0)_ar.blockers.splice(bi,1);
+      _ar.atkTargets[id]=tgtPn;
+      arRenderField();_arSyncToRoom();_arUpdateCombatBar();
+      var cFC=_ar.field.find(function(c){return c.id===id;});
+      arLogAction('attack_declared',{names:[cFC?cFC.name:''],n:1,target:tgtPn});
+      return;
+    }
+    // Drop sur une créature adverse = bloque cet attaquant
+    var oppField=oppHit&&oppHit.closest&&oppHit.closest('.ar-field-card.ar-opponent-card');
+    if(oppField&&oppField.dataset.id){
+      var atkId=oppField.dataset.id;
+      if(!_ar.blockers)_ar.blockers=[];
+      if(_ar.blockers.indexOf(id)<0)_ar.blockers.push(id);
+      var ai=(_ar.attackers||[]).indexOf(id);if(ai>=0)_ar.attackers.splice(ai,1);
+      _ar.blockTargets=_ar.blockTargets||{};
+      _ar.blockTargets[id]=atkId;
+      arRenderField();_arSyncToRoom();_arUpdateCombatBar();
+      var cBC=_ar.field.find(function(c){return c.id===id;});
+      arLogAction('block_declared',{names:[cBC?cBC.name:''],n:1});
+      return;
+    }
+  }
 
   // 1. Drop on battlefield
   var fieldEl=document.getElementById('ar-field');
