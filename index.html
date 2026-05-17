@@ -7591,14 +7591,27 @@ function dCycleVersion(nl,delta){
   try{
     var totalPrints=arr.length;
     var idxDisp=_dVersionPick[nl]+1;
+    var newSrc=p.image;
+    // Remplace l'image par un clone neuf : tue tout onerror/onload capturé par _applyLocalizedSrc
+    // qui pourrait revertir le src vers l'ancienne version (bug FR : revert après ~0.5s).
     document.querySelectorAll('img[alt]').forEach(function(im){
       if((im.alt||'').toLowerCase()!==card.name.toLowerCase())return;
-      im.src=p.image;
+      // 1) Set le dataset AVANT de toucher au src pour que tout observer voie l'état protégé
       im.dataset.noLocalize='1';
       im.dataset.localizedTo=(typeof _userLang!=='undefined'?_userLang:'en');
-      im.dataset.originalSrc=p.image;
-      // Met à jour le badge SET #num sous la carte (frère du .ml-ver-wrap qui contient l'img)
-      var wrap=im.closest('.ml-ver-wrap');
+      im.dataset.originalSrc=newSrc;
+      // 2) Tue les handlers fantômes (onerror set par _applyLocalizedSrc → revert vers ancien origSrc)
+      im.onerror=null;im.onload=null;
+      im.removeAttribute('onerror');
+      // 3) Clone le node pour effacer tout listener attaché par addEventListener
+      var clone=im.cloneNode(false);
+      clone.src=newSrc;
+      clone.dataset.noLocalize='1';
+      clone.dataset.localizedTo=(typeof _userLang!=='undefined'?_userLang:'en');
+      clone.dataset.originalSrc=newSrc;
+      if(im.parentNode)im.parentNode.replaceChild(clone,im);
+      // 4) Met à jour le badge SET #num sous la carte (frère du .ml-ver-wrap qui contient l'img)
+      var wrap=clone.closest('.ml-ver-wrap');
       if(wrap){
         var badge=wrap.querySelector('div[title="Version sélectionnée"]');
         if(!badge){
@@ -7609,6 +7622,20 @@ function dCycleVersion(nl,delta){
         }
         badge.textContent=p.set+' #'+(p.num||'?')+' · '+idxDisp+'/'+totalPrints;
       }
+      // 5) Garde-fou : si quelque chose réussit malgré tout à revertir le src dans la fenêtre 200-1500ms,
+      //    on le force à nouveau. Trois checks pour couvrir batch localize (250ms debounce + fetch).
+      [350,800,1500].forEach(function(d){
+        setTimeout(function(){
+          if(!clone.parentNode)return;
+          if(clone.src!==newSrc){
+            clone.onerror=null;clone.onload=null;
+            clone.dataset.noLocalize='1';
+            clone.dataset.localizedTo=(typeof _userLang!=='undefined'?_userLang:'en');
+            clone.dataset.originalSrc=newSrc;
+            clone.src=newSrc;
+          }
+        },d);
+      });
     });
   }catch(e){}
   _dPersistVersionsToDeck();
