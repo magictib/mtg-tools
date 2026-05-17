@@ -20267,15 +20267,40 @@ function importPrelistToBld(){
 var _idb=null;
 function _openIDB(){
   return new Promise(function(res,rej){
-    if(_idb){res(_idb);return;}
+    // Vérifie que la connexion cachée n'est pas en train de se fermer
+    if(_idb){
+      try{
+        // Test rapide : si la connexion est dead, ce test throw
+        _idb.transaction('meta','readonly');
+        res(_idb);return;
+      }catch(e){_idb=null;}
+    }
     var req=indexedDB.open('manalab-cards',1);
     req.onupgradeneeded=function(e){
       var d=e.target.result;
       if(!d.objectStoreNames.contains('cards'))d.createObjectStore('cards',{keyPath:'name'});
       if(!d.objectStoreNames.contains('meta'))d.createObjectStore('meta',{keyPath:'key'});
     };
-    req.onsuccess=function(e){_idb=e.target.result;res(_idb);};
+    req.onsuccess=function(e){
+      _idb=e.target.result;
+      // Quand la connexion se ferme (timeout, versionchange, etc.), purge le cache
+      _idb.onclose=function(){_idb=null;};
+      _idb.onversionchange=function(){try{_idb.close();}catch(e){}_idb=null;};
+      res(_idb);
+    };
     req.onerror=function(){rej(req.error);};
+  });
+}
+// Wrapper de retry pour les transactions IDB qui ratent à cause d'une connexion fermée
+function _idbRetry(fn,tries){
+  tries=tries==null?3:tries;
+  return fn().catch(function(err){
+    var msg=String(err&&err.message||err||'');
+    if(tries>0&&(msg.indexOf('closing')>=0||msg.indexOf('closed')>=0||msg.indexOf('InvalidStateError')>=0)){
+      _idb=null;
+      return new Promise(function(r){setTimeout(r,150);}).then(function(){return _idbRetry(fn,tries-1);});
+    }
+    throw err;
   });
 }
 function _idbGetMeta(key){
@@ -20347,8 +20372,7 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
   // so they never collide with UTF-8 multi-byte continuation bytes (0x80-0xFF).
   // This avoids creating any large string — only individual card slices (~15 KB) are decoded.
   var B_LBRACE=123,B_RBRACE=125,B_LBRACKET=91,B_RBRACKET=93,B_QUOTE=34,B_BACKSLASH=92;
-  return _openIDB().then(function(idb){
-    return fetch(uri).then(function(r){
+  return fetch(uri).then(function(r){
       if(!r.ok)throw new Error('HTTP '+r.status);
       var total=parseInt(r.headers.get('Content-Length'))||0,received=0,stored=0;
       var reader=r.body.getReader(),decoder=new TextDecoder();
@@ -20357,25 +20381,34 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
       var cardParts=[];  // Uint8Array parts when a card spans multiple chunks
       var batch=[],writeChain=Promise.resolve();
       function _idbWriteBatch(cards){
-        return new Promise(function(res,rej){
-          var tx=idb.transaction('cards','readwrite'),store=tx.objectStore('cards');
-          cards.forEach(function(c){
-            var img='',faces=null;
-            if(c.image_uris)img=c.image_uris.normal||c.image_uris.large||'';
-            else if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris){
-              img=c.card_faces[0].image_uris.normal||'';
-              faces=c.card_faces.map(function(f){return{name:f.name||'',oracle_text:f.oracle_text||''};});
-            }
-            store.put({name:(c.name||'').toLowerCase(),display_name:c.name||'',oracle_id:c.oracle_id||'',
-              colors:c.colors||[],color_identity:c.color_identity||[],mana_cost:c.mana_cost||'',
-              cmc:c.cmc||0,type_line:c.type_line||'',rarity:c.rarity||'',oracle_text:c.oracle_text||'',
-              power:c.power||null,toughness:c.toughness||null,loyalty:c.loyalty||null,
-              image_uri:img,faces:faces,
-              prices:{usd:(c.prices&&c.prices.usd)||null,eur:(c.prices&&c.prices.eur)||null,
-                usd_foil:(c.prices&&c.prices.usd_foil)||null,eur_foil:(c.prices&&c.prices.eur_foil)||null},
-              scryfall_uri:c.scryfall_uri||''});
+        // Réouvre la connexion à chaque batch pour gérer les fermetures (idle, tab switch, etc.)
+        return _idbRetry(function(){
+          return _openIDB().then(function(idb){
+            return new Promise(function(res,rej){
+              try{
+                var tx=idb.transaction('cards','readwrite'),store=tx.objectStore('cards');
+                cards.forEach(function(c){
+                  var img='',faces=null;
+                  if(c.image_uris)img=c.image_uris.normal||c.image_uris.large||'';
+                  else if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris){
+                    img=c.card_faces[0].image_uris.normal||'';
+                    faces=c.card_faces.map(function(f){return{name:f.name||'',oracle_text:f.oracle_text||''};});
+                  }
+                  store.put({name:(c.name||'').toLowerCase(),display_name:c.name||'',oracle_id:c.oracle_id||'',
+                    colors:c.colors||[],color_identity:c.color_identity||[],mana_cost:c.mana_cost||'',
+                    cmc:c.cmc||0,type_line:c.type_line||'',rarity:c.rarity||'',oracle_text:c.oracle_text||'',
+                    power:c.power||null,toughness:c.toughness||null,loyalty:c.loyalty||null,
+                    image_uri:img,faces:faces,
+                    prices:{usd:(c.prices&&c.prices.usd)||null,eur:(c.prices&&c.prices.eur)||null,
+                      usd_foil:(c.prices&&c.prices.usd_foil)||null,eur_foil:(c.prices&&c.prices.eur_foil)||null},
+                    scryfall_uri:c.scryfall_uri||'',updated_at:c.updated_at||''});
+                });
+                tx.oncomplete=function(){res();};
+                tx.onerror=function(){rej(tx.error);};
+                tx.onabort=function(){rej(tx.error||new Error('tx aborted'));};
+              }catch(e){rej(e);}
+            });
           });
-          tx.oncomplete=res;tx.onerror=rej;
         });
       }
       function flushBatch(force){
@@ -20445,7 +20478,6 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
       }
       return read();
     });
-  });
 }
 // Admin: synchronize metadata + local download
 function adminSyncScryfall(){
@@ -20485,18 +20517,21 @@ function _loadAdminScryfallStatus(){
     }
   }).catch(function(){el.textContent='—';});
 }
-// Client: check if IDB needs update after login
+// Client: check if IDB needs update — interroge DIRECTEMENT Scryfall pour la vraie dernière
+// version (au lieu de se fier au meta Firestore qui peut être en retard si pas de sync admin)
 function _checkScryfallIDB(){
-  db.collection('meta').doc('scryfall').get().then(function(doc){
-    if(!doc.exists)return;
-    var srv=doc.data();if(!srv.download_uri||!srv.updated_at)return;
-    _idbGetMeta('updated_at').then(function(local){
-      if(local===srv.updated_at)return;
+  fetch('https://api.scryfall.com/bulk-data').then(function(r){return r.json();}).then(function(data){
+    var bulk=(data.data||[]).find(function(d){return d.type==='all_cards';});
+    if(!bulk||!bulk.download_uri||!bulk.updated_at)return;
+    return _idbGetMeta('updated_at').then(function(local){
+      if(local===bulk.updated_at)return;
+      var d=new Date(bulk.updated_at);
+      var dateStr=d.toLocaleDateString('fr-FR')+' '+('0'+d.getHours()).slice(-2)+'h';
       var banner=document.createElement('div');
       banner.id='scryfall-update-banner';
       banner.style.cssText='position:fixed;bottom:8px;left:50%;transform:translateX(-50%);background:var(--s2);border:.5px solid var(--bd2);border-radius:8px;padding:8px 14px;font-size:.75rem;color:var(--tx2);z-index:1500;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.55);max-width:94vw';
-      banner.innerHTML='<span>Base Scryfall : mise à jour disponible ('+new Date(srv.updated_at).toLocaleDateString('fr-FR')+')</span>'
-        +'<button class="btn btnsm" style="font-size:.7rem;padding:2px 10px;white-space:nowrap" onclick="_startClientSync(\''+srv.download_uri+'\',\''+srv.updated_at+'\',this.closest(\'[id]\'))">Mettre à jour</button>'
+      banner.innerHTML='<span>Base Scryfall : mise à jour disponible ('+esc(dateStr)+')</span>'
+        +'<button class="btn btnsm" style="font-size:.7rem;padding:2px 10px;white-space:nowrap" onclick="_startClientSync(\''+esc(bulk.download_uri)+'\',\''+esc(bulk.updated_at)+'\',this.closest(\'[id]\'))">Mettre à jour</button>'
         +'<button onclick="this.closest(\'[id]\').remove()" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:0 2px">✕</button>';
       document.body.appendChild(banner);
     });
