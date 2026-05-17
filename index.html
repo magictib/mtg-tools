@@ -2866,6 +2866,7 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" onclick="bldShowDeckStats()" title="Graphiques : courbe de mana, distribution des couleurs et types de cartes" style="font-size:.74rem;white-space:nowrap">📊 Stats</button>
       <button class="btn btnsm" onclick="bldOpenCompareDeck()" title="Comparer deux decks (uniques à chacun + communes)" style="font-size:.74rem;white-space:nowrap">🔄 Comparer</button>
       <button class="btn btnsm" onclick="bldShareCurrent()" title="Publier le deck courant en lecture seule via URL partageable" style="font-size:.74rem;white-space:nowrap">🔗 Partager</button>
+      <button class="btn btnsm" onclick="bldMulliganSim()" title="Simule 2000 mains d'ouverture, statistiques de mana-screw/flood" style="font-size:.74rem;white-space:nowrap">🎴 Mulligan</button>
     </div>
     <div style="display:flex;gap:6px">
       <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
@@ -18342,6 +18343,72 @@ function bldGetBanStatus(card){
   return'ok';
 }
 // ===== VÉRIF LÉGALITÉ DECK (format + identité Commander) =====
+// ===== DECK-2 : Mulligan simulator =====
+function bldMulliganSim(){
+  if(!bldMain||!bldMain.length){mlAlert('Mulligan','Aucune carte dans le deck.');return;}
+  var names=bldMain.map(function(c){return c.name;});
+  _bldFetchLegalityData(names,function(){_bldRunMulliganSim();});
+}
+function _bldRunMulliganSim(){
+  // Construit la pile : chaque exemplaire compte, taggé land/non-land
+  var lib=[];
+  bldMain.forEach(function(c){
+    var d=bldData[(c.name||'').toLowerCase()];
+    var isLand=d&&(d.type_line||'').toLowerCase().includes('land');
+    var cmc=d?Math.floor(d.cmc||0):0;
+    for(var i=0;i<(c.qty||1);i++)lib.push({name:c.name,isLand:!!isLand,cmc:cmc});
+  });
+  if(lib.length<7){mlAlert('Mulligan','Deck trop petit (<7 cartes).');return;}
+  var N=2000;
+  var landBuckets=[0,0,0,0,0,0,0,0]; // count of hands with 0..7 lands
+  var keepCount=0; // hand jugée "bonne" : 2-5 lands
+  var floodCount=0; // ≥6 lands
+  var screwCount=0; // ≤1 land
+  for(var trial=0;trial<N;trial++){
+    // Shuffle Fisher-Yates
+    var d=lib.slice();
+    for(var i=d.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=d[i];d[i]=d[j];d[j]=t;}
+    var hand=d.slice(0,7);
+    var lands=hand.filter(function(c){return c.isLand;}).length;
+    landBuckets[lands]++;
+    if(lands>=2&&lands<=5)keepCount++;
+    if(lands>=6)floodCount++;
+    if(lands<=1)screwCount++;
+  }
+  // Calcul probas T2/T3 (besoin de 2 lands T2, 3 lands T3)
+  // En piochant 7+1+1 = 9 cartes pour T2, 7+1+1+1 = 10 pour T3 (en gardant la main)
+  var landsTotal=lib.filter(function(c){return c.isLand;}).length;
+  var landRatio=landsTotal/lib.length;
+  // SVG bar chart des distributions de lands
+  var maxB=Math.max.apply(null,landBuckets);
+  var W=320,H=130,padL=20,padB=22;
+  var svg='<svg width="100%" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="display:block">';
+  for(var k=0;k<=7;k++){
+    var v=landBuckets[k];
+    var h=maxB?Math.max(2,Math.round((v/maxB)*(H-padB-12))):0;
+    var x=padL+k*((W-padL)/8)+3;
+    var bw=((W-padL)/8)-6;
+    var y=H-padB-h;
+    var color=k===0||k===1?'#ff6060':(k>=6?'#ffc848':'#90e8c0');
+    svg+='<rect x="'+x+'" y="'+y+'" width="'+bw+'" height="'+h+'" fill="'+color+'" rx="3"/>';
+    svg+='<text x="'+(x+bw/2)+'" y="'+(H-padB+12)+'" font-size="9" fill="#888" text-anchor="middle">'+k+'</text>';
+    var pct=(v/N*100).toFixed(0)+'%';
+    svg+='<text x="'+(x+bw/2)+'" y="'+(y-3)+'" font-size="8" fill="#ccc" text-anchor="middle">'+pct+'</text>';
+  }
+  svg+='</svg>';
+  var html='<div style="text-align:left">'
+    +'<div style="font-size:.78rem;color:var(--tx2);margin-bottom:8px">'+N+' mains simulées · '+lib.length+' cartes (dont '+landsTotal+' terrains, '+(landRatio*100).toFixed(0)+'%)</div>'
+    +'<div style="background:rgba(0,0,0,.3);padding:10px;border-radius:8px;margin-bottom:10px">'
+    +'<div style="font-size:.78rem;color:#90e8c0;margin-bottom:4px">📊 Mains gardables (2-5 terrains) : <strong>'+((keepCount/N)*100).toFixed(1)+'%</strong></div>'
+    +'<div style="font-size:.74rem;color:#ff8080;margin-bottom:4px">⚠ Mana-screw (0-1 terrain) : <strong>'+((screwCount/N)*100).toFixed(1)+'%</strong></div>'
+    +'<div style="font-size:.74rem;color:#ffc848">⚠ Mana-flood (6+ terrains) : <strong>'+((floodCount/N)*100).toFixed(1)+'%</strong></div>'
+    +'</div>'
+    +'<div style="font-size:.78rem;color:#c8a8ff;margin:6px 0 4px">Distribution du nombre de terrains en main d\'ouverture</div>'+svg
+    +'<div style="font-size:.66rem;color:var(--tx3);margin-top:10px;line-height:1.5">💡 Une bonne main Commander : 2-5 terrains (idéalement 3-4). Si tu vois >15% de screw/flood, ajuste ton ratio de terrains.</div>'
+    +'</div>';
+  mlAlert('🎴 Simulateur de mulligan',html,{html:true,okLabel:'Fermer'});
+}
+
 // ===== DECK-4 : Comparaison de 2 decks (diff) =====
 function bldShareCurrent(){
   if(!bldCurDeckId){mlAlert('Partager','Charge ou sauvegarde d\'abord un deck.');return;}
