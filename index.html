@@ -1146,6 +1146,28 @@ body.mana-cursor{cursor:none}
 .montage-ctrls{display:flex;gap:3px}
 @keyframes montageCelebrate{0%{transform:scale(.85);opacity:0}25%{transform:scale(1.15);opacity:1}50%{transform:scale(1)}100%{transform:scale(1);opacity:1}}
 .montage-confetti{margin-top:10px;text-align:center;font-family:'Goudy Mediaeval',serif;font-size:1.1rem;color:var(--gr2);background:rgba(16,185,129,.1);border:.5px solid rgba(16,185,129,.35);border-radius:6px;padding:8px;animation:montageCelebrate .55s cubic-bezier(.34,1.56,.64,1)}
+
+/* ===== ZOOM CARTE (lightbox global) ===== */
+@keyframes czIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+.cz-overlay{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:center;justify-content:center;animation:czIn .2s ease-out}
+.cz-img{max-width:min(85vw,520px);max-height:88vh;border-radius:14px;box-shadow:0 0 35px rgba(201,168,76,.35),0 0 0 2px var(--gold2);cursor:zoom-out}
+.cz-placeholder{width:280px;height:392px;background:var(--s3);border-radius:14px;border:2px solid var(--gold2);display:flex;align-items:center;justify-content:center;padding:20px;text-align:center}
+.cz-loading{color:var(--tx3);font-style:italic;font-size:.85rem}
+.cz-nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);color:var(--gold2);border:.5px solid var(--gold2);border-radius:50%;width:48px;height:48px;font-size:1.8rem;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;font-family:'Goudy Mediaeval',serif;padding-bottom:4px}
+.cz-nav:hover{background:rgba(201,168,76,.25);color:#e8c878}
+.cz-prev{left:24px}
+.cz-next{right:24px}
+.cz-close{position:absolute;top:16px;right:16px;background:rgba(0,0,0,.55);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:6px 12px;font-size:.78rem;cursor:pointer;font-family:'Goudy Mediaeval',serif;letter-spacing:.04em}
+.cz-close:hover{background:rgba(255,255,255,.06);border-color:var(--gold2);color:var(--gold2)}
+.cz-info{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;text-align:center;background:rgba(0,0,0,.6);padding:7px 16px;border-radius:6px;border:.5px solid var(--bd2);max-width:90vw;letter-spacing:.04em}
+.cz-info .cz-pos{color:var(--tx3);margin-left:10px;font-size:.78rem}
+.cz-clickable{cursor:zoom-in}
+.cz-clickable:hover{color:var(--gold2)}
+@media (max-width:640px){
+  .cz-nav{width:40px;height:40px;font-size:1.4rem}
+  .cz-prev{left:8px}.cz-next{right:8px}
+  .cz-close{font-size:.7rem;padding:4px 8px}
+}
 @media (max-width:640px){
   .montage-row{grid-template-columns:30px 1fr 50px auto;font-size:.78rem;gap:6px}
   .montage-status,.montage-blocks{display:none}
@@ -7279,6 +7301,7 @@ function renderDeck(){
     groups=[{hdr:'',items:filtered}];
   }
   var html='';
+  _zoomList=[]; // reconstruit dans l'ordre d'affichage
   groups.forEach(function(_g){
     if(!_g.items.length)return;
     if(_g.hdr){
@@ -7319,9 +7342,10 @@ function renderDeck(){
         var img=dImgCache[card.nl];
         var cardPrice=allPriceMap[card.nl]||0;
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
+        _zoomList.push({nl:card.nl,name:card.name});var zi=_zoomList.length-1;
         html+='<div style="width:180px;text-align:center">'
-          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" style="width:180px;border-radius:8px;border:2px solid '+bc+';display:block">'
-               :'<div style="width:180px;height:252px;background:var(--s3);border-radius:8px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.72rem;color:var(--tx3);padding:4px;text-align:center">'+esc(card.name)+'</div>')
+          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" class="cz-clickable" onclick="openCardZoomAt('+zi+')" style="width:180px;border-radius:8px;border:2px solid '+bc+';display:block">'
+               :'<div class="cz-clickable" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;background:var(--s3);border-radius:8px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.72rem;color:var(--tx3);padding:4px;text-align:center">'+esc(card.name)+'</div>')
           +'<div style="font-size:.65rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
           +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;font-size:.62rem;padding:0 2px">'
           +statusTxt
@@ -7369,7 +7393,8 @@ function renderDeck(){
         var priceCell=cardPrice>0?'<div style="text-align:right;color:var(--gold2);font-size:.72rem">'+cardPrice.toFixed(2)+'€</div>':'<div style="text-align:right;color:var(--tx3);font-size:.72rem">—</div>';
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
         var addBtn='<button class="dadd-btn'+(inCustom?' in':'')+'" onclick="addToCustomByIdx('+dCards.indexOf(card)+');event.stopPropagation()" title="Ajouter au panier personnalisé">+</button>';
-        html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname">'+esc(card.name)+dkBdg+'</div>'+pc+priceCell+addBtn+'</div>';
+        _zoomList.push({nl:card.nl,name:card.name});var zi=_zoomList.length-1;
+        html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname cz-clickable" onclick="openCardZoomAt('+zi+')" title="Zoomer">'+esc(card.name)+dkBdg+'</div>'+pc+priceCell+addBtn+'</div>';
       });
     });
   }
@@ -7378,6 +7403,66 @@ function renderDeck(){
   if(_ownerDataMissing&&dFMode!=='all')html='<div style="font-size:.78rem;color:var(--am);padding:6px 0 8px;margin-bottom:4px">⚠ Collection de ce profil non chargée — filtres désactivés</div>'+html;
   document.getElementById('dlisthdr').style.display=dViewMode==='list'?'':'none';
   document.getElementById('dlist').innerHTML=html;
+}
+
+// ===== ZOOM CARTE (lightbox global, partagé entre toutes les listes) =====
+var _zoomList=[];   // [{nl,name}] dans l'ordre d'affichage courant
+var _zoomIdx=0;
+function openCardZoom(cards,idx){
+  _zoomList=(cards||[]).filter(function(c){return c&&c.nl;});
+  _zoomIdx=Math.max(0,Math.min(_zoomList.length-1,idx||0));
+  if(!_zoomList.length)return;
+  _renderCardZoom();
+  document.addEventListener('keydown',_zoomKey);
+}
+function openCardZoomAt(idx){openCardZoom(_zoomList.slice(),idx);}
+function closeCardZoom(){
+  document.removeEventListener('keydown',_zoomKey);
+  var m=document.getElementById('cz-overlay');if(m)m.remove();
+}
+function _zoomKey(e){
+  if(e.key==='Escape')closeCardZoom();
+  else if(e.key==='ArrowLeft'){e.preventDefault();_zoomNav(-1);}
+  else if(e.key==='ArrowRight'){e.preventDefault();_zoomNav(1);}
+}
+function _zoomNav(delta){
+  if(!_zoomList.length)return;
+  _zoomIdx=(_zoomIdx+delta+_zoomList.length)%_zoomList.length;
+  _renderCardZoom();
+}
+function _renderCardZoom(){
+  var card=_zoomList[_zoomIdx];if(!card)return;
+  var img=(typeof dImgCache!=='undefined'&&dImgCache[card.nl])||(typeof _purImgCache!=='undefined'&&_purImgCache&&_purImgCache[card.nl])||'';
+  var imgEl=img
+    ?'<img class="cz-img" src="'+img+'" alt="'+esc(card.name||'')+'" onclick="closeCardZoom()">'
+    :'<div class="cz-placeholder"><span class="cz-loading">Chargement de '+esc(card.name||'')+'…</span></div>';
+  var html=imgEl
+    +'<button class="cz-close" onclick="closeCardZoom()" title="Fermer (Esc)">✕ Fermer</button>'
+    +'<button class="cz-nav cz-prev" onclick="_zoomNav(-1)" title="Précédente (←)">‹</button>'
+    +'<button class="cz-nav cz-next" onclick="_zoomNav(1)" title="Suivante (→)">›</button>'
+    +'<div class="cz-info">'+esc(card.name||'')+'<span class="cz-pos">'+(_zoomIdx+1)+' / '+_zoomList.length+'</span></div>';
+  var ov=document.getElementById('cz-overlay');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='cz-overlay';
+    ov.className='cz-overlay';
+    ov.addEventListener('click',function(e){if(e.target===ov)closeCardZoom();});
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML=html;
+  if(!img)_zoomFetchImage(card);
+}
+function _zoomFetchImage(card){
+  fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(card.name||card.nl))
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(d){
+      if(!d)return;
+      var img=d.image_uris?d.image_uris.normal:(d.card_faces&&d.card_faces[0]&&d.card_faces[0].image_uris?d.card_faces[0].image_uris.normal:null);
+      if(img){
+        if(typeof dImgCache!=='undefined')dImgCache[card.nl]=img;
+        if(_zoomList[_zoomIdx]&&_zoomList[_zoomIdx].nl===card.nl)_renderCardZoom();
+      }
+    }).catch(function(){});
 }
 
 // ===== MONTAGE PHYSIQUE DU DECK =====
@@ -7501,6 +7586,8 @@ function renderDeckMontage(quietUpdate){
       if(ra!==rb)return ra-rb;return a.name.localeCompare(b.name);
     });
   } else sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
+  // Préparer la liste de zoom dans l'ordre d'affichage
+  _zoomList=sorted.map(function(c){return {nl:c.nl,name:c.name};});
   // Sections via getVSec
   var secs=[];
   sorted.forEach(function(c){var s=getVSec(c);if(secs.indexOf(s)<0)secs.push(s);});
@@ -7517,9 +7604,10 @@ function renderDeckMontage(quietUpdate){
     else if(b>0)rowCls+=' montage-row-partial';
     else if(owned>0)rowCls+=' montage-row-ready';
     else rowCls+=' montage-row-missing';
-    return '<div class="'+rowCls+'" onclick="if(event.shiftKey)montageDec(\''+esc(c.nl)+'\');else montageInc(\''+esc(c.nl)+'\');" title="Clic = +1 placée • Shift+clic = -1">'
+    var zIdx=_zoomList.findIndex(function(z){return z.nl===c.nl;});
+    return '<div class="'+rowCls+'" onclick="if(event.shiftKey)montageDec(\''+esc(c.nl)+'\');else montageInc(\''+esc(c.nl)+'\');" title="Clic = +1 placée • Shift+clic = -1 • Clic sur le nom = zoom">'
       +'<div class="montage-qty">'+c.qty+'×</div>'
-      +'<div class="montage-name">'+esc(c.name)+'</div>'
+      +'<div class="montage-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(c.name)+'</div>'
       +'<div class="montage-status">'+statusTag+'</div>'
       +'<div class="montage-blocks">'+_montageMiniBlocks(b,c.qty)+'</div>'
       +'<div class="montage-counter">'+b+'/'+c.qty+'</div>'
@@ -8122,9 +8210,10 @@ function renderPurchaseMgr(){
       if(!groups[dk]){groups[dk]=[];deckOrder.push(dk);}
       groups[dk].push(c);
     });
+    _zoomList=[];
     deckOrder.forEach(function(dk){
       if(dk!=='(sans deck)')html+='<tr class="pur-dk-hdr"><td colspan="5">📖 '+esc(dk)+'</td></tr>';
-      groups[dk].forEach(function(c){html+=_purRenderRow(c);});
+      groups[dk].forEach(function(c){_zoomList.push({nl:c.nl,name:c.name});html+=_purRenderRow(c,_zoomList.length-1);});
     });
   }
   html+='</tbody></table>';
@@ -8163,13 +8252,14 @@ function _purAssignMenu(cardId,role){
   purSetRole(cardId,role,newUid);
 }
 
-function _purRenderRow(c){
+function _purRenderRow(c,zIdx){
   var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   var status=c.status||'proposed';
   var statusLbl=_STATUS_LBL[status]||status;
   var statusCol=_STATUS_COLOR[status]||'var(--tx3)';
   var qtyTxt=(c.qty>1?c.qty+'× ':'');
-  var nameHtml='<span'+(status==='delivered'?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+qtyTxt+esc(c.name)+'</span>';
+  var zoomAttr=(typeof zIdx==='number')?' class="cz-clickable" onclick="openCardZoomAt('+zIdx+')" title="Zoomer"':'';
+  var nameHtml='<span'+zoomAttr+(status==='delivered'?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+qtyTxt+esc(c.name)+'</span>';
   var noteHtml=c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'';
   var statusChip='<span style="display:inline-block;background:rgba(255,255,255,.05);border:.5px solid '+statusCol+';color:'+statusCol+';border-radius:10px;padding:1px 7px;font-size:.7rem;cursor:pointer" title="Avancer le statut" onclick="purAdvanceStatus(\''+sid+'\')">'+statusLbl+'</span>';
   var buyerChip=_purRenderRoleChip(c,'buyer');
@@ -8209,8 +8299,9 @@ function _purRenderImgGrid(filteredCards){
   });
   var items=Object.keys(byNl).map(function(k){return byNl[k];});
   if(!items.length)return'<div style="text-align:center;padding:2rem;color:var(--tx3);font-style:italic">Aucune carte</div>';
+  _zoomList=items.map(function(it){return {nl:it.nl,name:it.name};});
   return'<div style="display:flex;flex-wrap:wrap;gap:10px;padding:8px">'
-    +items.map(function(item){
+    +items.map(function(item,zi){
       var img=_purImgCache[item.nl]||dImgCache[item.nl]||'';
       var st=item.status||'proposed';
       var stCol=_STATUS_COLOR[st]||'var(--tx3)';
@@ -8218,8 +8309,8 @@ function _purRenderImgGrid(filteredCards){
       var border=(st==='delivered')?'2px solid var(--gr2)':'1px solid var(--bd2)';
       return'<div style="width:130px;text-align:center;position:relative">'
         +(img
-          ?'<img src="'+img+'" style="width:130px;border-radius:7px;display:block;border:'+border+'" loading="lazy">'
-          :'<div style="width:130px;height:182px;background:var(--s3);border-radius:7px;border:'+border+';display:flex;align-items:center;justify-content:center;font-size:.68rem;color:var(--tx3);padding:6px;text-align:center">'+esc(item.name)+'</div>')
+          ?'<img src="'+img+'" class="cz-clickable" onclick="openCardZoomAt('+zi+')" style="width:130px;border-radius:7px;display:block;border:'+border+'" loading="lazy">'
+          :'<div class="cz-clickable" onclick="openCardZoomAt('+zi+')" style="width:130px;height:182px;background:var(--s3);border-radius:7px;border:'+border+';display:flex;align-items:center;justify-content:center;font-size:.68rem;color:var(--tx3);padding:6px;text-align:center">'+esc(item.name)+'</div>')
         +'<div style="position:absolute;top:4px;left:4px;font-size:.58rem;background:rgba(0,0,0,.55);color:'+stCol+';border:.5px solid '+stCol+';border-radius:3px;padding:1px 4px;pointer-events:none">'+esc(stLbl)+'</div>'
         +'<div style="font-size:.65rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+(item.qty>1?item.qty+'× ':'')+esc(item.name)+'</div>'
         +'</div>';
