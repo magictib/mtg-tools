@@ -907,6 +907,7 @@ body.mana-cursor{cursor:none}
 .ar-field-card.ar-blocker{border-color:#1090ff!important;animation:ar-water-pulse 1.0s ease-in-out infinite}
 .ar-combat-target{outline:3px dashed #ff5000!important;outline-offset:2px;box-shadow:0 0 18px rgba(255,80,0,.65)!important;animation:ar-combat-target-pulse .55s ease-in-out infinite}
 .ar-just-played{animation:ar-card-arrive .35s cubic-bezier(.22,.61,.36,1) both}
+@keyframes ar-resolve-flash{0%{transform:scale(.7);opacity:0}25%{transform:scale(1.05);opacity:1}65%{transform:scale(1) translateY(20px);opacity:.85}100%{transform:scale(.6) translateY(120px);opacity:0}}
 @keyframes ar-card-arrive{0%{transform:scale(.35) translateY(80px) rotate(-12deg);opacity:0;box-shadow:0 0 35px rgba(201,168,76,.9)}55%{transform:scale(1.08) translateY(-4px) rotate(2deg);opacity:1}100%{transform:scale(1) translateY(0) rotate(0);opacity:1;box-shadow:0 4px 16px rgba(0,0,0,.7)}}
 @keyframes ar-combat-target-pulse{0%,100%{outline-color:#ff5000;box-shadow:0 0 14px rgba(255,80,0,.5)}50%{outline-color:#ff9040;box-shadow:0 0 24px rgba(255,140,0,.85)}}
 @keyframes ar-water-pulse{0%,100%{box-shadow:0 0 0 1.5px #3090ff,0 0 10px rgba(30,120,255,.7),0 4px 16px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 2.5px #50c0ff,0 0 24px rgba(50,160,255,.9),0 0 38px rgba(30,100,255,.45)}}
@@ -3913,6 +3914,7 @@ body.mana-cursor{cursor:none}
             <button class="ar-lbtn" onclick="arLifeAdj(5)" style="width:27px;border-radius:4px;font-size:.6rem">+5</button>
           </div>
           <div id="ar-life-delta-wrap" style="position:absolute;top:0;left:0;right:0;pointer-events:none;overflow:visible;height:0"></div>
+          <svg id="ar-life-sparkline" width="84" height="22" viewBox="0 0 84 22" style="display:block;margin:3px auto 0" title="Historique des PV"></svg>
         </div>
         <!-- Exile -->
         <div class="ar-zone-box" id="ar-pile-exile" data-drop-zone="exile" onclick="arOpenZone('exile')" title="Voir l'exil">
@@ -10070,6 +10072,7 @@ function arOpen(){
   var deckDisplayName=decks[id]?decks[id].name:(function(){if(id&&id.startsWith('pool:')){var pd=_arPool.find(function(d){return d.id===id.slice(5);});return pd?pd.name:id;}return id;})();
   _ar={active:true,lib:_arShuffle(expanded.lib),hand:[],field:[],grave:[],exile:[],lands:[],
     cmd:expanded.cmd,cmdCasts:0,life:startLife,startLife:startLife,originalDeckId:id,turn:1,phase:1,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false,attackers:[],blockers:[],
+    lifeHist:[{t:Date.now(),turn:0,life:startLife}],
     ss:{deckId:id,deckName:deckDisplayName,t0:Date.now(),turns:0,muls:0,drawn:7}};
   // Draw opening hand
   for(var i=0;i<7;i++)if(_ar.lib.length)_ar.hand.push(_ar.lib.pop());
@@ -10446,6 +10449,11 @@ function arRenderRight(){
 function arLifeAdj(n){
   var prevLife=_ar.life;
   _ar.life=Math.max(0,_ar.life+n);
+  // Historique pour sparkline
+  _ar.lifeHist=_ar.lifeHist||[];
+  _ar.lifeHist.push({t:Date.now(),turn:_ar.turn||0,life:_ar.life});
+  if(_ar.lifeHist.length>80)_ar.lifeHist=_ar.lifeHist.slice(-60);
+  _arRenderSparkline();
   arRenderTopbar();
   // Secousse compteur perso si dégâts
   if(n<0){var lv=document.getElementById('ar-life-val');if(lv){lv.classList.remove('ar-life-shake');void lv.offsetWidth;lv.classList.add('ar-life-shake');}}
@@ -10564,6 +10572,24 @@ function arUntapAll(){
   _ar.field.forEach(function(c){c.tapped=false;});
   (_ar.lands||[]).forEach(function(c){c.tapped=false;});
   arRenderField();arRenderLands();_arSyncToRoom();
+}
+function _arRenderSparkline(){
+  var svg=document.getElementById('ar-life-sparkline');if(!svg)return;
+  var hist=_ar.lifeHist||[];
+  if(hist.length<2){svg.innerHTML='';return;}
+  var W=84,H=22,pad=2;
+  var max=Math.max(_ar.startLife||40,Math.max.apply(null,hist.map(function(h){return h.life;})));
+  var min=0;
+  var n=hist.length;
+  var pts=hist.map(function(h,i){
+    var x=pad+i/(n-1)*(W-2*pad);
+    var y=H-pad-(h.life-min)/(max-min)*(H-2*pad);
+    return x.toFixed(1)+','+y.toFixed(1);
+  });
+  var trend=hist[hist.length-1].life-hist[hist.length-2].life;
+  var color=trend>0?'#5fd75f':trend<0?'#ff6060':'#c8a8ff';
+  svg.innerHTML='<polyline fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" points="'+pts.join(' ')+'"/>'
+    +'<circle cx="'+pts[pts.length-1].split(',')[0]+'" cy="'+pts[pts.length-1].split(',')[1]+'" r="2" fill="'+color+'"/>';
 }
 function arAutoArrangeField(){
   // Range mes propres permanents par type sur 2 rangées : créatures haut, autres bas
@@ -12150,20 +12176,26 @@ function _arSetDefaultAttackTarget(pn){
     arRenderField();
   }
 }
-function arViewOpGravePn(pn){
+function arViewOpGravePn(pn){_arShowReadOnlyZone(pn,'grave');}
+function arViewOpExilePn(pn){_arShowReadOnlyZone(pn,'exile');}
+function _arShowReadOnlyZone(pn,zone){
   if(!_arRoom||!window.db)return;
   db.collection('arena_rooms').doc(_arRoom.id).get().then(function(doc){
-    var g=doc.data()['p'+pn+'_grave']||[];
-    if(!g.length){alert('Cimetière J'+pn+' vide');return;}
-    alert('Cimetière J'+pn+' :\n'+g.map(function(c){return '• '+c.name;}).join('\n'));
-  });
-}
-function arViewOpExilePn(pn){
-  if(!_arRoom||!window.db)return;
-  db.collection('arena_rooms').doc(_arRoom.id).get().then(function(doc){
-    var e=doc.data()['p'+pn+'_exile']||[];
-    if(!e.length){alert('Exile J'+pn+' vide');return;}
-    alert('Exile J'+pn+' :\n'+e.map(function(c){return '• '+c.name;}).join('\n'));
+    var arr=doc.data()['p'+pn+'_'+zone]||[];
+    var lbl=(zone==='grave'?'🗑 Cimetière':'⬡ Exil')+' J'+pn+(_arRoom.opps&&_arRoom.opps[pn]?' '+_arRoom.opps[pn].slot.name:'');
+    document.getElementById('ar-ov-lbl').textContent=lbl+' ('+arr.length+')';
+    var cont=document.getElementById('ar-ov-cards');
+    if(!arr.length){cont.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem">Vide</div>';}
+    else{
+      cont.innerHTML=arr.map(function(c){
+        return '<div style="display:inline-flex;flex-direction:column;align-items:stretch;width:100px;margin:4px;vertical-align:top">'
+          +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'" title="'+esc(c.name)+'" style="width:100px;height:140px;border-radius:6px;object-fit:cover;display:block;cursor:pointer" onclick="arShowFullCard(\''+escJs(c.name)+'\')">'
+          +'<div style="font-size:.62rem;color:var(--tx3);text-align:center;padding:3px 2px;background:rgba(0,0,0,.4);border-radius:0 0 6px 6px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</div>'
+          +'</div>';
+      }).join('');
+      cont.querySelectorAll('img').forEach(function(img){_arLoadImg(img.dataset.name,img);});
+    }
+    document.getElementById('ar-zone-ov').style.display='flex';
   });
 }
 function _arApplyRemoteState(data){
@@ -12577,7 +12609,17 @@ function _arResolveSharedStackTop(){
   _arRenderSharedStack();
   _arSyncToRoom();
   arLogAction('stack_resolved',{name:top.name});
+  _arShowResolveFlash(top.name);
   if(_arSharedStack.length)_arStartSharedStackTimer();
+}
+function _arShowResolveFlash(name){
+  var field=document.getElementById('ar-field');if(!field)return;
+  var rect=field.getBoundingClientRect();
+  var ghost=document.createElement('div');
+  ghost.style.cssText='position:fixed;left:'+(rect.left+rect.width/2-46)+'px;top:'+(rect.top+rect.height/2-65)+'px;width:92px;height:130px;border-radius:8px;background:rgba(180,140,255,.18);border:2px solid #c8a8ff;display:flex;align-items:center;justify-content:center;color:#fff;font-family:\'Goudy Mediaeval\',serif;font-size:.78rem;text-align:center;padding:6px;z-index:155;pointer-events:none;box-shadow:0 0 30px rgba(180,140,255,.85);animation:ar-resolve-flash .9s ease-out forwards';
+  ghost.textContent='⚡ '+name;
+  document.body.appendChild(ghost);
+  setTimeout(function(){if(ghost.parentNode)ghost.parentNode.removeChild(ghost);},950);
 }
 
 function arCancelSharedStackTop(){
