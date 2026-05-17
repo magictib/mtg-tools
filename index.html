@@ -1171,14 +1171,30 @@ body.mana-cursor{cursor:none}
 .mm-deck-chip.selected{background:rgba(201,168,76,.18);border-color:var(--gold2);color:var(--gold2)}
 .mm-deck-chip .mm-chip-bar{display:inline-block;width:36px;height:4px;background:rgba(0,0,0,.45);border-radius:2px;overflow:hidden;margin-left:4px;border:.5px solid var(--bd2)}
 .mm-deck-chip .mm-chip-bar-fill{height:100%;background:var(--gold2);transition:width .25s}
-.mm-card-row{display:grid;grid-template-columns:36px 1fr auto 90px 70px auto;gap:8px;align-items:center;padding:7px 10px;border-radius:6px;font-size:.84rem;border:.5px solid transparent;transition:background .15s,border-color .15s}
-.mm-card-row:hover{background:rgba(255,255,255,.04);border-color:var(--bd2)}
-.mm-card-row-done{background:rgba(16,185,129,.06);color:var(--gr2);opacity:.85}
+/* La grille .mm-row est définie dynamiquement (style#mm-grid-style) selon nb decks */
+.mm-row{padding:6px 4px;border-radius:6px;font-size:.82rem;border:.5px solid transparent;transition:background .15s,border-color .15s}
+.mm-row.mm-card-row:hover{background:rgba(255,255,255,.04);border-color:var(--bd2)}
+.mm-card-row-done{background:rgba(16,185,129,.05);opacity:.85}
 .mm-card-row-done .mm-card-name{text-decoration:line-through;opacity:.7}
-.mm-card-row-partial{background:rgba(245,185,91,.05)}
-.mm-card-row-missing{background:rgba(224,112,112,.04);color:var(--tx2)}
-.mm-deck-tag{display:inline-block;background:rgba(148,103,189,.18);border:.5px solid rgba(148,103,189,.35);color:var(--ac2);border-radius:8px;padding:1px 6px;font-size:.62rem;margin:1px 2px 1px 0}
-@media (max-width:640px){.mm-card-row{grid-template-columns:30px 1fr 70px auto;font-size:.78rem;gap:6px}}
+.mm-card-row-partial{background:rgba(245,185,91,.04)}
+.mm-card-row-missing{background:rgba(224,112,112,.03)}
+.mm-header{position:sticky;top:0;background:linear-gradient(180deg,#1c130a,#15100a);z-index:5;border-bottom:.5px solid var(--bd2);padding:8px 4px}
+.mm-h{font-family:'Goudy Mediaeval',serif;font-size:.7rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;padding:0 4px}
+.mm-h-deck{text-align:center;color:var(--ac2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mm-cell{padding:2px 4px;display:flex;align-items:center}
+.mm-cell-pips{justify-content:center}
+.mm-cell-name{min-width:0;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.mm-cell-name:hover{color:var(--gold2)}
+.mm-cell-deck{justify-content:center;cursor:pointer;border-radius:6px;padding:3px 6px;min-height:28px;border:.5px solid var(--bd2);background:var(--s3);font-family:'Goudy Mediaeval',serif;font-size:.78rem;transition:background .12s,border-color .12s,color .12s;user-select:none}
+.mm-cell-deck:hover{background:rgba(201,168,76,.12);border-color:var(--gold2);color:var(--gold2)}
+.mm-cell-done{background:rgba(16,185,129,.15);border-color:var(--gr2);color:var(--gr2)}
+.mm-cell-part{background:rgba(245,185,91,.12);border-color:var(--am);color:var(--am)}
+.mm-cell-zero{color:var(--tx3)}
+.mm-cell-empty{justify-content:center;color:var(--tx3);opacity:.45;font-size:.85rem}
+.mm-cell-count{font-weight:600}
+.mm-cell-blocks{justify-content:center;font-family:monospace;font-size:.85rem;letter-spacing:1px}
+.mm-cell-ctrls{justify-content:center;gap:3px}
+@media (max-width:900px){.mm-h-deck{font-size:.6rem}.mm-cell-deck{font-size:.7rem;padding:2px 3px}}
 @media (max-width:640px){
   .cz-nav{width:40px;height:40px;font-size:1.4rem}
   .cz-prev{left:8px}.cz-next{right:8px}
@@ -1910,10 +1926,6 @@ body.mana-cursor{cursor:none}
         <button class="dm mm-sort-btn" data-mode="type" onclick="mmSetSort('type')">Type</button>
         <button class="dm mm-sort-btn" data-mode="cmc" onclick="mmSetSort('cmc')">CMC</button>
         <button class="dm mm-sort-btn" data-mode="name" onclick="mmSetSort('name')">Nom</button>
-        <label style="margin-left:14px;display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx2);cursor:pointer">
-          <input type="checkbox" id="mm-group-deck" onchange="mmSetGroupByDeck(this.checked)" style="cursor:pointer">
-          Sous-grouper par deck
-        </label>
         <button class="btn btnsm" onclick="mmFillOwned()" style="margin-left:auto" title="Place ce que vous possédez (libre) dans les decks de la liste">⚡ Placer ce que j'ai</button>
         <button class="btn btnsm btnrd" onclick="mmReset()" title="Réinitialiser tous les compteurs des decks sélectionnés">⟲ Réinitialiser</button>
       </div>
@@ -7821,6 +7833,21 @@ function mmInc(nl,delta){
   _mmSaveSelected();renderMultiMontage();
 }
 function mmDec(nl){mmInc(nl,-1);}
+// Increment/decrement ciblé sur un deck précis
+function mmIncDeck(nl,deckId,delta){
+  delta=delta||1;
+  var dk=decks[deckId];if(!dk)return;
+  var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+  var cards=parseList(raw||'');
+  var card=cards.find(function(c){return c.nl===nl;});
+  if(!card)return;
+  var bm=_mmBuiltMap(deckId);if(!bm)return;
+  var cur=bm[nl]||0;
+  var nv=Math.max(0,Math.min(card.qty,cur+delta));
+  if(nv===cur)return;
+  bm[nl]=nv;
+  _mmSaveSelected();renderMultiMontage();
+}
 
 function mmFillOwned(){
   if(!_mmSelectedDeckIds.length)return;
@@ -7854,27 +7881,36 @@ function mmReset(){
   _mmSaveSelected();renderMultiMontage();
 }
 
-function _mmRenderRow(entry){
+function _mmRenderRow(entry,deckIds){
   var jnl=escJs(entry.nl);
   var done=entry.totalBuilt>=entry.totalQty;
   var part=entry.totalBuilt>0&&!done;
-  var rowCls='mm-card-row'+(done?' mm-card-row-done':part?' mm-card-row-partial':' mm-card-row-missing');
+  var rowCls='mm-row mm-card-row'+(done?' mm-card-row-done':part?' mm-card-row-partial':' mm-card-row-missing');
   var meta=dCardMeta[entry.nl]||{};
   var pips=_manaPips(meta.colors||[]);
-  var deckTags=entry.perDeck.map(function(d){
-    return '<span class="mm-deck-tag" title="'+esc(d.deckName)+' : '+d.built+'/'+d.qty+'">'+esc(d.deckName.length>14?d.deckName.slice(0,14)+'…':d.deckName)+' '+d.built+'/'+d.qty+'</span>';
-  }).join('');
   var zIdx=_zoomList.findIndex(function(z){return z.nl===entry.nl;});
-  var nameHtml='<span class="mm-card-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(entry.name)+'</span>';
-  return '<div class="'+rowCls+'" onclick="if(event.shiftKey)mmDec(\''+jnl+'\');else mmInc(\''+jnl+'\');" title="Clic = +1 (remplit le 1ᵉʳ deck non-plein) • Shift+clic = -1">'
-    +'<div class="montage-qty">'+entry.totalQty+'×</div>'
-    +'<div><span style="margin-right:6px">'+pips+'</span>'+nameHtml+'<div style="margin-top:2px">'+deckTags+'</div></div>'
-    +'<div></div>'
-    +'<div class="montage-blocks">'+_montageMiniBlocks(entry.totalBuilt,entry.totalQty)+'</div>'
-    +'<div class="montage-counter">'+entry.totalBuilt+'/'+entry.totalQty+'</div>'
-    +'<div class="montage-ctrls" onclick="event.stopPropagation()">'
-    +'<button class="btn btnsm" onclick="mmDec(\''+jnl+'\')" style="padding:1px 7px;font-size:.85rem">−</button>'
-    +'<button class="btn btnsm btnp" onclick="mmInc(\''+jnl+'\')" style="padding:1px 7px;font-size:.85rem">+</button>'
+  var nameHtml='<span class="mm-card-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer la carte">'+esc(entry.name)+'</span>';
+  // Map deckId -> {qty, built}
+  var perDeckMap={};entry.perDeck.forEach(function(d){perDeckMap[d.deckId]=d;});
+  var deckCells=deckIds.map(function(deckId){
+    var d=perDeckMap[deckId];
+    var jdk=escJs(deckId);
+    if(!d)return '<div class="mm-cell mm-cell-empty">—</div>';
+    var cellDone=d.built>=d.qty;
+    var cellPart=d.built>0&&!cellDone;
+    var cls='mm-cell mm-cell-deck'+(cellDone?' mm-cell-done':cellPart?' mm-cell-part':' mm-cell-zero');
+    return '<div class="'+cls+'" title="'+esc((decks[deckId]||{}).name||'Deck')+' — Clic = +1, Shift+clic = -1" onclick="event.stopPropagation();if(event.shiftKey)mmIncDeck(\''+jnl+'\',\''+jdk+'\',-1);else mmIncDeck(\''+jnl+'\',\''+jdk+'\',1);">'
+      +'<span class="mm-cell-count">'+d.built+'/'+d.qty+'</span>'
+      +'</div>';
+  }).join('');
+  return '<div class="'+rowCls+'" title="Clic ailleurs = +1 dans le 1ᵉʳ deck non-plein • Shift+clic = -1">'
+    +'<div class="mm-cell mm-cell-pips">'+pips+'</div>'
+    +'<div class="mm-cell mm-cell-name" onclick="if(event.shiftKey)mmDec(\''+jnl+'\');else mmInc(\''+jnl+'\');">'+nameHtml+'</div>'
+    +deckCells
+    +'<div class="mm-cell mm-cell-blocks">'+_montageMiniBlocks(entry.totalBuilt,entry.totalQty)+' <span class="mm-cell-count" style="color:var(--tx2);margin-left:6px">'+entry.totalBuilt+'/'+entry.totalQty+'</span></div>'
+    +'<div class="mm-cell mm-cell-ctrls" onclick="event.stopPropagation()">'
+    +'<button class="btn btnsm" onclick="mmDec(\''+jnl+'\')" style="padding:1px 7px;font-size:.82rem" title="-1 dans le dernier deck non-vide">−</button>'
+    +'<button class="btn btnsm btnp" onclick="mmInc(\''+jnl+'\')" style="padding:1px 7px;font-size:.82rem" title="+1 dans le 1ᵉʳ deck non-plein">+</button>'
     +'</div>'
     +'</div>';
 }
@@ -7955,9 +7991,22 @@ function renderMultiMontage(){
   if(_mmSortMode==='type')secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});
   else if(_mmSortMode==='cmc')secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});
   else if(_mmSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
+  // Grille dynamique : N colonnes deck
+  var deckIdsActive=_mmSelectedDeckIds.filter(function(id){return decks[id];});
+  var nD=deckIdsActive.length;
+  // pips | name | (decks × N) | blocs/total | ctrls
+  var deckColsTpl=Array(nD).fill('minmax(74px,1fr)').join(' ');
+  var gridTpl='28px minmax(180px,2fr) '+deckColsTpl+' minmax(110px,1fr) 78px';
+  var styleEl=document.getElementById('mm-grid-style');
+  if(!styleEl){styleEl=document.createElement('style');styleEl.id='mm-grid-style';document.head.appendChild(styleEl);}
+  styleEl.textContent='.mm-row{display:grid;grid-template-columns:'+gridTpl+';gap:6px;align-items:center}';
+  // Header sticky
+  var headerCells='<div></div><div class="mm-h">Carte</div>'
+    +deckIdsActive.map(function(id){var dk=decks[id]||{};var nm=dk.name||'Deck';return '<div class="mm-h mm-h-deck" title="'+esc(nm)+'">'+esc(nm.length>16?nm.slice(0,16)+'…':nm)+'</div>';}).join('')
+    +'<div class="mm-h" style="text-align:center">Placé</div><div class="mm-h" style="text-align:center">±</div>';
   // Préparer la liste de zoom (ordre d'affichage final)
   _zoomList=[];
-  var html='';
+  var html='<div class="mm-row mm-header">'+headerCells+'</div>';
   secs.forEach(function(sec){
     var subs=entries.filter(function(e){return _sec(e)===sec;});
     if(!subs.length)return;
@@ -7973,24 +8022,7 @@ function renderMultiMontage(){
       else if(ic)secIcon='<i class="ms ms-'+ic+' ms-cost" style="font-size:.95rem;margin-right:6px;vertical-align:middle"></i>';
     }
     html+='<div class="montage-sec" style="color:'+secColor+';border-left:3px solid '+secColor+';padding-left:8px">'+secIcon+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBd+'/'+subTot+')</span></div>';
-    if(_mmGroupByDeck){
-      // Sous-grouper : pour chaque deck contenant des cartes de cette section
-      var byDeck={};var deckOrder=[];
-      subs.forEach(function(e){
-        e.perDeck.forEach(function(d){
-          if(!byDeck[d.deckId]){byDeck[d.deckId]={name:d.deckName,entries:[]};deckOrder.push(d.deckId);}
-          byDeck[d.deckId].entries.push(e);
-        });
-      });
-      deckOrder.forEach(function(dId){
-        var grp=byDeck[dId];
-        html+='<div style="font-size:.75rem;color:var(--ac2);padding:6px 4px 4px;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em">📖 '+esc(grp.name)+'</div>';
-        // Dédup : si la même carte est dans plusieurs decks, on la voit dans chaque sous-section (c'est le but)
-        grp.entries.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});html+=_mmRenderRow(e);});
-      });
-    } else {
-      subs.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});html+=_mmRenderRow(e);});
-    }
+    subs.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});html+=_mmRenderRow(e,deckIdsActive);});
   });
   listEl.innerHTML=html;
 }
