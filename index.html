@@ -7512,9 +7512,28 @@ function dCycleVersion(nl,delta){
   _dVersionPick[nl]=((_dVersionPick[nl]||0)+delta+arr.length)%arr.length;
   var p=arr[_dVersionPick[nl]];
   card.set=p.set;card.num=p.num;
-  // Force la version choisie + désactive la localisation (sinon l'image se fait écraser par la version langue)
+  // Force la version choisie + bypasse la localisation
   dImgCache[nl]=p.image;
-  // Persiste dans le rawName du deck si actif
+  // Vide le cache des URLs localisées pour cette carte afin qu'il ne réinjecte
+  // pas l'URL FR/ES/etc. si une localisation passe ensuite par d'autres images
+  try{
+    if(typeof _localizedImgCache==='object'&&_localizedImgCache){
+      Object.keys(_localizedImgCache).forEach(function(k){
+        if(k.toLowerCase().indexOf('|'+card.name.toLowerCase())>=0)delete _localizedImgCache[k];
+      });
+    }
+  }catch(e){}
+  // Force-update direct des imgs déjà dans le DOM avant que renderDeck ne reconstruise
+  try{
+    document.querySelectorAll('img[alt]').forEach(function(im){
+      if((im.alt||'').toLowerCase()===card.name.toLowerCase()){
+        im.src=p.image;
+        im.dataset.noLocalize='1';
+        im.dataset.localizedTo=(typeof _userLang!=='undefined'?_userLang:'en');
+        im.dataset.originalSrc=p.image;
+      }
+    });
+  }catch(e){}
   _dPersistVersionsToDeck();
   if(typeof renderDeck==='function')renderDeck();
 }
@@ -7807,9 +7826,10 @@ function renderDeck(){
           var tot=(_dPrintingsCache[card.nl]||[]).length||'?';
           verBadge='<div title="Version sélectionnée" style="position:absolute;bottom:6px;left:6px;right:6px;text-align:center;background:rgba(0,0,0,.78);color:#fff;border:1px solid rgba(201,168,76,.55);font-size:.6rem;padding:2px 4px;border-radius:4px;font-family:monospace;pointer-events:none">'+esc(card.set)+' #'+esc(card.num||'?')+(typeof tot==='number'?' · '+idx+'/'+tot:'')+'</div>';
         }
+        var _curLang=(typeof _userLang!=='undefined'?_userLang:'en');
         html+='<div style="width:180px;text-align:center">'
           +'<div class="ml-ver-wrap" style="position:relative;width:180px">'
-          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" data-no-localize="1" class="cz-clickable ml-img-loading" onload="this.classList.remove(\'ml-img-loading\')" onerror="this.classList.add(\'ml-img-loading\')" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:block;object-fit:cover">'
+          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" data-no-localize="1" data-localized-to="'+esc(_curLang)+'" data-original-src="'+img+'" class="cz-clickable ml-img-loading" onload="this.classList.remove(\'ml-img-loading\')" onerror="this.classList.add(\'ml-img-loading\')" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:block;object-fit:cover">'
                :'<div class="cz-clickable ml-img-loading" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:flex;align-items:flex-end;justify-content:center;font-size:.66rem;color:var(--tx2);padding:6px;text-align:center" title="'+esc(card.name)+'"><span style="background:rgba(0,0,0,.6);padding:2px 6px;border-radius:4px">'+esc(card.name)+'</span></div>')
           +'<button class="ml-ver-arrow" onclick="event.stopPropagation();dCycleVersion(\''+nlJs+'\',-1)" title="Version précédente" style="position:absolute;left:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);width:26px;height:46px;cursor:pointer;border-radius:0 6px 6px 0;font-size:1.1rem;line-height:1;padding:0">‹</button>'
           +'<button class="ml-ver-arrow" onclick="event.stopPropagation();dCycleVersion(\''+nlJs+'\',1)" title="Version suivante" style="position:absolute;right:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);width:26px;height:46px;cursor:pointer;border-radius:6px 0 0 6px;font-size:1.1rem;line-height:1;padding:0">›</button>'
