@@ -20484,7 +20484,7 @@ function adminSyncScryfall(){
   var btn=document.getElementById('admin-scryfall-btn');
   var prog=document.getElementById('admin-scryfall-prog');
   btn.disabled=true;prog.textContent='Interrogation Scryfall…';
-  fetch('https://api.scryfall.com/bulk-data').then(function(r){return r.json();}).then(function(data){
+  fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
     var oracle=(data.data||[]).find(function(d){return d.type==='all_cards';});
     if(!oracle)throw new Error('all_cards introuvable dans la réponse Scryfall');
     var upd=oracle.updated_at,uri=oracle.download_uri,cnt=oracle.size||'?';
@@ -20520,7 +20520,9 @@ function _loadAdminScryfallStatus(){
 // Client: check if IDB needs update — interroge DIRECTEMENT Scryfall pour la vraie dernière
 // version (au lieu de se fier au meta Firestore qui peut être en retard si pas de sync admin)
 function _checkScryfallIDB(){
-  fetch('https://api.scryfall.com/bulk-data').then(function(r){return r.json();}).then(function(data){
+  // cache:no-store + ts cache-buster pour s'assurer d'avoir la TRUE dernière version
+  // (le bulk-data est re-généré toutes les ~6 heures côté Scryfall)
+  fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
     var bulk=(data.data||[]).find(function(d){return d.type==='all_cards';});
     if(!bulk||!bulk.download_uri||!bulk.updated_at)return;
     return _idbGetMeta('updated_at').then(function(local){
