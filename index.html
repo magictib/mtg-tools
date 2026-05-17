@@ -7654,9 +7654,10 @@ function renderDeckMontage(quietUpdate){
     else rowCls+=' montage-row-missing';
     var zIdx=_zoomList.findIndex(function(z){return z.nl===c.nl;});
     var jnl=escJs(c.nl);
+    var pips=_cardPips(c);
     return '<div class="'+rowCls+'" onclick="if(event.shiftKey)montageDec(\''+jnl+'\');else montageInc(\''+jnl+'\');" title="Clic = +1 placée • Shift+clic = -1 • Clic sur le nom = zoom">'
       +'<div class="montage-qty">'+c.qty+'×</div>'
-      +'<div class="montage-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(c.name)+'</div>'
+      +'<div><span style="margin-right:6px">'+pips+'</span><span class="montage-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(c.name)+'</span></div>'
       +'<div class="montage-status">'+statusTag+'</div>'
       +'<div class="montage-blocks">'+_montageMiniBlocks(b,c.qty)+'</div>'
       +'<div class="montage-counter">'+b+'/'+c.qty+'</div>'
@@ -7671,12 +7672,65 @@ function renderDeckMontage(quietUpdate){
     if(!subs.length)return;
     var subBuilt=subs.reduce(function(s,c){return s+Math.min(c.qty,d[c.nl]||0);},0);
     var subTot=subs.reduce(function(s,c){return s+(c.qty||0);},0);
-    html+='<div class="montage-sec" style="color:var(--gold2)">'+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBuilt+'/'+subTot+')</span></div>';
+    var secColor=(dSortMode==='color'&&_SEC_COLOR_HEX[sec])?_SEC_COLOR_HEX[sec]:'var(--gold2)';
+    var secIcon='';
+    if(dSortMode==='color'){
+      var iconMap={'Blanc':'w','Bleu':'u','Noir':'b','Rouge':'r','Vert':'g','Multicolore':'multicolor','Incolore':'c','Terrains':'land'};
+      var ic=iconMap[sec];
+      if(ic==='multicolor')secIcon='<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:conic-gradient(#f3e8c7,#7eb0e3,#9a86a8,#e87a6a,#74c69d,#f3e8c7);vertical-align:middle;margin-right:6px;border:.5px solid #2a1f15"></span>';
+      else if(ic==='land')secIcon='<span style="margin-right:6px">⛰</span>';
+      else if(ic)secIcon='<i class="ms ms-'+ic+' ms-cost" style="font-size:.95rem;margin-right:6px;vertical-align:middle"></i>';
+    }
+    html+='<div class="montage-sec" style="color:'+secColor+';border-left:3px solid '+secColor+';padding-left:8px">'+secIcon+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBuilt+'/'+subTot+')</span></div>';
     subs.forEach(function(c){html+=renderRow(c);});
   });
   el.innerHTML=html;
   // Refocus pour assemblage rapide
   if(!quietUpdate){var inp=document.getElementById('montage-quickadd');if(inp)inp.focus();}
+}
+
+// Helper : fetch Scryfall pour les méta (couleurs/type/cmc/rareté) de cartes arbitraires
+function fetchCardsMetaBatch(cards,cb){
+  var todo=[],seen={};
+  (cards||[]).forEach(function(c){
+    if(!c||!c.nl)return;
+    if(!seen[c.nl]&&!dCardMeta[c.nl]){seen[c.nl]=1;todo.push({nl:c.nl,name:c.name||c.nl});}
+  });
+  if(!todo.length){cb&&cb();return;}
+  var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
+  var done=0;
+  batches.forEach(function(batch){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        var nl=stripDFC(card.name||'').toLowerCase();
+        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
+        // aliases : si le nl du deck est différent (DFC, accent), associer aussi
+        batch.forEach(function(b){
+          if(b.nl!==nl){
+            var bNorm=stripDFC(b.name).toLowerCase();
+            if(bNorm===nl&&!dCardMeta[b.nl])dCardMeta[b.nl]=dCardMeta[nl];
+          }
+        });
+      });
+    }).catch(function(){}).then(function(){if(++done===batches.length)cb&&cb();});
+  });
+}
+
+// Helper : génère des pastilles de couleur pour une carte
+var _COLOR_HEX={W:'#f3e8c7',U:'#7eb0e3',B:'#9a86a8',R:'#e87a6a',G:'#74c69d'};
+var _SEC_COLOR_HEX={'Blanc':'#f3e8c7','Bleu':'#7eb0e3','Noir':'#9a86a8','Rouge':'#e87a6a','Vert':'#74c69d','Multicolore':'#d4a017','Incolore':'#9d9d9d','Terrains':'#a67c52'};
+function _manaPips(colors,fontSize){
+  var sz=fontSize||'.78rem';
+  var arr=colors||[];
+  if(!arr.length)return '<i class="ms ms-c ms-cost" style="font-size:'+sz+';opacity:.55"></i>';
+  return arr.map(function(c){return '<i class="ms ms-'+String(c).toLowerCase()+' ms-cost" style="font-size:'+sz+'"></i>';}).join(' ');
+}
+function _cardPips(card){
+  var meta=dCardMeta[card.nl]||{};
+  return _manaPips(meta.colors||[]);
 }
 
 // ===== MONTAGE MULTI-DECKS =====
@@ -7805,16 +7859,16 @@ function _mmRenderRow(entry){
   var done=entry.totalBuilt>=entry.totalQty;
   var part=entry.totalBuilt>0&&!done;
   var rowCls='mm-card-row'+(done?' mm-card-row-done':part?' mm-card-row-partial':' mm-card-row-missing');
+  var meta=dCardMeta[entry.nl]||{};
+  var pips=_manaPips(meta.colors||[]);
   var deckTags=entry.perDeck.map(function(d){
-    var cls='mm-deck-tag';
-    if(d.built>=d.qty)cls+='';
-    return '<span class="'+cls+'" title="'+esc(d.deckName)+' : '+d.built+'/'+d.qty+'">'+esc(d.deckName.length>14?d.deckName.slice(0,14)+'…':d.deckName)+' '+d.built+'/'+d.qty+'</span>';
+    return '<span class="mm-deck-tag" title="'+esc(d.deckName)+' : '+d.built+'/'+d.qty+'">'+esc(d.deckName.length>14?d.deckName.slice(0,14)+'…':d.deckName)+' '+d.built+'/'+d.qty+'</span>';
   }).join('');
   var zIdx=_zoomList.findIndex(function(z){return z.nl===entry.nl;});
   var nameHtml='<span class="mm-card-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(entry.name)+'</span>';
   return '<div class="'+rowCls+'" onclick="if(event.shiftKey)mmDec(\''+jnl+'\');else mmInc(\''+jnl+'\');" title="Clic = +1 (remplit le 1ᵉʳ deck non-plein) • Shift+clic = -1">'
     +'<div class="montage-qty">'+entry.totalQty+'×</div>'
-    +'<div>'+nameHtml+'<div style="margin-top:2px">'+deckTags+'</div></div>'
+    +'<div><span style="margin-right:6px">'+pips+'</span>'+nameHtml+'<div style="margin-top:2px">'+deckTags+'</div></div>'
     +'<div></div>'
     +'<div class="montage-blocks">'+_montageMiniBlocks(entry.totalBuilt,entry.totalQty)+'</div>'
     +'<div class="montage-counter">'+entry.totalBuilt+'/'+entry.totalQty+'</div>'
@@ -7825,7 +7879,17 @@ function _mmRenderRow(entry){
     +'</div>';
 }
 
+var _mmMetaFetching=false;
 function renderMultiMontage(){
+  // Si on a des cartes sans méta, on déclenche un fetch Scryfall puis re-render
+  if(!_mmMetaFetching&&_mmSelectedDeckIds.length){
+    var entriesPreview=_mmBuildAggregated();
+    var missing=entriesPreview.filter(function(e){return !dCardMeta[e.nl];});
+    if(missing.length){
+      _mmMetaFetching=true;
+      fetchCardsMetaBatch(missing.map(function(e){return {nl:e.nl,name:e.name};}),function(){_mmMetaFetching=false;renderMultiMontage();});
+    }
+  }
   // Chips
   var chipsEl=document.getElementById('mm-deck-chips');
   if(chipsEl){
@@ -7899,7 +7963,16 @@ function renderMultiMontage(){
     if(!subs.length)return;
     var subTot=subs.reduce(function(s,e){return s+e.totalQty;},0);
     var subBd=subs.reduce(function(s,e){return s+e.totalBuilt;},0);
-    html+='<div class="montage-sec" style="color:var(--gold2)">'+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBd+'/'+subTot+')</span></div>';
+    var secColor=(_mmSortMode==='color'&&_SEC_COLOR_HEX[sec])?_SEC_COLOR_HEX[sec]:'var(--gold2)';
+    var secIcon='';
+    if(_mmSortMode==='color'){
+      var iconMap={'Blanc':'w','Bleu':'u','Noir':'b','Rouge':'r','Vert':'g','Multicolore':'multicolor','Incolore':'c','Terrains':'land'};
+      var ic=iconMap[sec];
+      if(ic==='multicolor')secIcon='<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:conic-gradient(#f3e8c7,#7eb0e3,#9a86a8,#e87a6a,#74c69d,#f3e8c7);vertical-align:middle;margin-right:6px;border:.5px solid #2a1f15"></span>';
+      else if(ic==='land')secIcon='<span style="margin-right:6px">⛰</span>';
+      else if(ic)secIcon='<i class="ms ms-'+ic+' ms-cost" style="font-size:.95rem;margin-right:6px;vertical-align:middle"></i>';
+    }
+    html+='<div class="montage-sec" style="color:'+secColor+';border-left:3px solid '+secColor+';padding-left:8px">'+secIcon+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBd+'/'+subTot+')</span></div>';
     if(_mmGroupByDeck){
       // Sous-grouper : pour chaque deck contenant des cartes de cette section
       var byDeck={};var deckOrder=[];
