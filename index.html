@@ -3466,12 +3466,21 @@ body.mana-cursor{cursor:none}
             </div>
             <button class="btn" onclick="arCreateRoom()" style="flex:1;min-width:100px;font-size:.78rem">Créer une partie</button>
           </div>
-          <div style="display:flex;gap:10px;font-size:.72rem;color:var(--tx2);margin-bottom:6px;flex-wrap:wrap">
+          <div style="display:flex;gap:10px;font-size:.72rem;color:var(--tx2);margin-bottom:6px;flex-wrap:wrap;align-items:center">
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Mort à 21 dégâts de commandant cumulés depuis la même source">
               <input type="checkbox" id="ar-opt-cmddmg"> ⚔ Dégâts commandant
             </label>
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Auto-pass de priorité 15s après chaque sort sur la pile">
               <input type="checkbox" id="ar-opt-stacktimer" checked> ⏱ Timer de pile 15s
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Chess-clock : chaque joueur a un budget temps total qui ne décompte que pendant son tour">
+              <input type="checkbox" id="ar-opt-chessclock"> ⏲ Chess-clock
+              <select id="ar-opt-chessclock-min" style="font-size:.7rem;padding:1px 4px;border-radius:5px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx)">
+                <option value="15">15 min</option>
+                <option value="30" selected>30 min</option>
+                <option value="45">45 min</option>
+                <option value="60">60 min</option>
+              </select>
             </label>
           </div>
           <div style="display:flex;gap:4px">
@@ -3915,6 +3924,7 @@ body.mana-cursor{cursor:none}
           </div>
           <div id="ar-life-delta-wrap" style="position:absolute;top:0;left:0;right:0;pointer-events:none;overflow:visible;height:0"></div>
           <svg id="ar-life-sparkline" width="84" height="22" viewBox="0 0 84 22" style="display:block;margin:3px auto 0" title="Historique des PV"></svg>
+          <div id="ar-clock-self" style="display:none;font-family:monospace;font-size:.75rem;color:#c8a8ff;text-align:center;margin-top:2px" title="Chess-clock : votre budget temps total"></div>
         </div>
         <!-- Exile -->
         <div class="ar-zone-box" id="ar-pile-exile" data-drop-zone="exile" onclick="arOpenZone('exile')" title="Voir l'exil">
@@ -3952,12 +3962,17 @@ body.mana-cursor{cursor:none}
       <div style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:1.05rem;margin-bottom:6px">Fin de session</div>
       <div id="ar-end-deck-name" style="font-size:.78rem;color:var(--tx3);margin-bottom:4px"></div>
       <div id="ar-end-opponent-row" style="display:none;font-size:.72rem;color:var(--tx3);margin-bottom:10px">vs <span id="ar-end-opp-name" style="color:var(--tx2)"></span></div>
-      <div style="display:flex;gap:6px;justify-content:center;margin-bottom:12px;font-size:.72rem;color:var(--tx3)">
+      <div style="display:flex;gap:6px;justify-content:center;margin-bottom:8px;font-size:.72rem;color:var(--tx3)">
         <span>Tours : <strong id="ar-end-turns" style="color:var(--tx)">0</strong></span>
         <span>·</span>
         <span>Mulligans : <strong id="ar-end-muls" style="color:var(--tx)">0</strong></span>
         <span>·</span>
         <span>Piochées : <strong id="ar-end-drawn" style="color:var(--tx)">0</strong></span>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="font-size:.68rem;color:var(--tx3);margin-bottom:2px">Évolution des PV</div>
+        <svg id="ar-end-sparkline" width="280" height="50" viewBox="0 0 280 50" style="display:block;margin:0 auto;background:rgba(0,0,0,.3);border-radius:6px"></svg>
+        <div id="ar-end-final-life" style="font-size:.7rem;color:var(--tx2);margin-top:3px"></div>
       </div>
       <div style="font-size:.75rem;color:var(--tx3);margin-bottom:6px">Résultat de la partie :</div>
       <div style="display:flex;gap:8px;justify-content:center;margin-bottom:14px">
@@ -10093,6 +10108,11 @@ function arOpen(){
   if(_arRoom){
     var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.add('mp-on');
     _arSyncToRoom();
+    if(_arRoom.useChessClock){
+      _ar.clockMs=_arRoom.chessClockMs||1800000;
+      var ce=document.getElementById('ar-clock-self');if(ce)ce.style.display='block';
+      _arStartChessClock();
+    }
   }
 }
 
@@ -10113,6 +10133,29 @@ function _arShowEndModal(){
   document.getElementById('ar-end-turns').textContent=s.turns||0;
   document.getElementById('ar-end-muls').textContent=s.muls||0;
   document.getElementById('ar-end-drawn').textContent=s.drawn||0;
+  // Sparkline grande dans la modal
+  var bigSvg=document.getElementById('ar-end-sparkline');
+  if(bigSvg){
+    var hist=_ar.lifeHist||[];
+    if(hist.length>=2){
+      var W=280,H=50,pad=4;
+      var max=Math.max(_ar.startLife||40,Math.max.apply(null,hist.map(function(h){return h.life;})));
+      var n=hist.length;
+      var pts=hist.map(function(h,i){
+        var x=pad+i/(n-1)*(W-2*pad);
+        var y=H-pad-(h.life/max)*(H-2*pad);
+        return x.toFixed(1)+','+y.toFixed(1);
+      });
+      bigSvg.innerHTML='<polyline fill="rgba(200,168,255,.15)" stroke="#c8a8ff" stroke-width="2" stroke-linejoin="round" points="'+pad+','+H+' '+pts.join(' ')+' '+(W-pad)+','+H+'"/>'
+        +'<polyline fill="none" stroke="#c8a8ff" stroke-width="2" stroke-linejoin="round" points="'+pts.join(' ')+'"/>';
+    }else{bigSvg.innerHTML='<text x="50%" y="50%" text-anchor="middle" fill="rgba(255,255,255,.3)" font-size="10">Historique trop court</text>';}
+    var fl=document.getElementById('ar-end-final-life');
+    if(fl){
+      var startLife=_ar.startLife||40;
+      var delta=_ar.life-startLife;
+      fl.innerHTML='PV finaux : <strong style="color:'+(_ar.life>0?'#80ff80':'#ff5060')+'">'+_ar.life+'</strong> / '+startLife+' '+(delta!==0?'('+(delta>0?'+':'')+delta+')':'');
+    }
+  }
   var oppRow=document.getElementById('ar-end-opponent-row');
   var oppName=document.getElementById('ar-end-opp-name');
   if(oppRow&&s.opponentName){oppRow.style.display='block';if(oppName)oppName.textContent=s.opponentName;}
@@ -10158,7 +10201,11 @@ function _arSaveStats(rating){
   var duration=Math.round((Date.now()-s.t0)/60000);
   var entry={deckId:s.deckId,deckName:s.deckName,
     date:new Date().toLocaleDateString('fr-FR'),
-    turns:s.turns,muls:s.muls,drawn:s.drawn,duration:duration,rating:rating||0};
+    turns:s.turns,muls:s.muls,drawn:s.drawn,duration:duration,rating:rating||0,
+    finalLife:_ar.life,
+    lifeHist:(_ar.lifeHist||[]).map(function(h){return{turn:h.turn,life:h.life};}),
+    cmdDmgDealt:_ar.cmdDmgDealt||{},
+    mode:_arRoom?'online-'+(_arRoom.numPlayers||2)+'p':(_arBot?'vs-ai':'solo')};
   var all=JSON.parse(localStorage.getItem('manalab_ar_stats')||'[]');
   all.push(entry);
   localStorage.setItem('manalab_ar_stats',JSON.stringify(all));
@@ -11903,12 +11950,17 @@ function arCreateRoom(){
   var startLife=numPlayers>2?40:(lifeEl?parseInt(lifeEl.value)||40:40);
   var useCmdDmg=!!(document.getElementById('ar-opt-cmddmg')||{}).checked;
   var useStackTimer=(document.getElementById('ar-opt-stacktimer')||{checked:true}).checked;
+  var useChess=!!(document.getElementById('ar-opt-chessclock')||{}).checked;
+  var chessMin=parseInt((document.getElementById('ar-opt-chessclock-min')||{}).value)||30;
+  var chessMs=chessMin*60*1000;
   var doc={
     code:code,
     numPlayers:numPlayers,
     useCmdDmg:useCmdDmg,
     useStackTimer:useStackTimer,
-    p1:{uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0},
+    useChessClock:useChess,
+    chessClockMs:useChess?chessMs:0,
+    p1:{uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0,clockMs:useChess?chessMs:0},
     field:[],
     stack:[],
     actions:[],
@@ -11923,7 +11975,7 @@ function arCreateRoom(){
   db.collection('arena_rooms').doc(code).set(doc).then(function(){
     _arActionLog=[];_arLogSeenIds={};
     _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-    _arRoom={id:code,code:code,playerNum:1,numPlayers:numPlayers,useCmdDmg:useCmdDmg,useStackTimer:useStackTimer};
+    _arRoom={id:code,code:code,playerNum:1,numPlayers:numPlayers,useCmdDmg:useCmdDmg,useStackTimer:useStackTimer,useChessClock:useChess,chessClockMs:chessMs};
     var s=document.getElementById('ar-room-status');
     if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
       +' · '+numPlayers+' joueurs'
@@ -11953,11 +12005,12 @@ function arJoinRoom(){
     for(var i=1;i<=N;i++){if(!data['p'+i]){mySlot=i;break;}}
     if(!mySlot){var s=document.getElementById('ar-room-status');if(s)s.textContent='Partie complète ('+N+' joueurs)';return;}
     var startLife=(data.p1&&data.p1.life)||40;
-    var upd={};upd['p'+mySlot]={uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0};
+    var clockMs=data.useChessClock?(data.chessClockMs||1800000):0;
+    var upd={};upd['p'+mySlot]={uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0,clockMs:clockMs};
     return db.collection('arena_rooms').doc(code).update(upd).then(function(){
       _arActionLog=[];_arLogSeenIds={};
       _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-      _arRoom={id:code,code:code,playerNum:mySlot,numPlayers:N,useCmdDmg:!!data.useCmdDmg,useStackTimer:data.useStackTimer!==false};
+      _arRoom={id:code,code:code,playerNum:mySlot,numPlayers:N,useCmdDmg:!!data.useCmdDmg,useStackTimer:data.useStackTimer!==false,useChessClock:!!data.useChessClock,chessClockMs:data.chessClockMs||0};
       var s=document.getElementById('ar-room-status');
       if(s)s.innerHTML='Rejoint ! Vous êtes joueur '+mySlot+'/'+N
         +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
@@ -12049,6 +12102,58 @@ function _arStartHeartbeat(){
   _arHeartbeatInt=setInterval(beat,_AR_HB_INTERVAL_MS);
 }
 function _arStopHeartbeat(){if(_arHeartbeatInt){clearInterval(_arHeartbeatInt);_arHeartbeatInt=null;}}
+
+// ----- Chess-clock -----
+var _arClockInt=null;
+var _arClockSyncCounter=0;
+function _arStartChessClock(){
+  _arStopChessClock();
+  if(!_arRoom||!_arRoom.useChessClock)return;
+  if(_arRoom.playerNum===0)return; // spectateur
+  if(_ar.clockMs==null)_ar.clockMs=_arRoom.chessClockMs||1800000;
+  _arClockInt=setInterval(function(){
+    // Décrément uniquement pendant mon tour
+    if(_arRoom&&_arRoom._currentPlayer===_arRoom.playerNum){
+      _ar.clockMs=Math.max(0,(_ar.clockMs||0)-1000);
+      _arClockSyncCounter++;
+      // Sync toutes les 5s pour éviter de spam Firestore
+      if(_arClockSyncCounter>=5){_arClockSyncCounter=0;_arSyncToRoom();}
+      if(_ar.clockMs===0){
+        _arStopChessClock();
+        arLogAction('clock_expired',{});
+        alert('⏲ Temps écoulé ! Concession automatique.');
+        arConcede();
+      }
+    }
+    _arRenderClocks();
+  },1000);
+  _arRenderClocks();
+}
+function _arStopChessClock(){if(_arClockInt){clearInterval(_arClockInt);_arClockInt=null;}}
+function _arFmtClock(ms){
+  if(ms==null||ms<0)ms=0;
+  var s=Math.floor(ms/1000);
+  var m=Math.floor(s/60);s=s%60;
+  return m+':'+('0'+s).slice(-2);
+}
+function _arRenderClocks(){
+  if(!_arRoom||!_arRoom.useChessClock)return;
+  // Mon horloge
+  var myEl=document.getElementById('ar-clock-self');
+  if(myEl){
+    var ms=_ar.clockMs!=null?_ar.clockMs:(_arRoom.chessClockMs||0);
+    myEl.textContent='⏲ '+_arFmtClock(ms);
+    myEl.style.color=ms<60000?'#ff6060':(ms<180000?'#ffc848':'#c8a8ff');
+  }
+  // Horloges adverses
+  document.querySelectorAll('.ar-opp-clock[data-pn]').forEach(function(el){
+    var pn=parseInt(el.dataset.pn);
+    var slot=_arRoom.opps&&_arRoom.opps[pn]?_arRoom.opps[pn].slot:null;
+    var ms=slot&&slot.clockMs!=null?slot.clockMs:(_arRoom.chessClockMs||0);
+    el.textContent='⏲ '+_arFmtClock(ms);
+    el.style.color=ms<60000?'#ff6060':(ms<180000?'#ffc848':'var(--tx2)');
+  });
+}
 function _arStartConnUiTick(){
   _arStopConnUiTick();
   _arConnUiInt=setInterval(_arUpdateConnUi,1500);
@@ -12116,6 +12221,7 @@ function _arRenderOpponentBars(){
     el.innerHTML='<span class="ar-conn-dot" data-pn="'+pn+'" title="Connexion" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3c8;box-shadow:0 0 5px currentColor"></span>'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2)">J'+pn+' '+esc(o.slot.name||'')+'</span>'
       +'<span>❤ <span id="ar-op-life-'+pn+'" class="ar-life-val-mini">'+lifeStr+'</span></span>'
+      +(_arRoom.useChessClock?'<span class="ar-opp-clock" data-pn="'+pn+'" style="font-family:monospace;font-size:.7rem;color:var(--tx2)">⏲ —</span>':'')
       +'<span title="Cartes en main">🂠 '+(o.slot.handCount||0)+'</span>'
       +'<span title="Bibliothèque">📚 '+(o.slot.libCount||0)+'</span>'
       +cmdDmgBadge
@@ -12205,6 +12311,8 @@ function _arApplyRemoteState(data){
   _arRoom.numPlayers=N;
   _arRoom.useCmdDmg=!!data.useCmdDmg;
   _arRoom.useStackTimer=data.useStackTimer!==false;
+  _arRoom.useChessClock=!!data.useChessClock;
+  _arRoom.chessClockMs=data.chessClockMs||0;
   var opps=_arGetOpponents(data,pn);
   var anyOpp=opps.length>0;
   // Etat initial : on ignore tant qu'aucune partie n'a ete lancee ni aucun adversaire connu
@@ -12283,7 +12391,10 @@ function _arApplyRemoteState(data){
   opps.forEach(function(o){_arRoom._opHbs[o.pn]=data['p'+o.pn+'_hb']||0;});
   _arUpdateConnUi();
   // Tour courant
-  if(data.currentPlayer){_arSetOnlineTurnIndicator(data.currentPlayer===pn,data.currentPlayer);}
+  if(data.currentPlayer){
+    _arRoom._currentPlayer=data.currentPlayer;
+    _arSetOnlineTurnIndicator(data.currentPlayer===pn,data.currentPlayer);
+  }
   // Anim secousse sur changement de vie de chaque adversaire
   _arRoom._opLives=_arRoom._opLives||{};
   opps.forEach(function(o){
@@ -12313,7 +12424,8 @@ function _arSyncToRoom(){
     upd['p'+pn]={uid:uid,name:PN[0]||'Joueur '+pn,life:_ar.life,
       handCount:_ar.hand.length,libCount:_ar.lib.length,
       cmd:_ar.cmd,cmdCasts:_ar.cmdCasts,
-      cmdDmgDealt:_ar.cmdDmgDealt||{}};
+      cmdDmgDealt:_ar.cmdDmgDealt||{},
+      clockMs:(_ar.clockMs!=null?_ar.clockMs:(_arRoom&&_arRoom.chessClockMs)||0)};
     upd.field=_ar.field;
     upd['p'+pn+'_lands']=_ar.lands||[];
     upd['p'+pn+'_grave']=_ar.grave||[];
@@ -12770,6 +12882,7 @@ function _arActionToText(a){
     case 'defeat':return {cls:'system',text:'☠ '+byName+' est éliminé ('+(p.cause||'?')+')'};
     case 'concede':return {cls:'system',text:'🏳 '+byName+' a concédé la partie'};
     case 'paid':return {cls:a.by===pn?'mine':'opp',by:byName,text:'💰 paie '+esc(p.cost||'?')+' pour '+esc(p.name||'')};
+    case 'clock_expired':return {cls:'system',text:'⏲ Temps écoulé pour '+byName};
     default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
   }
 }
@@ -12848,7 +12961,7 @@ function arLeaveRoom(){
   // Reset pile partagée
   _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
   var ssp=document.getElementById('ar-shared-stack-panel');if(ssp)ssp.classList.remove('on');
-  _arStopHeartbeat();_arStopConnUiTick();
+  _arStopHeartbeat();_arStopConnUiTick();_arStopChessClock();
   _arOpLastHb=0;_arClearSession();
   var dot=document.getElementById('ar-op-conn');if(dot)dot.style.display='none';
   _arSetOnlineBarVisible(false);
