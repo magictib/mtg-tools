@@ -3604,6 +3604,9 @@ body.mana-cursor{cursor:none}
     <button class="ar-btn ar-btn-gold ar-normal-only" onclick="arNextTurn()" title="Détaper tout + piocher + tour suivant">↺ Tour</button>
     <button class="ar-btn ar-normal-only" onclick="arMulligan()" id="ar-mul-btn">⊘ Mul (<span id="ar-mul-n">0</span>)</button>
     <div class="ar-sep ar-normal-only"></div>
+    <!-- Hand sort & field arrange -->
+    <button class="ar-btn" onclick="arCycleHandSort()" id="ar-handsort-btn" title="Tri de la main (cycle : Ordre / CMC / Type / Couleur / A-Z)" style="padding:4px 7px">⇅ Ordre</button>
+    <button class="ar-btn" onclick="arAutoArrangeField()" title="Range automatiquement les permanents par type (créatures, autres)" style="padding:4px 7px">🪜 Ranger</button>
     <!-- Card zoom (always useful) -->
     <button class="ar-btn" onclick="arHandZoom(-15)" title="Réduire les cartes" style="padding:4px 7px">🃏−</button>
     <button class="ar-btn" onclick="arHandZoom(15)" title="Agrandir les cartes" style="padding:4px 7px">🃏+</button>
@@ -10261,12 +10264,42 @@ function arRenderTopbar(){
   }
 }
 
+var _arHandSort='order'; // 'order' | 'name' | 'cmc' | 'color' | 'type'
+function arCycleHandSort(){
+  var modes=['order','cmc','type','color','name'];
+  var idx=modes.indexOf(_arHandSort);
+  _arHandSort=modes[(idx+1)%modes.length];
+  var b=document.getElementById('ar-handsort-btn');
+  if(b){var labels={order:'⇅ Ordre',cmc:'⇅ CMC',type:'⇅ Type',color:'⇅ Couleur',name:'⇅ A-Z'};b.textContent=labels[_arHandSort]||'⇅';}
+  arRenderHand();
+}
+function _arSortedHand(){
+  var arr=_ar.hand.slice();
+  if(_arHandSort==='order')return arr;
+  var colOrder={'W':0,'U':1,'B':2,'R':3,'G':4,'M':5,'C':6};
+  var typeOrder=function(tl){tl=(tl||'').toLowerCase();if(tl.includes('land'))return 9;if(tl.includes('creature'))return 1;if(tl.includes('planeswalker'))return 2;if(tl.includes('artifact'))return 3;if(tl.includes('enchantment'))return 4;if(tl.includes('instant'))return 5;if(tl.includes('sorcery'))return 6;return 7;};
+  arr.sort(function(a,b){
+    var da=_arCardDataCache[(a.name||'').toLowerCase()]||{};
+    var db=_arCardDataCache[(b.name||'').toLowerCase()]||{};
+    if(_arHandSort==='cmc'){var ca=da.cmc||0,cb=db.cmc||0;if(ca!==cb)return ca-cb;}
+    else if(_arHandSort==='type'){var ta=typeOrder(da.type_line),tb=typeOrder(db.type_line);if(ta!==tb)return ta-tb;}
+    else if(_arHandSort==='color'){
+      var coa=(da.colors&&da.colors.length>1)?'M':(da.colors&&da.colors[0])||'C';
+      var cob=(db.colors&&db.colors.length>1)?'M':(db.colors&&db.colors[0])||'C';
+      var va=colOrder[coa]==null?7:colOrder[coa],vb=colOrder[cob]==null?7:colOrder[cob];
+      if(va!==vb)return va-vb;
+    }
+    return (a.name||'').localeCompare(b.name||'');
+  });
+  return arr;
+}
 function arRenderHand(){
   var hand=document.getElementById('ar-hand');if(!hand)return;
   var hint=document.getElementById('ar-field-hint');
   if(hint)hint.style.display=(_ar.field.length||_ar.fieldUsed)?'none':'flex';
   if(!_ar.hand.length){hand.innerHTML='<div style="color:rgba(255,255,255,.25);font-size:.82rem;font-style:italic;margin:auto">Main vide</div>';return;}
-  hand.innerHTML=_ar.hand.map(function(c){
+  var sorted=_arSortedHand();
+  hand.innerHTML=sorted.map(function(c){
     var isSel=_ar.selected===c.id;
     var isMul=_ar.mulPhase&&_ar.mulSel.indexOf(c.id)>=0;
     var cls='ar-hand-card'+(isSel?' ar-sel':'')+(isMul?' ar-mul-sel':'');
@@ -10274,7 +10307,6 @@ function arRenderHand(){
       +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'" loading="lazy">'
       +'</div>';
   }).join('');
-  // Lazy-load images
   hand.querySelectorAll('img').forEach(function(img){_arLoadImg(img.dataset.name,img);});
 }
 
@@ -10330,9 +10362,18 @@ function arRenderField(){
     el.classList.toggle('ar-attacker',(!isOp&&(_ar.attackers||[]).indexOf(c.id)>=0)||isOpAtk);
     el.classList.toggle('ar-blocker',(!isOp&&(_ar.blockers||[]).indexOf(c.id)>=0)||isOpBlk);
     el.classList.toggle('ar-op-combat',isOp&&(isOpAtk||isOpBlk));
-    // Counter badge
+    // Counter badge (+1/+1 + tous marqueurs typés)
     var badge=el.querySelector('.ar-counter');
-    if(c.counters){if(!badge){badge=document.createElement('div');badge.className='ar-counter';el.appendChild(badge);}badge.textContent=(c.counters>0?'+':'')+c.counters+'/+'+(c.counters>0?c.counters:0);}
+    var bits=[];
+    if(c.counters)bits.push('<span>'+(c.counters>0?'+':'')+c.counters+'/+'+c.counters+'</span>');
+    if(c.cntrs){
+      Object.keys(c.cntrs).forEach(function(t){
+        var v=c.cntrs[t];if(!v)return;
+        var icon={'loyalty':'✦','-1/-1':'✕','charge':'⚡','poison':'☠','time':'⏳'}[t]||'•';
+        bits.push('<span style="background:rgba(0,0,0,.7);padding:0 4px;border-radius:3px;margin-left:2px;font-size:.55rem">'+icon+v+' '+t+'</span>');
+      });
+    }
+    if(bits.length){if(!badge){badge=document.createElement('div');badge.className='ar-counter';el.appendChild(badge);}badge.innerHTML=bits.join('');}
     else if(badge)el.removeChild(badge);
   });
   if(typeof _arQueueArrows==='function')_arQueueArrows();
@@ -10508,6 +10549,33 @@ function arUntapAll(){
   _ar.field.forEach(function(c){c.tapped=false;});
   (_ar.lands||[]).forEach(function(c){c.tapped=false;});
   arRenderField();arRenderLands();_arSyncToRoom();
+}
+function arAutoArrangeField(){
+  // Range mes propres permanents par type sur 2 rangées : créatures haut, autres bas
+  var fieldEl=document.getElementById('ar-field');if(!fieldEl)return;
+  var rect=fieldEl.getBoundingClientRect();
+  var myPn=_arRoom?_arRoom.playerNum:0;
+  var mine=_ar.field.filter(function(c){return !c.owner||c.owner===myPn;});
+  if(!mine.length)return;
+  var creatures=[],others=[];
+  mine.forEach(function(c){
+    var d=_arCardDataCache[(c.name||'').toLowerCase()];
+    var tl=(d&&d.type_line||'').toLowerCase();
+    if(tl.includes('creature')||tl.includes('summon'))creatures.push(c);
+    else others.push(c);
+  });
+  var cardW=82,cardH=115,gap=8;
+  // Y des rangées : créatures en haut de MA moitié (~55% de la hauteur), autres juste en dessous
+  var rowCreatY=Math.floor(rect.height*0.30);
+  var rowOtherY=Math.floor(rect.height*0.55);
+  var placeRow=function(arr,y){
+    var totalW=arr.length*cardW+(arr.length-1)*gap;
+    var startX=Math.max(8,Math.floor((rect.width-totalW)/2));
+    arr.forEach(function(c,i){c.x=startX+i*(cardW+gap);c.y=y;c.tapped=c.tapped;});
+  };
+  placeRow(creatures,rowCreatY);
+  placeRow(others,rowOtherY);
+  arRenderField();_arSyncToRoom();
 }
 function arDoTap(id,zone){
   if(zone==='field'){
@@ -10858,6 +10926,22 @@ function arAdjCounter(id,n){
   var c=_ar.field.find(function(c){return c.id===id;});
   if(!c)return;c.counters=(c.counters||0)+n;arRenderField();_arSyncToRoom();
 }
+function arAdjTypedCounter(id,type,delta){
+  var c=_ar.field.find(function(c){return c.id===id;});
+  if(!c)return;
+  c.cntrs=c.cntrs||{};
+  c.cntrs[type]=Math.max(0,(c.cntrs[type]||0)+delta);
+  if(c.cntrs[type]===0)delete c.cntrs[type];
+  arRenderField();_arSyncToRoom();
+}
+function arPromptCustomCounter(id){
+  var name=prompt('Nom du marqueur (ex : poison, time, fuse...) :');
+  if(!name)return;
+  name=name.trim().toLowerCase();if(!name)return;
+  var n=parseInt(prompt('Combien ? (valeur positive ou négative, défaut 1)','1'));
+  if(isNaN(n))n=1;
+  arAdjTypedCounter(id,name,n);
+}
 
 function arCastCommander(){
   if(!_ar.cmd)return;
@@ -11116,6 +11200,11 @@ function arToggleCardMenu(el){
     html+=btn('arTap(\''+id+'\')','⟳ Taper / Détaper');
     html+=btn('arAdjCounter(\''+id+'\',1)','＋ Compteur +1/+1');
     html+=btn('arAdjCounter(\''+id+'\',-1)','－ Compteur −1/−1');
+    html+=btn('arAdjTypedCounter(\''+id+'\',\'loyalty\',1)','✦ +1 loyauté');
+    html+=btn('arAdjTypedCounter(\''+id+'\',\'loyalty\',-1)','✦ −1 loyauté');
+    html+=btn('arAdjTypedCounter(\''+id+'\',\'-1/-1\',1)','✕ +1 marqueur −1/−1');
+    html+=btn('arAdjTypedCounter(\''+id+'\',\'charge\',1)','⚡ +1 charge');
+    html+=btn('arPromptCustomCounter(\''+id+'\')','＋… Marqueur personnalisé');
     html+=sep+sec('Combat');
     html+=btn('arToggleAttacker(\''+id+'\')',isAtk?'🔥 Retirer attaquant':'🔥 Déclarer attaquant',isAtk?'ar-cmenu-attacker-on':'');
     html+=btn('arToggleBlocker(\''+id+'\')',isBlk?'🌊 Retirer bloqueur':'🌊 Déclarer bloqueur',isBlk?'ar-cmenu-blocker-on':'');
