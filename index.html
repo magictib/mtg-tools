@@ -9498,6 +9498,79 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
   html+='</div></div>';
   return html;
 }
+// ===== ROBUST-1 : Backup + activity log =====
+var _ACT_LOG_KEY='manalab_activity';
+var _ACT_LOG_MAX=200;
+function actLog(type,detail){
+  try{
+    var arr=JSON.parse(localStorage.getItem(_ACT_LOG_KEY)||'[]');
+    arr.push({ts:Date.now(),type:type,detail:detail||''});
+    if(arr.length>_ACT_LOG_MAX)arr=arr.slice(-_ACT_LOG_MAX);
+    localStorage.setItem(_ACT_LOG_KEY,JSON.stringify(arr));
+  }catch(e){}
+}
+function actLogShow(){
+  var arr=[];try{arr=JSON.parse(localStorage.getItem(_ACT_LOG_KEY)||'[]');}catch(e){}
+  if(!arr.length){mlAlert('Journal','Aucune activité enregistrée pour l\'instant.');return;}
+  var html='<div style="max-height:60vh;overflow-y:auto;text-align:left">'
+    +'<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;text-align:center">'+arr.length+' événement(s) récent(s) — local uniquement</div>'
+    +arr.slice().reverse().map(function(e){
+      var d=new Date(e.ts);
+      var ds=d.toLocaleDateString('fr-FR')+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);
+      return '<div style="padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.06);font-size:.78rem;display:flex;gap:10px"><span style="color:var(--tx3);font-family:monospace;font-size:.7rem;flex-shrink:0">'+ds+'</span><span style="color:var(--tx2);flex-shrink:0">'+esc(e.type)+'</span><span style="color:var(--tx);flex:1">'+esc(e.detail||'')+'</span></div>';
+    }).join('')
+    +'</div><div style="margin-top:10px;text-align:center"><button class="btn btnsm" onclick="if(confirm(\'Effacer le journal ?\')){localStorage.removeItem(\''+_ACT_LOG_KEY+'\');_mlClose(null);mlToast(\'Journal effacé\');}">🗑 Effacer le journal</button></div>';
+  mlAlert('📋 Journal d\'activité',html,{html:true,okLabel:'Fermer'});
+}
+function backupDownload(){
+  var bundle={
+    version:1,
+    exportedAt:new Date().toISOString(),
+    user:{uid:userId||'?',name:PN&&PN[0]||'?'},
+    decks:typeof decks==='object'?decks:{},
+    purchaseLists:typeof _purchaseLists==='object'?_purchaseLists:{},
+    profs:typeof profs!=='undefined'?profs:[],
+    PN:typeof PN!=='undefined'?PN:[],
+    activity:(function(){try{return JSON.parse(localStorage.getItem(_ACT_LOG_KEY)||'[]');}catch(e){return [];}})()
+  };
+  var json=JSON.stringify(bundle,null,2);
+  var blob=new Blob([json],{type:'application/json'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='manalab-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);if(a.parentNode)a.parentNode.removeChild(a);},100);
+  actLog('backup','Backup téléchargé ('+Object.keys(bundle.decks).length+' decks, '+Object.keys(bundle.purchaseLists).length+' listes)');
+  mlToast('💾 Backup téléchargé');
+}
+function backupRestore(){
+  mlConfirm('↻ Restaurer un backup','⚠ Attention : la restauration RAJOUTE les decks/listes du backup à ceux existants (pas d\'écrasement). Confirme ?',{danger:true,okLabel:'Choisir un fichier'}).then(function(ok){
+    if(!ok)return;
+    var inp=document.createElement('input');inp.type='file';inp.accept='application/json,.json';
+    inp.onchange=function(e){
+      var f=e.target.files[0];if(!f)return;
+      var r=new FileReader();
+      r.onload=function(){
+        try{
+          var b=JSON.parse(r.result);
+          if(!b||!b.version){mlAlert('Erreur','Fichier de backup invalide.');return;}
+          var added={decks:0,lists:0};
+          if(b.decks&&typeof decks==='object'){
+            Object.keys(b.decks).forEach(function(id){
+              if(!decks[id]){decks[id]=b.decks[id];added.decks++;if(typeof saveDecks==='function')saveDecks();}
+            });
+          }
+          actLog('restore','Restauré '+added.decks+' decks et '+added.lists+' listes');
+          mlAlert('✓ Restauration terminée','Ajouté : '+added.decks+' deck(s), '+added.lists+' liste(s).\nLes éléments existants n\'ont pas été touchés.');
+          if(typeof renderBldDecks==='function')renderBldDecks();
+        }catch(e){mlAlert('Erreur',e.message);}
+      };
+      r.readAsText(f);
+    };
+    inp.click();
+  });
+}
+
 // ===== QOL-1 : Quick search palette (Ctrl/⌘+K) =====
 var _qkOpen=false;
 function qkBuildItems(){
@@ -9527,6 +9600,9 @@ function qkBuildItems(){
   items.push({kind:'action',label:'🎁 Wishlist matching',sub:'Action',action:function(){if(typeof mlScanWishlistMatching==='function')mlScanWishlistMatching();}});
   items.push({kind:'action',label:'🛒 Export Cardmarket',sub:'Action',action:function(){if(typeof purExportCardmarket==='function')purExportCardmarket();}});
   items.push({kind:'action',label:'🎨 Changer le thème',sub:'Préférences',action:function(){if(typeof toggleHub==='function')toggleHub();}});
+  items.push({kind:'action',label:'💾 Télécharger backup',sub:'Action — sauvegarde JSON locale',action:function(){if(typeof backupDownload==='function')backupDownload();}});
+  items.push({kind:'action',label:'↻ Restaurer backup',sub:'Action — depuis fichier JSON',action:function(){if(typeof backupRestore==='function')backupRestore();}});
+  items.push({kind:'action',label:'📋 Journal d\'activité',sub:'Voir les actions récentes',action:function(){if(typeof actLogShow==='function')actLogShow();}});
   return items;
 }
 function _qkRender(query){
