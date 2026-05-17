@@ -9544,6 +9544,82 @@ function backupDownload(){
   actLog('backup','Backup téléchargé ('+Object.keys(bundle.decks).length+' decks, '+Object.keys(bundle.purchaseLists).length+' listes)');
   mlToast('💾 Backup téléchargé');
 }
+// ===== COLL-1 : Valorisation sur la durée =====
+var _COLL_VALUE_KEY='manalab_value_hist';
+function collSnapshotValue(){
+  // Compute current value via _purPriceCache (déjà chargé partiellement)
+  if(typeof profs==='undefined'||!profs[0]||!profs[0].length)return;
+  var rows=profs[0];
+  var allNames=[];
+  rows.forEach(function(c){var n=typeof c==='string'?c.split('||')[0]:c.name;if(n&&allNames.indexOf(n)<0)allNames.push(n);});
+  _purFetchPricesFor(allNames.map(function(n){return{name:n,nl:n.toLowerCase()};}),function(){
+    var total=0,known=0;
+    rows.forEach(function(c){
+      var name=typeof c==='string'?c.split('||')[0]:c.name;
+      var qty=typeof c==='object'?(c.qty||1):1;
+      var p=_purPriceCache[(name||'').toLowerCase()];
+      if(p!=null){total+=p*qty;known++;}
+    });
+    if(!total)return;
+    var hist=[];try{hist=JSON.parse(localStorage.getItem(_COLL_VALUE_KEY)||'[]');}catch(e){}
+    var today=new Date().toISOString().slice(0,10);
+    var last=hist[hist.length-1];
+    if(last&&last.date===today){last.value=total;last.cards=rows.length;last.known=known;}
+    else{hist.push({date:today,value:total,cards:rows.length,known:known});}
+    if(hist.length>365)hist=hist.slice(-365);
+    try{localStorage.setItem(_COLL_VALUE_KEY,JSON.stringify(hist));}catch(e){}
+  });
+}
+function collShowValueHistory(){
+  var hist=[];try{hist=JSON.parse(localStorage.getItem(_COLL_VALUE_KEY)||'[]');}catch(e){}
+  if(hist.length<2){
+    mlAlert('Valorisation','Pas assez d\'historique pour tracer une courbe.\n\nClic sur "📸 Snapshot maintenant" pour démarrer le tracking.',{html:false});
+    return;
+  }
+  var W=520,H=200,padL=40,padB=24,padR=10,padT=10;
+  var values=hist.map(function(h){return h.value;});
+  var max=Math.max.apply(null,values);
+  var min=Math.min.apply(null,values);
+  var range=max-min||1;
+  var n=hist.length;
+  var pts=hist.map(function(h,i){
+    var x=padL+i/(n-1)*(W-padL-padR);
+    var y=H-padB-((h.value-min)/range)*(H-padB-padT);
+    return x.toFixed(1)+','+y.toFixed(1);
+  });
+  var current=hist[hist.length-1];
+  var first=hist[0];
+  var delta=current.value-first.value;
+  var pct=first.value?((delta/first.value)*100).toFixed(1):'?';
+  var color=delta>0?'#90e8c0':(delta<0?'#ff8080':'#c8a8ff');
+  var svg='<svg width="100%" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="background:rgba(0,0,0,.3);border-radius:8px;display:block">';
+  // Aire
+  svg+='<polyline fill="rgba(180,140,255,.18)" stroke="none" points="'+padL+','+(H-padB)+' '+pts.join(' ')+' '+(W-padR)+','+(H-padB)+'"/>';
+  // Courbe
+  svg+='<polyline fill="none" stroke="'+color+'" stroke-width="2" points="'+pts.join(' ')+'"/>';
+  // Repères Y
+  for(var k=0;k<=4;k++){
+    var v=min+(range*k/4);
+    var y=H-padB-(k/4)*(H-padB-padT);
+    svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="rgba(255,255,255,.05)"/>';
+    svg+='<text x="3" y="'+(y+3)+'" font-size="9" fill="#888">'+v.toFixed(0)+'€</text>';
+  }
+  svg+='<text x="'+padL+'" y="'+(H-5)+'" font-size="9" fill="#888">'+esc(first.date)+'</text>';
+  svg+='<text x="'+(W-padR-50)+'" y="'+(H-5)+'" font-size="9" fill="#888">'+esc(current.date)+'</text>';
+  svg+='</svg>';
+  var html='<div style="text-align:left">'
+    +'<div style="display:flex;gap:14px;justify-content:center;margin-bottom:10px;font-size:.82rem">'
+    +'<span style="color:var(--tx2)">Actuelle : <strong style="color:var(--gold2)">'+current.value.toFixed(2)+'€</strong></span>'
+    +'<span style="color:var(--tx2)">Évolution : <strong style="color:'+color+'">'+(delta>0?'+':'')+delta.toFixed(2)+'€ ('+(pct>0?'+':'')+pct+'%)</strong></span>'
+    +'<span style="color:var(--tx3);font-size:.7rem">'+hist.length+' point(s)</span>'
+    +'</div>'+svg
+    +'<div style="margin-top:10px;text-align:center"><button class="btn btnsm" onclick="collSnapshotValue();mlToast(\'📸 Snapshot pris\')">📸 Snapshot maintenant</button> <button class="btn btnsm" onclick="if(confirm(\'Effacer l\\\'historique ?\')){localStorage.removeItem(\''+_COLL_VALUE_KEY+'\');_mlClose(null);mlToast(\'Historique effacé\');}">🗑 Reset historique</button></div>'
+    +'</div>';
+  mlAlert('📈 Valorisation de la collection',html,{html:true,okLabel:'Fermer'});
+}
+// Auto-snapshot 1× par jour si la collection est chargée
+setTimeout(function(){if(typeof profs!=='undefined'&&profs[0]&&profs[0].length)collSnapshotValue();},5000);
+
 function collExportAccounting(){
   if(typeof profs==='undefined'||!profs[0]||!profs[0].length){mlAlert('Export','Collection vide.');return;}
   // Fetch prix Scryfall pour ma collection si manquant
@@ -9678,6 +9754,7 @@ function qkBuildItems(){
   items.push({kind:'action',label:'↻ Restaurer backup',sub:'Action — depuis fichier JSON',action:function(){if(typeof backupRestore==='function')backupRestore();}});
   items.push({kind:'action',label:'📋 Journal d\'activité',sub:'Voir les actions récentes',action:function(){if(typeof actLogShow==='function')actLogShow();}});
   items.push({kind:'action',label:'💰 Export comptable CSV',sub:'Collection avec valeur Scryfall',action:function(){if(typeof collExportAccounting==='function')collExportAccounting();}});
+  items.push({kind:'action',label:'📈 Valorisation de la collection',sub:'Courbe sur la durée',action:function(){if(typeof collShowValueHistory==='function')collShowValueHistory();}});
   items.push({kind:'action',label:'🌐 Importer un deck (URL Moxfield/Archidekt)',sub:'Action',action:function(){if(typeof collImportFromUrl==='function')collImportFromUrl();}});
   return items;
 }
