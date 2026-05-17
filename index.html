@@ -7543,6 +7543,22 @@ var dViewMode='list', dImgCache={};
 var _dPrintingsCache={};  // nl → [{set, num, image, price, set_name, lang}]
 var _dVersionPick={};     // nl → index dans le tableau printings
 var _dPrintingsLoading={}; // nl → true pendant fetch
+// Compte les exemplaires possédés par un profil pour un printing précis (name+set+num)
+function _dOwnedForPrint(name,set,num,profIdx){
+  var pm=(typeof profs!=='undefined'&&profs[profIdx])?profs[profIdx]:null;
+  if(!pm||!pm.length||typeof pm[0]==='string')return 0;
+  var nLow=stripDFC(name||'').toLowerCase();
+  var sLow=(set||'').toLowerCase().trim();
+  var numLow=(num||'').toLowerCase().trim();
+  var total=0;
+  pm.forEach(function(c){
+    if(stripDFC(c.name||'').toLowerCase()!==nLow)return;
+    if((c.set||'').toLowerCase().trim()!==sLow)return;
+    if((c.num||'').toLowerCase().trim()!==numLow)return;
+    total+=(c.qty||1);
+  });
+  return total;
+}
 function _dFetchPrintings(name,nl,cb){
   if(_dPrintingsCache[nl]||_dPrintingsLoading[nl]){cb&&cb();return;}
   _dPrintingsLoading[nl]=true;
@@ -7621,6 +7637,36 @@ function dCycleVersion(nl,delta){
           wrap.appendChild(badge);
         }
         badge.textContent=p.set+' #'+(p.num||'?')+' · '+idxDisp+'/'+totalPrints;
+      }
+      // 4bis) Met à jour le prix + statut possession + bordure couleur en fonction de la version
+      var root=clone.closest('.ml-deck-card');
+      if(root){
+        // Calcul possession spécifique à ce printing pour le profil propriétaire courant
+        var ownProf=(typeof dOwner!=='undefined'?dOwner:0);
+        var ownedQty=_dOwnedForPrint(card.name,p.set,p.num,ownProf);
+        // Soustraction des usages deck (ownerUsage) sur cette carte
+        var used=0;
+        try{
+          var uMap=(typeof getDeckUsageByPriority==='function')?getDeckUsageByPriority(ownProf,actDeck):null;
+          if(uMap){var ue=uMap.get(nl);if(ue)used=ue.qty||0;}
+        }catch(e){}
+        var fi=Math.max(0,ownedQty-used);
+        var newBc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
+        // Bordure de l'image
+        var st=clone.getAttribute('style')||'';
+        clone.setAttribute('style',st.replace(/border:2px solid [^;]+;/,'border:2px solid '+newBc+';'));
+        // Statut texte
+        var stEl=root.querySelector('[data-ml-status]');
+        if(stEl){
+          stEl.innerHTML=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
+        }
+        // Prix
+        var prEl=root.querySelector('[data-ml-price]');
+        if(prEl){
+          var newPrice=(p.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[nl])||0;
+          if(newPrice>0){prEl.setAttribute('style','color:var(--gold2)');prEl.textContent=newPrice.toFixed(2)+'€';}
+          else{prEl.setAttribute('style','color:var(--tx3)');prEl.textContent='—';}
+        }
       }
       // 5) Garde-fou : si quelque chose réussit malgré tout à revertir le src dans la fenêtre 200-1500ms,
       //    on le force à nouveau. Trois checks pour couvrir batch localize (250ms debounce + fetch).
@@ -7915,11 +7961,15 @@ function renderDeck(){
       html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
       sc.forEach(function(card){
         var k=getKey(card);
-        var fi=ownerFreeR(card);
+        // Possession spécifique à la version (set+num) si l'utilisateur a choisi une version
+        var ownedThisPrint=card.set?(_dOwnedForPrint(card.name,card.set,card.num,dOwner)):null;
+        var fi=ownedThisPrint!==null?Math.max(0,ownedThisPrint-((_owUsgR.get(card.nl)||{qty:0}).qty)):ownerFreeR(card);
         var bc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
         var statusTxt=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
         var img=dImgCache[card.nl];
-        var cardPrice=allPriceMap[card.nl]||0;
+        // Prix spécifique à la version si dispo (sinon fallback générique)
+        var pickedPrint=card.set&&_dPrintingsCache[card.nl]?_dPrintingsCache[card.nl][_dVersionPick[card.nl]||0]:null;
+        var cardPrice=(pickedPrint&&pickedPrint.price)||allPriceMap[card.nl]||0;
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
         _zoomList.push({nl:card.nl,name:card.name});var zi=_zoomList.length-1;
         var nlJs=escJs(card.nl);
@@ -7930,7 +7980,7 @@ function renderDeck(){
           verBadge='<div title="Version sélectionnée" style="position:absolute;bottom:6px;left:6px;right:6px;text-align:center;background:rgba(0,0,0,.78);color:#fff;border:1px solid rgba(201,168,76,.55);font-size:.6rem;padding:2px 4px;border-radius:4px;font-family:monospace;pointer-events:none">'+esc(card.set)+' #'+esc(card.num||'?')+(typeof tot==='number'?' · '+idx+'/'+tot:'')+'</div>';
         }
         var _curLang=(typeof _userLang!=='undefined'?_userLang:'en');
-        html+='<div style="width:180px;text-align:center">'
+        html+='<div class="ml-deck-card" data-card-nl="'+esc(card.nl)+'" style="width:180px;text-align:center">'
           +'<div class="ml-ver-wrap" style="position:relative;width:180px">'
           +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" data-no-localize="1" data-localized-to="'+esc(_curLang)+'" data-original-src="'+img+'" class="cz-clickable ml-img-loading" onload="this.classList.remove(\'ml-img-loading\')" onerror="this.classList.add(\'ml-img-loading\')" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:block;object-fit:cover">'
                :'<div class="cz-clickable ml-img-loading" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:flex;align-items:flex-end;justify-content:center;font-size:.66rem;color:var(--tx2);padding:6px;text-align:center" title="'+esc(card.name)+'"><span style="background:rgba(0,0,0,.6);padding:2px 6px;border-radius:4px">'+esc(card.name)+'</span></div>')
@@ -7940,8 +7990,8 @@ function renderDeck(){
           +'</div>'
           +'<div style="font-size:.65rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
           +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;font-size:.62rem;padding:0 2px">'
-          +statusTxt
-          +(cardPrice>0?'<span style="color:var(--gold2)">'+cardPrice.toFixed(2)+'€</span>':'<span style="color:var(--tx3)">—</span>')
+          +'<span data-ml-status="1">'+statusTxt+'</span>'
+          +(cardPrice>0?'<span data-ml-price="1" style="color:var(--gold2)">'+cardPrice.toFixed(2)+'€</span>':'<span data-ml-price="1" style="color:var(--tx3)">—</span>')
           +'<button class="dadd-btn'+(inCustom?' in':'')+'" style="width:18px;height:18px;font-size:11px" onclick="addToCustomByIdx('+dCards.indexOf(card)+');renderDeck()" title="Ajouter au panier">+</button>'
           +'</div>'
           +'</div>';
