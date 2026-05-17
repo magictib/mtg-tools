@@ -2863,6 +2863,7 @@ body.mana-cursor{cursor:none}
     </select>
       <button class="btn btnsm" onclick="bldVerifyLegality()" title="Vérifier la légalité du deck dans le format choisi (bans + identité couleur Commander + singleton)" style="font-size:.74rem;white-space:nowrap">✅ Vérifier</button>
       <button class="btn btnsm" onclick="bldShowDeckStats()" title="Graphiques : courbe de mana, distribution des couleurs et types de cartes" style="font-size:.74rem;white-space:nowrap">📊 Stats</button>
+      <button class="btn btnsm" onclick="bldOpenCompareDeck()" title="Comparer deux decks (uniques à chacun + communes)" style="font-size:.74rem;white-space:nowrap">🔄 Comparer</button>
     </div>
     <div style="display:flex;gap:6px">
       <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
@@ -18036,6 +18037,65 @@ function bldGetBanStatus(card){
   return'ok';
 }
 // ===== VÉRIF LÉGALITÉ DECK (format + identité Commander) =====
+// ===== DECK-4 : Comparaison de 2 decks (diff) =====
+function bldOpenCompareDeck(){
+  var ids=Object.keys(decks||{});
+  if(ids.length<2){mlAlert('Comparaison','Il te faut au moins 2 decks pour comparer.');return;}
+  var optsHtml=ids.map(function(id){var nm=decks[id].name||'(sans nom)';return '<option value="'+id+'">'+esc(nm)+'</option>';}).join('');
+  var content='<div style="text-align:left">'
+    +'<div style="display:flex;gap:8px;margin-bottom:12px">'
+    +'<select id="ml-cmp-a" style="flex:1;padding:6px;background:rgba(0,0,0,.4);border:1px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.85rem">'+optsHtml+'</select>'
+    +'<span style="align-self:center;color:var(--tx3)">vs</span>'
+    +'<select id="ml-cmp-b" style="flex:1;padding:6px;background:rgba(0,0,0,.4);border:1px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.85rem">'+optsHtml+'</select>'
+    +'</div>'
+    +'<button class="btn btnp" onclick="_bldRunCompare()" style="width:100%">🔄 Comparer</button>'
+    +'<div id="ml-cmp-result" style="margin-top:14px"></div>'
+    +'</div>';
+  mlAlert('🔄 Comparer 2 decks',content,{html:true,okLabel:'Fermer'});
+  // Pré-sélectionne A=courant et B=2ème
+  setTimeout(function(){
+    var a=document.getElementById('ml-cmp-a'),b=document.getElementById('ml-cmp-b');
+    if(a&&bldCurDeckId&&decks[bldCurDeckId])a.value=bldCurDeckId;
+    if(b&&ids.length>1){var others=ids.filter(function(x){return x!==a.value;});b.value=others[0]||ids[1];}
+  },80);
+}
+function _bldRunCompare(){
+  var ida=(document.getElementById('ml-cmp-a')||{}).value;
+  var idb=(document.getElementById('ml-cmp-b')||{}).value;
+  if(!ida||!idb||ida===idb){var r=document.getElementById('ml-cmp-result');if(r)r.innerHTML='<div style="color:#ff9090;text-align:center;font-size:.82rem">Choisis deux decks différents.</div>';return;}
+  var ca=parseList(decks[ida].rawName||'');
+  var cb=parseList(decks[idb].rawName||'');
+  var mapA={},mapB={};
+  ca.forEach(function(c){mapA[c.nl]=(mapA[c.nl]||{qty:0,name:c.name});mapA[c.nl].qty+=c.qty||1;});
+  cb.forEach(function(c){mapB[c.nl]=(mapB[c.nl]||{qty:0,name:c.name});mapB[c.nl].qty+=c.qty||1;});
+  var onlyA=[],onlyB=[],both=[];
+  Object.keys(mapA).forEach(function(nl){
+    if(mapB[nl]){var qA=mapA[nl].qty,qB=mapB[nl].qty;both.push({nl:nl,name:mapA[nl].name,qA:qA,qB:qB,diff:qA-qB});}
+    else onlyA.push({nl:nl,name:mapA[nl].name,qty:mapA[nl].qty});
+  });
+  Object.keys(mapB).forEach(function(nl){if(!mapA[nl])onlyB.push({nl:nl,name:mapB[nl].name,qty:mapB[nl].qty});});
+  onlyA.sort(function(a,b){return a.name.localeCompare(b.name);});
+  onlyB.sort(function(a,b){return a.name.localeCompare(b.name);});
+  both.sort(function(a,b){return a.name.localeCompare(b.name);});
+  var nameA=decks[ida].name||'A',nameB=decks[idb].name||'B';
+  var html='<div style="max-height:50vh;overflow-y:auto">'
+    +'<div style="display:flex;gap:8px;font-size:.74rem;color:var(--tx3);margin-bottom:8px;justify-content:space-around">'
+    +'<span>📊 <strong style="color:#ff9090">'+onlyA.length+'</strong> uniques à A</span>'
+    +'<span><strong style="color:#aaa">'+both.length+'</strong> communes</span>'
+    +'<span><strong style="color:#90e8c0">'+onlyB.length+'</strong> uniques à B</span>'
+    +'</div>';
+  function listBlock(title,arr,color,fmt){
+    if(!arr.length)return '';
+    return '<details style="margin-bottom:8px"><summary style="cursor:pointer;color:'+color+';font-size:.82rem;padding:4px 0">'+title+' ('+arr.length+')</summary>'
+      +'<ul style="margin:4px 0;padding-left:18px;font-size:.74rem;color:var(--tx2);line-height:1.55">'+arr.map(fmt).join('')+'</ul></details>';
+  }
+  html+=listBlock('🔻 Uniques à '+esc(nameA),onlyA,'#ff9090',function(c){return '<li>'+c.qty+'× '+esc(c.name)+'</li>';});
+  html+=listBlock('🔺 Uniques à '+esc(nameB),onlyB,'#90e8c0',function(c){return '<li>'+c.qty+'× '+esc(c.name)+'</li>';});
+  html+=listBlock('= Communes (qty A / B)',both,'#aaa',function(c){var diffStr=c.diff===0?'':(c.diff>0?' <span style="color:#ff9090">(A +'+c.diff+')</span>':' <span style="color:#90e8c0">(B +'+(-c.diff)+')</span>');return '<li>'+esc(c.name)+' — '+c.qA+' / '+c.qB+diffStr+'</li>';});
+  html+='</div>';
+  var r=document.getElementById('ml-cmp-result');if(r)r.innerHTML=html;
+}
+
 // ===== DECK-3 : graphes mana curve / couleur / type =====
 function bldShowDeckStats(){
   if(!bldMain||!bldMain.length){mlAlert('Stats','Aucune carte dans le deck.');return;}
