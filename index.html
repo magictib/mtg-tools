@@ -8946,6 +8946,41 @@ function purSetViewMode(mode){
   document.querySelectorAll('.pur-viewmode').forEach(function(b){b.classList.toggle('active',b.dataset.mode===_purViewMode);});
   renderPurchaseMgr();
 }
+// Cache des Maps de possession pour éviter de les recalculer à chaque ligne
+var _purPossessCache=null;
+var _purUsageCache={};
+function _purInvalidatePossessCache(){_purPossessCache=null;_purUsageCache={};}
+function _purGetOwnPossess(){
+  if(_purPossessCache)return _purPossessCache;
+  if(typeof getPMap==='function')_purPossessCache=getPMap(0);
+  else _purPossessCache=new Map();
+  return _purPossessCache;
+}
+function _purGetOwnUsage(nl){
+  if(_purUsageCache[nl]!==undefined)return _purUsageCache[nl];
+  var u=0;
+  if(typeof _friendTotalUsage==='function')u=_friendTotalUsage(0,nl)||0;
+  _purUsageCache[nl]=u;
+  return u;
+}
+function _purPossessBadge(card){
+  var nl=(card.nl||'').toLowerCase();
+  if(!nl)return '';
+  var owned=_purGetOwnPossess().get(nl)||0;
+  var need=card.qty||1;
+  if(owned===0){
+    return '<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:5px;background:rgba(60,60,80,.4);border:1px solid rgba(140,140,160,.3);color:var(--tx3);font-size:.66rem;white-space:nowrap" title="Pas dans ta collection">⚫ Pas chez toi</span>';
+  }
+  var used=_purGetOwnUsage(nl);
+  var free=Math.max(0,owned-used);
+  if(free>=need){
+    return '<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:5px;background:rgba(20,80,40,.4);border:1px solid rgba(80,200,120,.5);color:#90e8c0;font-size:.66rem;white-space:nowrap" title="'+owned+' en collection, '+used+' engagée(s) dans tes decks → '+free+' libre(s)">🟢 '+free+'/'+owned+' dispo</span>';
+  }
+  if(free>0){
+    return '<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:5px;background:rgba(80,60,15,.4);border:1px solid rgba(255,180,60,.5);color:#ffc848;font-size:.66rem;white-space:nowrap" title="'+owned+' en collection, '+used+' engagée(s) → seulement '+free+' libre(s) sur '+need+' demandée(s)">🟡 '+free+'/'+need+' dispo</span>';
+  }
+  return '<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:5px;background:rgba(80,30,30,.4);border:1px solid rgba(220,100,100,.5);color:#ff9090;font-size:.66rem;white-space:nowrap" title="'+owned+' en collection mais '+used+' engagée(s) dans tes decks (toutes utilisées)">🟡 0/'+owned+' (toutes engagées)</span>';
+}
 function _purIsLenderMe(card){
   if(card.lender===userId)return true;
   if(!card.lenderName)return false;
@@ -9005,6 +9040,7 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
         +'<div style="font-size:.82rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</strong></div>'
         +(c.lenderName?'<div style="font-size:.65rem;color:var(--tx3)">→ '+esc(c.lenderName)+'</div>':'')
         +'</div>'
+        +'<div style="flex-shrink:0">'+_purPossessBadge(c)+'</div>'
         +'<div style="display:flex;gap:4px;flex-shrink:0">'+actionsBuilder(c,sid)+'</div>'
         +'</div>';
       _zoomList.push({nl:c.nl,name:c.name});
@@ -9192,6 +9228,7 @@ function renderPurchaseMgr(){
   }
   // Mode Action Center : vue par rôle
   if(_purViewMode==='action'){
+    _purInvalidatePossessCache();
     wrap.innerHTML=_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
     purFilterDecks();
     return;
