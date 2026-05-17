@@ -4306,7 +4306,11 @@ function _onUserRole(user,role){
       localStorage.setItem('mtg_last_uid',userId);
     }
     _loadFsPrefs(function(){
-      loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();loadFriends();loadPurchaseLists();
+      loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
+      // Charge d'abord la liste des amis retirés (cloud) puis charge les amis (évite la
+      // ré-injection par les vieilles notifications friend_accepted)
+      _loadRemovedFriendsFromCloud().then(function(){loadFriends();});
+      loadPurchaseLists();
       _loadSharedWorkerUrl();
       fetchRules();
     });
@@ -4763,6 +4767,13 @@ function declineFriendRequest(notifId){
 
 function removeFriend(friendUid){
   if(!confirm('Retirer cet ami ?'))return;
+  // 1. Marque comme retiré (local + cloud) AVANT la suppression Firestore pour
+  // empêcher la re-création automatique par les notifications encore en vol
+  _removedFriendUids.add(friendUid);
+  try{localStorage.setItem('mtg_removed_friends',JSON.stringify([..._removedFriendUids]));}catch(e){}
+  // Persiste aussi côté cloud pour résister à un clear localStorage / autre device
+  db.collection('users').doc(userId).set({removedFriends:firebase.firestore.FieldValue.arrayUnion(friendUid)},{merge:true}).catch(function(){});
+  // 2. Supprime les 2 entrées d'amitié réciproques
   var batch=db.batch();
   batch.delete(db.collection('users').doc(userId).collection('friends').doc(friendUid));
   batch.delete(db.collection('users').doc(friendUid).collection('friends').doc(userId));
@@ -4774,13 +4785,31 @@ function removeFriend(friendUid){
       if(_epSlots[ctx])_epSlots[ctx]=_epSlots[ctx].filter(function(ep){return ep.uid!==friendUid;});
     });
     _saveEpSlots();
-    _removedFriendUids.add(friendUid);
-    try{localStorage.setItem('mtg_removed_friends',JSON.stringify([..._removedFriendUids]));}catch(e){}
     _refreshTradeAndGame();
     renderProfSlots('coll','prof-grid-coll');
     renderProfSlots('deck','prof-grid-deck');
     _renderBuildCollBtns();
-  });
+  }).catch(function(e){console.warn('removeFriend',e);});
+  // 3. Dismiss toutes les notifications friend_accepted / friend_request liées à cet ami
+  // pour qu'elles ne déclenchent plus l'auto-add
+  db.collection('notifications')
+    .where('targetUid','==',userId)
+    .where('fromUid','==',friendUid)
+    .get().then(function(snap){
+      snap.forEach(function(d){
+        d.ref.update({dismissedBy:firebase.firestore.FieldValue.arrayUnion(userId)}).catch(function(){});
+      });
+    }).catch(function(){});
+}
+// Charge _removedFriendUids depuis Firestore au login (en plus du localStorage)
+function _loadRemovedFriendsFromCloud(){
+  if(!userId)return Promise.resolve();
+  return db.collection('users').doc(userId).get().then(function(doc){
+    var d=doc.data()||{};
+    var arr=d.removedFriends||[];
+    arr.forEach(function(uid){_removedFriendUids.add(uid);});
+    try{localStorage.setItem('mtg_removed_friends',JSON.stringify([..._removedFriendUids]));}catch(e){}
+  }).catch(function(){});
 }
 
 // ===== NOTIFICATIONS =====
@@ -4798,15 +4827,21 @@ function initNotifications(uid){
       // L'expéditeur de la demande s'auto-ajoute l'ami quand sa demande est acceptée
       _notifDocs.forEach(function(n){
         if(n.type==='friend_accepted'&&n.targetUid===_currentUid&&n.fromUid&&n.fromUid!==_currentUid){
-          if(!_friends.some(function(f){return f.uid===n.fromUid;})&&!_removedFriendUids.has(n.fromUid)){
-            _friends.push({uid:n.fromUid,name:n.fromName||n.fromUid});
-            db.collection('users').doc(_currentUid).collection('friends').doc(n.fromUid).set({
-              uid:n.fromUid,name:n.fromName||n.fromUid,
-              addedAt:firebase.firestore.FieldValue.serverTimestamp()
-            }).catch(function(){});
-            _applyFriendsToAllContexts();
-            _renderFriendList();
-          }
+          // Triple verrou anti-ré-injection :
+          // 1. déjà ami → skip
+          // 2. dans la liste cloud des retirés → skip
+          // 3. notification déjà dismissée par cet user → skip
+          var dismissed=(n.dismissedBy||[]).indexOf(_currentUid)>=0;
+          if(_friends.some(function(f){return f.uid===n.fromUid;}))return;
+          if(_removedFriendUids.has(n.fromUid))return;
+          if(dismissed)return;
+          _friends.push({uid:n.fromUid,name:n.fromName||n.fromUid});
+          db.collection('users').doc(_currentUid).collection('friends').doc(n.fromUid).set({
+            uid:n.fromUid,name:n.fromName||n.fromUid,
+            addedAt:firebase.firestore.FieldValue.serverTimestamp()
+          }).catch(function(){});
+          _applyFriendsToAllContexts();
+          _renderFriendList();
         }
       });
       _renderNotifPanel();
