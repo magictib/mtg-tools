@@ -9545,6 +9545,43 @@ function backupDownload(){
   actLog('backup','Backup téléchargé ('+Object.keys(bundle.decks).length+' decks, '+Object.keys(bundle.purchaseLists).length+' listes)');
   mlToast('💾 Backup téléchargé');
 }
+// ===== QOL-2 : Undo léger (30s) =====
+var _undoStack=[];
+var _UNDO_TTL=30000;
+function undoPush(label,doRestore){
+  _undoStack.push({ts:Date.now(),label:label,restore:doRestore});
+  // Purge ancienne
+  var now=Date.now();
+  _undoStack=_undoStack.filter(function(e){return now-e.ts<_UNDO_TTL;});
+  // Toast avec bouton undo
+  if(typeof mlToast==='function'){
+    var t=document.createElement('div');
+    t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(20,15,40,.97);border:1px solid rgba(180,140,255,.55);color:#fff;padding:9px 16px;border-radius:8px;font-size:.82rem;z-index:10000;box-shadow:0 6px 20px rgba(0,0,0,.7);display:flex;align-items:center;gap:10px';
+    t.innerHTML='<span>'+esc(label)+'</span><button class="btn btnsm" onclick="undoLast()" style="font-size:.72rem;padding:3px 8px">↶ Annuler</button>';
+    document.body.appendChild(t);
+    setTimeout(function(){if(t.parentNode){t.style.transition='opacity .3s';t.style.opacity='0';setTimeout(function(){t.remove();},300);}},_UNDO_TTL);
+  }
+}
+function undoLast(){
+  var now=Date.now();
+  while(_undoStack.length){
+    var e=_undoStack.pop();
+    if(now-e.ts<_UNDO_TTL){
+      try{e.restore();mlToast('↶ '+e.label+' — annulé');}catch(err){mlToast('Erreur annulation : '+err.message);}
+      return;
+    }
+  }
+  mlToast('Rien à annuler');
+}
+window.addEventListener('keydown',function(e){
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){
+    // Évite de capter dans les inputs / textarea
+    var t=e.target.tagName;
+    if(t==='INPUT'||t==='TEXTAREA'||e.target.isContentEditable)return;
+    e.preventDefault();undoLast();
+  }
+});
+
 // ===== ANA-1 : Détection synergies internes =====
 function bldShowSynergies(){
   if(!bldMain||!bldMain.length){mlAlert('Synergies','Aucune carte dans le deck.');return;}
