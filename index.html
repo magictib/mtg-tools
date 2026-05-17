@@ -988,6 +988,22 @@ body.mana-cursor{cursor:none}
 /* Stack panel */
 #ar-stack-panel{position:absolute;left:50%;transform:translateX(-50%);bottom:215px;z-index:115;display:none;flex-direction:column;align-items:center;pointer-events:none;width:190px;box-shadow:0 16px 48px rgba(0,0,0,.85)}
 #ar-stack-panel.on{display:flex;pointer-events:auto}
+/* Shared stack (online) */
+#ar-shared-stack-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:120;display:none;flex-direction:column;align-items:center;width:240px;background:linear-gradient(180deg,rgba(20,15,40,.96),rgba(15,5,30,.96));border:1.5px solid rgba(140,100,220,.55);border-radius:12px;padding:12px 14px 10px;box-shadow:0 22px 60px rgba(0,0,0,.85),0 0 30px rgba(140,100,220,.3)}
+#ar-shared-stack-panel.on{display:flex}
+.ar-shared-stack-header{font-family:'Goudy Mediaeval',serif;font-size:.95rem;color:#c8a8ff;letter-spacing:.1em;margin-bottom:8px;text-transform:uppercase;text-shadow:0 0 12px rgba(180,140,255,.6)}
+.ar-shared-stack-top{position:relative;padding:8px 6px;border-radius:9px;background:rgba(20,10,40,.55);width:100%;text-align:center}
+.ar-shared-stack-top.mine{border:1.5px solid rgba(100,200,120,.55);box-shadow:0 0 14px rgba(80,200,120,.25)}
+.ar-shared-stack-top.opp{border:1.5px solid rgba(255,120,120,.55);box-shadow:0 0 14px rgba(255,80,80,.25)}
+.ar-shared-stack-name{font-size:.78rem;color:#fff;margin-top:5px;font-weight:600}
+.ar-shared-stack-by{font-size:.65rem;color:var(--tx3);margin-top:2px}
+.ar-shared-stack-rest{display:flex;flex-direction:column;gap:3px;width:100%;margin-top:6px;padding-top:6px;border-top:1px dashed rgba(180,140,255,.25)}
+.ar-shared-stack-item{font-size:.7rem;padding:3px 7px;border-radius:5px;background:rgba(0,0,0,.4);color:var(--tx2);text-align:left}
+.ar-shared-stack-item.mine{color:#c0ffc8;border-left:2px solid rgba(100,200,120,.6)}
+.ar-shared-stack-item.opp{color:#ffd0d0;border-left:2px solid rgba(255,120,120,.6)}
+#ar-shared-stack-timer-bar{width:100%;height:3px;margin-top:8px;background:rgba(0,0,0,.45);border-radius:2px;overflow:hidden}
+#ar-shared-stack-timer-fill{height:100%;width:100%;background:linear-gradient(90deg,#c8a8ff,#7050c0);border-radius:2px}
+.ar-btn.on{background:linear-gradient(180deg,rgba(140,100,220,.32),rgba(80,50,140,.28));border-color:rgba(180,140,255,.65);color:#e8d8ff;text-shadow:0 0 6px rgba(180,140,255,.55)}
 .ar-stack-header{font-family:'Goudy Mediaeval',serif;font-size:.72rem;color:var(--gold2);text-align:center;letter-spacing:.08em;padding:3px 10px;background:rgba(0,0,0,.88);border:1px solid rgba(201,168,76,.4);border-radius:8px 8px 0 0;width:100%;box-sizing:border-box}
 .ar-stack-top{background:rgba(8,14,30,.97);border:1px solid rgba(201,168,76,.4);border-top:none;width:100%;display:flex;flex-direction:column;align-items:center;padding:8px 8px 6px;gap:4px;box-sizing:border-box}
 .ar-stack-top.player{border-color:rgba(80,200,80,.6)}.ar-stack-top.bot{border-color:rgba(80,140,255,.6)}.ar-stack-top.trigger{border-color:rgba(200,160,80,.6)}
@@ -3540,6 +3556,8 @@ body.mana-cursor{cursor:none}
     <button class="ar-btn" onclick="arHandZoom(-15)" title="Réduire les cartes" style="padding:4px 7px">🃏−</button>
     <button class="ar-btn" onclick="arHandZoom(15)" title="Agrandir les cartes" style="padding:4px 7px">🃏+</button>
     <div class="ar-sep"></div>
+    <!-- Pile partagée toggle (online) -->
+    <button class="ar-btn on" onclick="arToggleUseStack()" id="ar-usestack-btn" title="Les sorts joués passent par la pile partagée (cliquez pour désactiver)">🌀 Pile : ON</button>
     <!-- Journal/Chat toggle -->
     <button class="ar-btn" onclick="arToggleLog()" id="ar-log-btn" title="Journal d'actions & chat" style="position:relative">💬 Journal<span id="ar-log-unread" style="display:none;position:absolute;top:-3px;right:-3px;background:var(--rd2);color:#fff;border-radius:8px;padding:0 4px;font-size:.6rem;font-weight:700;min-width:12px;text-align:center">0</span></button>
     <div class="ar-sep"></div>
@@ -3622,6 +3640,14 @@ body.mana-cursor{cursor:none}
     <button class="ar-btn ar-btn-gold" id="ar-confirm-atk-btn" onclick="arDeclareAttackers()" style="padding:3px 9px">⚔ Confirmer attaque</button>
     <button class="ar-btn" id="ar-confirm-blk-btn" onclick="arDeclareBlockers()" style="padding:3px 9px;border-color:rgba(80,160,255,.55);color:#7fc0ff">🛡 Confirmer blocage</button>
     <button class="ar-btn" onclick="arClearCombat()" style="padding:3px 9px;border-color:rgba(200,200,200,.35);color:var(--tx3)" title="Effacer toutes les déclarations de combat">✕</button>
+  </div>
+
+  <!-- Shared stack panel (online) -->
+  <div id="ar-shared-stack-panel">
+    <div class="ar-shared-stack-header">🌀 Pile partagée</div>
+    <div id="ar-shared-stack-items"></div>
+    <div id="ar-shared-stack-actions" style="display:flex;gap:6px;margin-top:8px"></div>
+    <div id="ar-shared-stack-timer-bar"><div id="ar-shared-stack-timer-fill"></div></div>
   </div>
 
   <!-- Stack panel -->
@@ -10440,7 +10466,15 @@ function arPlayCard(id,x,y){
     }
     return;
   }
-  var card=_ar.hand.splice(idx,1)[0];
+  var card=_ar.hand[idx];
+  // Online + toggle Pile ON : pousse en pile partagée au lieu d'aller directement en jeu
+  // (les terrains bypassent la pile — règle MTG)
+  if(_arRoom&&_arUseStack&&!_arBot){
+    var d=_arCardDataCache[(card.name||'').toLowerCase()];
+    var isLand=d&&d.type_line&&/Land/i.test(d.type_line);
+    if(!isLand){arPushSharedStack(card,x,y);return;}
+  }
+  _ar.hand.splice(idx,1);
   card.x=x;card.y=y;card.tapped=false;card.counters=0;card.owner=_arRoom?_arRoom.playerNum:0;
   _ar.field.push(card);
   _ar.fieldUsed=true;
@@ -11346,10 +11380,12 @@ function arCreateRoom(){
     p2:null,
     field:[],p1_lands:[],p2_lands:[],p1_grave:[],p2_grave:[],p1_exile:[],p2_exile:[],
     p1_attackers:[],p2_attackers:[],p1_blockers:[],p2_blockers:[],
+    stack:[],
     actions:[],
     active:false,createdAt:new Date().toISOString()
   }).then(function(){
     _arActionLog=[];_arLogSeenIds={};
+    _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
     _arRoom={id:code,code:code,playerNum:1};
     var s=document.getElementById('ar-room-status');
     if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
@@ -11378,6 +11414,7 @@ function arJoinRoom(){
       p2:{uid:uid,name:name,life:40,handCount:0,libCount:0,cmd:null,cmdCasts:0}
     }).then(function(){
       _arActionLog=[];_arLogSeenIds={};
+      _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
       _arRoom={id:code,code:code,playerNum:2};
       var s=document.getElementById('ar-room-status');
       if(s)s.innerHTML='Rejoint !'
@@ -11497,6 +11534,11 @@ function _arApplyRemoteState(data){
     if(bar){bar.classList.add('on');var info=document.getElementById('ar-combat-info');
       if(info)info.innerHTML='⚠ <strong style="color:#ff8060">L\'adversaire attaque avec '+_arRoom._opAtk.length+' créature(s)</strong> — déclarez vos bloqueurs';}
   }
+  // Synchronise la pile partagée
+  if(Array.isArray(data.stack)){
+    _arSharedStack=data.stack.slice();
+    _arRenderSharedStack();
+  }
   // Ingérer le journal d'actions
   if(Array.isArray(data.actions))_arIngestActionsFromRemote(data.actions);
   arRenderField();
@@ -11519,11 +11561,163 @@ function _arSyncToRoom(){
     upd['p'+pn+'_exile']=_ar.exile||[];
     upd['p'+pn+'_attackers']=_ar.attackers||[];
     upd['p'+pn+'_blockers']=_ar.blockers||[];
+    if(_arSharedStackDirty){upd.stack=_arSharedStack||[];_arSharedStackDirty=false;}
     upd.active=true;
     db.collection('arena_rooms').doc(_arRoom.id).update(upd)
       .catch(function(e){console.warn('arSync',e);});
   },350);
 }
+// ===== PILE PARTAGÉE (online) =====
+// Modèle d'entrée : {id, by:1|2, name, sourceId, x, y, fromZone:'hand'|'field', ts, passes:[]}
+var _arSharedStack=[];
+var _arSharedStackDirty=false;
+var _arUseStack=true; // par défaut ON en online
+var _arSharedStackTimer=null;
+var _AR_STACK_AUTO_PASS_MS=15000;
+
+function _arMakeStackId(){return 's_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+
+function arToggleUseStack(){
+  _arUseStack=!_arUseStack;
+  var b=document.getElementById('ar-usestack-btn');
+  if(b){b.classList.toggle('on',_arUseStack);b.textContent=_arUseStack?'🌀 Pile : ON':'🌀 Pile : OFF';b.title=_arUseStack?'Les sorts joués passent par la pile partagée (cliquez pour désactiver)':'Les sorts vont directement en jeu (cliquez pour activer la pile)';}
+}
+
+function arPushSharedStack(card,x,y){
+  if(!_arRoom)return false;
+  var pn=_arRoom.playerNum||0;
+  // Retire de la main pour éviter un double-lancement
+  var idx=_ar.hand.findIndex(function(c){return c.id===card.id;});
+  if(idx>=0)_ar.hand.splice(idx,1);
+  var entry={id:_arMakeStackId(),by:pn,name:card.name,sourceId:card.id,x:x,y:y,fromZone:'hand',ts:Date.now(),passes:[]};
+  _arSharedStack.push(entry);
+  _arSharedStackDirty=true;
+  arRenderHand();
+  _arRenderSharedStack();
+  _arSyncToRoom();
+  arLogAction('stack_cast',{name:card.name});
+  _arStartSharedStackTimer();
+  return true;
+}
+
+function _arStartSharedStackTimer(){
+  _arClearSharedStackTimer();
+  if(!_arSharedStack.length)return;
+  var fill=document.getElementById('ar-shared-stack-timer-fill');
+  if(fill){fill.style.transition='none';fill.style.width='100%';fill.offsetWidth;
+    fill.style.transition='width '+_AR_STACK_AUTO_PASS_MS+'ms linear';fill.style.width='0%';}
+  _arSharedStackTimer=setTimeout(function(){
+    _arSharedStackTimer=null;
+    // Auto-pass pour le joueur local (équivaut à cliquer Passer)
+    arPassSharedStack(true);
+  },_AR_STACK_AUTO_PASS_MS);
+}
+function _arClearSharedStackTimer(){
+  if(_arSharedStackTimer){clearTimeout(_arSharedStackTimer);_arSharedStackTimer=null;}
+  var fill=document.getElementById('ar-shared-stack-timer-fill');
+  if(fill){fill.style.transition='none';fill.style.width='100%';}
+}
+
+function arPassSharedStack(silent){
+  if(!_arRoom||!_arSharedStack.length)return;
+  var pn=_arRoom.playerNum||0;
+  var top=_arSharedStack[_arSharedStack.length-1];
+  top.passes=top.passes||[];
+  if(top.passes.indexOf(pn)<0)top.passes.push(pn);
+  _arSharedStackDirty=true;
+  if(!silent)arLogAction('stack_pass',{name:top.name});
+  // Si les deux ont passé : résolution
+  if(top.passes.length>=2){
+    _arResolveSharedStackTop();
+  }else{
+    _arRenderSharedStack();
+    _arSyncToRoom();
+    _arStartSharedStackTimer();
+  }
+}
+
+function _arResolveSharedStackTop(){
+  _arClearSharedStackTimer();
+  if(!_arSharedStack.length)return;
+  var top=_arSharedStack.pop();
+  _arSharedStackDirty=true;
+  var pn=_arRoom?_arRoom.playerNum:0;
+  // Le caster local matérialise la carte sur le champ (déjà retirée de la main au push)
+  if(top.by===pn){
+    var card={id:top.sourceId||_arMakeId(),name:top.name,x:top.x,y:top.y,tapped:false,counters:0,owner:pn};
+    _ar.field.push(card);
+    _ar.fieldUsed=true;
+    arRenderField();
+  }
+  _arRenderSharedStack();
+  _arSyncToRoom();
+  arLogAction('stack_resolved',{name:top.name});
+  if(_arSharedStack.length)_arStartSharedStackTimer();
+}
+
+function arCancelSharedStackTop(){
+  // Le caster annule son propre sort (revient en main si pas résolu)
+  if(!_arRoom||!_arSharedStack.length)return;
+  var pn=_arRoom.playerNum||0;
+  var top=_arSharedStack[_arSharedStack.length-1];
+  if(top.by!==pn)return; // seul le caster peut annuler
+  _arSharedStack.pop();
+  _arSharedStackDirty=true;
+  // Remet la carte en main
+  _ar.hand.push({id:top.sourceId,name:top.name});
+  arRenderHand();
+  _arClearSharedStackTimer();
+  _arRenderSharedStack();
+  _arSyncToRoom();
+  arLogAction('stack_cancel',{name:top.name});
+  if(_arSharedStack.length)_arStartSharedStackTimer();
+}
+
+function _arRenderSharedStack(){
+  var panel=document.getElementById('ar-shared-stack-panel');
+  if(!panel)return;
+  if(!_arRoom||_arBot){panel.classList.remove('on');return;}
+  if(!_arSharedStack.length){panel.classList.remove('on');_arClearSharedStackTimer();return;}
+  panel.classList.add('on');
+  var pn=_arRoom.playerNum||0;
+  var items=document.getElementById('ar-shared-stack-items');
+  if(items){
+    var top=_arSharedStack[_arSharedStack.length-1];
+    var rest=_arSharedStack.slice(0,-1).reverse();
+    var topCls=top.by===pn?'mine':'opp';
+    var topImg='_arssi_'+top.id;
+    var passesTxt=(top.passes||[]).length?'<span style="color:#80ff80">'+(top.passes||[]).length+'/2 passés</span>':'<span style="color:var(--tx3)">0/2 passés</span>';
+    var html='<div class="ar-shared-stack-top '+topCls+'">'
+      +'<img id="'+topImg+'" src="'+_AR_BACK+'" style="width:92px;height:128px;border-radius:7px;object-fit:cover;display:block;margin:0 auto">'
+      +'<div class="ar-shared-stack-name">'+esc(top.name)+'</div>'
+      +'<div class="ar-shared-stack-by">'+(top.by===pn?'⚡ Vous':'🛡 Adversaire')+' · '+passesTxt+'</div>'
+      +'</div>';
+    if(rest.length){
+      html+='<div class="ar-shared-stack-rest">'+rest.map(function(it){
+        var cls=it.by===pn?'mine':'opp';
+        return '<div class="ar-shared-stack-item '+cls+'">'+(it.by===pn?'⚡':'🛡')+' '+esc(it.name)+'</div>';
+      }).join('')+'</div>';
+    }
+    items.innerHTML=html;
+    var img=document.getElementById(topImg);if(img)_arLoadImg(top.name,img);
+  }
+  var actions=document.getElementById('ar-shared-stack-actions');
+  if(actions){
+    var top=_arSharedStack[_arSharedStack.length-1];
+    var alreadyPassed=(top.passes||[]).indexOf(pn)>=0;
+    var html='';
+    if(alreadyPassed){
+      html='<div style="font-size:.7rem;color:var(--gr2);text-align:center;padding:4px 0">✔ Vous avez passé — en attente de l\'adversaire</div>';
+    }else{
+      html='<button class="ar-btn" onclick="arPassSharedStack()" style="flex:1;font-size:.74rem">↦ Passer la priorité</button>';
+      if(top.by===pn){
+        html+='<button class="ar-btn" onclick="arCancelSharedStackTop()" style="flex:1;font-size:.7rem;border-color:rgba(255,120,120,.4);color:#ff9090" title="Retirer votre sort de la pile (annulation)">✕ Annuler</button>';
+      }
+    }
+    actions.innerHTML=html;
+  }
+}
+
 // ===== JOURNAL D'ACTIONS & CHAT =====
 // Cycle de vie : on stocke actions:[] dans le doc Firestore et chaque joueur append via arrayUnion.
 // Cap à 200 entrées affichées (pour perf), trim automatique à 400 dans le doc.
@@ -11589,6 +11783,10 @@ function _arActionToText(a){
     case 'token':return {cls:a.by===pn?'mine':'opp',by:byName,text:'crée un jeton '+esc(p.name||'')};
     case 'attack_declared':return {cls:a.by===pn?'mine':'opp',by:byName,text:'⚔ attaque avec '+(p.names||[]).map(esc).join(', ')};
     case 'block_declared':return {cls:a.by===pn?'mine':'opp',by:byName,text:'🛡 bloque avec '+(p.names||[]).map(esc).join(', ')};
+    case 'stack_cast':return {cls:a.by===pn?'mine':'opp',by:byName,text:'🌀 lance '+esc(p.name||'un sort')+' (en pile)'};
+    case 'stack_pass':return {cls:'system',text:byName+' passe la priorité ('+esc(p.name||'')+')'};
+    case 'stack_resolved':return {cls:'system',text:'⚡ résolution : '+esc(p.name||'')};
+    case 'stack_cancel':return {cls:'system',text:byName+' annule '+esc(p.name||'')};
     default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
   }
 }
@@ -11651,6 +11849,9 @@ function arLeaveRoom(){
   // Reset journal côté UI mais garde la trace logique si on rejoint
   _arLogUnread=0;
   var b=document.getElementById('ar-log-unread');if(b){b.style.display='none';b.textContent='0';}
+  // Reset pile partagée
+  _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
+  var ssp=document.getElementById('ar-shared-stack-panel');if(ssp)ssp.classList.remove('on');
   if(_arRoomUnsub){_arRoomUnsub();_arRoomUnsub=null;}
   _arRoom=null;
   var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.remove('mp-on');
