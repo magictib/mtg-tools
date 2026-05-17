@@ -9142,6 +9142,73 @@ function purSetViewMode(mode){
 var _purPriceCache={}; // {nl: float_eur}
 var _purImgUrlCache={}; // {nl: url_small} — peuplé en même temps que _purPriceCache
 var _purPriceFetching={}; // {nl: true} pour éviter les doublons
+
+// ===== IndexedDB cache Scryfall (persiste entre sessions, TTL 7j) =====
+var _SCRY_DB_NAME='manalab_scryfall';
+var _SCRY_DB_STORE='cards';
+var _SCRY_TTL_MS=7*24*3600*1000;
+var _scryDBPromise=null;
+function _scryDBOpen(){
+  if(_scryDBPromise)return _scryDBPromise;
+  if(typeof indexedDB==='undefined'){_scryDBPromise=Promise.reject(new Error('no idb'));return _scryDBPromise;}
+  _scryDBPromise=new Promise(function(resolve,reject){
+    var req=indexedDB.open(_SCRY_DB_NAME,1);
+    req.onupgradeneeded=function(){
+      var db=req.result;
+      if(!db.objectStoreNames.contains(_SCRY_DB_STORE))db.createObjectStore(_SCRY_DB_STORE);
+    };
+    req.onsuccess=function(){resolve(req.result);};
+    req.onerror=function(){reject(req.error);};
+  });
+  return _scryDBPromise;
+}
+function _scryDBPut(nl,price,img){
+  _scryDBOpen().then(function(db){
+    try{
+      var tx=db.transaction(_SCRY_DB_STORE,'readwrite');
+      tx.objectStore(_SCRY_DB_STORE).put({price:price||0,img:img||'',ts:Date.now()},nl);
+    }catch(e){}
+  }).catch(function(){});
+}
+function _scryDBLoadAll(){
+  return _scryDBOpen().then(function(db){
+    return new Promise(function(resolve){
+      var tx=db.transaction(_SCRY_DB_STORE,'readonly');
+      var store=tx.objectStore(_SCRY_DB_STORE);
+      var req=store.openCursor();
+      var now=Date.now();
+      var loaded=0,expired=[];
+      req.onsuccess=function(e){
+        var cur=e.target.result;
+        if(cur){
+          var v=cur.value,k=cur.key;
+          if(v&&v.ts&&(now-v.ts)<_SCRY_TTL_MS){
+            if(v.price!=null)_purPriceCache[k]=v.price;
+            if(v.img)_purImgUrlCache[k]=v.img;
+            loaded++;
+          }else{
+            expired.push(k);
+          }
+          cur.continue();
+        }else{
+          // Purge expirés (fire-and-forget)
+          if(expired.length){
+            var txd=db.transaction(_SCRY_DB_STORE,'readwrite');
+            var sd=txd.objectStore(_SCRY_DB_STORE);
+            expired.forEach(function(k){sd.delete(k);});
+          }
+          console.log('[scry-db] '+loaded+' card(s) chargées depuis IndexedDB, '+expired.length+' purgée(s)');
+          resolve(loaded);
+        }
+      };
+      req.onerror=function(){resolve(0);};
+    });
+  }).catch(function(){return 0;});
+}
+// Auto-init au chargement de l'app
+if(typeof indexedDB!=='undefined'){
+  setTimeout(function(){_scryDBLoadAll();},500);
+}
 function _purExtractPriceEur(prices){
   if(!prices)return 0;
   var eur=parseFloat(prices.eur)||parseFloat(prices.eur_foil);
@@ -9170,7 +9237,8 @@ function _purFetchPricesFor(cards,cb){
       var foundNls={};
       (data.data||[]).forEach(function(card){
         var nl=(card.name||'').toLowerCase();
-        _purPriceCache[nl]=_purExtractPriceEur(card.prices);
+        var price=_purExtractPriceEur(card.prices);
+        _purPriceCache[nl]=price;
         // Image (face principale ou 1ère face DFC)
         var img=(card.image_uris&&card.image_uris.small)
           ||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.small)
@@ -9178,12 +9246,14 @@ function _purFetchPricesFor(cards,cb){
         if(img)_purImgUrlCache[nl]=img;
         foundNls[nl]=1;
         delete _purPriceFetching[nl];
+        _scryDBPut(nl,price,img);
         // DFC : mapper aussi la face 1
         if(card.card_faces&&card.card_faces.length){
           var dfcNl=card.card_faces[0].name.toLowerCase();
-          if(_purPriceCache[dfcNl]==null)_purPriceCache[dfcNl]=_purPriceCache[nl];
+          if(_purPriceCache[dfcNl]==null)_purPriceCache[dfcNl]=price;
           if(img&&!_purImgUrlCache[dfcNl])_purImgUrlCache[dfcNl]=img;
           foundNls[dfcNl]=1;
+          _scryDBPut(dfcNl,price,img);
         }
       });
       // Pour ceux non trouvés au batch, essaie un fuzzy individuel (limité à 8 par batch pour ne pas spammer)
@@ -9196,12 +9266,14 @@ function _purFetchPricesFor(cards,cb){
           .then(function(r){return r.json();})
           .then(function(card){
             if(card&&card.name){
-              _purPriceCache[c.nl]=_purExtractPriceEur(card.prices);
+              var pf=_purExtractPriceEur(card.prices);
+              _purPriceCache[c.nl]=pf;
               var img2=(card.image_uris&&card.image_uris.small)
                 ||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.small)||'';
               if(img2)_purImgUrlCache[c.nl]=img2;
+              _scryDBPut(c.nl,pf,img2);
             }else{
-              _purPriceCache[c.nl]=0;
+              _purPriceCache[c.nl]=0;_scryDBPut(c.nl,0,'');
             }
             delete _purPriceFetching[c.nl];
             pending--;if(pending===0)afterFuzzy();
