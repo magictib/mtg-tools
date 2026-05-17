@@ -3611,6 +3611,7 @@ body.mana-cursor{cursor:none}
 
   <!-- Opponent info bar (multiplayer) -->
   <div id="ar-opponent-bar">
+    <span id="ar-op-conn" title="Connexion adversaire" style="display:none;width:8px;height:8px;border-radius:50%;background:#3c8;box-shadow:0 0 6px currentColor"></span>
     <span id="ar-op-name" style="font-family:'Goudy Mediaeval',serif;color:var(--gold2)">Adversaire</span>
     <span>❤ <span id="ar-op-life">—</span></span>
     <span>🂠 <span id="ar-op-hand">—</span> en main</span>
@@ -4085,6 +4086,8 @@ function _onUserRole(user,role){
     initNotifications(user.uid);
     _initTradesListener(user.uid);
     setTimeout(_checkScryfallIDB,2000);
+    // Tente une reconnexion à une partie d'arène en cours (refresh F5, fermeture accidentelle)
+    setTimeout(function(){if(typeof arTryRestoreSession==='function')arTryRestoreSession();},1500);
     // Préchargement silencieux : méta + sets Scryfall
     setTimeout(function(){
       if(!_metaLoaded){_metaLoaded=true;metaFetchMeta(_metaFmt);}
@@ -9812,6 +9815,13 @@ var _arLasso=null;
 var _arRoom=null;
 var _arRoomUnsub=null;
 var _arSyncTimer=null;
+var _arHeartbeatInt=null;
+var _arOpLastHb=0;
+var _arConnUiInt=null;
+var _AR_SESSION_KEY='mtg_arena_session';
+var _AR_HB_INTERVAL_MS=5000;
+var _AR_LOG_CAP_LOCAL=300;
+var _AR_LOG_CAP_REMOTE=400;
 var _arScryData=null;
 var _ar={active:false,lib:[],hand:[],field:[],grave:[],exile:[],lands:[],cmd:null,cmdCasts:0,life:40,startLife:40,turn:0,phase:0,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false,attackers:[],blockers:[]};
 var _arCtxMenuState=null;
@@ -11439,6 +11449,90 @@ function arListenRoom(){
     if(!doc.exists)return;
     _arApplyRemoteState(doc.data());
   });
+  _arStartHeartbeat();
+  _arStartConnUiTick();
+  _arSaveSession();
+}
+
+// ----- Session persistence -----
+function _arSaveSession(){
+  if(!_arRoom)return;
+  try{
+    var uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||'anon';
+    localStorage.setItem(_AR_SESSION_KEY,JSON.stringify({code:_arRoom.code,playerNum:_arRoom.playerNum,uid:uid,ts:Date.now()}));
+  }catch(e){}
+}
+function _arClearSession(){try{localStorage.removeItem(_AR_SESSION_KEY);}catch(e){}}
+function _arLoadSession(){
+  try{var s=localStorage.getItem(_AR_SESSION_KEY);return s?JSON.parse(s):null;}catch(e){return null;}
+}
+function arTryRestoreSession(){
+  if(_arRoom)return false;
+  if(!window.db||typeof firebase==='undefined')return false;
+  var s=_arLoadSession();if(!s||!s.code)return false;
+  // Session > 24 h : on jette
+  if(Date.now()-(s.ts||0)>24*3600*1000){_arClearSession();return false;}
+  var uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||'anon';
+  if(s.uid!==uid&&s.uid!=='anon'){_arClearSession();return false;}
+  db.collection('arena_rooms').doc(s.code).get().then(function(doc){
+    if(!doc.exists){_arClearSession();return;}
+    var data=doc.data();
+    if(data.active===false){_arClearSession();return;}
+    var slot=data['p'+s.playerNum];
+    if(!slot||slot.uid!==uid){_arClearSession();return;}
+    _arRoom={id:s.code,code:s.code,playerNum:s.playerNum,_restored:true};
+    _arActionLog=[];_arLogSeenIds={};
+    _arSharedStack=[];_arSharedStackDirty=false;
+    // Restaure le mini-état local depuis la slot
+    if(slot.life)_ar.life=slot.life;
+    if(data.field)_ar.field=data.field;
+    if(data['p'+s.playerNum+'_lands'])_ar.lands=data['p'+s.playerNum+'_lands'];
+    if(data['p'+s.playerNum+'_grave'])_ar.grave=data['p'+s.playerNum+'_grave'];
+    if(data['p'+s.playerNum+'_exile'])_ar.exile=data['p'+s.playerNum+'_exile'];
+    if(data['p'+s.playerNum+'_attackers'])_ar.attackers=data['p'+s.playerNum+'_attackers'];
+    if(data['p'+s.playerNum+'_blockers'])_ar.blockers=data['p'+s.playerNum+'_blockers'];
+    _ar.active=true;
+    // Reprend l'arène
+    var ov=document.getElementById('arena-ov');if(ov)ov.classList.add('ar-on');
+    arListenRoom();
+    arRender();
+    var s2=document.getElementById('ar-room-status');
+    if(s2)s2.innerHTML='<span style="color:var(--gr2)">↻ Session restaurée</span>';
+    arLogAction('rejoin',{name:PN[0]||('Joueur '+s.playerNum)});
+  }).catch(function(){_arClearSession();});
+  return true;
+}
+
+// ----- Heartbeat -----
+function _arStartHeartbeat(){
+  _arStopHeartbeat();
+  if(!_arRoom||!window.db)return;
+  var beat=function(){
+    if(!_arRoom)return;
+    var pn=_arRoom.playerNum;
+    var upd={};upd['p'+pn+'_hb']=Date.now();
+    db.collection('arena_rooms').doc(_arRoom.id).update(upd).catch(function(){});
+  };
+  beat();
+  _arHeartbeatInt=setInterval(beat,_AR_HB_INTERVAL_MS);
+}
+function _arStopHeartbeat(){if(_arHeartbeatInt){clearInterval(_arHeartbeatInt);_arHeartbeatInt=null;}}
+function _arStartConnUiTick(){
+  _arStopConnUiTick();
+  _arConnUiInt=setInterval(_arUpdateConnUi,1500);
+  _arUpdateConnUi();
+}
+function _arStopConnUiTick(){if(_arConnUiInt){clearInterval(_arConnUiInt);_arConnUiInt=null;}}
+function _arUpdateConnUi(){
+  var dot=document.getElementById('ar-op-conn');if(!dot)return;
+  if(!_arRoom||!_arOpLastHb){dot.style.display='none';return;}
+  var lag=Date.now()-_arOpLastHb;
+  dot.style.display='inline-block';
+  var color='#3c8',title='Connecté';
+  if(lag>30000){color='#e44';title='Déconnecté ('+Math.floor(lag/1000)+'s)';}
+  else if(lag>10000){color='#fb3';title='Lent ('+Math.floor(lag/1000)+'s)';}
+  dot.style.background=color;
+  dot.title='Adversaire : '+title;
 }
 function _arApplyRemoteState(data){
   if(!data||!_arRoom)return;
@@ -11537,6 +11631,9 @@ function _arApplyRemoteState(data){
     if(bar){bar.classList.add('on');var info=document.getElementById('ar-combat-info');
       if(info)info.innerHTML='⚠ <strong style="color:#ff8060">L\'adversaire attaque avec '+_arRoom._opAtk.length+' créature(s)</strong> — déclarez vos bloqueurs';}
   }
+  // Heartbeat adversaire
+  var hb=data['p'+opn+'_hb'];if(hb)_arOpLastHb=hb;
+  _arUpdateConnUi();
   // Synchronise la pile partagée
   if(Array.isArray(data.stack)){
     _arSharedStack=data.stack.slice();
@@ -11828,11 +11925,16 @@ function arLogAction(type,payload){
   // Push optimiste local
   _arActionLog.push(entry);_arLogSeenIds[entry.id]=1;
   _arRenderLogIfOpen(entry);
-  // Push Firestore via arrayUnion
+  // Push Firestore via arrayUnion (avec trim périodique)
   if(typeof firebase!=='undefined'&&firebase.firestore){
     db.collection('arena_rooms').doc(_arRoom.id).update({
       actions:firebase.firestore.FieldValue.arrayUnion(entry)
     }).catch(function(e){console.warn('arLogAction',e);});
+    // Tous les 50 events, trim côté distant (un seul joueur l'effectue : celui dont c'est l'action)
+    if(_arActionLog.length>_AR_LOG_CAP_REMOTE&&_arActionLog.length%50===0){
+      var trimmed=_arActionLog.slice(-Math.floor(_AR_LOG_CAP_REMOTE*.6));
+      db.collection('arena_rooms').doc(_arRoom.id).update({actions:trimmed}).catch(function(){});
+    }
   }
 }
 
@@ -11866,6 +11968,7 @@ function _arActionToText(a){
     case 'stack_pass':return {cls:'system',text:byName+' passe la priorité ('+esc(p.name||'')+')'};
     case 'stack_resolved':return {cls:'system',text:'⚡ résolution : '+esc(p.name||'')};
     case 'stack_cancel':return {cls:'system',text:byName+' annule '+esc(p.name||'')};
+    case 'rejoin':return {cls:'system',text:'↻ '+(esc(p.name||byName))+' s\'est reconnecté'};
     default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
   }
 }
@@ -11931,6 +12034,9 @@ function arLeaveRoom(){
   // Reset pile partagée
   _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
   var ssp=document.getElementById('ar-shared-stack-panel');if(ssp)ssp.classList.remove('on');
+  _arStopHeartbeat();_arStopConnUiTick();
+  _arOpLastHb=0;_arClearSession();
+  var dot=document.getElementById('ar-op-conn');if(dot)dot.style.display='none';
   if(_arRoomUnsub){_arRoomUnsub();_arRoomUnsub=null;}
   _arRoom=null;
   var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.remove('mp-on');
