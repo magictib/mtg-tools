@@ -3457,13 +3457,21 @@ body.mana-cursor{cursor:none}
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
             <div style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx2)">
               Joueurs :
-              <select id="ar-create-numplayers" style="font-size:.78rem;padding:4px 7px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
+              <select id="ar-create-numplayers" onchange="arUpdateLobbyDefaults()" style="font-size:.78rem;padding:4px 7px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
                 <option value="2" selected>2</option>
                 <option value="3">3 (Commander)</option>
                 <option value="4">4 (Commander)</option>
               </select>
             </div>
             <button class="btn" onclick="arCreateRoom()" style="flex:1;min-width:100px;font-size:.78rem">Créer une partie</button>
+          </div>
+          <div style="display:flex;gap:10px;font-size:.72rem;color:var(--tx2);margin-bottom:6px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Mort à 21 dégâts de commandant cumulés depuis la même source">
+              <input type="checkbox" id="ar-opt-cmddmg"> ⚔ Dégâts commandant
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Auto-pass de priorité 15s après chaque sort sur la pile">
+              <input type="checkbox" id="ar-opt-stacktimer" checked> ⏱ Timer de pile 15s
+            </label>
           </div>
           <div style="display:flex;gap:4px">
             <input type="text" id="ar-room-code-in" placeholder="Code (6 car.)" maxlength="6" style="flex:1;font-size:.78rem;padding:5px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;text-transform:uppercase">
@@ -10061,6 +10069,16 @@ function arOpen(){
   requestAnimationFrame(arDrawFieldBg);
   if(!_arFieldBgObs){_arFieldBgObs=new ResizeObserver(arDrawFieldBg);_arFieldBgObs.observe(document.getElementById('ar-field'));}
   arRender();
+  // Pré-charge Scryfall pour l'auto-mana (produced_mana sur artefacts/créatures/bi-terrains)
+  if(typeof _arFetchCardData==='function'){
+    var allNames=[];
+    expanded.lib.forEach(function(c){if(allNames.indexOf(c.name)<0)allNames.push(c.name);});
+    if(expanded.cmd&&allNames.indexOf(expanded.cmd.name)<0)allNames.push(expanded.cmd.name);
+    _arFetchCardData(allNames,function(){});
+  }
+  // Pool de mana visible dans tous les modes (online, bot, solo)
+  _arSetOnlineBarVisible(true);
+  arRenderManaPool();
   if(_arRoom){
     var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.add('mp-on');
     _arSyncToRoom();
@@ -10487,17 +10505,75 @@ function arUntapAll(){
   arRenderField();arRenderLands();_arSyncToRoom();
 }
 function arDoTap(id,zone){
-  if(zone==='field'){var c=_ar.field.find(function(x){return x.id===id;});if(c){c.tapped=!c.tapped;arRenderField();_arSyncToRoom();}}
+  if(zone==='field'){
+    var c=_ar.field.find(function(x){return x.id===id;});
+    if(c){
+      var wasTapped=c.tapped;
+      c.tapped=!c.tapped;
+      // Auto-mana : si le permanent vient d'être tappé et qu'il produit du mana → injecte
+      if(!wasTapped){_arAutoTapMana(c.name,id,'field');}
+      arRenderField();_arSyncToRoom();
+    }
+  }
   else if(zone==='lands'){
     var c=(_ar.lands||[]).find(function(x){return x.id===id;});
     if(c){
       var wasTapped=c.tapped;
       c.tapped=!c.tapped;
-      // Auto-mana : tap → ajoute (untap conserve la réserve, vidée en fin de tour)
-      if(!wasTapped){_arAddManaFromLand(c.name);arRenderManaPool();}
+      if(!wasTapped){_arAutoTapMana(c.name,id,'lands');}
       arRenderLands();_arSyncToRoom();
     }
   }
+}
+
+// Auto-mana pour terrains, artefacts, créatures avec produced_mana
+function _arAutoTapMana(name,id,zone){
+  var key=(name||'').toLowerCase();
+  var data=_arCardDataCache[key];
+  var produced=null;
+  if(data&&data.produced_mana&&data.produced_mana.length){
+    produced=data.produced_mana.slice();
+  }else if(zone==='lands'){
+    // Fallback nom pour basics (Plains, Island, etc.)
+    produced=_arLandColors(name);
+  }
+  if(!produced||!produced.length)return;
+  // 1 seule couleur produite → ajoute direct
+  if(produced.length===1){
+    var col=produced[0];
+    if(_arMana.hasOwnProperty(col))_arMana[col]++;else _arMana.C++;
+    arRenderManaPool();
+    return;
+  }
+  // Plusieurs couleurs → popup choix près de la carte
+  _arShowManaPicker(produced,id,zone);
+}
+
+function _arShowManaPicker(colors,cardId,zone){
+  var existing=document.getElementById('ar-mana-picker');if(existing)existing.remove();
+  var card=document.querySelector('.ar-field-card[data-id="'+cardId+'"]');
+  if(!card){return;} // fallback: ajoute du C
+  var rect=card.getBoundingClientRect();
+  var pick=document.createElement('div');
+  pick.id='ar-mana-picker';
+  pick.style.cssText='position:fixed;z-index:160;background:rgba(15,5,30,.97);border:1.5px solid rgba(180,140,255,.6);border-radius:9px;padding:6px;display:flex;gap:4px;box-shadow:0 6px 20px rgba(0,0,0,.85)';
+  pick.style.left=Math.min(window.innerWidth-180,rect.left+rect.width/2-90)+'px';
+  pick.style.top=Math.max(8,rect.top-44)+'px';
+  pick.innerHTML='<div style="font-size:.62rem;color:#c8a8ff;align-self:center;margin-right:3px">Couleur ?</div>'
+    +colors.map(function(c){return '<button class="ar-mana-add-btn '+c+'" onclick="_arPickMana(\''+c+'\')" style="width:24px;height:22px">'+c+'</button>';}).join('');
+  document.body.appendChild(pick);
+  // Auto-dismiss au clic ailleurs après un délai
+  setTimeout(function(){
+    var onClick=function(e){
+      if(!e.target.closest('#ar-mana-picker')){pick.remove();document.removeEventListener('click',onClick,true);}
+    };
+    document.addEventListener('click',onClick,true);
+  },50);
+}
+function _arPickMana(col){
+  if(_arMana.hasOwnProperty(col))_arMana[col]++;else _arMana.C++;
+  arRenderManaPool();
+  var p=document.getElementById('ar-mana-picker');if(p)p.remove();
 }
 function arOpenHotkeys(){
   _arHkEditing=null;
@@ -11526,6 +11602,12 @@ function _arGenCode(){
   var r='';for(var i=0;i<6;i++)r+=c[Math.floor(Math.random()*c.length)];
   return r;
 }
+function arUpdateLobbyDefaults(){
+  var npEl=document.getElementById('ar-create-numplayers');
+  var n=npEl?parseInt(npEl.value)||2:2;
+  var cmdEl=document.getElementById('ar-opt-cmddmg');
+  if(cmdEl)cmdEl.checked=(n>2);
+}
 function arCreateRoom(){
   if(!window.db){alert('Firestore non disponible');return;}
   var code=_arGenCode();
@@ -11535,9 +11617,13 @@ function arCreateRoom(){
   var numPlayers=npEl?Math.max(2,Math.min(4,parseInt(npEl.value)||2)):2;
   var lifeEl=document.getElementById('ar-setup-life');
   var startLife=numPlayers>2?40:(lifeEl?parseInt(lifeEl.value)||40:40);
+  var useCmdDmg=!!(document.getElementById('ar-opt-cmddmg')||{}).checked;
+  var useStackTimer=(document.getElementById('ar-opt-stacktimer')||{checked:true}).checked;
   var doc={
     code:code,
     numPlayers:numPlayers,
+    useCmdDmg:useCmdDmg,
+    useStackTimer:useStackTimer,
     p1:{uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0},
     field:[],
     stack:[],
@@ -11553,7 +11639,7 @@ function arCreateRoom(){
   db.collection('arena_rooms').doc(code).set(doc).then(function(){
     _arActionLog=[];_arLogSeenIds={};
     _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-    _arRoom={id:code,code:code,playerNum:1,numPlayers:numPlayers};
+    _arRoom={id:code,code:code,playerNum:1,numPlayers:numPlayers,useCmdDmg:useCmdDmg,useStackTimer:useStackTimer};
     var s=document.getElementById('ar-room-status');
     if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
       +' · '+numPlayers+' joueurs'
@@ -11587,7 +11673,7 @@ function arJoinRoom(){
     return db.collection('arena_rooms').doc(code).update(upd).then(function(){
       _arActionLog=[];_arLogSeenIds={};
       _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-      _arRoom={id:code,code:code,playerNum:mySlot,numPlayers:N};
+      _arRoom={id:code,code:code,playerNum:mySlot,numPlayers:N,useCmdDmg:!!data.useCmdDmg,useStackTimer:data.useStackTimer!==false};
       var s=document.getElementById('ar-room-status');
       if(s)s.innerHTML='Rejoint ! Vous êtes joueur '+mySlot+'/'+N
         +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
@@ -11741,15 +11827,16 @@ function _arRenderOpponentBars(){
       var dealt=(_arRoom.opps[otherPn].slot.cmdDmgDealt||{})[pn]||0;
       if(dealt>0){allDmgToHim+=dealt;dmgBreakdown.push(otherPn+':'+dealt);}
     });
-    var cmdDmgBadge=myCmdDmg>0?'<span style="color:#ff5060;font-size:.7rem;font-weight:700" title="Vous lui avez infligé '+myCmdDmg+' dégâts commander">⚔'+myCmdDmg+(myCmdDmg>=21?'☠':'')+'</span>':'';
+    var useCmd=_arRoom.useCmdDmg!==false;
+    var cmdDmgBadge=(useCmd&&myCmdDmg>0)?'<span style="color:#ff5060;font-size:.7rem;font-weight:700" title="Vous lui avez infligé '+myCmdDmg+' dégâts commander">⚔'+myCmdDmg+(myCmdDmg>=21?'☠':'')+'</span>':'';
     el.innerHTML='<span class="ar-conn-dot" data-pn="'+pn+'" title="Connexion" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3c8;box-shadow:0 0 5px currentColor"></span>'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2)">J'+pn+' '+esc(o.slot.name||'')+'</span>'
       +'<span>❤ <span id="ar-op-life-'+pn+'" class="ar-life-val-mini">'+lifeStr+'</span></span>'
       +'<span title="Cartes en main">🂠 '+(o.slot.handCount||0)+'</span>'
       +'<span title="Bibliothèque">📚 '+(o.slot.libCount||0)+'</span>'
       +cmdDmgBadge
-      +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',1)" title="+1 dégât commander de vous">⚔+</button>'
-      +(myCmdDmg>0?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',-1)" title="-1 dégât commander de vous">⚔−</button>':'')
+      +(useCmd?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',1)" title="+1 dégât commander de vous">⚔+</button>':'')
+      +(useCmd&&myCmdDmg>0?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',-1)" title="-1 dégât commander de vous">⚔−</button>':'')
       +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpGravePn('+pn+')" title="Cimetière">🪦'+o.grave+'</button>'
       +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpExilePn('+pn+')" title="Exile">✦'+o.exile+'</button>'
       +(isTarget?'<span style="color:#ff8060;font-size:.65rem">🎯</span>':'');
@@ -11826,6 +11913,8 @@ function _arApplyRemoteState(data){
   var pn=_arRoom.playerNum;
   var N=data.numPlayers||2;
   _arRoom.numPlayers=N;
+  _arRoom.useCmdDmg=!!data.useCmdDmg;
+  _arRoom.useStackTimer=data.useStackTimer!==false;
   var opps=_arGetOpponents(data,pn);
   var anyOpp=opps.length>0;
   // Etat initial : on ignore tant qu'aucune partie n'a ete lancee ni aucun adversaire connu
@@ -12173,6 +12262,12 @@ function arPushSharedStack(card,x,y){
 function _arStartSharedStackTimer(){
   _arClearSharedStackTimer();
   if(!_arSharedStack.length)return;
+  // Respecte le toggle 'Timer de pile' du lobby
+  if(_arRoom&&_arRoom.useStackTimer===false){
+    var fillOff=document.getElementById('ar-shared-stack-timer-fill');
+    if(fillOff){fillOff.style.transition='none';fillOff.style.width='0%';}
+    return;
+  }
   var fill=document.getElementById('ar-shared-stack-timer-fill');
   if(fill){fill.style.transition='none';fill.style.width='100%';fill.offsetWidth;
     fill.style.transition='width '+_AR_STACK_AUTO_PASS_MS+'ms linear';fill.style.width='0%';}
