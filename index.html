@@ -314,6 +314,10 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 .ml-modal-title{font-family:'Goudy Mediaeval',serif;color:#c8a8ff;font-size:1.1rem;letter-spacing:.06em;margin-bottom:10px;text-shadow:0 0 12px rgba(180,140,255,.4)}
 .ml-modal-msg{color:var(--tx2);font-size:.88rem;line-height:1.55;margin-bottom:14px;white-space:pre-wrap}
 .ml-modal-input{width:100%;padding:8px 12px;background:rgba(0,0,0,.45);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem;margin-bottom:14px;font-family:inherit;outline:none;box-sizing:border-box}
+.ml-ver-arrow{opacity:.35;transition:opacity .12s,background .12s,transform .1s}
+.ml-ver-wrap:hover .ml-ver-arrow{opacity:1}
+.ml-ver-arrow:hover{background:rgba(0,0,0,.92)!important}
+.ml-ver-arrow:active{transform:translateY(-50%) scale(.92)!important}
 .ml-modal-input:focus{border-color:rgba(180,140,255,.6);box-shadow:0 0 0 2px rgba(180,140,255,.18)}
 .ml-modal-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center}
 @keyframes ml-modal-pop{0%{transform:scale(.92);opacity:0}100%{transform:scale(1);opacity:1}}
@@ -7466,6 +7470,63 @@ function dFlt(f,btn){
   renderDeck();
 }
 var dViewMode='list', dImgCache={};
+// Versions / printings par carte (cache + sélection)
+var _dPrintingsCache={};  // nl → [{set, num, image, price, set_name, lang}]
+var _dVersionPick={};     // nl → index dans le tableau printings
+var _dPrintingsLoading={}; // nl → true pendant fetch
+function _dFetchPrintings(name,nl,cb){
+  if(_dPrintingsCache[nl]||_dPrintingsLoading[nl]){cb&&cb();return;}
+  _dPrintingsLoading[nl]=true;
+  fetch('https://api.scryfall.com/cards/search?q=!"'+encodeURIComponent(name)+'"&unique=prints&order=released&dir=asc')
+    .then(function(r){return r.json();})
+    .then(function(data){
+      var arr=(data.data||[]).map(function(card){
+        var img=(card.image_uris&&card.image_uris.normal)||(card.image_uris&&card.image_uris.small)||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.normal)||'';
+        return {set:(card.set||'').toUpperCase(),num:card.collector_number||'',image:img,price:parseFloat((card.prices||{}).eur)||0,set_name:card.set_name||'',lang:card.lang||'en',released_at:card.released_at||''};
+      });
+      _dPrintingsCache[nl]=arr;
+      delete _dPrintingsLoading[nl];
+      // Initialise l'index sur la version "détectée" depuis le rawName si jamais
+      if(_dVersionPick[nl]==null){
+        var card=(typeof dCards!=='undefined'?dCards:[]).find(function(c){return c.nl===nl;});
+        if(card&&card.set){
+          var idx=arr.findIndex(function(p){return p.set===(card.set||'').toUpperCase()&&p.num===(card.num||'');});
+          _dVersionPick[nl]=idx>=0?idx:0;
+        }else{_dVersionPick[nl]=0;}
+      }
+      cb&&cb();
+    }).catch(function(){delete _dPrintingsLoading[nl];cb&&cb();});
+}
+function dCycleVersion(nl,delta){
+  var card=(typeof dCards!=='undefined'?dCards:[]).find(function(c){return c.nl===nl;});
+  if(!card)return;
+  if(!_dPrintingsCache[nl]){
+    // Première fois → fetch puis cycle d'un coup
+    _dFetchPrintings(card.name,nl,function(){dCycleVersion(nl,delta);});
+    return;
+  }
+  var arr=_dPrintingsCache[nl];if(!arr.length)return;
+  _dVersionPick[nl]=((_dVersionPick[nl]||0)+delta+arr.length)%arr.length;
+  var p=arr[_dVersionPick[nl]];
+  card.set=p.set;card.num=p.num;
+  dImgCache[nl]=p.image;
+  // Persiste dans le rawName du deck si actif
+  _dPersistVersionsToDeck();
+  if(typeof renderDeck==='function')renderDeck();
+}
+function _dPersistVersionsToDeck(){
+  if(typeof actDeck==='undefined'||!actDeck||!decks[actDeck])return;
+  // Reconstruit rawName en injectant set/num quand dispo
+  var lines=[];
+  (dCards||[]).forEach(function(c){
+    var base=c.qty+' '+c.name;
+    if(c.set&&c.num)base+=' ('+c.set+') '+c.num;
+    lines.push(base);
+  });
+  decks[actDeck].rawName=lines.join('\n');
+  decks[actDeck].updatedAt=Date.now();
+  if(typeof saveDecks==='function')saveDecks();
+}
 function setDView(mode){
   if(mode!=='list'&&mode!=='image'&&mode!=='montage')return;
   dViewMode=mode;
@@ -7728,9 +7789,21 @@ function renderDeck(){
         var cardPrice=allPriceMap[card.nl]||0;
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
         _zoomList.push({nl:card.nl,name:card.name});var zi=_zoomList.length-1;
+        var nlJs=escJs(card.nl);
+        var verBadge='';
+        if(card.set){
+          var idx=(_dVersionPick[card.nl]||0)+1;
+          var tot=(_dPrintingsCache[card.nl]||[]).length||'?';
+          verBadge='<div title="Version sélectionnée" style="position:absolute;bottom:6px;left:6px;right:6px;text-align:center;background:rgba(0,0,0,.78);color:#fff;border:1px solid rgba(201,168,76,.55);font-size:.6rem;padding:2px 4px;border-radius:4px;font-family:monospace;pointer-events:none">'+esc(card.set)+' #'+esc(card.num||'?')+(typeof tot==='number'?' · '+idx+'/'+tot:'')+'</div>';
+        }
         html+='<div style="width:180px;text-align:center">'
+          +'<div class="ml-ver-wrap" style="position:relative;width:180px">'
           +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" class="cz-clickable" onclick="openCardZoomAt('+zi+')" style="width:180px;border-radius:8px;border:2px solid '+bc+';display:block">'
                :'<div class="cz-clickable" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;background:var(--s3);border-radius:8px;border:2px solid '+bc+';display:flex;align-items:center;justify-content:center;font-size:.72rem;color:var(--tx3);padding:4px;text-align:center">'+esc(card.name)+'</div>')
+          +'<button class="ml-ver-arrow" onclick="event.stopPropagation();dCycleVersion(\''+nlJs+'\',-1)" title="Version précédente" style="position:absolute;left:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);width:26px;height:46px;cursor:pointer;border-radius:0 6px 6px 0;font-size:1.1rem;line-height:1;padding:0">‹</button>'
+          +'<button class="ml-ver-arrow" onclick="event.stopPropagation();dCycleVersion(\''+nlJs+'\',1)" title="Version suivante" style="position:absolute;right:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);width:26px;height:46px;cursor:pointer;border-radius:6px 0 0 6px;font-size:1.1rem;line-height:1;padding:0">›</button>'
+          +verBadge
+          +'</div>'
           +'<div style="font-size:.65rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+card.qty+'× '+esc(card.name)+'</div>'
           +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;font-size:.62rem;padding:0 2px">'
           +statusTxt
