@@ -2867,6 +2867,7 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" onclick="bldOpenCompareDeck()" title="Comparer deux decks (uniques à chacun + communes)" style="font-size:.74rem;white-space:nowrap">🔄 Comparer</button>
       <button class="btn btnsm" onclick="bldShareCurrent()" title="Publier le deck courant en lecture seule via URL partageable" style="font-size:.74rem;white-space:nowrap">🔗 Partager</button>
       <button class="btn btnsm" onclick="bldMulliganSim()" title="Simule 2000 mains d'ouverture, statistiques de mana-screw/flood" style="font-size:.74rem;white-space:nowrap">🎴 Mulligan</button>
+      <button class="btn btnsm" onclick="bldShowSynergies()" title="Détecte les thèmes/synergies internes du deck (counters, sacrifice, graveyard…)" style="font-size:.74rem;white-space:nowrap">🧬 Synergies</button>
     </div>
     <div style="display:flex;gap:6px">
       <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
@@ -9544,6 +9545,125 @@ function backupDownload(){
   actLog('backup','Backup téléchargé ('+Object.keys(bundle.decks).length+' decks, '+Object.keys(bundle.purchaseLists).length+' listes)');
   mlToast('💾 Backup téléchargé');
 }
+// ===== ANA-1 : Détection synergies internes =====
+function bldShowSynergies(){
+  if(!bldMain||!bldMain.length){mlAlert('Synergies','Aucune carte dans le deck.');return;}
+  var names=bldMain.map(function(c){return c.name;});
+  _bldFetchLegalityData(names,function(){_bldRunSynergyAnalysis();});
+}
+function _bldRunSynergyAnalysis(){
+  // Mots-clés thématiques (parseur naïf sur oracle_text)
+  var THEMES={
+    counters:['\\+1/\\+1 counter','proliferate','adapt','evolve','adapt','modular'],
+    sacrifice:['\\bsacrifice\\b','\\bdies\\b','aristocrat'],
+    graveyard:['from .* graveyard','return .* to .* battlefield','reanimat','flashback','escape','delve','threshold','dredge'],
+    tokens:['create .* token','token creature','populate'],
+    discard:['\\bdiscard\\b','rummag','madness','hellbent'],
+    lifegain:['gain.* life','lifelink'],
+    flicker:['\\bexile.*return\\b','blink'],
+    spells:['whenever you cast','prowess','storm','magecraft'],
+    artifacts:['artifact','metalcraft','affinity for artifacts'],
+    enchantments:['enchantment','constellation'],
+    landfall:['landfall','whenever a land enters'],
+    counter_spells:['counter target spell'],
+    burn:['deals .* damage'],
+    ramp:['add \\{.\\}','search.* land','put .* land .* battlefield'],
+    draw:['draw .* cards?','wheel'],
+    tribal:['elf','goblin','zombie','vampire','wizard','soldier','dragon','spirit','warrior','knight','beast','horror','demon','angel']
+  };
+  // Compte les thèmes par carte
+  var cardThemes={}; // nl → [themes]
+  bldMain.forEach(function(c){
+    var d=bldData[(c.name||'').toLowerCase()];if(!d||!d.oracle_text)return;
+    var ot=d.oracle_text.toLowerCase();
+    var found=[];
+    Object.keys(THEMES).forEach(function(theme){
+      if(THEMES[theme].some(function(re){return new RegExp(re,'i').test(ot);}))found.push(theme);
+    });
+    if(found.length)cardThemes[c.name]=found;
+  });
+  // Compte par thème
+  var byTheme={};
+  Object.keys(cardThemes).forEach(function(name){
+    cardThemes[name].forEach(function(t){
+      if(!byTheme[t])byTheme[t]=[];
+      byTheme[t].push(name);
+    });
+  });
+  // Filtre les thèmes avec ≥ 3 cartes (sinon pas une synergie significative)
+  var sigThemes=Object.keys(byTheme).filter(function(t){return byTheme[t].length>=3;}).sort(function(a,b){return byTheme[b].length-byTheme[a].length;});
+  if(!sigThemes.length){mlAlert('Synergies','Aucune synergie détectée (besoin de ≥3 cartes par thème).');return;}
+  var labels={counters:'+1/+1 & marqueurs',sacrifice:'Sacrifice / aristocrats',graveyard:'Cimetière / reanimator',tokens:'Tokens',discard:'Défausse',lifegain:'Lifegain',flicker:'Flicker / blink',spells:'Spellslinger',artifacts:'Artefacts',enchantments:'Enchantements',landfall:'Landfall',counter_spells:'Contre-sorts',burn:'Burn',ramp:'Ramp',draw:'Pioche',tribal:'Tribal'};
+  var html='<div style="max-height:60vh;overflow-y:auto;text-align:left">'
+    +'<div style="font-size:.78rem;color:var(--tx3);margin-bottom:10px">Détection heuristique basée sur les mots-clés Oracle. Plus une carte coche de thèmes communs avec d\'autres, plus la synergie est forte.</div>'
+    +sigThemes.map(function(t){
+      var arr=byTheme[t];
+      return '<details open><summary style="cursor:pointer;font-size:.86rem;color:#c8a8ff;padding:6px 0"><strong>'+esc(labels[t]||t)+'</strong> — '+arr.length+' carte(s)</summary>'
+        +'<ul style="font-size:.76rem;color:var(--tx2);padding-left:22px;line-height:1.55">'+arr.map(function(n){return '<li>'+esc(n)+'</li>';}).join('')+'</ul></details>';
+    }).join('')
+    +'</div>';
+  mlAlert('🧬 Synergies internes',html,{html:true,okLabel:'Fermer'});
+}
+
+// ===== ANA-2 : Win-rate matchup tracking =====
+var _GAMES_KEY='manalab_games_log';
+function gamesAdd(opts){
+  // opts: {myDeck, oppDeck, result:'win'|'loss'|'draw', notes}
+  var arr=[];try{arr=JSON.parse(localStorage.getItem(_GAMES_KEY)||'[]');}catch(e){}
+  arr.push({ts:Date.now(),myDeck:opts.myDeck||'',oppDeck:opts.oppDeck||'',result:opts.result||'?',notes:opts.notes||''});
+  try{localStorage.setItem(_GAMES_KEY,JSON.stringify(arr.slice(-500)));}catch(e){}
+  actLog('game','vs '+opts.oppDeck+' → '+opts.result+' (avec '+opts.myDeck+')');
+}
+function gamesPrompt(){
+  var deckNames=Object.keys(decks||{}).map(function(id){return decks[id].name||'?';});
+  var optsHtml=deckNames.map(function(n){return '<option value="'+esc(n)+'">'+esc(n)+'</option>';}).join('');
+  var html='<div style="text-align:left">'
+    +'<label style="font-size:.78rem;color:var(--tx2)">Ton deck</label>'
+    +'<select id="ml-g-mine" class="ml-modal-input">'+optsHtml+'</select>'
+    +'<label style="font-size:.78rem;color:var(--tx2);margin-top:8px;display:block">Deck adverse (texte libre)</label>'
+    +'<input type="text" id="ml-g-opp" class="ml-modal-input" placeholder="ex : Krenko Mob Boss / Pauper Storm">'
+    +'<label style="font-size:.78rem;color:var(--tx2);margin-top:8px;display:block">Résultat</label>'
+    +'<div style="display:flex;gap:6px;justify-content:center;margin-bottom:10px">'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'ml-g-res\').value=\'win\';this.parentNode.querySelectorAll(\'button\').forEach(function(b){b.classList.remove(\'active\');});this.classList.add(\'active\');this.style.background=\'rgba(80,200,120,.35)\'" id="ml-g-win">🏆 Victoire</button>'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'ml-g-res\').value=\'loss\';this.parentNode.querySelectorAll(\'button\').forEach(function(b){b.classList.remove(\'active\');});this.classList.add(\'active\');this.style.background=\'rgba(255,80,80,.35)\'">💀 Défaite</button>'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'ml-g-res\').value=\'draw\';this.parentNode.querySelectorAll(\'button\').forEach(function(b){b.classList.remove(\'active\');});this.classList.add(\'active\');this.style.background=\'rgba(200,200,200,.25)\'">🤝 Nulle</button>'
+    +'</div>'
+    +'<input type="hidden" id="ml-g-res" value="">'
+    +'<label style="font-size:.78rem;color:var(--tx2);margin-top:8px;display:block">Notes (optionnel)</label>'
+    +'<textarea id="ml-g-notes" class="ml-modal-input" placeholder="Mulligan, plays clés, leçons…" style="min-height:60px"></textarea>'
+    +'<div style="text-align:center"><button class="btn btnp" onclick="_gamesSubmit()">💾 Enregistrer</button> <button class="btn btnsm" onclick="gamesShowStats()">📊 Voir stats</button></div></div>';
+  mlAlert('🎲 Enregistrer une partie',html,{html:true,okLabel:'Fermer'});
+}
+function _gamesSubmit(){
+  var me=document.getElementById('ml-g-mine').value;
+  var opp=document.getElementById('ml-g-opp').value;
+  var res=document.getElementById('ml-g-res').value;
+  if(!res){mlToast('⚠ Choisis un résultat',{color:'rgba(255,180,60,.5)'});return;}
+  if(!opp){mlToast('⚠ Précise le deck adverse',{color:'rgba(255,180,60,.5)'});return;}
+  gamesAdd({myDeck:me,oppDeck:opp,result:res,notes:document.getElementById('ml-g-notes').value});
+  _mlClose(null);mlToast('✓ Partie enregistrée');
+}
+function gamesShowStats(){
+  var arr=[];try{arr=JSON.parse(localStorage.getItem(_GAMES_KEY)||'[]');}catch(e){}
+  if(!arr.length){mlAlert('Stats','Aucune partie enregistrée.');return;}
+  // Stats par deck à moi
+  var byMyDeck={};
+  arr.forEach(function(g){
+    if(!byMyDeck[g.myDeck])byMyDeck[g.myDeck]={total:0,win:0,loss:0,draw:0,vs:{}};
+    var s=byMyDeck[g.myDeck];s.total++;s[g.result]=(s[g.result]||0)+1;
+    if(!s.vs[g.oppDeck])s.vs[g.oppDeck]={w:0,l:0,d:0};
+    s.vs[g.oppDeck][g.result==='win'?'w':g.result==='loss'?'l':'d']++;
+  });
+  var deckHtml=Object.keys(byMyDeck).sort(function(a,b){return byMyDeck[b].total-byMyDeck[a].total;}).map(function(dk){
+    var s=byMyDeck[dk];
+    var wr=s.total?((s.win/s.total)*100).toFixed(0):'0';
+    var color=parseInt(wr)>=55?'#90e8c0':parseInt(wr)<=45?'#ff8080':'#ffc848';
+    var vs=Object.keys(s.vs).sort().map(function(o){var v=s.vs[o];var t=v.w+v.l+v.d;return '<li>vs '+esc(o)+' : '+v.w+'-'+v.l+(v.d?'-'+v.d:'')+' ('+(t?(v.w/t*100).toFixed(0):0)+'%)</li>';}).join('');
+    return '<details><summary style="cursor:pointer;font-size:.85rem;color:var(--tx);padding:6px 0"><strong>'+esc(dk||'(sans deck)')+'</strong> — '+s.total+' parties, WR <span style="color:'+color+'">'+wr+'%</span> ('+s.win+'-'+s.loss+(s.draw?'-'+s.draw:'')+')</summary><ul style="font-size:.74rem;color:var(--tx2);padding-left:22px;line-height:1.55">'+vs+'</ul></details>';
+  }).join('');
+  mlAlert('📊 Win-rate par deck / matchup','<div style="max-height:60vh;overflow-y:auto">'+deckHtml+'</div>',{html:true,okLabel:'Fermer'});
+}
+
 // ===== COLL-1 : Valorisation sur la durée =====
 var _COLL_VALUE_KEY='manalab_value_hist';
 function collSnapshotValue(){
@@ -9755,6 +9875,8 @@ function qkBuildItems(){
   items.push({kind:'action',label:'📋 Journal d\'activité',sub:'Voir les actions récentes',action:function(){if(typeof actLogShow==='function')actLogShow();}});
   items.push({kind:'action',label:'💰 Export comptable CSV',sub:'Collection avec valeur Scryfall',action:function(){if(typeof collExportAccounting==='function')collExportAccounting();}});
   items.push({kind:'action',label:'📈 Valorisation de la collection',sub:'Courbe sur la durée',action:function(){if(typeof collShowValueHistory==='function')collShowValueHistory();}});
+  items.push({kind:'action',label:'🎲 Enregistrer une partie',sub:'Tracking win-rate',action:function(){if(typeof gamesPrompt==='function')gamesPrompt();}});
+  items.push({kind:'action',label:'📊 Stats win-rate par deck',sub:'Matchups',action:function(){if(typeof gamesShowStats==='function')gamesShowStats();}});
   items.push({kind:'action',label:'🌐 Importer un deck (URL Moxfield/Archidekt)',sub:'Action',action:function(){if(typeof collImportFromUrl==='function')collImportFromUrl();}});
   return items;
 }
