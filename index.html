@@ -1133,6 +1133,11 @@ body.mana-cursor{cursor:none}
 .mm-sec-clickable{cursor:pointer;user-select:none;transition:background .12s}
 .mm-sec-clickable:hover{background:rgba(255,255,255,.03)}
 .mm-caret{display:inline-block;font-size:.7rem;color:var(--tx3);transition:transform .15s;margin-right:4px;vertical-align:middle;width:10px;text-align:center}
+.mm-own-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle;cursor:help;box-shadow:0 0 4px rgba(0,0,0,.5) inset}
+.mm-own-ok{background:var(--gr2);border:.5px solid var(--gr2)}
+.mm-own-partial{background:var(--am);border:.5px solid var(--am)}
+.mm-own-used{background:#8a6e30;border:.5px solid #c9a84c}
+.mm-own-missing{background:var(--rd2);border:.5px solid var(--rd2)}
 .montage-row{display:grid;grid-template-columns:36px 1fr auto 70px 56px auto;gap:8px;align-items:center;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:.84rem;border:.5px solid transparent;transition:background .15s,border-color .15s}
 .montage-row:hover{background:rgba(255,255,255,.04);border-color:var(--bd2)}
 .montage-row-done{background:rgba(16,185,129,.06);color:var(--gr2);opacity:.85}
@@ -7672,9 +7677,15 @@ function renderDeckMontage(quietUpdate){
     var zIdx=_zoomList.findIndex(function(z){return z.nl===c.nl;});
     var jnl=escJs(c.nl);
     var pips=_cardPips(c);
+    // Pastille possession
+    var free=Math.max(0,owned-inOther);
+    var ownStat=owned===0?'missing':(free>=c.qty?'ok':(free>0?'partial':'used'));
+    var ownLbl={ok:'✓ tu possèdes assez de copies libres',partial:'◑ tu possèdes mais pas assez',used:'⚑ tu possèdes mais toutes engagées ailleurs',missing:'✗ aucune en collection'}[ownStat];
+    var ownTip=ownLbl+' — '+owned+' possédée(s)'+(inOther>0?', '+inOther+' engagée(s) ailleurs':'')+' — '+c.qty+' nécessaire(s)';
+    var ownDot='<span class="mm-own-dot mm-own-'+ownStat+'" title="'+esc(ownTip)+'"></span>';
     return '<div class="'+rowCls+'" onclick="if(event.shiftKey)montageDec(\''+jnl+'\');else montageInc(\''+jnl+'\');" title="Clic = +1 placée • Shift+clic = -1 • Clic sur le nom = zoom">'
       +'<div class="montage-qty">'+c.qty+'×</div>'
-      +'<div><span style="margin-right:6px">'+pips+'</span><span class="montage-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(c.name)+'</span></div>'
+      +'<div><span style="margin-right:6px">'+pips+'</span>'+ownDot+'<span class="montage-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(c.name)+'</span></div>'
       +'<div class="montage-status">'+statusTag+'</div>'
       +'<div class="montage-blocks">'+_montageMiniBlocks(b,c.qty)+'</div>'
       +'<div class="montage-counter">'+b+'/'+c.qty+'</div>'
@@ -7902,6 +7913,33 @@ function mmReset(){
   _mmSaveSelected();renderMultiMontage();
 }
 
+function _mmOwnedStatus(entry){
+  var pm=getPMap(0);
+  var owned=pm.get(_normNl(entry.name))||0;
+  var needed=entry.totalQty;
+  // Usage dans les decks NON sélectionnés du user
+  var nonSelUsage=0;
+  Object.keys(decks).forEach(function(id){
+    if(_mmSelectedDeckIds.indexOf(id)>=0)return;
+    var dk=decks[id];if(!dk||!_deckBelongsTo(dk,0))return;
+    var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+    var cards=parseList(raw||'');
+    cards.forEach(function(c){if(c.nl===entry.nl)nonSelUsage+=c.qty;});
+  });
+  var free=Math.max(0,owned-nonSelUsage);
+  var status;
+  if(owned===0)status='missing';
+  else if(free>=needed)status='ok';
+  else if(free>0)status='partial';
+  else status='used';
+  return {owned:owned,needed:needed,nonSel:nonSelUsage,free:free,status:status};
+}
+function _mmOwnDot(entry){
+  var s=_mmOwnedStatus(entry);
+  var LBL={ok:'✓ tu possèdes assez de copies libres',partial:'◑ tu en possèdes mais pas assez de libres',used:'⚑ tu en possèdes mais toutes engagées dans d\'autres decks',missing:'✗ tu n\'en possèdes aucune'};
+  var tip=LBL[s.status]+' — '+s.owned+' possédée(s)'+(s.nonSel>0?', '+s.nonSel+' engagée(s) dans d\'autres decks':'')+' — '+s.needed+' nécessaire(s)';
+  return '<span class="mm-own-dot mm-own-'+s.status+'" title="'+esc(tip)+'"></span>';
+}
 function _mmRenderRow(entry,deckIds){
   var jnl=escJs(entry.nl);
   var done=entry.totalBuilt>=entry.totalQty;
@@ -7909,6 +7947,7 @@ function _mmRenderRow(entry,deckIds){
   var rowCls='mm-row mm-card-row'+(done?' mm-card-row-done':part?' mm-card-row-partial':' mm-card-row-missing');
   var meta=dCardMeta[entry.nl]||{};
   var pips=_manaPips(meta.colors||[]);
+  var ownDot=_mmOwnDot(entry);
   var zIdx=_zoomList.findIndex(function(z){return z.nl===entry.nl;});
   var nameHtml='<span class="mm-card-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer la carte">'+esc(entry.name)+'</span>';
   // Map deckId -> {qty, built}
@@ -7926,7 +7965,7 @@ function _mmRenderRow(entry,deckIds){
   }).join('');
   return '<div class="'+rowCls+'" title="Clic ailleurs = +1 dans le 1ᵉʳ deck non-plein • Shift+clic = -1">'
     +'<div class="mm-cell mm-cell-pips">'+pips+'</div>'
-    +'<div class="mm-cell mm-cell-name" onclick="if(event.shiftKey)mmDec(\''+jnl+'\');else mmInc(\''+jnl+'\');">'+nameHtml+'</div>'
+    +'<div class="mm-cell mm-cell-name" onclick="if(event.shiftKey)mmDec(\''+jnl+'\');else mmInc(\''+jnl+'\');">'+ownDot+nameHtml+'</div>'
     +deckCells
     +'<div class="mm-cell mm-cell-blocks">'+_montageMiniBlocks(entry.totalBuilt,entry.totalQty)+' <span class="mm-cell-count" style="color:var(--tx2);margin-left:6px">'+entry.totalBuilt+'/'+entry.totalQty+'</span></div>'
     +'<div class="mm-cell mm-cell-ctrls" onclick="event.stopPropagation()">'
