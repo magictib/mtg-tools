@@ -5938,6 +5938,7 @@ function loadFriendDeck(uid,deckId){
   setDeckColors(isCmd?(dCommander?dCommander.colors:[]):(d.colors||[]));
   setOwner(pi>0?pi:0);
   renderDBar();analyzeDeck();
+  if(dViewMode==='image')fetchDeckImages();
   document.getElementById('deckres').style.display='block';
   document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
 }
@@ -5963,6 +5964,7 @@ function loadDeckAdmin(uid,deckId){
   var pi=(_epSlots.deck||[]).findIndex(function(ep){return ep.uid===uid;})+1;
   setOwner(pi>0?pi:0);
   renderDBar();analyzeDeck();
+  if(dViewMode==='image')fetchDeckImages();
   document.getElementById('deckres').style.display='block';
   document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
 }
@@ -6120,6 +6122,7 @@ function loadDeck(id){
   var storedColors=isCmd?(dCommander?dCommander.colors:[]):(d.colors||[]);
   setDeckColors(storedColors);
   renderDBar();analyzeDeck();
+  if(dViewMode==='image')fetchDeckImages();
   document.getElementById('deckres').style.display='block';
   document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
 }
@@ -7094,6 +7097,34 @@ function _deckColors(deckId){
   if(!d)return[];
   return d.colors||(d.commander?d.commander.colors:[])||[];
 }
+function _friendMaxUsage(profIdx,cardNl){
+  // qty max de cette carte dans UN deck du profil donné
+  var ep=profIdx>0?(_epSlots.deck||[])[profIdx-1]:null;
+  var srcDecks=ep&&_epDecks[ep.uid]?_epDecks[ep.uid]:null;
+  if(profIdx>0&&!srcDecks)return 0;
+  var deckSource=profIdx===0?decks:srcDecks;
+  var maxQ=0;
+  Object.keys(deckSource||{}).forEach(function(id){
+    var dk=deckSource[id];if(!dk)return;
+    if(profIdx===0&&!_deckBelongsTo(dk,0))return;
+    var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+    var cards=parseList(raw||'');
+    cards.forEach(function(c){if(c.nl===cardNl&&c.qty>maxQ)maxQ=c.qty;});
+  });
+  return maxQ;
+}
+function _friendAvailableFor(card,pms,ownerIdx){
+  // Retourne true si au moins un autre profil a cette carte avec ≥1 exemplaire libre (owned - max(deck usage))
+  var k=getKey(card);
+  for(var i=0;i<profs.length;i++){
+    if(i===ownerIdx)continue;
+    var owned=(pms[i]||new Map()).get(k)||0;
+    if(!owned)continue;
+    var free=owned-_friendMaxUsage(i,card.nl);
+    if(free>0)return true;
+  }
+  return false;
+}
 function getDeckUsage(profIdx){
   // Retourne Map<key_name, {qty, decks:[deckName]}> des cartes dans d'autres decks du profil
   var usage=new Map();
@@ -7181,8 +7212,29 @@ function renderDeck(){
     if(dFMode==='cmd'){var still=c.qty-x;return still>0&&!pms.some(function(m){return (m.get(getKey(c))||0)>=c.qty;});}
     return true;
   });
+  // Mode emprunt : split en 2 groupes (disponible chez ami / engagée chez ami)
+  var groups;
+  if(dFMode==='borrow'){
+    var availList=[],usedList=[];
+    filtered.forEach(function(c){
+      if(_friendAvailableFor(c,pms,dOwner))availList.push(c);else usedList.push(c);
+    });
+    groups=[
+      {hdr:'🤝 Disponible chez un ami',items:availList},
+      {hdr:'⚠ Utilisée dans un deck ami — demander si emprunt possible',items:usedList,warn:true}
+    ];
+  } else {
+    groups=[{hdr:'',items:filtered}];
+  }
+  var html='';
+  groups.forEach(function(_g){
+    if(!_g.items.length)return;
+    if(_g.hdr){
+      var hdrColor=_g.warn?'var(--am)':'var(--gold2)';
+      html+='<div style="font-size:.85rem;color:'+hdrColor+';padding:10px 0 6px;font-weight:600;border-bottom:.5px solid var(--bd2);margin-top:8px">'+_g.hdr+' <span style="color:var(--tx3);font-size:.7rem;font-weight:400">('+_g.items.length+')</span></div>';
+    }
   // Tri et sections virtuelles
-  var sorted=filtered.slice();
+  var sorted=_g.items.slice();
   if(dSortMode==='name')sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
   else if(dSortMode==='cmc')sorted.sort(function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);});
   else if(dSortMode==='color'){
@@ -7201,7 +7253,6 @@ function renderDeck(){
   if(dSortMode==='type'){secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
   else if(dSortMode==='cmc'){secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});}
   else if(dSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
-  var html='';
   if(dViewMode==='image'){
     // Mode grille d'images
     secs.forEach(function(sec){
@@ -7261,9 +7312,7 @@ function renderDeck(){
         }).join('');
         var pendQD=pending.filter(function(p){return p.name.toLowerCase()===card.nl;}).reduce(function(s,p){return s+p.qty;},0);
         var loanQD=loans.filter(function(l){return l.name.toLowerCase()===card.nl;}).reduce(function(s,l){return s+l.qty;},0);
-        var friendHas=f<card.qty&&qs.some(function(q,i){return i!==dOwner&&q>0;});
-        var friendBdg=friendHas?(function(){var ns=qs.map(function(q,i){return (i!==dOwner&&q>0)?PN[i]:'';}).filter(Boolean).join(', ');return '<span style="font-size:.65rem;margin-left:3px;cursor:help;vertical-align:middle" title="🤝 '+esc(ns)+' a cette carte">🤝</span>';})():'';
-        var dkBdg=(pendQD?'<span class="badge-pend" title="'+pendQD+'× commandée(s), non reçue(s)">⏳'+pendQD+'</span>':'')+(loanQD?'<span class="badge-loan" title="'+loanQD+'× en prêt actif">🔄'+loanQD+'</span>':'')+friendBdg;
+        var dkBdg=(pendQD?'<span class="badge-pend" title="'+pendQD+'× commandée(s), non reçue(s)">⏳'+pendQD+'</span>':'')+(loanQD?'<span class="badge-loan" title="'+loanQD+'× en prêt actif">🔄'+loanQD+'</span>':'');
         var cardPrice=allPriceMap[card.nl]||0;
         var priceCell=cardPrice>0?'<div style="text-align:right;color:var(--gold2);font-size:.72rem">'+cardPrice.toFixed(2)+'€</div>':'<div style="text-align:right;color:var(--tx3);font-size:.72rem">—</div>';
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
@@ -7272,6 +7321,7 @@ function renderDeck(){
       });
     });
   }
+  }); // end groups.forEach
   if(!html)html='<div style="text-align:center;color:var(--tx3);padding:1.5rem;font-style:italic">Aucune carte</div>';
   if(_ownerDataMissing&&dFMode!=='all')html='<div style="font-size:.78rem;color:var(--am);padding:6px 0 8px;margin-bottom:4px">⚠ Collection de ce profil non chargée — filtres désactivés</div>'+html;
   document.getElementById('dlisthdr').style.display=dViewMode==='list'?'':'none';
