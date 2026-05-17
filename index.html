@@ -10265,7 +10265,9 @@ function arRenderField(){
       btn.onclick=function(e){e.stopPropagation();arHideTip();arToggleCardMenu(el);};
       el.appendChild(btn);
       el.onpointerdown=function(e){if(isOp)return;arPtrDown(e,el);};
-      el.ondblclick=function(){arShowFullCard(c.name);};
+      el.ondblclick=function(e){if(isOp){arShowFullCard(c.name);return;}arDoTap(c.id,'field');e.stopPropagation();};
+      el.oncontextmenu=function(e){e.preventDefault();arShowFullCard(c.name);};
+      el.onwheel=function(e){if(isOp||!_arIsOwnCard(c.id))return;e.preventDefault();var delta=e.deltaY<0?1:-1;var ff=_ar.field.find(function(x){return x.id===c.id;});if(ff){ff.counters=(ff.counters||0)+delta;arRenderField();_arSyncToRoom();}};
       el.onmouseenter=function(ev){arShowTip(c.name,ev);_arHoverCard={id:c.id,zone:'field'};};
       el.onmouseleave=function(){arHideTip();_arHoverCard={id:null,zone:null};};
       field.appendChild(el);
@@ -10312,6 +10314,8 @@ function arRenderLands(){
       btn2.onclick=function(e){e.stopPropagation();arHideTip();arToggleCardMenu(el);};
       el.appendChild(btn2);
       el.onpointerdown=function(e){arPtrDown(e,el);};
+      el.ondblclick=function(e){arDoTap(c.id,'lands');e.stopPropagation();};
+      el.oncontextmenu=function(e){e.preventDefault();arShowFullCard(c.name);};
       el.onmouseenter=function(ev){arShowTip(c.name,ev);_arHoverCard={id:c.id,zone:'lands'};};
       el.onmouseleave=function(){arHideTip();_arHoverCard={id:null,zone:null};};
       lands.appendChild(el);
@@ -10323,10 +10327,7 @@ function arRenderLands(){
   if(hint)hint.style.display=(_ar.lands&&_ar.lands.length)?'none':'flex';
 }
 
-function arTapLand(id){
-  var c=(_ar.lands||[]).find(function(c){return c.id===id;});
-  if(c)c.tapped=!c.tapped;arRenderLands();_arSyncToRoom();
-}
+function arTapLand(id){arDoTap(id,'lands');}
 
 function arRenderRight(){
   var libEl=document.getElementById('ar-lib-cnt');if(libEl)libEl.textContent=_ar.lib.length;
@@ -10465,11 +10466,8 @@ function arDoTap(id,zone){
     if(c){
       var wasTapped=c.tapped;
       c.tapped=!c.tapped;
-      if(_arBot){
-        if(!wasTapped){_arAddManaFromLand(c.name);}
-        else{_arRemoveManaFromLand(c.name);}
-        arRenderManaPool();
-      }
+      // Auto-mana : tap → ajoute (untap conserve la réserve, vidée en fin de tour)
+      if(!wasTapped){_arAddManaFromLand(c.name);arRenderManaPool();}
       arRenderLands();_arSyncToRoom();
     }
   }
