@@ -2448,6 +2448,7 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" onclick="purTogglePastePanel()" title="Coller une liste de cartes directement">📋 Coller liste</button>
       <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter .txt</button>
       <button class="btn btnsm" id="pur-cm-btn" onclick="purExportCardmarket()" title="Génère ta liste d'achats prête à coller dans Cardmarket Wants Builder">🛒 Cardmarket</button>
+      <button class="btn btnsm" onclick="mlScanWishlistMatching()" title="Scan toutes les listes : qui veut quoi vs. qui a quoi de libre">🎁 Match</button>
       <button class="btn btnsm" id="pur-view-btn" onclick="togglePurImgMode()" style="display:none">🖼 Images</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
     </div>
@@ -9496,6 +9497,81 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
   html+='</div></div>';
   return html;
 }
+// ===== SOCIAL-1 : Wishlist matching cross-listes =====
+function mlScanWishlistMatching(){
+  if(!Object.keys(_purchaseLists||{}).length){mlAlert('Wishlist','Aucune liste partagée à scanner.');return;}
+  _purInvalidatePossessCache();
+  var myPM=_purGetOwnPossess();
+  if(!myPM.size){mlAlert('Wishlist','Ta collection est vide — impossible de matcher.');return;}
+  // Pour chaque carte que les autres veulent acheter dans une liste où je suis membre,
+  // si j'ai une copie LIBRE → match.
+  var matches=[]; // [{listName, listId, name, nl, who, qtyAsked, ownedFree}]
+  Object.keys(_purchaseLists).forEach(function(lid){
+    var lst=_purchaseLists[lid];if(!lst||!lst.cards)return;
+    lst.cards.forEach(function(c){
+      // Cartes achetées par quelqu'un d'autre que moi (ou non-assignées)
+      var someoneElseBuys=(c.buyer&&c.buyer!==userId)||(!c.buyer&&!c.borrower&&c.column!==-2);
+      if(!someoneElseBuys)return;
+      var nl=(c.nl||'').toLowerCase();
+      var owned=myPM.get(nl)||0;
+      if(!owned)return;
+      var used=_purGetOwnUsage(nl);
+      var free=Math.max(0,owned-used);
+      if(free>0){
+        matches.push({listName:lst.name,listId:lid,name:c.name,nl:nl,qtyAsked:c.qty||1,ownedFree:free,who:c.buyer?_purMemberName(c.buyer):'?',cardId:c.id});
+      }
+    });
+  });
+  // Inverse : cartes que JE veux acheter et qu'un ami a en collection libre
+  // Pour ça il faut accéder à la collection des amis via profs[1..n]
+  var inverse=[];
+  Object.keys(_purchaseLists).forEach(function(lid){
+    var lst=_purchaseLists[lid];if(!lst||!lst.cards)return;
+    lst.cards.forEach(function(c){
+      if(c.buyer!==userId)return;
+      var nl=(c.nl||'').toLowerCase();
+      // Cherche chez les autres profs
+      for(var i=1;i<profs.length;i++){
+        if(!profs[i])continue;
+        var pm=getPMap(i);
+        var owned=pm.get(nl)||0;
+        if(!owned)continue;
+        var used=_friendTotalUsage(i,nl)||0;
+        var free=Math.max(0,owned-used);
+        if(free>0){
+          inverse.push({listName:lst.name,listId:lid,name:c.name,nl:nl,qtyAsked:c.qty||1,ownedFree:free,friendName:PN[i]||'Ami','friendIdx':i});
+          break;
+        }
+      }
+    });
+  });
+  if(!matches.length&&!inverse.length){
+    mlAlert('🎁 Wishlist matching','Aucune correspondance pour l\'instant. Lance-toi : invite des amis et importe leurs listes.');return;
+  }
+  function row(m,kind){
+    var p=_purPriceCache[m.nl];
+    var pStr=p>0?p.toFixed(2)+'€':'';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(0,0,0,.25);border-radius:6px;margin:3px 0">'
+      +'<img src="'+_purImgSrc({nl:m.nl,name:m.name})+'" loading="lazy" style="width:30px;height:42px;border-radius:3px;object-fit:cover;background:#222">'
+      +'<div style="flex:1;min-width:0"><div style="font-size:.82rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>'+esc(m.name)+'</strong></div>'
+      +'<div style="font-size:.66rem;color:var(--tx3)">'+(kind==='offer'?'demandé par '+esc(m.who):'dispo chez '+esc(m.friendName))+' · liste : '+esc(m.listName)+'</div></div>'
+      +(pStr?'<span style="font-size:.7rem;color:var(--gold2);font-family:monospace">'+pStr+'</span>':'')
+      +'<span style="font-size:.66rem;padding:2px 6px;border-radius:5px;background:rgba(80,200,120,.2);color:#90e8c0">'+m.ownedFree+' libre(s)</span>'
+      +'</div>';
+  }
+  var html='<div style="max-height:65vh;overflow-y:auto;text-align:left">';
+  if(matches.length){
+    html+='<div style="font-size:.84rem;color:#90e8c0;margin:6px 0">🤝 <strong>'+matches.length+'</strong> carte(s) où TU peux dépanner</div>';
+    html+=matches.map(function(m){return row(m,'offer');}).join('');
+  }
+  if(inverse.length){
+    html+='<div style="font-size:.84rem;color:#c8a8ff;margin:14px 0 6px">🎁 <strong>'+inverse.length+'</strong> carte(s) que tu veux et qu\'un ami a libre</div>';
+    html+=inverse.map(function(m){return row(m,'have');}).join('');
+  }
+  html+='</div>';
+  mlAlert('🎁 Wishlist matching',html,{html:true,okLabel:'Fermer'});
+}
+
 // ===== EXPORT CARDMARKET (panier) =====
 function purExportCardmarket(){
   if(!_activePurListId||!_purchaseLists[_activePurListId]){mlAlert('Aucune liste','Sélectionne d\'abord une liste partagée.');return;}
