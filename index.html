@@ -7512,10 +7512,8 @@ function dCycleVersion(nl,delta){
   _dVersionPick[nl]=((_dVersionPick[nl]||0)+delta+arr.length)%arr.length;
   var p=arr[_dVersionPick[nl]];
   card.set=p.set;card.num=p.num;
-  // Force la version choisie + bypasse la localisation
   dImgCache[nl]=p.image;
-  // Vide le cache des URLs localisées pour cette carte afin qu'il ne réinjecte
-  // pas l'URL FR/ES/etc. si une localisation passe ensuite par d'autres images
+  // Vide le cache des URLs localisées pour cette carte
   try{
     if(typeof _localizedImgCache==='object'&&_localizedImgCache){
       Object.keys(_localizedImgCache).forEach(function(k){
@@ -7523,19 +7521,31 @@ function dCycleVersion(nl,delta){
       });
     }
   }catch(e){}
-  // Force-update direct des imgs déjà dans le DOM avant que renderDeck ne reconstruise
+  // Update IN-PLACE : on ne re-render PAS tout le deck (évite flicker des autres cartes)
   try{
+    var totalPrints=arr.length;
+    var idxDisp=_dVersionPick[nl]+1;
     document.querySelectorAll('img[alt]').forEach(function(im){
-      if((im.alt||'').toLowerCase()===card.name.toLowerCase()){
-        im.src=p.image;
-        im.dataset.noLocalize='1';
-        im.dataset.localizedTo=(typeof _userLang!=='undefined'?_userLang:'en');
-        im.dataset.originalSrc=p.image;
+      if((im.alt||'').toLowerCase()!==card.name.toLowerCase())return;
+      im.src=p.image;
+      im.dataset.noLocalize='1';
+      im.dataset.localizedTo=(typeof _userLang!=='undefined'?_userLang:'en');
+      im.dataset.originalSrc=p.image;
+      // Met à jour le badge SET #num sous la carte (frère du .ml-ver-wrap qui contient l'img)
+      var wrap=im.closest('.ml-ver-wrap');
+      if(wrap){
+        var badge=wrap.querySelector('div[title="Version sélectionnée"]');
+        if(!badge){
+          badge=document.createElement('div');
+          badge.title='Version sélectionnée';
+          badge.style.cssText='position:absolute;bottom:6px;left:6px;right:6px;text-align:center;background:rgba(0,0,0,.78);color:#fff;border:1px solid rgba(201,168,76,.55);font-size:.6rem;padding:2px 4px;border-radius:4px;font-family:monospace;pointer-events:none';
+          wrap.appendChild(badge);
+        }
+        badge.textContent=p.set+' #'+(p.num||'?')+' · '+idxDisp+'/'+totalPrints;
       }
     });
   }catch(e){}
   _dPersistVersionsToDeck();
-  if(typeof renderDeck==='function')renderDeck();
 }
 function _dPersistVersionsToDeck(){
   if(typeof actDeck==='undefined'||!actDeck||!decks[actDeck])return;
