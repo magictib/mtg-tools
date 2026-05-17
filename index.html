@@ -944,6 +944,9 @@ body.mana-cursor{cursor:none}
 .ar-ph-sep{color:var(--tx3);font-size:.65rem;opacity:.5}
 .ar-life{display:flex;align-items:center;gap:3px}
 .ar-life-val{font-family:'Goudy Mediaeval',serif;font-size:1.6rem;color:var(--gold2);min-width:44px;text-align:center;line-height:1}
+.ar-cnt-pill{font-size:.6rem;padding:1px 6px;border-radius:9px;border:1px solid;cursor:pointer;background:transparent;font-family:monospace;line-height:1.3;transition:transform .1s,filter .1s;white-space:nowrap}
+.ar-cnt-pill:hover{transform:translateY(-1px);filter:brightness(1.2)}
+.ar-op-cnt-pill{font-size:.58rem;padding:1px 5px;border-radius:8px;font-family:monospace;line-height:1.3;white-space:nowrap}
 .ar-life-shake{animation:ar-life-shake .55s cubic-bezier(.36,.07,.19,.97) both;display:inline-block}
 @keyframes ar-life-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
 .ar-dmg-pop{position:fixed;transform:translate(-50%,-100%);font-family:'Cinzel',serif;font-weight:800;font-size:1.8rem;pointer-events:none;z-index:200;text-shadow:0 0 8px #000,0 2px 6px rgba(0,0,0,.85);animation:ar-dmg-pop 1.15s ease-out forwards}
@@ -3929,6 +3932,7 @@ body.mana-cursor{cursor:none}
           <div id="ar-life-delta-wrap" style="position:absolute;top:0;left:0;right:0;pointer-events:none;overflow:visible;height:0"></div>
           <svg id="ar-life-sparkline" width="84" height="22" viewBox="0 0 84 22" style="display:block;margin:3px auto 0" title="Historique des PV"></svg>
           <div id="ar-clock-self" style="display:none;font-family:monospace;font-size:.75rem;color:#c8a8ff;text-align:center;margin-top:2px" title="Chess-clock : votre budget temps total"></div>
+          <div id="ar-counter-strip" style="display:flex;flex-wrap:wrap;gap:3px;justify-content:center;margin-top:5px;max-width:120px"></div>
         </div>
         <!-- Exile -->
         <div class="ar-zone-box" id="ar-pile-exile" data-drop-zone="exile" onclick="arOpenZone('exile')" title="Voir l'exil">
@@ -10733,6 +10737,7 @@ function arOpen(){
   // Pool de mana visible dans tous les modes (online, bot, solo)
   _arSetOnlineBarVisible(true);
   arRenderManaPool();
+  _arInitCounters();_arRenderCounterStrip();
   if(_arRoom){
     var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.add('mp-on');
     _arSyncToRoom();
@@ -11820,14 +11825,40 @@ function arCoinFlip(){
 }
 
 // --- Player counters ---
-var _arCounters={
-  poison:{label:'☠ Poison',val:0},
-  energy:{label:'⚡ Énergie',val:0},
-  rad:{label:'☢ Rad',val:0},
-  storm:{label:'⛈ Storm',val:0},
-  exp:{label:'✨ Expérience',val:0}
+// Catalogue étendu (icône + couleur + tooltip)
+var _AR_COUNTER_DEFS={
+  poison:{label:'Poison',icon:'☠',color:'#9aff60',tip:'10 = défaite'},
+  energy:{label:'Énergie',icon:'⚡',color:'#ffd848'},
+  exp:{label:'Expérience',icon:'✨',color:'#c8a8ff'},
+  rad:{label:'Rad',icon:'☢',color:'#80ff80'},
+  storm:{label:'Storm',icon:'⛈',color:'#88c0ff'},
+  monarch:{label:'Monarque',icon:'👑',color:'#ffd848',tip:'Pioche en fin de tour',binary:true},
+  initiative:{label:'Initiative',icon:'⚔',color:'#ff8848',binary:true},
+  ring:{label:'L\'Anneau te tente',icon:'💍',color:'#c8a060',tip:'4 niveaux max',max:4},
+  ticket:{label:'Ticket',icon:'🎫',color:'#ffd848'},
+  blood:{label:'Sang',icon:'🩸',color:'#ff4848'},
+  treasure:{label:'Trésor',icon:'💰',color:'#ffc848'},
+  food:{label:'Nourriture',icon:'🍗',color:'#c8a060'},
+  clue:{label:'Indice',icon:'🔍',color:'#88c0ff'},
+  gold:{label:'Or',icon:'🥇',color:'#ffd848'},
+  dayNight:{label:'Jour/Nuit',icon:'🌓',color:'#aaaaff',binary:true,tip:'0=jour, 1=nuit'},
+  city:{label:'Bénédiction',icon:'🏰',color:'#ffd848',binary:true,tip:'Bénédiction de la cité'}
 };
-var _arCustomCounters=[];
+var _arCounters={}; // {key: int}
+var _arCustomCounters=[]; // [{label, val}]
+function _arInitCounters(){_arCounters={};_arCustomCounters=[];}
+function _arPlayerCountersState(){
+  // Snapshot pour sync : tous les non-zéro
+  var out={};Object.keys(_arCounters).forEach(function(k){if(_arCounters[k])out[k]=_arCounters[k];});
+  if(_arCustomCounters.length)out._custom=_arCustomCounters.slice();
+  return out;
+}
+function _arApplyCountersFromRemote(data){
+  if(!data){return;}
+  _arCounters={};
+  Object.keys(data).forEach(function(k){if(k!=='_custom')_arCounters[k]=data[k]||0;});
+  _arCustomCounters=Array.isArray(data._custom)?data._custom.slice():[];
+}
 function arOpenCounters(){
   arRenderCounters();
   document.getElementById('ar-counters-ov').style.display='flex';
@@ -11835,36 +11866,92 @@ function arOpenCounters(){
 function arRenderCounters(){
   var list=document.getElementById('ar-cnt-list');
   if(!list)return;
-  var html='';
-  Object.keys(_arCounters).forEach(function(k){
-    var c=_arCounters[k];
-    html+='<div class="ar-cnt-row">'
-      +'<span class="ar-cnt-lbl">'+c.label+'</span>'
+  var html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px">';
+  Object.keys(_AR_COUNTER_DEFS).forEach(function(k){
+    var def=_AR_COUNTER_DEFS[k];
+    var v=_arCounters[k]||0;
+    var active=v>0;
+    html+='<div class="ar-cnt-row" style="background:'+(active?'rgba('+_arHexToRgb(def.color)+',.18)':'rgba(0,0,0,.25)')+';border-color:'+(active?def.color:'var(--bd2)')+'" title="'+esc(def.tip||def.label)+'">'
+      +'<span class="ar-cnt-lbl" style="color:'+(active?def.color:'var(--tx3)')+'">'+def.icon+' '+def.label+'</span>'
       +'<button class="ar-cnt-btn" onclick="arAdjCnt(\''+k+'\',false,-1)">−</button>'
-      +'<span class="ar-cnt-val" id="ar-cnt-v-'+k+'">'+c.val+'</span>'
+      +'<span class="ar-cnt-val" id="ar-cnt-v-'+k+'" style="color:'+(active?def.color:'var(--tx3)')+'">'+v+(def.binary?(v?' ON':' OFF'):'')+'</span>'
       +'<button class="ar-cnt-btn" onclick="arAdjCnt(\''+k+'\',false,1)">+</button>'
       +'</div>';
   });
   _arCustomCounters.forEach(function(c,i){
-    html+='<div class="ar-cnt-row">'
-      +'<span class="ar-cnt-lbl" style="color:var(--am)">★ '+esc(c.label)+'</span>'
+    var active=c.val>0;
+    html+='<div class="ar-cnt-row" style="background:'+(active?'rgba(180,140,255,.18)':'rgba(0,0,0,.25)')+';border-color:'+(active?'#c8a8ff':'var(--bd2)')+'">'
+      +'<span class="ar-cnt-lbl" style="color:'+(active?'#c8a8ff':'var(--tx3)')+'">★ '+esc(c.label)+' <span style="font-size:.55rem;color:var(--tx3);cursor:pointer" onclick="arRemoveCustomCounter('+i+')" title="Supprimer">✕</span></span>'
       +'<button class="ar-cnt-btn" onclick="arAdjCnt('+i+',true,-1)">−</button>'
-      +'<span class="ar-cnt-val" id="ar-cnt-v-c'+i+'">'+c.val+'</span>'
+      +'<span class="ar-cnt-val" id="ar-cnt-v-c'+i+'" style="color:'+(active?'#c8a8ff':'var(--tx3)')+'">'+c.val+'</span>'
       +'<button class="ar-cnt-btn" onclick="arAdjCnt('+i+',true,1)">+</button>'
       +'</div>';
   });
+  html+='</div>';
   list.innerHTML=html;
+}
+function _arHexToRgb(hex){
+  var m=(hex||'#888').match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
+  return m?[parseInt(m[1],16),parseInt(m[2],16),parseInt(m[3],16)].join(','):'128,128,128';
 }
 function arAdjCnt(key,isCustom,delta){
   if(isCustom){
     var c=_arCustomCounters[key];if(!c)return;
-    c.val+=delta;if(c.val<0)c.val=0;
-    var el=document.getElementById('ar-cnt-v-c'+key);if(el)el.textContent=c.val;
+    c.val=Math.max(0,c.val+delta);
   }else{
-    var c=_arCounters[key];if(!c)return;
-    c.val+=delta;if(c.val<0)c.val=0;
-    var el=document.getElementById('ar-cnt-v-'+key);if(el)el.textContent=c.val;
+    var def=_AR_COUNTER_DEFS[key];
+    var cur=_arCounters[key]||0;
+    var nv=cur+delta;
+    if(nv<0)nv=0;
+    if(def&&def.binary)nv=Math.min(1,nv);
+    if(def&&def.max)nv=Math.min(def.max,nv);
+    _arCounters[key]=nv;
   }
+  arRenderCounters();
+  _arRenderCounterStrip();
+  if(typeof _arSyncToRoom==='function')_arSyncToRoom();
+}
+function arRemoveCustomCounter(i){
+  _arCustomCounters.splice(i,1);
+  arRenderCounters();_arRenderCounterStrip();
+  if(typeof _arSyncToRoom==='function')_arSyncToRoom();
+}
+
+// Bande de compteurs toujours visible (pour le joueur local)
+function _arRenderCounterStrip(){
+  var strip=document.getElementById('ar-counter-strip');if(!strip)return;
+  var bits=[];
+  Object.keys(_AR_COUNTER_DEFS).forEach(function(k){
+    var v=_arCounters[k];if(!v)return;
+    var def=_AR_COUNTER_DEFS[k];
+    var disp=def.binary?(v?'ON':''):v;
+    if(def.binary&&!v)return;
+    bits.push('<button class="ar-cnt-pill" onclick="arAdjCnt(\''+k+'\',false,1)" oncontextmenu="event.preventDefault();arAdjCnt(\''+k+'\',false,-1)" title="'+esc(def.label)+' — clic = +1, clic droit = -1" style="background:rgba('+_arHexToRgb(def.color)+',.22);border-color:'+def.color+';color:'+def.color+'">'+def.icon+' '+disp+'</button>');
+  });
+  _arCustomCounters.forEach(function(c,i){
+    if(!c.val)return;
+    bits.push('<button class="ar-cnt-pill" onclick="arAdjCnt('+i+',true,1)" oncontextmenu="event.preventDefault();arAdjCnt('+i+',true,-1)" title="'+esc(c.label)+'" style="background:rgba(180,140,255,.22);border-color:#c8a8ff;color:#c8a8ff">★ '+esc(c.label)+' '+c.val+'</button>');
+  });
+  // Bouton + pour ouvrir le panel complet
+  bits.push('<button class="ar-cnt-pill" onclick="arOpenCounters()" title="Tous les compteurs" style="background:rgba(0,0,0,.4);border-color:var(--bd2);color:var(--tx3)">＋</button>');
+  strip.innerHTML=bits.join('');
+}
+// Petite ligne de compteurs pour un adversaire (rendue dans sa carte)
+function _arRenderOpponentCounters(counters){
+  if(!counters)return '';
+  var bits=[];
+  Object.keys(_AR_COUNTER_DEFS).forEach(function(k){
+    var v=counters[k];if(!v)return;
+    var def=_AR_COUNTER_DEFS[k];
+    var disp=def.binary?(v?'ON':''):v;
+    if(def.binary&&!v)return;
+    bits.push('<span class="ar-op-cnt-pill" style="background:rgba('+_arHexToRgb(def.color)+',.22);border:1px solid '+def.color+';color:'+def.color+'" title="'+esc(def.label)+'">'+def.icon+' '+disp+'</span>');
+  });
+  (counters._custom||[]).forEach(function(c){
+    if(!c.val)return;
+    bits.push('<span class="ar-op-cnt-pill" style="background:rgba(180,140,255,.22);border:1px solid #c8a8ff;color:#c8a8ff">★'+c.val+'</span>');
+  });
+  return bits.join(' ');
 }
 function arAddCustomCounter(){
   var name=document.getElementById('ar-cnt-custom-in').value.trim();
@@ -12918,6 +13005,7 @@ function _arRenderOpponentBars(){
       +(useCmd&&myCmdDmg>0?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',-1)" title="-1 dégât commander de vous">⚔−</button>':'')
       +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpGravePn('+pn+')" title="Cimetière">🪦'+o.grave+'</button>'
       +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpExilePn('+pn+')" title="Exile">✦'+o.exile+'</button>'
+      +_arRenderOpponentCounters(o.counters)
       +(isTarget?'<span style="color:#ff8060;font-size:.65rem">🎯</span>':'');
   });
 }
@@ -13052,7 +13140,7 @@ function _arApplyRemoteState(data){
   _arRoom._opBlk={};
   _arRoom._opAtkTargets={};
   opps.forEach(function(o){
-    _arRoom.opps[o.pn]={slot:o.slot,grave:(data['p'+o.pn+'_grave']||[]).length,exile:(data['p'+o.pn+'_exile']||[]).length,lands:data['p'+o.pn+'_lands']||[]};
+    _arRoom.opps[o.pn]={slot:o.slot,grave:(data['p'+o.pn+'_grave']||[]).length,exile:(data['p'+o.pn+'_exile']||[]).length,lands:data['p'+o.pn+'_lands']||[],counters:o.slot.counters||{}};
     _arRoom._opAtk[o.pn]=data['p'+o.pn+'_attackers']||[];
     _arRoom._opBlk[o.pn]=data['p'+o.pn+'_blockers']||[];
     _arRoom._opAtkTargets[o.pn]=data['p'+o.pn+'_atkTargets']||{};
@@ -13114,7 +13202,8 @@ function _arSyncToRoom(){
       handCount:_ar.hand.length,libCount:_ar.lib.length,
       cmd:_ar.cmd,cmdCasts:_ar.cmdCasts,
       cmdDmgDealt:_ar.cmdDmgDealt||{},
-      clockMs:(_ar.clockMs!=null?_ar.clockMs:(_arRoom&&_arRoom.chessClockMs)||0)};
+      clockMs:(_ar.clockMs!=null?_ar.clockMs:(_arRoom&&_arRoom.chessClockMs)||0),
+      counters:_arPlayerCountersState()};
     upd.field=_ar.field;
     upd['p'+pn+'_lands']=_ar.lands||[];
     upd['p'+pn+'_grave']=_ar.grave||[];
