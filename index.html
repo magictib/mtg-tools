@@ -2374,7 +2374,10 @@ body.mana-cursor{cursor:none}
         <span id="pur-members-chips" style="display:inline-flex;gap:4px;flex-wrap:wrap"></span>
       </div>
       <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-left:auto">
-        <span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Filtre :</span>
+        <span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Vue :</span>
+        <button class="dm pur-viewmode active" data-mode="action" onclick="purSetViewMode('action')" title="Vue par actions : à toi de décider, à acheter, à emprunter, à prêter">🎯 Actions</button>
+        <button class="dm pur-viewmode" data-mode="table" onclick="purSetViewMode('table')" title="Vue tableau classique par deck">📋 Tableau</button>
+        <span style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Filtre :</span>
         <button class="dm pur-rolefilt active" data-mode="all" onclick="purSetRoleFilter('all')">Tous</button>
         <button class="dm pur-rolefilt" data-mode="mybuys" onclick="purSetRoleFilter('mybuys')">🛒 Mes achats</button>
         <button class="dm pur-rolefilt" data-mode="myborrows" onclick="purSetRoleFilter('myborrows')">📥 Mes emprunts</button>
@@ -8580,7 +8583,8 @@ var _purCardSearchTO=null;
 var _sharedListsUnsub=null;
 var _sharedListsRoleFilter='all'; // 'all' | 'mybuys' | 'myborrows' | 'unassigned'
 var _STATUS_FLOW=['proposed','accepted','bought','delivered'];
-var _STATUS_LBL={proposed:'💭 Proposée',accepted:'✋ Acceptée',bought:'🛒 Achetée',delivered:'✅ Livrée'};
+var _STATUS_LBL={proposed:'💭 Proposée',accepted:'✋ Acceptée',bought:'🛒 Achetée',delivered:'✅ Livrée',lend_offered:'🤝 Prêt proposé',lend_accepted:'✓ Prêt accepté',lend_refused:'✕ Non disponible'};
+var _purViewMode='action'; // 'action' | 'table'
 var _STATUS_COLOR={proposed:'var(--tx3)',accepted:'var(--ac2)',bought:'var(--gold2)',delivered:'var(--gr2)'};
 
 function loadPurchaseLists(){
@@ -8797,6 +8801,75 @@ function purSetRoleFilter(mode){
   renderPurchaseMgr();
 }
 
+// ===== ACTION CENTER : actions sur cartes =====
+function _purFindCard(cardId){
+  if(!_activePurListId||!_purchaseLists[_activePurListId])return null;
+  return (_purchaseLists[_activePurListId].cards||[]).find(function(c){return c.id===cardId;});
+}
+function _purStamp(card){card.lastChangeBy=userId;card.lastChangeAt=Date.now();}
+function purAcceptLend(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.status='lend_accepted';c.lender=userId;_purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purRefuseLend(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.status='lend_refused';c.lender=userId; // mémoise qui a refusé
+  c.refusedBy=(c.refusedBy||[]);if(c.refusedBy.indexOf(userId)<0)c.refusedBy.push(userId);
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purReproposeBorrow(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.status='proposed';delete c.lender;
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purCancelBorrow(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.borrower=null;c.status='proposed';
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purMarkReceived(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.received=true;c.status='delivered';
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purOfferLend(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.status='lend_offered';c.lender=userId;
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purCancelOffer(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.status='proposed';delete c.lender;
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purAcceptOffer(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  // Bascule de "achat avec offre de prêt" → "emprunt accepté"
+  c.column=-2;c.borrower=userId;c.status='lend_accepted';c.buyer=null;
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function purDeclineOffer(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  // Revient à un achat normal
+  c.status='proposed';delete c.lender;
+  _purStamp(c);
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function _purShowZoom(idx){
+  // Réutilise le zoom existant si disponible
+  if(typeof showZoom==='function'){showZoom(idx);return;}
+  // Fallback : ouvre la carte dans un onglet Scryfall
+  if(_zoomList&&_zoomList[idx]){window.open('https://scryfall.com/search?q=!"'+encodeURIComponent(_zoomList[idx].name)+'"','_blank');}
+}
+
 function importAchatToPurchase(){
   if(!_activePurListId){alert('Créez d\'abord une liste.');return;}
   if(!_achatRecap){alert('Générez d\'abord une liste d\'achat via le panneau 🛒 Achat du deck.');return;}
@@ -8867,6 +8940,143 @@ function _purRenderFriendSel(){
   sel.innerHTML=opts;
 }
 
+// ===== ACTION CENTER (vue par rôle) =====
+function purSetViewMode(mode){
+  _purViewMode=(mode==='table')?'table':'action';
+  document.querySelectorAll('.pur-viewmode').forEach(function(b){b.classList.toggle('active',b.dataset.mode===_purViewMode);});
+  renderPurchaseMgr();
+}
+function _purIsLenderMe(card){
+  if(card.lender===userId)return true;
+  if(!card.lenderName)return false;
+  var myName=(PN[0]||'').trim().toLowerCase();
+  return !!myName&&card.lenderName.toLowerCase()===myName;
+}
+function _purCardRoleForMe(card){
+  var col=card.column;var st=card.status||'proposed';
+  // Emprunt (column -2)
+  if(col===-2){
+    // Cas spécial : prêt refusé → la personne qui voulait emprunter doit acheter
+    if(st==='lend_refused'){
+      if(card.borrower===userId)return 'buy_mine_refused';
+      return 'others_buy';
+    }
+    if(card.borrower===userId){
+      // C'est moi qui veux emprunter
+      return (st==='lend_accepted')?'borrow_confirmed':'borrow_pending';
+    }
+    // Quelqu'un d'autre veut emprunter
+    if(_purIsLenderMe(card)){
+      if(st==='lend_accepted')return 'lend_confirmed';
+      return 'decide'; // à moi de décider
+    }
+    return 'others_borrow'; // entre autres personnes
+  }
+  // Achat (column 0 ou 1)
+  if(card.buyer===userId)return 'buy_mine';
+  // Lend offered (j'offre de prêter une carte que quelqu'un d'autre achète)
+  if(st==='lend_offered'&&card.lender===userId)return 'offer_sent';
+  if(st==='lend_offered'&&card.buyer===userId)return 'offer_received';
+  return 'others_buy';
+}
+function _purGroupCardsByRole(cards){
+  var groups={decide:[],borrow_pending:[],borrow_confirmed:[],lend_confirmed:[],buy_mine:[],buy_mine_refused:[],offer_sent:[],offer_received:[],others_buy:[],others_borrow:[]};
+  cards.forEach(function(c){var r=_purCardRoleForMe(c);if(groups[r])groups[r].push(c);});
+  return groups;
+}
+function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
+  if(!items.length)return '';
+  var html='<div style="margin-bottom:14px;border:1px solid '+color.border+';border-radius:9px;background:'+color.bg+';overflow:hidden">'
+    +'<div style="padding:7px 12px;background:'+color.headerBg+';border-bottom:1px solid '+color.border+';display:flex;align-items:center;gap:8px">'
+    +'<span style="font-weight:600;color:'+color.text+';font-size:.86rem">'+title+' <span style="background:rgba(255,255,255,.12);padding:1px 7px;border-radius:9px;font-size:.7rem;margin-left:3px">'+items.length+'</span></span>'
+    +(subtitle?'<span style="font-size:.7rem;color:var(--tx3);margin-left:6px">'+subtitle+'</span>':'')
+    +'</div>'
+    +'<div style="padding:6px 8px">';
+  // Regroupement par deck à l'intérieur de la section
+  var byDeck={},order=[];
+  items.forEach(function(c){var dk=c.deckName||'';if(!byDeck[dk]){byDeck[dk]=[];order.push(dk);}byDeck[dk].push(c);});
+  order.forEach(function(dk){
+    if(dk)html+='<div style="font-size:.7rem;color:var(--tx3);margin:5px 4px 2px;font-style:italic">📖 '+esc(dk)+'</div>';
+    byDeck[dk].forEach(function(c){
+      var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      html+='<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;margin:2px 0;background:rgba(0,0,0,.18);cursor:default" onmouseover="this.style.background=\'rgba(0,0,0,.32)\'" onmouseout="this.style.background=\'rgba(0,0,0,.18)\'">'
+        +'<img src="https://api.scryfall.com/cards/named?format=image&version=small&exact='+encodeURIComponent(c.name)+'" onerror="this.style.display=\'none\'" style="width:28px;height:40px;border-radius:3px;object-fit:cover;flex-shrink:0;cursor:pointer" onclick="_purShowZoom('+(_zoomList.length)+')">'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:.82rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</strong></div>'
+        +(c.lenderName?'<div style="font-size:.65rem;color:var(--tx3)">→ '+esc(c.lenderName)+'</div>':'')
+        +'</div>'
+        +'<div style="display:flex;gap:4px;flex-shrink:0">'+actionsBuilder(c,sid)+'</div>'
+        +'</div>';
+      _zoomList.push({nl:c.nl,name:c.name});
+    });
+  });
+  html+='</div></div>';
+  return html;
+}
+function _purRenderActionCenter(allCards){
+  _zoomList=[];
+  // Applique le filtre rôle si actif
+  var filtered=allCards;
+  if(_sharedListsRoleFilter==='mybuys')filtered=allCards.filter(function(c){return c.buyer===userId;});
+  else if(_sharedListsRoleFilter==='myborrows')filtered=allCards.filter(function(c){return c.borrower===userId;});
+  else if(_sharedListsRoleFilter==='unassigned')filtered=allCards.filter(function(c){return !c.buyer&&!c.borrower;});
+  var g=_purGroupCardsByRole(filtered);
+  // Couleurs par section
+  var C_DECIDE={border:'rgba(255,180,60,.5)',bg:'rgba(60,40,10,.22)',headerBg:'rgba(255,180,60,.12)',text:'#ffc848'};
+  var C_BORROW={border:'rgba(148,103,189,.45)',bg:'rgba(60,30,90,.18)',headerBg:'rgba(148,103,189,.12)',text:'#c8a8ff'};
+  var C_LEND={border:'rgba(80,180,140,.45)',bg:'rgba(20,60,40,.18)',headerBg:'rgba(80,180,140,.12)',text:'#90e8c0'};
+  var C_BUY={border:'rgba(201,168,76,.45)',bg:'rgba(40,30,10,.18)',headerBg:'rgba(201,168,76,.12)',text:'var(--gold2)'};
+  var C_OTHERS={border:'rgba(120,120,140,.3)',bg:'rgba(20,20,30,.18)',headerBg:'rgba(120,120,140,.08)',text:'var(--tx3)'};
+  var C_REFUSED={border:'rgba(255,100,100,.45)',bg:'rgba(60,15,15,.18)',headerBg:'rgba(255,100,100,.12)',text:'#ff9090'};
+  // Action buttons
+  var btn=function(onclick,label,style){return '<button class="btn btnsm" onclick="'+onclick+'" style="'+(style||'')+';font-size:.7rem;padding:3px 7px;white-space:nowrap">'+label+'</button>';};
+  var html='';
+  // 🤝 À toi de décider
+  html+=_purRenderRoleSection('🤝 À toi de décider','La personne te demande d\'emprunter',C_DECIDE,g.decide,function(c,sid){
+    return btn('purAcceptLend(\''+sid+'\')','✓ Je prête','border-color:rgba(80,180,140,.5);color:#90e8c0')
+      +btn('purRefuseLend(\''+sid+'\')','✕ Pas dispo','border-color:rgba(255,100,100,.45);color:#ff9090');
+  });
+  // 📥 Mes emprunts (en attente)
+  html+=_purRenderRoleSection('📥 Tes emprunts en attente','Le prêteur n\'a pas encore confirmé',C_BORROW,g.borrow_pending,function(c,sid){
+    return btn('purCancelBorrow(\''+sid+'\')','✕ Annuler','border-color:rgba(255,140,80,.4);color:#ffaa60');
+  });
+  // 📥 Mes emprunts confirmés
+  html+=_purRenderRoleSection('📥 Emprunts confirmés','Le prêteur va te les donner',C_BORROW,g.borrow_confirmed,function(c,sid){
+    return btn('purMarkReceived(\''+sid+'\')','✓ Reçue','border-color:rgba(80,180,140,.5);color:#90e8c0');
+  });
+  // 📤 Mes prêts à honorer
+  html+=_purRenderRoleSection('📤 Tes prêts à honorer','Tu as accepté, ramène ces cartes',C_LEND,g.lend_confirmed,function(c,sid){
+    return btn('purMarkReceived(\''+sid+'\')','✓ Donnée','border-color:rgba(80,180,140,.5);color:#90e8c0');
+  });
+  // 🛒 Mes achats
+  html+=_purRenderRoleSection('🛒 Tes achats','Pour tes propres decks',C_BUY,g.buy_mine,function(c,sid){
+    return btn('purMarkReceived(\''+sid+'\')','✓ Achetée','border-color:rgba(80,180,140,.5);color:#90e8c0');
+  });
+  // 🛒 Tes achats forcés (suite à un refus de prêt)
+  html+=_purRenderRoleSection('🛒 Cartes refusées au prêt','À acheter car le prêteur n\'a pas pu fournir',C_REFUSED,g.buy_mine_refused,function(c,sid){
+    return btn('purMarkReceived(\''+sid+'\')','✓ Achetée','border-color:rgba(80,180,140,.5);color:#90e8c0')
+      +btn('purReproposeBorrow(\''+sid+'\')','↻ Re-demander','border-color:rgba(148,103,189,.4);color:#c8a8ff');
+  });
+  // 🤝 Mes propositions de prêt envoyées
+  html+=_purRenderRoleSection('🤝 Tes propositions de prêt','En attente de réponse',C_LEND,g.offer_sent,function(c,sid){
+    return btn('purCancelOffer(\''+sid+'\')','✕ Retirer offre','border-color:rgba(255,140,80,.4);color:#ffaa60');
+  });
+  // 🤝 Propositions de prêt reçues
+  html+=_purRenderRoleSection('🤝 On te propose un prêt','Quelqu\'un veut t\'éviter un achat',C_LEND,g.offer_received,function(c,sid){
+    return btn('purAcceptOffer(\''+sid+'\')','✓ Accepter','border-color:rgba(80,180,140,.5);color:#90e8c0')
+      +btn('purDeclineOffer(\''+sid+'\')','✕ Non merci','border-color:rgba(255,100,100,.45);color:#ff9090');
+  });
+  // ℹ Ce que font les autres
+  html+=_purRenderRoleSection('ℹ Achats des autres','Tu peux proposer de prêter si tu as la carte',C_OTHERS,g.others_buy,function(c,sid){
+    return btn('purOfferLend(\''+sid+'\')','🤝 Je peux prêter','border-color:rgba(80,180,140,.5);color:#90e8c0');
+  });
+  html+=_purRenderRoleSection('ℹ Emprunts entre autres','Information seulement',C_OTHERS,g.others_borrow,function(c,sid){return '';});
+  if(!html){
+    html='<div style="text-align:center;padding:2rem;color:var(--tx3);font-style:italic">Liste vide ou aucune action à entreprendre.<br>Bascule en vue « 📋 Tableau » pour voir toutes les cartes brutes.</div>';
+  }
+  return html;
+}
+
 function renderPurchaseMgr(){
   renderPurListSel();
   var importBtn=document.getElementById('pur-import-btn');
@@ -8923,6 +9133,12 @@ function renderPurchaseMgr(){
   // Image mode
   if(_purImgMode){
     wrap.innerHTML=_purRenderImgGrid(cards);
+    purFilterDecks();
+    return;
+  }
+  // Mode Action Center : vue par rôle
+  if(_purViewMode==='action'){
+    wrap.innerHTML=_purRenderActionCenter(lst.cards||[]);
     purFilterDecks();
     return;
   }
@@ -9492,15 +9708,22 @@ function purBuildCardArray(text,filename){
     /^liste\s+d[''’]/i.test(firstNonEmpty.trim())
   );
   if(isAppExtFmt){
-    var ownerCol=1,currentCol=1,currentDeck='';
+    var ownerCol=1,currentCol=1,currentDeck='',currentLenderName='';
     lines.forEach(function(line,i){
       if(i===0&&line.trim()){listName=line.replace(/^liste\s+d[''’]achat\s*[—\-–]\s*/i,'').trim()||listName;return;}
       var mOwner=line.match(/^propri[eé]taire\s*:\s*(.+)$/i);
       if(mOwner){var own=mOwner[1].trim().toLowerCase();ownerCol=1;if(own===p0lc){ownerCol=0;}else{for(var fi=1;fi<(PN.length||1);fi++){if((PN[fi]||'').toLowerCase()===own){ownerCol=fi;break;}}}currentCol=ownerCol;return;}
       var mSect=line.match(/^===\s*(.+?)\s*===\s*$/);
-      if(mSect){var sn=mSect[1],snl=sn.toLowerCase();if(snl.indexOf('emprunt')>=0||snl.indexOf('change')>=0||snl.indexOf('prêt')>=0){currentCol=-2;currentDeck='';}else{currentCol=ownerCol;var mDk=sn.match(/\(([^)]+)\)/g);currentDeck='';if(mDk){for(var di=0;di<mDk.length;di++){var grp=mDk[di].replace(/^\(|\)$/g,'').trim();if(!/^\d+\s*cartes?$/i.test(grp)){currentDeck=grp;break;}}}}return;}
+      if(mSect){var sn=mSect[1],snl=sn.toLowerCase();
+        if(snl.indexOf('emprunt')>=0||snl.indexOf('change')>=0||snl.indexOf('prêt')>=0){
+          currentCol=-2;currentDeck='';
+          // Extrait le nom du prêteur depuis "Emprunter à NAME"
+          var mLender=sn.match(/^[Ee]mprunter\s+[àa]\s+(.+?)\s*$/);
+          currentLenderName=mLender?mLender[1].trim():'';
+        }else{currentCol=ownerCol;currentLenderName='';var mDk=sn.match(/\(([^)]+)\)/g);currentDeck='';if(mDk){for(var di=0;di<mDk.length;di++){var grp=mDk[di].replace(/^\(|\)$/g,'').trim();if(!/^\d+\s*cartes?$/i.test(grp)){currentDeck=grp;break;}}}}
+        return;}
       var mCard=line.match(/^\s+(\d+)[x×]\s+(.+?)(\s+✓)?\s*$/);
-      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name)cards.push(_mkCard(name,qty,currentCol,currentDeck,recv));}
+      if(mCard){var qty=parseInt(mCard[1])||1,name=mCard[2].trim(),recv=!!mCard[3];if(name){var nc=_mkCard(name,qty,currentCol,currentDeck,recv);if(currentLenderName)nc.lenderName=currentLenderName;cards.push(nc);}}
     });
   }else if(!isInternalFmt){
     // Liste simple : chaque ligne = une carte (1x Nom, 1 Nom, Nom)
