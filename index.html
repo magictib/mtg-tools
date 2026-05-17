@@ -1933,6 +1933,7 @@ body.mana-cursor{cursor:none}
         <button class="dm mm-sort-btn active" data-mode="color" onclick="mmSetSort('color')">Couleur</button>
         <button class="dm mm-sort-btn" data-mode="type" onclick="mmSetSort('type')">Type</button>
         <button class="dm mm-sort-btn" data-mode="cmc" onclick="mmSetSort('cmc')">CMC</button>
+        <button class="dm mm-sort-btn" data-mode="set" onclick="mmSetSort('set')">Extension</button>
         <button class="dm mm-sort-btn" data-mode="name" onclick="mmSetSort('name')">Nom</button>
         <span style="font-size:.72rem;color:var(--tx3);margin-left:8px">puis</span>
         <select id="mm-sec-sort" onchange="mmSetSecondarySort(this.value)" title="Tri à l'intérieur de chaque section" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:3px 8px;font-size:.74rem">
@@ -1940,6 +1941,9 @@ body.mana-cursor{cursor:none}
           <option value="cmc">CMC</option>
           <option value="color">Couleur</option>
           <option value="type">Type</option>
+          <option value="set">Extension</option>
+          <option value="extnum">Extension → n°</option>
+          <option value="extname">Extension → A→Z</option>
         </select>
         <button class="btn btnsm" onclick="mmCollapseAllDone()" style="margin-left:auto" title="Replie toutes les sections complétées à 100%">▶ Replier les ✓</button>
         <button class="btn btnsm" onclick="mmExpandAll()" title="Étend toutes les sections">▼ Tout étendre</button>
@@ -2091,6 +2095,7 @@ body.mana-cursor{cursor:none}
         <button class="dm" id="dsort-cmc" onclick="setDSort('cmc',this)">CMC</button>
         <button class="dm" id="dsort-name" onclick="setDSort('name',this)">Nom</button>
         <button class="dm" id="dsort-color" onclick="setDSort('color',this)">Couleur</button>
+        <button class="dm" id="dsort-set" onclick="setDSort('set',this)">Extension</button>
       </div>
       <div style="display:flex;gap:4px;align-items:center;margin-bottom:12px">
         <span style="font-size:.65rem;color:var(--tx3)">puis</span>
@@ -2099,6 +2104,9 @@ body.mana-cursor{cursor:none}
           <option value="cmc">CMC</option>
           <option value="color">Couleur</option>
           <option value="type">Type</option>
+          <option value="set">Extension</option>
+          <option value="extnum">Extension → n°</option>
+          <option value="extname">Extension → A→Z</option>
         </select>
       </div>
       <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;margin-bottom:6px">COURBE DE MANA</div>
@@ -6643,7 +6651,7 @@ function fetchMissingPrices(){
   function ingestCard(card){
     var nl=stripDFC(card.name).toLowerCase();
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
     return nl;
   }
   function fuzzyFallback(){
@@ -6660,7 +6668,7 @@ function fetchMissingPrices(){
             ingestCard(card);
             // Aussi sauvegarder sous le nl original (alias) pour que l'app le retrouve
             if(!allPriceMap[item.nl]&&card.prices){var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pa>0)allPriceMap[item.nl]=_pa;}
-            if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
+            if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
           }
           setTimeout(next,90);
         })
@@ -6739,6 +6747,7 @@ function getVSec(c){
   var meta=dCardMeta[c.nl]||{};
   var tl=(meta.typeLine||'').toLowerCase();
   if(dSortMode==='cmc'){var cmc=Math.floor(meta.cmc||0);return 'CMC '+(cmc>=7?'7+':cmc);}
+  if(dSortMode==='set')return (meta.set||'???').toUpperCase();
   if(dSortMode==='color'){
     if(tl.indexOf('land')>=0)return 'Terrains';
     var cc=meta.colors||[];
@@ -7195,8 +7204,8 @@ function fetchDeckImages(){
     if(aliasNl&&aliasNl!==nl&&img)dImgCache[aliasNl]=img;
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
     if(aliasNl&&aliasNl!==nl&&!allPriceMap[aliasNl]&&card.prices){var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pa>0)allPriceMap[aliasNl]=_pa;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
-    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
+    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
     return nl;
   }
   function fuzzyFallback(){
@@ -7414,6 +7423,7 @@ function renderDeck(){
   sorted.forEach(function(c){var s=getVSec(c);if(secs.indexOf(s)<0)secs.push(s);});
   if(dSortMode==='type'){secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
   else if(dSortMode==='cmc'){secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});}
+  else if(dSortMode==='set'){secs.sort(function(a,b){return a.localeCompare(b);});}
   else if(dSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
   if(dViewMode==='image'){
     // Mode grille d'images
@@ -7678,6 +7688,7 @@ function renderDeckMontage(quietUpdate){
   sorted.forEach(function(c){var s=getVSec(c);if(secs.indexOf(s)<0)secs.push(s);});
   if(dSortMode==='type')secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});
   else if(dSortMode==='cmc')secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});
+  else if(dSortMode==='set')secs.sort(function(a,b){return a.localeCompare(b);});
   else if(dSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
   function renderRow(c){
     var b=Math.min(c.qty,d[c.nl]||0);
@@ -7753,7 +7764,7 @@ function fetchCardsMetaBatch(cards,cb){
     }).then(function(r){return r.json();}).then(function(data){
       (data.data||[]).forEach(function(card){
         var nl=stripDFC(card.name||'').toLowerCase();
-        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||''};
+        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
         // aliases : si le nl du deck est différent (DFC, accent), associer aussi
         batch.forEach(function(b){
           if(b.nl!==nl){
@@ -7784,10 +7795,33 @@ function _sortFn(mode){
       return _r(a)-_r(b);
     };
   }
+  if(mode==='set'||mode==='ext')return function(a,b){return ((dCardMeta[a.nl]||{}).set||'zzz').localeCompare((dCardMeta[b.nl]||{}).set||'zzz');};
+  if(mode==='number')return function(a,b){return ((dCardMeta[a.nl]||{}).setNumber||'9999').localeCompare((dCardMeta[b.nl]||{}).setNumber||'9999',undefined,{numeric:true});};
   return function(){return 0;};
 }
+// Tri secondaire : étend _sortFn avec des combos pratiques de collectionneur
+function _secondarySortFn(mode){
+  if(mode==='extnum'){
+    return function(a,b){
+      var ma=dCardMeta[a.nl]||{},mb=dCardMeta[b.nl]||{};
+      var sa=ma.set||'zzz',sb=mb.set||'zzz';
+      if(sa!==sb)return sa.localeCompare(sb);
+      var na=ma.setNumber||'9999',nb=mb.setNumber||'9999';
+      return na.localeCompare(nb,undefined,{numeric:true});
+    };
+  }
+  if(mode==='extname'){
+    return function(a,b){
+      var ma=dCardMeta[a.nl]||{},mb=dCardMeta[b.nl]||{};
+      var sa=ma.set||'zzz',sb=mb.set||'zzz';
+      if(sa!==sb)return sa.localeCompare(sb);
+      return (a.name||'').localeCompare(b.name||'');
+    };
+  }
+  return _sortFn(mode);
+}
 function _combinedSort(primary,secondary){
-  var p=_sortFn(primary),s=_sortFn(secondary);
+  var p=_sortFn(primary),s=_secondarySortFn(secondary);
   return function(a,b){var r=p(a,b);if(r!==0)return r;r=s(a,b);if(r!==0)return r;return (a.name||'').localeCompare(b.name||'');};
 }
 
@@ -8070,6 +8104,7 @@ function renderMultiMontage(){
     var tl=(meta.typeLine||'').toLowerCase();
     if(_mmSortMode==='name')return 'Cartes';
     if(_mmSortMode==='cmc'){var cmc=Math.floor(meta.cmc||0);return 'CMC '+(cmc>=7?'7+':cmc);}
+    if(_mmSortMode==='set')return (meta.set||'???').toUpperCase();
     if(_mmSortMode==='color'){
       if(tl.indexOf('land')>=0)return 'Terrains';
       var cc=meta.colors||[];
@@ -8090,6 +8125,7 @@ function renderMultiMontage(){
   var secs=[];entries.forEach(function(e){var s=_sec(e);if(secs.indexOf(s)<0)secs.push(s);});
   if(_mmSortMode==='type')secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});
   else if(_mmSortMode==='cmc')secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});
+  else if(_mmSortMode==='set')secs.sort(function(a,b){return a.localeCompare(b);});
   else if(_mmSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
   // Grille dynamique : N colonnes deck
   var deckIdsActive=_mmSelectedDeckIds.filter(function(id){return decks[id];});
