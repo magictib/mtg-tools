@@ -9544,6 +9544,79 @@ function backupDownload(){
   actLog('backup','Backup téléchargé ('+Object.keys(bundle.decks).length+' decks, '+Object.keys(bundle.purchaseLists).length+' listes)');
   mlToast('💾 Backup téléchargé');
 }
+function collExportAccounting(){
+  if(typeof profs==='undefined'||!profs[0]||!profs[0].length){mlAlert('Export','Collection vide.');return;}
+  // Fetch prix Scryfall pour ma collection si manquant
+  var rows=profs[0].slice();
+  var allNames=[];
+  rows.forEach(function(c){var n=typeof c==='string'?c.split('||')[0]:c.name;if(n&&allNames.indexOf(n)<0)allNames.push(n);});
+  mlToast('💾 Préparation de l\'export…');
+  _purFetchPricesFor(allNames.map(function(n){return {name:n,nl:n.toLowerCase()};}),function(){
+    var lines=['Carte;Set;Numero;Finition;Quantite;PrixUnit_EUR;Total_EUR'];
+    var totalAll=0;
+    rows.forEach(function(c){
+      var name=typeof c==='string'?c.split('||')[0]:c.name;
+      var set=typeof c==='object'?(c.set||''):'';
+      var num=typeof c==='object'?(c.num||''):'';
+      var fin=typeof c==='object'?(c.finish||''):'';
+      var qty=typeof c==='object'?(c.qty||1):1;
+      var p=_purPriceCache[(name||'').toLowerCase()]||0;
+      var tot=p*qty;totalAll+=tot;
+      lines.push('"'+name.replace(/"/g,'""')+'";'+set+';'+num+';'+fin+';'+qty+';'+p.toFixed(2)+';'+tot.toFixed(2));
+    });
+    lines.push('');lines.push(';;;;;TOTAL;'+totalAll.toFixed(2));
+    var csv=lines.join('\n');
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url;a.download='manalab-collection-'+new Date().toISOString().slice(0,10)+'.csv';
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(url);a.remove();},100);
+    mlToast('💾 CSV téléchargé — valeur totale '+totalAll.toFixed(2)+'€');
+    actLog('export','Collection comptable : '+rows.length+' cartes, '+totalAll.toFixed(2)+'€');
+  });
+}
+
+function collImportFromUrl(url){
+  if(!url){
+    mlPrompt('🌐 Import URL de deck','Colle une URL Moxfield ou Archidekt :',null,{placeholder:'https://moxfield.com/decks/...'}).then(function(u){if(u)collImportFromUrl(u);});
+    return;
+  }
+  // Moxfield
+  var m=url.match(/moxfield\.com\/decks\/([\w-]+)/);
+  if(m){
+    var id=m[1];
+    mlToast('📥 Import Moxfield en cours…');
+    fetch('https://api.moxfield.com/v2/decks/all/'+id).then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.mainboard){mlAlert('Erreur','Réponse Moxfield invalide.');return;}
+      var lines=[];
+      Object.keys(d.mainboard||{}).forEach(function(k){var c=d.mainboard[k];lines.push(c.quantity+' '+c.card.name);});
+      Object.keys(d.commanders||{}).forEach(function(k){var c=d.commanders[k];lines.push(c.quantity+' '+c.card.name);});
+      var text=lines.join('\n');
+      // Crée une nouvelle liste partagée avec ce contenu
+      var name=(d.name||'Moxfield deck')+' (import)';
+      if(typeof purParseImportedList==='function'){purParseImportedList(text,name+'.txt');mlToast('✓ '+lines.length+' cartes importées dans une nouvelle liste partagée');}
+      else mlAlert('Import',text);
+    }).catch(function(e){mlAlert('Erreur Moxfield',e.message+' — Moxfield bloque parfois CORS depuis localhost. Essaye une fois en prod.');});
+    return;
+  }
+  // Archidekt
+  m=url.match(/archidekt\.com\/decks\/(\d+)/);
+  if(m){
+    var aid=m[1];
+    mlToast('📥 Import Archidekt en cours…');
+    fetch('https://archidekt.com/api/decks/'+aid+'/').then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.cards){mlAlert('Erreur','Réponse Archidekt invalide.');return;}
+      var lines=d.cards.filter(function(c){return c.categories&&!c.categories.includes('Sideboard');}).map(function(c){return c.quantity+' '+(c.card&&c.card.oracleCard&&c.card.oracleCard.name||'?');});
+      var text=lines.join('\n');
+      var name=(d.name||'Archidekt deck')+' (import)';
+      if(typeof purParseImportedList==='function'){purParseImportedList(text,name+'.txt');mlToast('✓ '+lines.length+' cartes importées');}
+    }).catch(function(e){mlAlert('Erreur Archidekt',e.message);});
+    return;
+  }
+  mlAlert('URL non reconnue','Formats supportés :\n• https://moxfield.com/decks/...\n• https://archidekt.com/decks/...');
+}
+
 function backupRestore(){
   mlConfirm('↻ Restaurer un backup','⚠ Attention : la restauration RAJOUTE les decks/listes du backup à ceux existants (pas d\'écrasement). Confirme ?',{danger:true,okLabel:'Choisir un fichier'}).then(function(ok){
     if(!ok)return;
@@ -9604,6 +9677,8 @@ function qkBuildItems(){
   items.push({kind:'action',label:'💾 Télécharger backup',sub:'Action — sauvegarde JSON locale',action:function(){if(typeof backupDownload==='function')backupDownload();}});
   items.push({kind:'action',label:'↻ Restaurer backup',sub:'Action — depuis fichier JSON',action:function(){if(typeof backupRestore==='function')backupRestore();}});
   items.push({kind:'action',label:'📋 Journal d\'activité',sub:'Voir les actions récentes',action:function(){if(typeof actLogShow==='function')actLogShow();}});
+  items.push({kind:'action',label:'💰 Export comptable CSV',sub:'Collection avec valeur Scryfall',action:function(){if(typeof collExportAccounting==='function')collExportAccounting();}});
+  items.push({kind:'action',label:'🌐 Importer un deck (URL Moxfield/Archidekt)',sub:'Action',action:function(){if(typeof collImportFromUrl==='function')collImportFromUrl();}});
   return items;
 }
 function _qkRender(query){
