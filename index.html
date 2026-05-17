@@ -7146,30 +7146,32 @@ function _deckColors(deckId){
   if(!d)return[];
   return d.colors||(d.commander?d.commander.colors:[])||[];
 }
-function _friendMaxUsage(profIdx,cardNl){
-  // qty max de cette carte dans UN deck du profil donné
+function _friendTotalUsage(profIdx,cardNl){
+  // Somme des qty de cette carte dans tous les decks du profil
   var ep=profIdx>0?(_epSlots.deck||[])[profIdx-1]:null;
   var srcDecks=ep&&_epDecks[ep.uid]?_epDecks[ep.uid]:null;
   if(profIdx>0&&!srcDecks)return 0;
   var deckSource=profIdx===0?decks:srcDecks;
-  var maxQ=0;
+  var total=0;
   Object.keys(deckSource||{}).forEach(function(id){
     var dk=deckSource[id];if(!dk)return;
     if(profIdx===0&&!_deckBelongsTo(dk,0))return;
     var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
     var cards=parseList(raw||'');
-    cards.forEach(function(c){if(c.nl===cardNl&&c.qty>maxQ)maxQ=c.qty;});
+    cards.forEach(function(c){if(c.nl===cardNl)total+=c.qty;});
   });
-  return maxQ;
+  return total;
 }
 function _friendAvailableFor(card,pms,ownerIdx){
-  // Retourne true si au moins un autre profil a cette carte avec ≥1 exemplaire libre (owned - max(deck usage))
+  // Retourne true si au moins un autre profil a cette carte avec ≥1 exemplaire libre
+  // (owned - somme des engagements dans tous ses decks). Approche conservatrice : si l'ami
+  // utilise déjà toutes ses copies dans ses decks, on ne le considère pas comme dispo.
   var k=getKey(card);
   for(var i=0;i<profs.length;i++){
     if(i===ownerIdx)continue;
     var owned=(pms[i]||new Map()).get(k)||0;
     if(!owned)continue;
-    var free=owned-_friendMaxUsage(i,card.nl);
+    var free=owned-_friendTotalUsage(i,card.nl);
     if(free>0)return true;
   }
   return false;
@@ -7258,7 +7260,7 @@ function renderDeck(){
     if(dFMode==='ok')return f0>=c.qty;
     if(dFMode==='pa')return f0>0&&f0<c.qty;
     if(dFMode==='no')return f0===0;
-    if(dFMode==='borrow')return f0<c.qty&&pms.some(function(m){return m.get(getKey(c))>0;});
+    if(dFMode==='borrow')return f0<c.qty&&pms.some(function(m,i){return i!==dOwner&&m.get(getKey(c))>0;});
     if(dFMode==='cmd'){var still=c.qty-x;return still>0&&!pms.some(function(m){return (m.get(getKey(c))||0)>=c.qty;});}
     return true;
   });
@@ -7352,8 +7354,8 @@ function renderDeck(){
           var uentry=(i===dOwner?_owUsgR:usages[i]).get(card.nl)||{qty:0,decks:[]};
           var inDeck=uentry.qty;
           var free=Math.max(0,q-inDeck);
-          var tip=inDeck>0?'Dans : '+uentry.decks.join(', '):'';
-          var flag=inDeck>0?' <span style="color:var(--am);cursor:help" title="'+esc(tip)+'">('+inDeck+' ⚑)</span>':'';
+          var tip=inDeck>0?(q+' possédée(s) — '+inDeck+' engagée(s) dans : '+uentry.decks.join(', ')+' → '+free+' libre(s)'):'';
+          var flag=inDeck>0?' <span style="color:var(--am);cursor:help;font-size:.65rem" title="'+esc(tip)+'">(−'+inDeck+'⚑)</span>':'';
           if(q===0)return '<div class="pc pno">✗</div>';
           if(free>=card.qty)return '<div class="pc pok">✓ '+q+flag+'</div>';
           if(free>0)return '<div class="pc ppa">◑ '+q+flag+'</div>';
