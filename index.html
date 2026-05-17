@@ -3610,6 +3610,8 @@ body.mana-cursor{cursor:none}
     <div class="ar-sep"></div>
     <!-- Pile partagée toggle (online) -->
     <button class="ar-btn on" onclick="arToggleUseStack()" id="ar-usestack-btn" title="Les sorts joués passent par la pile partagée (cliquez pour désactiver)">🌀 Pile : ON</button>
+    <!-- Paiement assisté (tous modes) -->
+    <button class="ar-btn" onclick="arToggleAutoPayMana()" id="ar-autopay-btn" title="Au lancement d'un sort, ouvre un panneau pour ajuster le paiement du coût en mana">💰 Mana</button>
     <!-- Journal/Chat toggle -->
     <button class="ar-btn" onclick="arToggleLog()" id="ar-log-btn" title="Journal d'actions & chat" style="position:relative">💬 Journal<span id="ar-log-unread" style="display:none;position:absolute;top:-3px;right:-3px;background:var(--rd2);color:#fff;border-radius:8px;padding:0 4px;font-size:.6rem;font-weight:700;min-width:12px;text-align:center">0</span></button>
     <button class="ar-btn" onclick="arShowHistory()" id="ar-history-btn" title="Historique chronologique de la partie">🎬 Historique</button>
@@ -3716,6 +3718,9 @@ body.mana-cursor{cursor:none}
       <div id="ar-history-list" style="flex:1;overflow-y:auto;font-size:.78rem;padding:8px;background:rgba(0,0,0,.4);border-radius:8px;border:1px solid rgba(180,140,255,.18)"></div>
     </div>
   </div>
+
+  <!-- Spell payment panel -->
+  <div id="ar-pay-panel" style="display:none;position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);z-index:140;background:linear-gradient(180deg,rgba(15,5,35,.98),rgba(8,3,22,.98));border:1.5px solid rgba(180,140,255,.6);border-radius:12px;padding:14px 16px;width:340px;box-shadow:0 22px 60px rgba(0,0,0,.85),0 0 30px rgba(140,100,220,.3);flex-direction:column;gap:10px"></div>
 
   <!-- Floating help/hotkeys -->
   <button id="ar-help-fab" onclick="arOpenHotkeys()" title="Aide & raccourcis clavier (double-clic=tap, drag=attaque, molette=±1/+1, etc.)" style="position:absolute;bottom:14px;right:14px;width:38px;height:38px;border-radius:50%;background:linear-gradient(180deg,rgba(180,140,255,.78),rgba(80,50,140,.78));border:1.5px solid rgba(220,200,255,.6);color:#fff;font-size:1.1rem;cursor:pointer;z-index:115;box-shadow:0 4px 14px rgba(140,100,220,.4);display:flex;align-items:center;justify-content:center">?</button>
@@ -10653,6 +10658,112 @@ function arFieldClick(e){
   _ar.selected=null;arRender();
 }
 
+// ===== PAIEMENT ASSISTÉ DU MANA =====
+var _arAutoPayMana=false;
+var _arPayingSpell=null;
+function arToggleAutoPayMana(){
+  _arAutoPayMana=!_arAutoPayMana;
+  var b=document.getElementById('ar-autopay-btn');
+  if(b){b.classList.toggle('on',_arAutoPayMana);b.textContent=_arAutoPayMana?'💰 Mana : ON':'💰 Mana';}
+}
+function _arRenderManaCostSymbols(costStr){
+  if(!costStr)return '<span style="color:var(--tx3)">(coût inconnu)</span>';
+  return (costStr.match(/\{[^}]+\}/g)||[]).map(function(s){
+    var v=s.replace(/[{}]/g,'');
+    var n=parseInt(v);
+    var cls='C';
+    if(['W','U','B','R','G','C'].indexOf(v)>=0)cls=v;
+    var label=isNaN(n)?v:n;
+    return '<span class="ar-mana-pip '+cls+'" style="width:20px;height:20px;font-size:.7rem">'+label+'</span>';
+  }).join(' ');
+}
+function arBeginPayment(card,fromZone,x,y,idx){
+  var data=_arCardDataCache[(card.name||'').toLowerCase()];
+  var costStr=data?data.mana_cost:'';
+  var cost=_arParseCost(costStr);
+  _arPayingSpell={card:card,fromZone:fromZone,x:x,y:y,idx:idx,cost:cost,costStr:costStr,sel:{W:0,U:0,B:0,R:0,G:0,C:0}};
+  // Auto-sélection : spécifiques d'abord
+  ['W','U','B','R','G'].forEach(function(c){
+    var need=cost[c]||0;
+    var avail=_arMana[c]||0;
+    _arPayingSpell.sel[c]=Math.min(need,avail);
+  });
+  // Puis générique : on remplit avec ce qui reste, en priorisant C puis couleurs en abondance
+  var generic=cost.generic||0;
+  ['C','W','U','B','R','G'].forEach(function(c){
+    if(generic<=0)return;
+    var rem=(_arMana[c]||0)-(_arPayingSpell.sel[c]||0);
+    var add=Math.min(generic,rem);
+    _arPayingSpell.sel[c]=(_arPayingSpell.sel[c]||0)+add;
+    generic-=add;
+  });
+  arRenderPayPanel();
+}
+function arRenderPayPanel(){
+  var panel=document.getElementById('ar-pay-panel');if(!panel)return;
+  if(!_arPayingSpell){panel.style.display='none';return;}
+  panel.style.display='flex';
+  var sp=_arPayingSpell;
+  var totalSel=sp.sel.W+sp.sel.U+sp.sel.B+sp.sel.R+sp.sel.G+sp.sel.C;
+  var totalCost=sp.cost.W+sp.cost.U+sp.cost.B+sp.cost.R+sp.cost.G+sp.cost.C+sp.cost.generic;
+  var specificOk=sp.sel.W>=sp.cost.W&&sp.sel.U>=sp.cost.U&&sp.sel.B>=sp.cost.B&&sp.sel.R>=sp.cost.R&&sp.sel.G>=sp.cost.G;
+  var ok=specificOk&&totalSel>=totalCost;
+  var html='<div style="font-family:\'Goudy Mediaeval\',serif;color:#c8a8ff;font-size:.95rem;letter-spacing:.06em;text-align:center;margin-bottom:2px">💰 Paiement du sort</div>';
+  html+='<div style="text-align:center;color:#fff;font-size:.85rem;margin-bottom:6px">'+esc(sp.card.name)+'</div>';
+  html+='<div style="display:flex;align-items:center;gap:6px;justify-content:center;padding:6px;background:rgba(0,0,0,.35);border-radius:6px"><span style="color:var(--tx3);font-size:.7rem">Coût :</span>'+_arRenderManaCostSymbols(sp.costStr)+'</div>';
+  // Pool with selectable pips
+  html+='<div style="color:var(--tx3);font-size:.7rem;margin-top:4px">Réserve (cliquer pour ajouter/retirer du paiement)</div>';
+  html+='<div style="display:flex;gap:3px;flex-wrap:wrap;padding:6px;background:rgba(0,0,0,.3);border-radius:6px;min-height:30px">';
+  var hasAny=false;
+  ['W','U','B','R','G','C'].forEach(function(c){
+    var avail=_arMana[c]||0;
+    var sel=sp.sel[c]||0;
+    for(var i=0;i<avail;i++){
+      hasAny=true;
+      var isSelected=i<sel;
+      html+='<div class="ar-mana-pip '+c+'" onclick="arPayTogglePip(\''+c+'\','+i+')" style="cursor:pointer;'+(isSelected?'box-shadow:0 0 0 2px #80ff80,0 0 8px rgba(120,255,120,.6);transform:scale(1.08)':'opacity:.5')+'">'+c+'</div>';
+    }
+  });
+  if(!hasAny)html+='<span style="color:var(--tx3);font-style:italic;font-size:.72rem;padding:4px">Aucun mana dans la réserve — utilisez « Sans payer » ou ajoutez du mana via les boutons +W/U/B/R/G/C</span>';
+  html+='</div>';
+  // Status
+  html+='<div style="text-align:center;font-size:.78rem;padding:4px">'+(ok?'<span style="color:#80ff80">✓ Coût couvert ('+totalSel+'/'+totalCost+')</span>':'<span style="color:#ff8080">⚠ '+totalSel+'/'+totalCost+' payé'+(!specificOk?' — couleurs manquantes':'')+'</span>')+'</div>';
+  // Buttons
+  html+='<div style="display:flex;gap:6px;justify-content:center">';
+  html+='<button class="ar-btn '+(ok?'ar-btn-gold':'')+'" onclick="arPayConfirm()" '+(ok?'':'disabled style="opacity:.4;cursor:not-allowed"')+'>✓ Payer & jouer</button>';
+  html+='<button class="ar-btn" onclick="arPaySkip()" title="Jouer sans déduire de mana (coût alternatif, etc.)">⏭ Sans payer</button>';
+  html+='<button class="ar-btn" onclick="arPayCancel()" style="border-color:rgba(255,120,120,.4);color:#ff9090">✕ Annuler</button>';
+  html+='</div>';
+  panel.innerHTML=html;
+}
+function arPayTogglePip(color,idx){
+  if(!_arPayingSpell)return;
+  var sel=_arPayingSpell.sel[color]||0;
+  // Pip non sélectionné → on l'ajoute, donc sel = idx+1
+  // Pip sélectionné → on le retire, donc sel = idx
+  if(idx<sel)_arPayingSpell.sel[color]=idx;
+  else _arPayingSpell.sel[color]=idx+1;
+  arRenderPayPanel();
+}
+function arPayConfirm(){
+  if(!_arPayingSpell)return;
+  var sp=_arPayingSpell;
+  ['W','U','B','R','G','C'].forEach(function(c){_arMana[c]=Math.max(0,(_arMana[c]||0)-(sp.sel[c]||0));});
+  arRenderManaPool();
+  arLogAction('paid',{name:sp.card.name,cost:sp.costStr,paid:sp.sel});
+  _arPlayCardActual(sp.card.id,sp.x,sp.y);
+  _arPayingSpell=null;arRenderPayPanel();
+}
+function arPaySkip(){
+  if(!_arPayingSpell)return;
+  var sp=_arPayingSpell;
+  _arPlayCardActual(sp.card.id,sp.x,sp.y);
+  _arPayingSpell=null;arRenderPayPanel();
+}
+function arPayCancel(){
+  _arPayingSpell=null;arRenderPayPanel();
+}
+
 function arPlayCard(id,x,y){
   var idx=_ar.hand.findIndex(function(c){return c.id===id;});
   if(idx<0)return;
@@ -10680,8 +10791,23 @@ function arPlayCard(id,x,y){
     return;
   }
   var card=_ar.hand[idx];
+  // Paiement assisté : si activé et la carte a un coût (et n'est pas un terrain), ouvre le panneau
+  if(_arAutoPayMana&&!_arBot){
+    var d0=_arCardDataCache[(card.name||'').toLowerCase()];
+    var isLand0=d0&&d0.type_line&&/Land/i.test(d0.type_line);
+    if(!isLand0&&d0&&d0.mana_cost){
+      arBeginPayment(card,'hand',x,y,idx);
+      return;
+    }
+  }
+  _arPlayCardActual(id,x,y);
+}
+
+function _arPlayCardActual(id,x,y){
+  var idx=_ar.hand.findIndex(function(c){return c.id===id;});
+  if(idx<0)return;
+  var card=_ar.hand[idx];
   // Online + toggle Pile ON : pousse en pile partagée au lieu d'aller directement en jeu
-  // (les terrains bypassent la pile — règle MTG)
   if(_arRoom&&_arUseStack&&!_arBot){
     var d=_arCardDataCache[(card.name||'').toLowerCase()];
     var isLand=d&&d.type_line&&/Land/i.test(d.type_line);
@@ -12467,6 +12593,7 @@ function _arActionToText(a){
     case 'cmd_kill':return {cls:'system',text:'☠ J'+p.target+' tué par dégâts commander'};
     case 'defeat':return {cls:'system',text:'☠ '+byName+' est éliminé ('+(p.cause||'?')+')'};
     case 'concede':return {cls:'system',text:'🏳 '+byName+' a concédé la partie'};
+    case 'paid':return {cls:a.by===pn?'mine':'opp',by:byName,text:'💰 paie '+esc(p.cost||'?')+' pour '+esc(p.name||'')};
     default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
   }
 }
