@@ -2136,10 +2136,10 @@ body.mana-cursor{cursor:none}
   <div class="card" style="margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <div class="lbl" style="margin:0">🤝 Liste partagée</div>
-      <select id="pur-list-sel" onchange="selectPurList(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:120px;max-width:180px"></select>
+      <select id="pur-list-sel" onchange="selectPurList(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:120px;max-width:220px"></select>
       <button class="btn btnsm btnp" onclick="newPurchaseList()">+ Nouvelle liste</button>
-      <span style="color:var(--tx3);font-size:.75rem">vs</span>
-      <select id="pur-friend-sel" onchange="purSetFriend(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.8rem;min-width:90px;max-width:140px"></select>
+      <button class="btn btnsm" id="pur-invite-btn" onclick="inviteFriendToList()" style="display:none">👥 Inviter un ami</button>
+      <select id="pur-friend-sel" onchange="purSetFriend(this.value)" style="display:none"></select>
       <button class="btn btnsm" id="pur-import-btn" onclick="importAchatToPurchase()" title="Importe les cartes du panneau 🛒 Achat du deck actuellement ouvert" style="display:none">⬇ Importer achat</button>
       <button class="btn btnsm" onclick="purImportFile()" title="Importer une liste depuis un fichier .txt">📂 Fichier</button>
       <input type="file" id="pur-file-in" accept=".txt,.csv" style="display:none" onchange="purHandleFileImport(event)">
@@ -2147,6 +2147,20 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter .txt</button>
       <button class="btn btnsm" id="pur-view-btn" onclick="togglePurImgMode()" style="display:none">🖼 Images</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
+    </div>
+    <!-- Chips membres + filtres rôle -->
+    <div id="pur-meta-bar" style="display:none;margin-top:8px;padding-top:8px;border-top:.5px solid var(--bd);align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="font-size:.72rem;color:var(--tx3)">Membres :</span>
+        <span id="pur-members-chips" style="display:inline-flex;gap:4px;flex-wrap:wrap"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-left:auto">
+        <span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Filtre :</span>
+        <button class="dm pur-rolefilt active" data-mode="all" onclick="purSetRoleFilter('all')">Tous</button>
+        <button class="dm pur-rolefilt" data-mode="mybuys" onclick="purSetRoleFilter('mybuys')">🛒 Mes achats</button>
+        <button class="dm pur-rolefilt" data-mode="myborrows" onclick="purSetRoleFilter('myborrows')">📥 Mes emprunts</button>
+        <button class="dm pur-rolefilt" data-mode="unassigned" onclick="purSetRoleFilter('unassigned')">❓ À répartir</button>
+      </div>
     </div>
     <!-- Panneau coller liste -->
     <div id="pur-paste-panel" style="display:none;margin-top:10px;border-top:.5px solid var(--bd);padding-top:10px">
@@ -7523,31 +7537,97 @@ function dlTxt(content,filename){
   document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }
 
-// ===== GESTIONNAIRE LISTES D'ACHAT PARTAGÉES =====
-// ===== PURCHASE MANAGER =====
+// ===== LISTES PARTAGÉES (collaboratif) =====
+// Collection: /shared_lists/{listId}
+//   { name, createdBy, createdAt, updatedAt, members:[uid], memberNames:{uid:name}, cards:[…] }
+// Chaque carte: { id, name, nl, qty, deckName, deckId, price, note,
+//                 buyer:uid|null, borrower:uid|null,
+//                 status:'proposed'|'accepted'|'bought'|'delivered',
+//                 addedBy:uid, lastChangeBy:uid, lastChangeAt:ts,
+//                 received:bool, column:0|1|-2 (legacy) }
+// _purchaseLists garde son nom pour minimiser l'impact sur l'UI existante.
 var _purchaseLists={};
 var _activePurListId=null;
 var _purDragCardId=null;
 var _purFriendIdx=1;
 var _purSearchMode='card';
 var _purCardSearchTO=null;
+var _sharedListsUnsub=null;
+var _sharedListsRoleFilter='all'; // 'all' | 'mybuys' | 'myborrows' | 'unassigned'
+var _STATUS_FLOW=['proposed','accepted','bought','delivered'];
+var _STATUS_LBL={proposed:'💭 Proposée',accepted:'✋ Acceptée',bought:'🛒 Achetée',delivered:'✅ Livrée'};
+var _STATUS_COLOR={proposed:'var(--tx3)',accepted:'var(--ac2)',bought:'var(--gold2)',delivered:'var(--gr2)'};
 
 function loadPurchaseLists(){
   if(!userId)return;
-  db.collection('users').doc(userId).collection('purchase_lists').get()
-    .then(function(snap){
-      _purchaseLists={};
-      snap.forEach(function(doc){_purchaseLists[doc.id]=doc.data();});
+  migratePurchaseListsIfNeeded().then(subscribeSharedLists);
+}
+
+function migratePurchaseListsIfNeeded(){
+  if(!userId)return Promise.resolve();
+  return db.collection('users').doc(userId).get().then(function(udoc){
+    if(udoc.exists&&udoc.data().purchaseListsMigrated)return;
+    return db.collection('users').doc(userId).collection('purchase_lists').get().then(function(snap){
+      if(snap.empty){
+        return db.collection('users').doc(userId).set({purchaseListsMigrated:true},{merge:true});
+      }
+      var batch=db.batch();
+      snap.forEach(function(doc){
+        var old=doc.data();
+        var newRef=db.collection('shared_lists').doc();
+        var newCards=(old.cards||[]).map(function(c){
+          var status='proposed',buyer=null,borrower=null;
+          if(c.column===0){buyer=userId;borrower=userId;status=c.received?'delivered':'accepted';}
+          else if(c.column===1){status=c.received?'delivered':'proposed';}
+          else if(c.column===-2){borrower=userId;status=c.received?'delivered':'proposed';}
+          return Object.assign({},c,{
+            buyer:buyer,borrower:borrower,status:status,
+            addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()
+          });
+        });
+        batch.set(newRef,{
+          name:old.name||'Liste migrée',
+          createdBy:userId,
+          createdAt:old.createdAt||Date.now(),
+          updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+          members:[userId],
+          memberNames:{},
+          cards:newCards
+        });
+      });
+      batch.set(db.collection('users').doc(userId),{purchaseListsMigrated:true},{merge:true});
+      return batch.commit().then(function(){console.log('[shared_lists] migration purchase_lists → shared_lists OK ('+snap.size+' liste(s))');});
+    });
+  }).catch(function(e){console.warn('[shared_lists] migration erreur:',e);});
+}
+
+function subscribeSharedLists(){
+  if(!userId)return;
+  if(_sharedListsUnsub)_sharedListsUnsub();
+  _sharedListsUnsub=db.collection('shared_lists')
+    .where('members','array-contains',userId)
+    .onSnapshot(function(snap){
+      // Mutate _purchaseLists en place pour préserver les références
+      var seen={};
+      snap.forEach(function(doc){seen[doc.id]=1;_purchaseLists[doc.id]=doc.data();});
+      Object.keys(_purchaseLists).forEach(function(k){if(!seen[k])delete _purchaseLists[k];});
+      if(_activePurListId&&!_purchaseLists[_activePurListId]){
+        var ids=Object.keys(_purchaseLists);
+        _activePurListId=ids.length?ids[0]:null;
+      }
       renderPurListSel();
-      renderPurchaseMgr();
-    })
-    .catch(function(e){console.warn('loadPurchaseLists',e);});
+      var pm=document.getElementById('purchase-mgr');
+      if(pm&&pm.style.display!=='none')renderPurchaseMgr();
+    },function(err){console.warn('subscribeSharedLists',err);});
 }
 
 function savePurchaseList(id){
   if(!userId||!id||!_purchaseLists[id])return;
   var data=Object.assign({},_purchaseLists[id],{updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
-  db.collection('users').doc(userId).collection('purchase_lists').doc(id)
+  if(!data.members)data.members=[userId];
+  if(data.members.indexOf(userId)<0)data.members.push(userId);
+  if(!data.createdBy)data.createdBy=userId;
+  db.collection('shared_lists').doc(id)
     .set(data).catch(function(e){console.warn('savePurchaseList',e);});
 }
 
@@ -7556,8 +7636,9 @@ function newPurchaseList(){
   var defName='Achat '+now.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
   var name=prompt('Nom de la liste :',defName);
   if(!name)return;
-  var id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  _purchaseLists[id]={name:name,createdAt:Date.now(),cards:[]};
+  var ref=db.collection('shared_lists').doc();
+  var id=ref.id;
+  _purchaseLists[id]={name:name,createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:[]};
   _activePurListId=id;
   savePurchaseList(id);
   renderPurListSel();
@@ -7577,12 +7658,117 @@ function purSetFriend(idx){
 function deletePurchaseList(){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   if(!confirm('Supprimer la liste "'+_purchaseLists[_activePurListId].name+'" ?'))return;
-  db.collection('users').doc(userId).collection('purchase_lists').doc(_activePurListId)
+  db.collection('shared_lists').doc(_activePurListId)
     .delete().catch(function(e){console.warn('deletePurchaseList',e);});
   delete _purchaseLists[_activePurListId];
   var ids=Object.keys(_purchaseLists);
   _activePurListId=ids.length?ids[0]:null;
   renderPurListSel();
+  renderPurchaseMgr();
+}
+
+// === Invitations ===
+function inviteFriendToList(){
+  if(!_activePurListId||!_purchaseLists[_activePurListId])return;
+  var list=_purchaseLists[_activePurListId];
+  // Candidats = amis connus dans n'importe quel slot (coll/deck/trade/…)
+  var seen={},candidates=[];
+  ['coll','deck','trade','game'].forEach(function(ctx){
+    (_epSlots[ctx]||[]).forEach(function(ep){
+      if(!ep||!ep.uid||seen[ep.uid])return;
+      if((list.members||[]).indexOf(ep.uid)>=0)return;
+      seen[ep.uid]=1;candidates.push({uid:ep.uid,name:ep.name||ep.uid});
+    });
+  });
+  if(!candidates.length){alert('Aucun ami disponible à inviter (ajoute-les d\'abord dans les profils).');return;}
+  var msg='Inviter à la liste « '+list.name+' » :\n\n'
+    +candidates.map(function(f,i){return (i+1)+'. '+f.name;}).join('\n')
+    +'\n\nEntre le numéro :';
+  var choice=prompt(msg);if(!choice)return;
+  var idx=parseInt(choice)-1;
+  if(idx<0||idx>=candidates.length){alert('Numéro invalide.');return;}
+  var f=candidates[idx];
+  list.members=(list.members||[]).concat([f.uid]);
+  list.memberNames=list.memberNames||{};
+  list.memberNames[f.uid]=f.name;
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+}
+
+function removeFriendFromList(uid){
+  if(!_activePurListId||!_purchaseLists[_activePurListId])return;
+  if(uid===userId){alert('Tu ne peux pas te retirer de ta propre liste.');return;}
+  var list=_purchaseLists[_activePurListId];
+  var memName=(list.memberNames||{})[uid]||uid;
+  if(!confirm('Retirer '+memName+' de la liste ?'))return;
+  list.members=(list.members||[]).filter(function(u){return u!==uid;});
+  if(list.memberNames)delete list.memberNames[uid];
+  // Pour les cartes où cet uid était buyer/borrower, on les remet à null
+  (list.cards||[]).forEach(function(c){
+    if(c.buyer===uid)c.buyer=null;
+    if(c.borrower===uid)c.borrower=null;
+  });
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+}
+
+function _purMemberName(uid){
+  if(!uid)return '—';
+  if(uid===userId)return PN[0]||'Moi';
+  var list=_activePurListId?_purchaseLists[_activePurListId]:null;
+  if(list&&list.memberNames&&list.memberNames[uid])return list.memberNames[uid];
+  // Fallback : chercher dans les slots
+  var found=null;
+  ['coll','deck','trade','game'].forEach(function(ctx){
+    (_epSlots[ctx]||[]).forEach(function(ep){if(ep&&ep.uid===uid&&!found)found=ep.name;});
+  });
+  return found||uid.slice(0,6);
+}
+
+// === Workflow statut / rôles ===
+function purAdvanceStatus(cardId){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];
+  var card=(list.cards||[]).find(function(c){return c.id===cardId;});
+  if(!card)return;
+  var idx=_STATUS_FLOW.indexOf(card.status||'proposed');
+  if(idx<0)idx=0;
+  card.status=_STATUS_FLOW[(idx+1)%_STATUS_FLOW.length];
+  card.lastChangeBy=userId;
+  card.lastChangeAt=Date.now();
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+}
+
+function purToggleRole(cardId,role){
+  if(!_activePurListId)return;
+  if(role!=='buyer'&&role!=='borrower')return;
+  var list=_purchaseLists[_activePurListId];
+  var card=(list.cards||[]).find(function(c){return c.id===cardId;});
+  if(!card)return;
+  card[role]=(card[role]===userId)?null:userId;
+  card.lastChangeBy=userId;
+  card.lastChangeAt=Date.now();
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+}
+
+function purSetRole(cardId,role,uid){
+  if(!_activePurListId)return;
+  if(role!=='buyer'&&role!=='borrower')return;
+  var list=_purchaseLists[_activePurListId];
+  var card=(list.cards||[]).find(function(c){return c.id===cardId;});
+  if(!card)return;
+  card[role]=uid||null;
+  card.lastChangeBy=userId;
+  card.lastChangeAt=Date.now();
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+}
+
+function purSetRoleFilter(mode){
+  _sharedListsRoleFilter=mode;
+  document.querySelectorAll('.pur-rolefilt').forEach(function(b){b.classList.toggle('active',b.dataset.mode===mode);});
   renderPurchaseMgr();
 }
 
@@ -7595,17 +7781,17 @@ function importAchatToPurchase(){
   var deckId=actDeck||'';
   function mkId(){return 'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
   (_achatRecap.buy||[]).forEach(function(r){
-    var idx=lst.cards.findIndex(function(c){return c.nl===r.nl&&c.column===0&&(c.deckName||'')===(dn||'');});
+    var idx=lst.cards.findIndex(function(c){return c.nl===r.nl&&c.buyer===userId&&!c.borrower&&(c.deckName||'')===(dn||'');});
     if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.need);}
-    else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.need,deckName:dn,deckId:deckId,column:0,note:'',received:false});}
+    else{lst.cards.push({id:mkId(),name:r.name,nl:r.nl||r.name.toLowerCase(),qty:r.need,deckName:dn,deckId:deckId,column:0,note:'',received:false,buyer:userId,borrower:userId,status:'proposed',addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()});}
   });
   Object.keys(_achatRecap.borrow||{}).forEach(function(fi){
     var friendName=PN[parseInt(fi)]||'ami';
     (_achatRecap.borrow[fi]||[]).forEach(function(r){
       var nl=r.nl||r.name.toLowerCase();
-      var idx=lst.cards.findIndex(function(c){return c.nl===nl&&c.column===-2&&(c.deckName||'')===(dn||'');});
+      var idx=lst.cards.findIndex(function(c){return c.nl===nl&&c.borrower===userId&&!c.buyer&&(c.deckName||'')===(dn||'');});
       if(idx>=0){lst.cards[idx].qty=Math.max(lst.cards[idx].qty,r.qty);}
-      else{lst.cards.push({id:mkId(),name:r.name,nl:nl,qty:r.qty,deckName:dn,deckId:deckId,column:-2,note:'emprunt '+friendName,received:false});}
+      else{lst.cards.push({id:mkId(),name:r.name,nl:nl,qty:r.qty,deckName:dn,deckId:deckId,column:-2,note:'emprunt '+friendName,received:false,buyer:null,borrower:userId,status:'proposed',addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()});}
     });
   });
   savePurchaseList(_activePurListId);
@@ -7658,123 +7844,147 @@ function _purRenderFriendSel(){
 
 function renderPurchaseMgr(){
   renderPurListSel();
-  _purRenderFriendSel();
   var importBtn=document.getElementById('pur-import-btn');
   var exportBtn=document.getElementById('pur-export-btn');
   var viewBtn=document.getElementById('pur-view-btn');
   var delBtn=document.getElementById('pur-del-btn');
+  var inviteBtn=document.getElementById('pur-invite-btn');
+  var metaBar=document.getElementById('pur-meta-bar');
   var wrap=document.getElementById('pur-table-wrap');
   if(!wrap)return;
   if(importBtn)importBtn.style.display=_achatRecap?'':'none';
-  var p0=esc(PN[0]||'Profil 1');
-  var p1=esc(PN[_purFriendIdx]||'Profil 2');
-  // En-tête du tableau toujours présent
-  var html='<table class="pur-table"><thead><tr>'
-    +'<th style="width:36%">Deck / Carte</th>'
-    +'<th class="pur-col-td" style="color:var(--gold2);width:32%">'+p0+'</th>'
-    +'<th class="pur-col-td" style="color:var(--ac2);width:32%">'+p1+'</th>'
-    +'</tr></thead><tbody>';
+  // Vue vide
   if(!_activePurListId||!_purchaseLists[_activePurListId]){
-    html+='<tr><td colspan="3" style="text-align:center;padding:2.5rem 1rem">'
-      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste — créez-en une ou importez un fichier.</div>'
-      +'<button class="btn btnp btnsm" onclick="newPurchaseList()" style="margin-right:6px">+ Créer une liste</button>'
-      +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer fichier</button>'
-      +'</td></tr>';
     if(exportBtn)exportBtn.style.display='none';
     if(viewBtn)viewBtn.style.display='none';
     if(delBtn)delBtn.style.display='none';
-    html+='</tbody></table>';
-    wrap.innerHTML=html;
+    if(inviteBtn)inviteBtn.style.display='none';
+    if(metaBar)metaBar.style.display='none';
+    wrap.innerHTML='<div style="text-align:center;padding:2.5rem 1rem">'
+      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste — créez-en une ou importez un fichier.</div>'
+      +'<button class="btn btnp btnsm" onclick="newPurchaseList()" style="margin-right:6px">+ Créer une liste</button>'
+      +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer fichier</button>'
+      +'</div>';
     purFilterDecks();
     return;
   }
   if(exportBtn)exportBtn.style.display='';
   if(viewBtn){viewBtn.style.display='';viewBtn.textContent=_purImgMode?'≡ Liste':'🖼 Images';}
   if(delBtn)delBtn.style.display='';
+  if(inviteBtn)inviteBtn.style.display='';
+  if(metaBar)metaBar.style.display='flex';
   var lst=_purchaseLists[_activePurListId];
-  var cards=lst.cards||[];
-  // Regroupement par deck
-  var groups={};
-  var deckOrder=[];
-  cards.forEach(function(c){
-    var dk=c.deckName||'(sans deck)';
-    if(!groups[dk]){groups[dk]={col0:[],col1:[],colX:[]};deckOrder.push(dk);}
-    if(c.column===0)groups[dk].col0.push(c);
-    else if(c.column===1)groups[dk].col1.push(c);
-    else groups[dk].colX.push(c);
+  // Members chips
+  var memChips=document.getElementById('pur-members-chips');
+  if(memChips){
+    var mems=(lst.members||[]);
+    memChips.innerHTML=mems.map(function(uid){
+      var nm=_purMemberName(uid);
+      var isMe=uid===userId;
+      var isCreator=uid===lst.createdBy;
+      var rmBtn=(!isMe&&isCreator===false)?' <span style="cursor:pointer;color:var(--rd2);margin-left:3px" title="Retirer ce membre" onclick="removeFriendFromList(\''+esc(uid)+'\')">✕</span>':'';
+      // Only the creator (or anyone) can remove others; me can never be removed by self
+      if(!isMe&&lst.createdBy===userId)rmBtn=' <span style="cursor:pointer;color:var(--rd2);margin-left:3px;opacity:.6" title="Retirer" onclick="removeFriendFromList(\''+esc(uid)+'\')">✕</span>';
+      return '<span style="display:inline-flex;align-items:center;background:'+(isMe?'rgba(201,168,76,.18)':'rgba(148,103,189,.18)')+';border:.5px solid '+(isMe?'rgba(201,168,76,.35)':'rgba(148,103,189,.35)')+';color:'+(isMe?'var(--gold2)':'var(--ac2)')+';border-radius:10px;padding:1px 7px;font-size:.7rem">'+(isCreator?'★ ':'')+esc(nm)+rmBtn+'</span>';
+    }).join('');
+  }
+  // Filtre rôle
+  var cards=(lst.cards||[]).filter(function(c){
+    if(_sharedListsRoleFilter==='mybuys')return c.buyer===userId;
+    if(_sharedListsRoleFilter==='myborrows')return c.borrower===userId;
+    if(_sharedListsRoleFilter==='unassigned')return !c.buyer&&!c.borrower;
+    return true;
   });
-  if(!deckOrder.length){
-    html+='<tr><td colspan="3" style="text-align:center;padding:2rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">'
-      +'Liste vide — utilisez le panneau de droite pour ajouter des cartes.</td></tr>';
+  // Image mode
+  if(_purImgMode){
+    wrap.innerHTML=_purRenderImgGrid(cards);
+    purFilterDecks();
+    return;
+  }
+  // Mode tableau : Deck / Carte / Statut / Acheteur / Emprunteur / Actions
+  var html='<table class="pur-table"><thead><tr>'
+    +'<th style="width:32%">Deck / Carte</th>'
+    +'<th style="width:15%">Statut</th>'
+    +'<th style="width:18%;color:var(--gold2)">Acheteur</th>'
+    +'<th style="width:18%;color:var(--ac2)">Emprunteur</th>'
+    +'<th style="width:15%">Actions</th>'
+    +'</tr></thead><tbody>';
+  if(!cards.length){
+    html+='<tr><td colspan="5" style="text-align:center;padding:2rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">'
+      +(_sharedListsRoleFilter!=='all'?'Aucune carte ne correspond à ce filtre.':'Liste vide — utilisez le panneau de droite pour ajouter des cartes.')
+      +'</td></tr>';
   }else{
+    // Regroupement par deck (préservé)
+    var groups={},deckOrder=[];
+    cards.forEach(function(c){
+      var dk=c.deckName||'(sans deck)';
+      if(!groups[dk]){groups[dk]=[];deckOrder.push(dk);}
+      groups[dk].push(c);
+    });
     deckOrder.forEach(function(dk){
-      var g=groups[dk];
-      var total=g.col0.length+g.col1.length+g.colX.length;
-      if(!total)return;
-      var pureExch=g.col0.length===0&&g.col1.length===0;
-      if(!pureExch)html+='<tr class="pur-dk-hdr"><td colspan="3">📖 '+esc(dk)+'</td></tr>';
-
-      // Fusion par nom de carte : col0 → td0, col1/colX → td1 (même ligne si même carte)
-      var byNl={},nlOrder=[];
-      function _slot(c,key){if(!byNl[c.nl]){byNl[c.nl]={col0:null,col1:null,colX:null};nlOrder.push(c.nl);}byNl[c.nl][key]=c;}
-      g.col0.forEach(function(c){_slot(c,'col0');});
-      g.col1.forEach(function(c){_slot(c,'col1');});
-      g.colX.forEach(function(c){_slot(c,'colX');});
-
-      nlOrder.forEach(function(nl){
-        var r=byNl[nl];
-        var c0=r.col0,c1=r.col1,cX=r.colX;
-
-        function _mkCell(c){
-          var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-          var recv=!!c.received;
-          var nm='<span class="'+(recv?'pur-recv':'')+'">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
-          var rb='<button onclick="togglePurReceived(\''+sid+'\')" title="'+(recv?'Annuler':'Marquer reçue')+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:'+(recv?'var(--gr2)':'var(--tx3)')+'">✓</button>';
-          var db='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.65rem;color:var(--rd2);opacity:.55;padding:0 2px">✕</button>';
-          return nm+rb+db;
-        }
-        function _mkExch(c){
-          var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-          var recv=!!c.received;
-          var nm='<span>'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+'</span>';
-          var lb=recv
-            ?'<button onclick="togglePurReceived(\''+sid+'\')" title="Annuler l\'acceptation" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--gr2)">✓ Prêt OK</button>'
-            :'<button onclick="togglePurReceived(\''+sid+'\')" title="Accepter le prêt" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--tx3)">✓</button>'
-             +'<button onclick="purRefuseLoan(\''+sid+'\')" title="Refuser — devient un achat pour '+esc(p1)+'" style="background:none;border:none;cursor:pointer;font-size:.72rem;padding:0 2px;color:var(--am)">✗</button>';
-          return '↔ '+nm+' '+lb+(c.note?' <span style="font-size:.67rem;color:var(--tx3)">('+esc(c.note)+')</span>':'');
-        }
-
-        var rowExtraCls='';
-        var td0Html='',td1Html='';
-        if(cX){
-          var xRecv=!!cX.received;
-          rowExtraCls=' pur-exch-row'+(xRecv?' pur-loan-ok':'');
-          // L'emprunt s'affiche dans la colonne du prêteur (td0)
-          td0Html=(c0?_mkCell(c0)+'<br>':'')+_mkExch(cX);
-          td1Html=c1?_mkCell(c1):'';
-        }else{
-          td0Html=c0?_mkCell(c0):'';
-          td1Html=c1?_mkCell(c1):'';
-        }
-
-        var dkLabel=pureExch&&dk&&dk!=='(sans deck)'?'<span style="font-style:italic;color:var(--tx3);font-size:.72rem">'+esc(dk)+'</span>':'';
-        var mainCard=c0||c1||cX;
-        var msid=mainCard.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-        html+='<tr class="pur-card-row'+rowExtraCls+'" data-id="'+esc(mainCard.id)+'" draggable="true" ondragstart="purDragStart(event,\''+msid+'\')">'
-          +'<td>'+dkLabel+'</td>'
-          +'<td class="pur-col-td" ondragover="purColDragOver(event,0)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,0)">'+td0Html+'</td>'
-          +'<td class="pur-col-td" ondragover="purColDragOver(event,1)" ondragleave="purColDragLeave(event)" ondrop="purColDrop(event,1)">'+td1Html+'</td>'
-          +'</tr>';
-      });
+      if(dk!=='(sans deck)')html+='<tr class="pur-dk-hdr"><td colspan="5">📖 '+esc(dk)+'</td></tr>';
+      groups[dk].forEach(function(c){html+=_purRenderRow(c);});
     });
   }
   html+='</tbody></table>';
-  if(_purImgMode){
-    wrap.innerHTML=_purRenderImgGrid();
-  }else{
-    wrap.innerHTML=html;
-    purFilterDecks();
+  wrap.innerHTML=html;
+  purFilterDecks();
+}
+
+function _purRenderRoleChip(card,role){
+  var uid=card[role];
+  var sid=card.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var isMe=uid===userId;
+  var isEmpty=!uid;
+  var nm=isEmpty?'—':_purMemberName(uid);
+  var bg=isEmpty?'transparent':(isMe?'rgba(201,168,76,.18)':'rgba(148,103,189,.18)');
+  var bd=isEmpty?'1px dashed var(--bd2)':(isMe?'.5px solid rgba(201,168,76,.35)':'.5px solid rgba(148,103,189,.35)');
+  var col=isEmpty?'var(--tx3)':(isMe?'var(--gold2)':'var(--ac2)');
+  var label=isMe?'Moi':esc(nm);
+  var chip='<span class="pur-role-chip" style="display:inline-flex;align-items:center;background:'+bg+';border:'+bd+';color:'+col+';border-radius:10px;padding:1px 7px;font-size:.72rem;cursor:pointer" title="'+(isMe?'Se retirer':isEmpty?'Me désigner':'Me désigner (remplacer)')+'" onclick="purToggleRole(\''+sid+'\',\''+role+'\')">'+(isEmpty?'+ '+label:label)+'</span>';
+  // Bouton ⋯ pour choisir un autre membre
+  var menu=' <span class="pur-role-more" style="display:inline-block;cursor:pointer;color:var(--tx3);font-size:.65rem;padding:0 3px" title="Choisir un membre" onclick="_purAssignMenu(\''+sid+'\',\''+role+'\')">⋯</span>';
+  return chip+menu;
+}
+
+function _purAssignMenu(cardId,role){
+  if(!_activePurListId||!_purchaseLists[_activePurListId])return;
+  var list=_purchaseLists[_activePurListId];
+  var members=(list.members||[]).slice();
+  if(!members.length)return;
+  var lines=members.map(function(uid,i){return (i+1)+'. '+_purMemberName(uid)+(uid===userId?' (moi)':'');});
+  lines.push((members.length+1)+'. — (retirer)');
+  var choice=prompt('Désigner '+(role==='buyer'?'acheteur':'emprunteur')+' :\n\n'+lines.join('\n')+'\n\nEntre le numéro :');
+  if(!choice)return;
+  var idx=parseInt(choice)-1;
+  if(idx<0||idx>members.length){alert('Numéro invalide.');return;}
+  var newUid=idx===members.length?null:members[idx];
+  purSetRole(cardId,role,newUid);
+}
+
+function _purRenderRow(c){
+  var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var status=c.status||'proposed';
+  var statusLbl=_STATUS_LBL[status]||status;
+  var statusCol=_STATUS_COLOR[status]||'var(--tx3)';
+  var qtyTxt=(c.qty>1?c.qty+'× ':'');
+  var nameHtml='<span'+(status==='delivered'?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+qtyTxt+esc(c.name)+'</span>';
+  var noteHtml=c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'';
+  var statusChip='<span style="display:inline-block;background:rgba(255,255,255,.05);border:.5px solid '+statusCol+';color:'+statusCol+';border-radius:10px;padding:1px 7px;font-size:.7rem;cursor:pointer" title="Avancer le statut" onclick="purAdvanceStatus(\''+sid+'\')">'+statusLbl+'</span>';
+  var buyerChip=_purRenderRoleChip(c,'buyer');
+  var borrowerChip=_purRenderRoleChip(c,'borrower');
+  var delBtn='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.72rem;color:var(--rd2);opacity:.6;padding:0 4px" title="Retirer">✕</button>';
+  var modTxt='';
+  if(c.lastChangeBy&&c.lastChangeBy!==c.addedBy){
+    modTxt=' <span style="font-size:.6rem;color:var(--tx3);font-style:italic" title="Dernière modif">par '+esc(_purMemberName(c.lastChangeBy))+'</span>';
   }
+  return '<tr class="pur-card-row">'
+    +'<td>'+nameHtml+noteHtml+modTxt+'</td>'
+    +'<td>'+statusChip+'</td>'
+    +'<td>'+buyerChip+'</td>'
+    +'<td>'+borrowerChip+'</td>'
+    +'<td>'+delBtn+'</td>'
+    +'</tr>';
 }
 var _purImgMode=false;
 var _purImgCache={};
@@ -7783,17 +7993,17 @@ function togglePurImgMode(){
   if(_purImgMode)_purFetchAndRenderImages();
   else renderPurchaseMgr();
 }
-function _purRenderImgGrid(){
+function _purRenderImgGrid(filteredCards){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return'';
-  var cards=(_purchaseLists[_activePurListId].cards||[]);
-  var p0lbl=PN[0]||'P1';var p1lbl=PN[_purFriendIdx]||'P2';
-  var colInfo={0:{bg:'rgba(201,168,76,.25)',lbl:p0lbl},1:{bg:'rgba(148,103,189,.25)',lbl:p1lbl},'-2':{bg:'rgba(14,165,233,.2)',lbl:'Emprunt'}};
+  var cards=filteredCards||(_purchaseLists[_activePurListId].cards||[]);
   var byNl={};
   cards.forEach(function(c){
-    if(!byNl[c.nl])byNl[c.nl]={nl:c.nl,name:c.name,qty:0,col:c.column,received:c.received};
+    if(!byNl[c.nl])byNl[c.nl]={nl:c.nl,name:c.name,qty:0,status:c.status||'proposed',received:c.received,buyer:c.buyer,borrower:c.borrower};
     byNl[c.nl].qty+=(c.qty||1);
-    // Col priority: col0/col1 > colX
-    if(c.column!==-2)byNl[c.nl].col=c.column;
+    // Statut prioritaire = le plus avancé
+    var statusRank=_STATUS_FLOW.indexOf(c.status||'proposed');
+    var currentRank=_STATUS_FLOW.indexOf(byNl[c.nl].status||'proposed');
+    if(statusRank>currentRank)byNl[c.nl].status=c.status;
     if(c.received)byNl[c.nl].received=true;
   });
   var items=Object.keys(byNl).map(function(k){return byNl[k];});
@@ -7801,14 +8011,15 @@ function _purRenderImgGrid(){
   return'<div style="display:flex;flex-wrap:wrap;gap:10px;padding:8px">'
     +items.map(function(item){
       var img=_purImgCache[item.nl]||dImgCache[item.nl]||'';
-      var ci=colInfo[String(item.col)]||colInfo['0'];
-      var border=item.received?'2px solid var(--gr2)':'1px solid var(--bd2)';
+      var st=item.status||'proposed';
+      var stCol=_STATUS_COLOR[st]||'var(--tx3)';
+      var stLbl=_STATUS_LBL[st]||st;
+      var border=(st==='delivered')?'2px solid var(--gr2)':'1px solid var(--bd2)';
       return'<div style="width:130px;text-align:center;position:relative">'
         +(img
           ?'<img src="'+img+'" style="width:130px;border-radius:7px;display:block;border:'+border+'" loading="lazy">'
           :'<div style="width:130px;height:182px;background:var(--s3);border-radius:7px;border:'+border+';display:flex;align-items:center;justify-content:center;font-size:.68rem;color:var(--tx3);padding:6px;text-align:center">'+esc(item.name)+'</div>')
-        +'<div style="position:absolute;top:4px;left:4px;font-size:.6rem;background:'+ci.bg+';color:var(--tx);border-radius:3px;padding:1px 4px;pointer-events:none">'+esc(ci.lbl)+'</div>'
-        +(item.received?'<div style="position:absolute;top:4px;right:4px;font-size:.65rem;background:var(--gr2);color:#0a1a10;border-radius:3px;padding:1px 4px">✓</div>':'')
+        +'<div style="position:absolute;top:4px;left:4px;font-size:.58rem;background:rgba(0,0,0,.55);color:'+stCol+';border:.5px solid '+stCol+';border-radius:3px;padding:1px 4px;pointer-events:none">'+esc(stLbl)+'</div>'
         +'<div style="font-size:.65rem;color:var(--tx2);margin-top:3px;line-height:1.2;word-break:break-word">'+(item.qty>1?item.qty+'× ':'')+esc(item.name)+'</div>'
         +'</div>';
     }).join('')
@@ -7979,6 +8190,22 @@ function _purShowAutoMatchMsg(cardName,deckNames){
   clearTimeout(_purAutoMatchTO);
   _purAutoMatchTO=setTimeout(function(){el.style.display='none';},3000);
 }
+function _purDefaultsForCol(col){
+  // col 0 = mon achat ; col 1 = achat ami (qui ?) ; col -2 = emprunt
+  if(col===0)return {buyer:userId,borrower:userId,status:'proposed'};
+  if(col===-2)return {buyer:null,borrower:userId,status:'proposed'};
+  return {buyer:null,borrower:null,status:'proposed'}; // col=1 ou autre : non assigné
+}
+function _purNewCard(name,nl,qty,deckName,deckId,col,note){
+  var d=_purDefaultsForCol(col);
+  return {
+    id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+    name:name,nl:nl,qty:qty,deckName:deckName,deckId:deckId,
+    column:col,note:note||'',received:false,
+    buyer:d.buyer,borrower:d.borrower,status:d.status,
+    addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()
+  };
+}
 function purAddCard(name,col,deckName){
   if(!_activePurListId){alert('Créez d\'abord une liste.');return;}
   var lst=_purchaseLists[_activePurListId];
@@ -7999,7 +8226,7 @@ function purAddCard(name,col,deckName){
       toMatch.forEach(function(m){
         var existing=(lst.cards||[]).find(function(c){return c.nl===nl&&c.column===col&&(c.deckName||'')===m.name;});
         if(existing){existing.qty=(existing.qty||1)+1;}
-        else{lst.cards=lst.cards||[];lst.cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:1,deckName:m.name,deckId:m.id,column:col,note:'',received:false});}
+        else{lst.cards=lst.cards||[];lst.cards.push(_purNewCard(name,nl,1,m.name,m.id,col,''));}
         addedDecks.push(m.name);
       });
       savePurchaseList(_activePurListId);renderPurchaseMgr();
@@ -8009,7 +8236,7 @@ function purAddCard(name,col,deckName){
   }
   var existing=(lst.cards||[]).find(function(c){return c.nl===nl&&c.column===col&&(c.deckName||'')===dk;});
   if(existing){existing.qty=(existing.qty||1)+1;}
-  else{lst.cards=lst.cards||[];lst.cards.push({id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:1,deckName:dk,deckId:'',column:col,note:'',received:false});}
+  else{lst.cards=lst.cards||[];lst.cards.push(_purNewCard(name,nl,1,dk,'',col,''));}
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
 }
@@ -8221,7 +8448,12 @@ function purBuildCardArray(text,filename){
   var p0lc=(PN[0]||'').toLowerCase();
   var p1lc=(PN[_purFriendIdx]||'').toLowerCase();
   var firstNonEmpty=lines.find(function(l){return l.trim().length>0;})||'';
-  var _mkCard=function(name,qty,col,deck,recv){return {id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase(),qty:qty,deckName:deck||'',deckId:'',column:col,note:'',received:!!recv};};
+  var _mkCard=function(name,qty,col,deck,recv){
+    var d=_purDefaultsForCol(col);
+    var nl=(typeof stripDFC==='function'?stripDFC(name):name).toLowerCase();
+    return {id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),name:name,nl:nl,qty:qty,deckName:deck||'',deckId:'',column:col,note:'',received:!!recv,
+      buyer:d.buyer,borrower:d.borrower,status:recv?'delivered':d.status,addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()};
+  };
   // Détection du format :
   // - Interne (export app) : commence par === titre ===
   // - Externe app : contient "Propriétaire :" ou commence par "Liste d'achat"
@@ -8286,8 +8518,9 @@ function purBuildCardArray(text,filename){
 function purParseImportedList(text,filename){
   var parsed=purBuildCardArray(text,filename);
   if(!parsed)return;
-  var id='pl_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  _purchaseLists[id]={name:parsed.listName,createdAt:Date.now(),cards:parsed.cards};
+  var ref=db.collection('shared_lists').doc();
+  var id=ref.id;
+  _purchaseLists[id]={name:parsed.listName,createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:parsed.cards};
   _activePurListId=id;
   savePurchaseList(id);
   renderPurListSel();
