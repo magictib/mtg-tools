@@ -1,7 +1,5 @@
-const CACHE = 'manalab-v34';
+const CACHE = 'manalab-v35';
 const STATIC = [
-  './',
-  './index.html',
   './manifest.json',
   './icon.svg'
 ];
@@ -21,7 +19,7 @@ const NETWORK_ONLY = [
 self.addEventListener('install', function(e) {
   e.waitUntil(
     caches.open(CACHE).then(function(c) {
-      return c.addAll(STATIC);
+      return c.addAll(STATIC).catch(function(){}); // tolère échec d'asset
     })
   );
   self.skipWaiting();
@@ -29,11 +27,12 @@ self.addEventListener('install', function(e) {
 
 self.addEventListener('activate', function(e) {
   e.waitUntil(
+    // Purge agressive : supprime TOUS les caches d'anciennes versions ET les HTML en cache
     caches.keys().then(function(keys) {
-      return Promise.all(
-        keys.filter(function(k) { return k !== CACHE; })
-            .map(function(k) { return caches.delete(k); })
-      );
+      return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+    }).then(function(){
+      // Re-crée le cache courant vide (sera repeuplé au prochain fetch)
+      return caches.open(CACHE);
     })
   );
   self.clients.claim();
@@ -51,18 +50,14 @@ self.addEventListener('fetch', function(e) {
   // POST / non-GET → réseau direct
   if (e.request.method !== 'GET') return;
 
-  // Network-first pour le HTML (toujours voir les mises à jour) — fallback cache si offline
+  // HTML / index : TOUJOURS RÉSEAU UNIQUEMENT (jamais de cache)
+  // Garantit que les modifications du code sont vues immédiatement
   var isHtml = url.pathname.endsWith('/') || url.pathname.endsWith('.html') || url.pathname === '';
   if (isHtml) {
     e.respondWith(
-      fetch(e.request).then(function(response) {
-        if (response.ok) {
-          var clone = response.clone();
-          caches.open(CACHE).then(function(c) { c.put(e.request, clone); });
-        }
-        return response;
-      }).catch(function() {
-        return caches.match(e.request).then(function(c) { return c || caches.match('./index.html'); });
+      fetch(e.request, {cache: 'no-store'}).catch(function() {
+        // Offline : on tente le cache (vieille version) plutôt que rien
+        return caches.match(e.request) || caches.match('./index.html') || new Response('<h1>Hors ligne</h1>', {headers:{'Content-Type':'text/html'}});
       })
     );
     return;
@@ -80,7 +75,7 @@ self.addEventListener('fetch', function(e) {
       });
       return cached || networkFetch;
     }).catch(function() {
-      return caches.match('./index.html');
+      return new Response('', {status: 504});
     })
   );
 });
