@@ -1163,6 +1163,22 @@ body.mana-cursor{cursor:none}
 .cz-info .cz-pos{color:var(--tx3);margin-left:10px;font-size:.78rem}
 .cz-clickable{cursor:zoom-in}
 .cz-clickable:hover{color:var(--gold2)}
+
+/* ===== MONTAGE MULTI-DECKS ===== */
+#pg-deck.mm-active > *:not(#deck-modal-bar):not(#multi-montage-panel){display:none!important}
+.mm-deck-chip{display:inline-flex;align-items:center;gap:5px;background:var(--s3);border:.5px solid var(--bd2);border-radius:12px;padding:3px 10px;font-size:.74rem;cursor:pointer;transition:background .12s,border-color .12s;color:var(--tx2)}
+.mm-deck-chip:hover{background:rgba(201,168,76,.08);border-color:rgba(201,168,76,.35)}
+.mm-deck-chip.selected{background:rgba(201,168,76,.18);border-color:var(--gold2);color:var(--gold2)}
+.mm-deck-chip .mm-chip-bar{display:inline-block;width:36px;height:4px;background:rgba(0,0,0,.45);border-radius:2px;overflow:hidden;margin-left:4px;border:.5px solid var(--bd2)}
+.mm-deck-chip .mm-chip-bar-fill{height:100%;background:var(--gold2);transition:width .25s}
+.mm-card-row{display:grid;grid-template-columns:36px 1fr auto 90px 70px auto;gap:8px;align-items:center;padding:7px 10px;border-radius:6px;font-size:.84rem;border:.5px solid transparent;transition:background .15s,border-color .15s}
+.mm-card-row:hover{background:rgba(255,255,255,.04);border-color:var(--bd2)}
+.mm-card-row-done{background:rgba(16,185,129,.06);color:var(--gr2);opacity:.85}
+.mm-card-row-done .mm-card-name{text-decoration:line-through;opacity:.7}
+.mm-card-row-partial{background:rgba(245,185,91,.05)}
+.mm-card-row-missing{background:rgba(224,112,112,.04);color:var(--tx2)}
+.mm-deck-tag{display:inline-block;background:rgba(148,103,189,.18);border:.5px solid rgba(148,103,189,.35);color:var(--ac2);border-radius:8px;padding:1px 6px;font-size:.62rem;margin:1px 2px 1px 0}
+@media (max-width:640px){.mm-card-row{grid-template-columns:30px 1fr 70px auto;font-size:.78rem;gap:6px}}
 @media (max-width:640px){
   .cz-nav{width:40px;height:40px;font-size:1.4rem}
   .cz-prev{left:8px}.cz-next{right:8px}
@@ -1873,9 +1889,37 @@ body.mana-cursor{cursor:none}
 <!-- DECK -->
 <div class="page" id="pg-deck">
   <div id="deck-modal-bar" style="margin-bottom:12px">
-    <div style="display:flex;justify-content:flex-start;align-items:center;gap:12px">
+    <div style="display:flex;justify-content:flex-start;align-items:center;gap:12px;flex-wrap:wrap">
       <button class="btn btnsm" onclick="goTab('build')">← Retour</button>
       <div class="lbl" style="margin:0;font-size:1rem">♠ Mes decks</div>
+      <button class="btn btnsm btnp" id="mm-open-btn" onclick="openMultiMontage()" style="margin-left:auto" title="Montage physique de plusieurs decks en parallèle">🔨 Montage multi-decks</button>
+    </div>
+  </div>
+  <!-- Panneau Montage multi-decks (caché par défaut) -->
+  <div id="multi-montage-panel" style="display:none">
+    <div class="card" style="padding:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="btn btnsm" onclick="closeMultiMontage()">← Retour à mes decks</button>
+        <div class="lbl" style="margin:0;font-size:1.05rem;color:var(--gold2)">🔨 Montage multi-decks</div>
+        <div id="mm-progress" style="margin-left:auto;font-size:.85rem;color:var(--tx2)"></div>
+      </div>
+      <div style="font-size:.72rem;color:var(--tx3);margin-bottom:5px">Decks à inclure :</div>
+      <div id="mm-deck-chips" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <span style="font-size:.72rem;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em">TRIER PAR</span>
+        <button class="dm mm-sort-btn active" data-mode="color" onclick="mmSetSort('color')">Couleur</button>
+        <button class="dm mm-sort-btn" data-mode="type" onclick="mmSetSort('type')">Type</button>
+        <button class="dm mm-sort-btn" data-mode="cmc" onclick="mmSetSort('cmc')">CMC</button>
+        <button class="dm mm-sort-btn" data-mode="name" onclick="mmSetSort('name')">Nom</button>
+        <label style="margin-left:14px;display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx2);cursor:pointer">
+          <input type="checkbox" id="mm-group-deck" onchange="mmSetGroupByDeck(this.checked)" style="cursor:pointer">
+          Sous-grouper par deck
+        </label>
+        <button class="btn btnsm" onclick="mmFillOwned()" style="margin-left:auto" title="Place ce que vous possédez (libre) dans les decks de la liste">⚡ Placer ce que j'ai</button>
+        <button class="btn btnsm btnrd" onclick="mmReset()" title="Réinitialiser tous les compteurs des decks sélectionnés">⟲ Réinitialiser</button>
+      </div>
+      <div class="montage-bar" id="mm-bar"><div class="montage-bar-fill" id="mm-bar-fill" style="width:0%"></div></div>
+      <div id="mm-list" style="margin-top:14px"></div>
     </div>
   </div>
   <div style="display:flex;gap:12px;align-items:start;flex-wrap:wrap;margin-bottom:1rem">
@@ -7629,6 +7673,249 @@ function renderDeckMontage(quietUpdate){
   el.innerHTML=html;
   // Refocus pour assemblage rapide
   if(!quietUpdate){var inp=document.getElementById('montage-quickadd');if(inp)inp.focus();}
+}
+
+// ===== MONTAGE MULTI-DECKS =====
+var _mmSelectedDeckIds=[];
+var _mmSortMode='color';
+var _mmGroupByDeck=false;
+var _mmSaveTO=null;
+
+function openMultiMontage(){
+  var pg=document.getElementById('pg-deck');if(!pg)return;
+  pg.classList.add('mm-active');
+  var pn=document.getElementById('multi-montage-panel');if(pn)pn.style.display='block';
+  // Sélection par défaut : tous les decks du profil 0 (l'utilisateur)
+  if(!_mmSelectedDeckIds.length){
+    _mmSelectedDeckIds=getDeckOrder(0).slice();
+  }
+  renderMultiMontage();
+}
+function closeMultiMontage(){
+  var pg=document.getElementById('pg-deck');if(pg)pg.classList.remove('mm-active');
+  var pn=document.getElementById('multi-montage-panel');if(pn)pn.style.display='none';
+}
+function mmToggleDeck(deckId){
+  var i=_mmSelectedDeckIds.indexOf(deckId);
+  if(i>=0)_mmSelectedDeckIds.splice(i,1);
+  else _mmSelectedDeckIds.push(deckId);
+  renderMultiMontage();
+}
+function mmSetSort(mode){
+  _mmSortMode=mode;
+  document.querySelectorAll('.mm-sort-btn').forEach(function(b){b.classList.toggle('active',b.dataset.mode===mode);});
+  renderMultiMontage();
+}
+function mmSetGroupByDeck(v){_mmGroupByDeck=!!v;renderMultiMontage();}
+
+function _mmSaveSelected(){
+  if(!_mmSelectedDeckIds.length)return;
+  clearTimeout(_mmSaveTO);
+  _mmSaveTO=setTimeout(function(){saveDecks();},400);
+}
+
+function _mmBuiltMap(deckId){
+  var dk=decks[deckId];if(!dk)return null;
+  if(!dk.built)dk.built={};
+  var uid=userId||'_local';
+  if(!dk.built[uid])dk.built[uid]={};
+  return dk.built[uid];
+}
+
+function _mmBuildAggregated(){
+  var entries={};
+  _mmSelectedDeckIds.forEach(function(deckId){
+    var dk=decks[deckId];if(!dk)return;
+    var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+    var cards=parseList(raw||'');
+    var bm=_mmBuiltMap(deckId)||{};
+    cards.forEach(function(c){
+      var nl=c.nl;
+      if(!entries[nl])entries[nl]={nl:nl,name:c.name,perDeck:[]};
+      entries[nl].perDeck.push({deckId:deckId,deckName:dk.name||'Deck',qty:c.qty,built:Math.min(c.qty,bm[nl]||0)});
+    });
+  });
+  // Calculer totaux
+  Object.keys(entries).forEach(function(nl){
+    var e=entries[nl];
+    e.totalQty=e.perDeck.reduce(function(s,d){return s+d.qty;},0);
+    e.totalBuilt=e.perDeck.reduce(function(s,d){return s+d.built;},0);
+  });
+  return Object.keys(entries).map(function(k){return entries[k];});
+}
+
+function mmInc(nl,delta){
+  delta=delta||1;
+  if(!_mmSelectedDeckIds.length)return;
+  // Trouver le premier deck non-plein (ou non-vide en cas de -1)
+  for(var i=0;i<_mmSelectedDeckIds.length;i++){
+    var deckId=_mmSelectedDeckIds[delta>0?i:(_mmSelectedDeckIds.length-1-i)];
+    var dk=decks[deckId];if(!dk)continue;
+    var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+    var cards=parseList(raw||'');
+    var card=cards.find(function(c){return c.nl===nl;});
+    if(!card)continue;
+    var bm=_mmBuiltMap(deckId);if(!bm)continue;
+    var cur=bm[nl]||0;
+    if(delta>0&&cur<card.qty){bm[nl]=cur+1;break;}
+    if(delta<0&&cur>0){bm[nl]=cur-1;break;}
+  }
+  _mmSaveSelected();renderMultiMontage();
+}
+function mmDec(nl){mmInc(nl,-1);}
+
+function mmFillOwned(){
+  if(!_mmSelectedDeckIds.length)return;
+  // Pour chaque deck dans l'ordre, remplir built au minimum de (qty requise, copies libres restantes du joueur)
+  // Compte global des copies utilisées au fil de l'eau pour ne pas réutiliser une carte 2x
+  var pm=getPMap(0); // collection du user
+  var used={}; // nl -> qty already assigned
+  _mmSelectedDeckIds.forEach(function(deckId){
+    var dk=decks[deckId];if(!dk)return;
+    var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+    var cards=parseList(raw||'');
+    var bm=_mmBuiltMap(deckId);if(!bm)return;
+    cards.forEach(function(c){
+      var owned=pm.get(_normNl(c.name))||0;
+      var avail=Math.max(0,owned-(used[c.nl]||0));
+      var toBuild=Math.min(c.qty,avail);
+      bm[c.nl]=toBuild;
+      used[c.nl]=(used[c.nl]||0)+toBuild;
+    });
+  });
+  _mmSaveSelected();renderMultiMontage();
+}
+
+function mmReset(){
+  if(!_mmSelectedDeckIds.length)return;
+  if(!confirm('Vider les compteurs de montage des '+_mmSelectedDeckIds.length+' deck(s) sélectionné(s) ?'))return;
+  _mmSelectedDeckIds.forEach(function(deckId){
+    var bm=_mmBuiltMap(deckId);if(!bm)return;
+    Object.keys(bm).forEach(function(k){delete bm[k];});
+  });
+  _mmSaveSelected();renderMultiMontage();
+}
+
+function _mmRenderRow(entry){
+  var jnl=escJs(entry.nl);
+  var done=entry.totalBuilt>=entry.totalQty;
+  var part=entry.totalBuilt>0&&!done;
+  var rowCls='mm-card-row'+(done?' mm-card-row-done':part?' mm-card-row-partial':' mm-card-row-missing');
+  var deckTags=entry.perDeck.map(function(d){
+    var cls='mm-deck-tag';
+    if(d.built>=d.qty)cls+='';
+    return '<span class="'+cls+'" title="'+esc(d.deckName)+' : '+d.built+'/'+d.qty+'">'+esc(d.deckName.length>14?d.deckName.slice(0,14)+'…':d.deckName)+' '+d.built+'/'+d.qty+'</span>';
+  }).join('');
+  var zIdx=_zoomList.findIndex(function(z){return z.nl===entry.nl;});
+  var nameHtml='<span class="mm-card-name cz-clickable" onclick="event.stopPropagation();openCardZoomAt('+zIdx+')" title="Zoomer">'+esc(entry.name)+'</span>';
+  return '<div class="'+rowCls+'" onclick="if(event.shiftKey)mmDec(\''+jnl+'\');else mmInc(\''+jnl+'\');" title="Clic = +1 (remplit le 1ᵉʳ deck non-plein) • Shift+clic = -1">'
+    +'<div class="montage-qty">'+entry.totalQty+'×</div>'
+    +'<div>'+nameHtml+'<div style="margin-top:2px">'+deckTags+'</div></div>'
+    +'<div></div>'
+    +'<div class="montage-blocks">'+_montageMiniBlocks(entry.totalBuilt,entry.totalQty)+'</div>'
+    +'<div class="montage-counter">'+entry.totalBuilt+'/'+entry.totalQty+'</div>'
+    +'<div class="montage-ctrls" onclick="event.stopPropagation()">'
+    +'<button class="btn btnsm" onclick="mmDec(\''+jnl+'\')" style="padding:1px 7px;font-size:.85rem">−</button>'
+    +'<button class="btn btnsm btnp" onclick="mmInc(\''+jnl+'\')" style="padding:1px 7px;font-size:.85rem">+</button>'
+    +'</div>'
+    +'</div>';
+}
+
+function renderMultiMontage(){
+  // Chips
+  var chipsEl=document.getElementById('mm-deck-chips');
+  if(chipsEl){
+    var order=getDeckOrder(0);
+    chipsEl.innerHTML=order.map(function(deckId){
+      var dk=decks[deckId];if(!dk)return '';
+      var bm=(dk.built&&dk.built[userId||'_local'])||{};
+      var raw=dk.cmpMode==='full'?dk.rawFull:dk.rawName;
+      var cards=parseList(raw||'');
+      var tot=cards.reduce(function(s,c){return s+c.qty;},0);
+      var bd=cards.reduce(function(s,c){return s+Math.min(c.qty,bm[c.nl]||0);},0);
+      var pct=tot?Math.round(bd/tot*100):0;
+      var sel=_mmSelectedDeckIds.indexOf(deckId)>=0;
+      return '<div class="mm-deck-chip'+(sel?' selected':'')+'" onclick="mmToggleDeck(\''+escJs(deckId)+'\')" title="'+esc(dk.name||'Deck')+' — '+bd+'/'+tot+' ('+pct+'%)">'
+        +(sel?'✓ ':'○ ')+esc(dk.name||'Deck')
+        +'<span class="mm-chip-bar"><span class="mm-chip-bar-fill" style="width:'+pct+'%"></span></span>'
+        +'</div>';
+    }).join('');
+  }
+  // Liste agrégée
+  var entries=_mmBuildAggregated();
+  var listEl=document.getElementById('mm-list');
+  var progEl=document.getElementById('mm-progress');
+  var barFill=document.getElementById('mm-bar-fill');
+  var grandTot=entries.reduce(function(s,e){return s+e.totalQty;},0);
+  var grandBuilt=entries.reduce(function(s,e){return s+e.totalBuilt;},0);
+  var grandPct=grandTot?Math.round(grandBuilt/grandTot*100):0;
+  if(progEl)progEl.innerHTML=grandBuilt+' <span style="color:var(--tx3)">/ '+grandTot+'</span> &nbsp; <span style="color:var(--gold2);font-weight:600">'+grandPct+'%</span>';
+  if(barFill)barFill.style.width=grandPct+'%';
+  if(!entries.length){listEl.innerHTML='<div style="text-align:center;color:var(--tx3);padding:1.5rem;font-style:italic">Sélectionne au moins un deck.</div>';return;}
+  // Tri
+  if(_mmSortMode==='name')entries.sort(function(a,b){return a.name.localeCompare(b.name);});
+  else if(_mmSortMode==='cmc')entries.sort(function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);});
+  else if(_mmSortMode==='color'){
+    var _CORD={W:0,U:1,B:2,R:3,G:4};
+    function _clrKey(e){var m=dCardMeta[e.nl]||{};var tl=(m.typeLine||'').toLowerCase();if(tl.indexOf('land')>=0)return 7;var cc=m.colors||[];if(!cc.length)return 6;if(cc.length>1)return 5;return _CORD[cc[0]]!==undefined?_CORD[cc[0]]:4;}
+    entries.sort(function(a,b){var oa=_clrKey(a),ob=_clrKey(b);if(oa!==ob)return oa-ob;return a.name.localeCompare(b.name);});
+  } else entries.sort(function(a,b){return a.name.localeCompare(b.name);});
+  // Sections
+  function _sec(e){
+    var meta=dCardMeta[e.nl]||{};
+    var tl=(meta.typeLine||'').toLowerCase();
+    if(_mmSortMode==='name')return 'Cartes';
+    if(_mmSortMode==='cmc'){var cmc=Math.floor(meta.cmc||0);return 'CMC '+(cmc>=7?'7+':cmc);}
+    if(_mmSortMode==='color'){
+      if(tl.indexOf('land')>=0)return 'Terrains';
+      var cc=meta.colors||[];
+      if(!cc.length)return 'Incolore';
+      if(cc.length>1)return 'Multicolore';
+      return {W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'}[cc[0]]||cc[0];
+    }
+    // type
+    if(tl.indexOf('creature')>=0)return 'Créatures';
+    if(tl.indexOf('instant')>=0)return 'Éphémères';
+    if(tl.indexOf('sorcery')>=0)return 'Rituels';
+    if(tl.indexOf('enchantment')>=0)return 'Enchantements';
+    if(tl.indexOf('artifact')>=0)return 'Artefacts';
+    if(tl.indexOf('planeswalker')>=0)return 'Planeswalkers';
+    if(tl.indexOf('land')>=0)return 'Terrains';
+    return 'Autres';
+  }
+  var secs=[];entries.forEach(function(e){var s=_sec(e);if(secs.indexOf(s)<0)secs.push(s);});
+  if(_mmSortMode==='type')secs.sort(function(a,b){var ia=TYPE_ORDER.indexOf(a),ib=TYPE_ORDER.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});
+  else if(_mmSortMode==='cmc')secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});
+  else if(_mmSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
+  // Préparer la liste de zoom (ordre d'affichage final)
+  _zoomList=[];
+  var html='';
+  secs.forEach(function(sec){
+    var subs=entries.filter(function(e){return _sec(e)===sec;});
+    if(!subs.length)return;
+    var subTot=subs.reduce(function(s,e){return s+e.totalQty;},0);
+    var subBd=subs.reduce(function(s,e){return s+e.totalBuilt;},0);
+    html+='<div class="montage-sec" style="color:var(--gold2)">'+esc(sec)+' <span style="color:var(--tx3);font-weight:400">('+subBd+'/'+subTot+')</span></div>';
+    if(_mmGroupByDeck){
+      // Sous-grouper : pour chaque deck contenant des cartes de cette section
+      var byDeck={};var deckOrder=[];
+      subs.forEach(function(e){
+        e.perDeck.forEach(function(d){
+          if(!byDeck[d.deckId]){byDeck[d.deckId]={name:d.deckName,entries:[]};deckOrder.push(d.deckId);}
+          byDeck[d.deckId].entries.push(e);
+        });
+      });
+      deckOrder.forEach(function(dId){
+        var grp=byDeck[dId];
+        html+='<div style="font-size:.75rem;color:var(--ac2);padding:6px 4px 4px;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em">📖 '+esc(grp.name)+'</div>';
+        // Dédup : si la même carte est dans plusieurs decks, on la voit dans chaque sous-section (c'est le but)
+        grp.entries.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});html+=_mmRenderRow(e);});
+      });
+    } else {
+      subs.forEach(function(e){_zoomList.push({nl:e.nl,name:e.name});html+=_mmRenderRow(e);});
+    }
+  });
+  listEl.innerHTML=html;
 }
 
 function toggleAchatPanel(){
