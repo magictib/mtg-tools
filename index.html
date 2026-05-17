@@ -906,6 +906,8 @@ body.mana-cursor{cursor:none}
 @keyframes ar-fire-pulse{0%,100%{box-shadow:0 0 0 1.5px #ff5000,0 0 10px rgba(255,70,0,.7),0 4px 16px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 2.5px #ff9000,0 0 24px rgba(255,130,0,.9),0 0 38px rgba(255,90,0,.45)}}
 .ar-field-card.ar-blocker{border-color:#1090ff!important;animation:ar-water-pulse 1.0s ease-in-out infinite}
 .ar-combat-target{outline:3px dashed #ff5000!important;outline-offset:2px;box-shadow:0 0 18px rgba(255,80,0,.65)!important;animation:ar-combat-target-pulse .55s ease-in-out infinite}
+.ar-just-played{animation:ar-card-arrive .35s cubic-bezier(.22,.61,.36,1) both}
+@keyframes ar-card-arrive{0%{transform:scale(.35) translateY(80px) rotate(-12deg);opacity:0;box-shadow:0 0 35px rgba(201,168,76,.9)}55%{transform:scale(1.08) translateY(-4px) rotate(2deg);opacity:1}100%{transform:scale(1) translateY(0) rotate(0);opacity:1;box-shadow:0 4px 16px rgba(0,0,0,.7)}}
 @keyframes ar-combat-target-pulse{0%,100%{outline-color:#ff5000;box-shadow:0 0 14px rgba(255,80,0,.5)}50%{outline-color:#ff9040;box-shadow:0 0 24px rgba(255,140,0,.85)}}
 @keyframes ar-water-pulse{0%,100%{box-shadow:0 0 0 1.5px #3090ff,0 0 10px rgba(30,120,255,.7),0 4px 16px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 2.5px #50c0ff,0 0 24px rgba(50,160,255,.9),0 0 38px rgba(30,100,255,.45)}}
 /* Opponent combat marker (small flag in corner so it shows even on rotated card) */
@@ -3707,6 +3709,9 @@ body.mana-cursor{cursor:none}
     </div>
   </div>
 
+  <!-- Floating help/hotkeys -->
+  <button id="ar-help-fab" onclick="arOpenHotkeys()" title="Aide & raccourcis clavier (double-clic=tap, drag=attaque, molette=±1/+1, etc.)" style="position:absolute;bottom:14px;right:14px;width:38px;height:38px;border-radius:50%;background:linear-gradient(180deg,rgba(180,140,255,.78),rgba(80,50,140,.78));border:1.5px solid rgba(220,200,255,.6);color:#fff;font-size:1.1rem;cursor:pointer;z-index:115;box-shadow:0 4px 14px rgba(140,100,220,.4);display:flex;align-items:center;justify-content:center">?</button>
+
   <!-- Shared stack panel (online) -->
   <div id="ar-shared-stack-panel">
     <div class="ar-shared-stack-header">🌀 Pile partagée</div>
@@ -3965,8 +3970,18 @@ body.mana-cursor{cursor:none}
   <!-- Raccourcis clavier overlay -->
   <div id="ar-hotkeys-ov" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.82);z-index:95;align-items:center;justify-content:center">
     <div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:1.25rem 1.25rem 1rem;max-width:340px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,.85)">
-      <div style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;margin-bottom:.35rem;text-align:center">⌨ Raccourcis clavier</div>
-      <div style="font-size:.73rem;color:var(--tx3);margin-bottom:.85rem;text-align:center">Clique sur une touche puis appuie sur la nouvelle</div>
+      <div style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;margin-bottom:.35rem;text-align:center">⌨ Raccourcis & gestes</div>
+      <div style="font-size:.72rem;color:var(--tx2);background:rgba(180,140,255,.08);border:1px solid rgba(180,140,255,.25);border-radius:8px;padding:8px 10px;margin-bottom:.85rem;line-height:1.55">
+        <div style="color:#c8a8ff;font-weight:600;margin-bottom:4px">🎯 Gestes essentiels</div>
+        • <strong>Double-clic</strong> sur une carte du champ ou un terrain → <strong>tap/untap</strong> (auto-mana pour les terrains)<br>
+        • <strong>Clic droit</strong> sur une carte → aperçu plein format<br>
+        • <strong>Molette</strong> sur une carte → ±1 marqueur +1/+1<br>
+        • <strong>Drag créature → barre adversaire</strong> = attaque ce joueur<br>
+        • <strong>Drag créature → créature adverse</strong> = bloque celle-ci<br>
+        • <strong>Long-press</strong> (mobile/tactile) = tap/untap<br>
+        • <strong>Clic pile de pioche</strong> = piocher 1 carte
+      </div>
+      <div style="font-size:.73rem;color:var(--tx3);margin-bottom:.55rem;text-align:center">Clique sur une touche puis appuie sur la nouvelle</div>
       <table id="ar-hk-table" style="width:100%;border-collapse:collapse;font-size:.82rem"></table>
       <div style="display:flex;gap:8px;margin-top:1rem;justify-content:center">
         <button class="btn btnsm" onclick="document.getElementById('ar-hotkeys-ov').style.display='none';_arHkEditing=null">Fermer</button>
@@ -10274,6 +10289,9 @@ function arRenderField(){
       el.onmouseenter=function(ev){arShowTip(c.name,ev);_arHoverCard={id:c.id,zone:'field'};};
       el.onmouseleave=function(){arHideTip();_arHoverCard={id:null,zone:null};};
       field.appendChild(el);
+      // Anim arrivée
+      el.classList.add('ar-just-played');
+      setTimeout((function(ee){return function(){ee.classList.remove('ar-just-played');};})(el),400);
     }
     el.classList.toggle('ar-opponent-card',isOp);
     el.style.left=c.x+'px';el.style.top=c.y+'px';
@@ -11087,6 +11105,17 @@ function arPtrDown(e,el){
   var id=el.dataset.id;var zone=el.dataset.zone;
   _arDrag={id:id,zone:zone,startX:e.clientX,startY:e.clientY,offX:e.offsetX||40,offY:e.offsetY||56,el:el,moved:false};
   el.setPointerCapture(e.pointerId);
+  // Long-press = tap/untap (utile sur mobile/tactile)
+  if(zone==='field'||zone==='lands'){
+    _arDrag.longPressTimer=setTimeout(function(){
+      if(_arDrag&&!_arDrag.moved){
+        var lpId=_arDrag.id,lpZone=_arDrag.zone;
+        _arDrag=null;
+        if(_arIsOwnCard(lpId))arDoTap(lpId,lpZone);
+        if(navigator.vibrate)navigator.vibrate(30);
+      }
+    },500);
+  }
 }
 function arFieldPtrDown(e){
   if(e.button!==undefined&&e.button!==0)return;
@@ -12483,6 +12512,7 @@ function arPtrMove(e){
   var dx=e.clientX-_arDrag.startX,dy=e.clientY-_arDrag.startY;
   if(!_arDrag.moved&&dx*dx+dy*dy<64)return;
   _arDrag.moved=true;
+  if(_arDrag.longPressTimer){clearTimeout(_arDrag.longPressTimer);_arDrag.longPressTimer=null;}
   arHideTip();
   var ghost=document.getElementById('ar-ghost');
   var gimg=document.getElementById('ar-ghost-img');
@@ -12538,6 +12568,7 @@ function arPtrUp(e){
     if(_ar.selected&&!e.target.closest('.ar-field-card'))arFieldClick(e);
     return;
   }
+  if(_arDrag.longPressTimer){clearTimeout(_arDrag.longPressTimer);_arDrag.longPressTimer=null;}
   var ghost=document.getElementById('ar-ghost');ghost.style.display='none';
   if(_arDrag.zone!=='cmd')_arDrag.el.style.opacity='';
   if(!_arDrag.moved){
