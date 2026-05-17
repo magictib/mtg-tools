@@ -7512,6 +7512,7 @@ function dCycleVersion(nl,delta){
   _dVersionPick[nl]=((_dVersionPick[nl]||0)+delta+arr.length)%arr.length;
   var p=arr[_dVersionPick[nl]];
   card.set=p.set;card.num=p.num;
+  // Force la version choisie + désactive la localisation (sinon l'image se fait écraser par la version langue)
   dImgCache[nl]=p.image;
   // Persiste dans le rawName du deck si actif
   _dPersistVersionsToDeck();
@@ -7543,10 +7544,13 @@ function setDView(mode){
 function toggleDView(){setDView(dViewMode==='list'?'image':(dViewMode==='image'?'montage':'list'));}
 function fetchDeckImages(){
   var names=[];
-  dCards.forEach(function(c){if(!dImgCache[c.nl])names.push({nl:c.nl,name:c.name});});
-  var unique={};names.forEach(function(x){unique[x.nl]=x.name;});
-  var todo=Object.keys(unique).map(function(k){return {nl:k,name:unique[k]};});
+  dCards.forEach(function(c){if(!dImgCache[c.nl])names.push({nl:c.nl,name:c.name,set:c.set||'',num:c.num||''});});
+  // Dédup par clé incluant set/num pour que les versions choisies soient demandées spécifiquement
+  var unique={};names.forEach(function(x){var k=x.nl+'|'+(x.set||'')+'|'+(x.num||'');if(!unique[k])unique[k]=x;});
+  var todo=Object.keys(unique).map(function(k){return unique[k];});
   if(!todo.length){renderDeck();return;}
+  // Loader globalement visible si beaucoup d'images à charger
+  if(todo.length>=4&&typeof _showLoader==='function')_showLoader('Chargement des cartes…');
   var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
   var done=0;var notFound=[];
   function ingest(card,aliasNl){
@@ -7577,15 +7581,19 @@ function fetchDeckImages(){
   batches.forEach(function(batch){
     fetch('https://api.scryfall.com/cards/collection',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({identifiers:batch.map(function(x){return {name:x.name};})})
+      body:JSON.stringify({identifiers:batch.map(function(x){
+        // Si set+num connus → identifier précis, sinon juste name
+        if(x.set&&x.num)return {set:x.set.toLowerCase(),collector_number:String(x.num)};
+        return {name:x.name};
+      })})
     }).then(function(r){return r.json();}).then(function(data){
       var foundNls={};
       (data.data||[]).forEach(function(card){foundNls[ingest(card)]=1;});
       batch.forEach(function(item){if(!foundNls[item.nl]&&!dImgCache[item.nl])notFound.push(item);});
-      if(++done===batches.length)fuzzyFallback();
+      if(++done===batches.length){fuzzyFallback();if(typeof _hideLoader==='function')_hideLoader();}
     }).catch(function(){
       batch.forEach(function(item){if(!dImgCache[item.nl])notFound.push(item);});
-      if(++done===batches.length)fuzzyFallback();
+      if(++done===batches.length){fuzzyFallback();if(typeof _hideLoader==='function')_hideLoader();}
     });
   });
 }
@@ -7801,7 +7809,7 @@ function renderDeck(){
         }
         html+='<div style="width:180px;text-align:center">'
           +'<div class="ml-ver-wrap" style="position:relative;width:180px">'
-          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" class="cz-clickable ml-img-loading" onload="this.classList.remove(\'ml-img-loading\')" onerror="this.classList.add(\'ml-img-loading\')" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:block;object-fit:cover">'
+          +(img?'<img src="'+img+'" alt="'+esc(card.name)+'" data-no-localize="1" class="cz-clickable ml-img-loading" onload="this.classList.remove(\'ml-img-loading\')" onerror="this.classList.add(\'ml-img-loading\')" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:block;object-fit:cover">'
                :'<div class="cz-clickable ml-img-loading" onclick="openCardZoomAt('+zi+')" style="width:180px;height:252px;border-radius:8px;border:2px solid '+bc+';display:flex;align-items:flex-end;justify-content:center;font-size:.66rem;color:var(--tx2);padding:6px;text-align:center" title="'+esc(card.name)+'"><span style="background:rgba(0,0,0,.6);padding:2px 6px;border-radius:4px">'+esc(card.name)+'</span></div>')
           +'<button class="ml-ver-arrow" onclick="event.stopPropagation();dCycleVersion(\''+nlJs+'\',-1)" title="Version précédente" style="position:absolute;left:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);width:26px;height:46px;cursor:pointer;border-radius:0 6px 6px 0;font-size:1.1rem;line-height:1;padding:0">‹</button>'
           +'<button class="ml-ver-arrow" onclick="event.stopPropagation();dCycleVersion(\''+nlJs+'\',1)" title="Version suivante" style="position:absolute;right:0;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.72);color:#fff;border:1px solid rgba(255,255,255,.25);width:26px;height:46px;cursor:pointer;border-radius:6px 0 0 6px;font-size:1.1rem;line-height:1;padding:0">›</button>'
