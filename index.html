@@ -7614,7 +7614,10 @@ function _dFetchPrintings(name,nl,cb){
     .then(function(data){
       var arr=(data.data||[]).map(function(card){
         var img=(card.image_uris&&card.image_uris.normal)||(card.image_uris&&card.image_uris.small)||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.normal)||'';
-        return {set:(card.set||'').toUpperCase(),num:card.collector_number||'',image:img,price:parseFloat((card.prices||{}).eur)||0,set_name:card.set_name||'',lang:card.lang||'en',released_at:card.released_at||''};
+        // Prix : EUR > EUR foil > USD*0.92 > USD foil*0.92 (Scryfall ne fournit pas toujours EUR)
+        var pr=card.prices||{};
+        var price=parseFloat(pr.eur)||parseFloat(pr.eur_foil)||(parseFloat(pr.usd)*0.92)||(parseFloat(pr.usd_foil)*0.92)||0;
+        return {set:(card.set||'').toUpperCase(),num:card.collector_number||'',image:img,price:price,set_name:card.set_name||'',lang:card.lang||'en',released_at:card.released_at||''};
       });
       _dPrintingsCache[nl]=arr;
       delete _dPrintingsLoading[nl];
@@ -7686,36 +7689,6 @@ function dCycleVersion(nl,delta){
         }
         badge.textContent=p.set+' #'+(p.num||'?')+' · '+idxDisp+'/'+totalPrints;
       }
-      // 4bis) Met à jour le prix + statut possession + bordure couleur en fonction de la version
-      var root=clone.closest('.ml-deck-card');
-      if(root){
-        // Calcul possession spécifique à ce printing pour le profil propriétaire courant
-        var ownProf=(typeof dOwner!=='undefined'?dOwner:0);
-        var ownedQty=_dOwnedForPrint(card.name,p.set,p.num,ownProf);
-        // Soustraction des usages deck (ownerUsage) sur cette carte
-        var used=0;
-        try{
-          var uMap=(typeof getDeckUsageByPriority==='function')?getDeckUsageByPriority(ownProf,actDeck):null;
-          if(uMap){var ue=uMap.get(nl);if(ue)used=ue.qty||0;}
-        }catch(e){}
-        var fi=Math.max(0,ownedQty-used);
-        var newBc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
-        // Bordure de l'image
-        var st=clone.getAttribute('style')||'';
-        clone.setAttribute('style',st.replace(/border:2px solid [^;]+;/,'border:2px solid '+newBc+';'));
-        // Statut texte
-        var stEl=root.querySelector('[data-ml-status]');
-        if(stEl){
-          stEl.innerHTML=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
-        }
-        // Prix
-        var prEl=root.querySelector('[data-ml-price]');
-        if(prEl){
-          var newPrice=(p.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[nl])||0;
-          if(newPrice>0){prEl.setAttribute('style','color:var(--gold2)');prEl.textContent=newPrice.toFixed(2)+'€';}
-          else{prEl.setAttribute('style','color:var(--tx3)');prEl.textContent='—';}
-        }
-      }
       // 5) Garde-fou : si quelque chose réussit malgré tout à revertir le src dans la fenêtre 200-1500ms,
       //    on le force à nouveau. Trois checks pour couvrir batch localize (250ms debounce + fetch).
       [350,800,1500].forEach(function(d){
@@ -7730,6 +7703,38 @@ function dCycleVersion(nl,delta){
           }
         },d);
       });
+    });
+    // Mise à jour prix + statut possession + bordure couleur — par nl, indépendant du clone d'image.
+    // Trouve tous les <div.ml-deck-card data-card-nl="..."> (peut y en avoir plusieurs si même nom).
+    var roots=document.querySelectorAll('.ml-deck-card');
+    var ownProf=(typeof dOwner!=='undefined'?dOwner:0);
+    var ownedQty=_dOwnedForPrint(card.name,p.set,p.num,ownProf);
+    var used=0;
+    try{
+      var uMap=(typeof getDeckUsageByPriority==='function')?getDeckUsageByPriority(ownProf,actDeck):null;
+      if(uMap){var ue=uMap.get(nl);if(ue)used=ue.qty||0;}
+    }catch(e){}
+    var fi=Math.max(0,ownedQty-used);
+    var newBc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
+    var statusHtml=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
+    var newPrice=(p.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[nl])||0;
+    roots.forEach(function(root){
+      if((root.dataset.cardNl||'').toLowerCase()!==nl.toLowerCase())return;
+      // Bordure de l'image
+      var rImg=root.querySelector('img');
+      if(rImg){
+        var st=rImg.getAttribute('style')||'';
+        rImg.setAttribute('style',st.replace(/border:2px solid [^;]+;/,'border:2px solid '+newBc+';'));
+      }
+      // Statut texte
+      var stEl=root.querySelector('[data-ml-status]');
+      if(stEl)stEl.innerHTML=statusHtml;
+      // Prix
+      var prEl=root.querySelector('[data-ml-price]');
+      if(prEl){
+        if(newPrice>0){prEl.setAttribute('style','color:var(--gold2)');prEl.textContent=newPrice.toFixed(2)+'€';}
+        else{prEl.setAttribute('style','color:var(--tx3)');prEl.textContent='—';}
+      }
     });
   }catch(e){}
   _dPersistVersionsToDeck();
