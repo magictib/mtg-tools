@@ -6838,7 +6838,7 @@ function parseList(raw){
     var m=clean.match(/^(\d+)[xX]?\s+(.+?)(?:\s+\(([^)]+)\))?(?:\s+(#?[\w.-]*\d[\w.-]*))?(?:\s+\*[^*]+\*)?\s*$/);
     if(m){
       var qty=parseInt(m[1]),name=stripDFC(m[2]),setc=(m[3]||'').toLowerCase().trim(),num=(m[4]||'').replace(/^#/,'').trim();
-      if(qty>0&&name){cards.push({qty:qty,name:name,nl:name.toLowerCase(),setc:setc,num:num,sec:sec});return;}
+      if(qty>0&&name){cards.push({qty:qty,name:name,nl:name.toLowerCase(),setc:setc,set:setc.toUpperCase(),num:num,sec:sec});return;}
     }
     // Fallback permissif : qty + tout le reste comme nom (strip annotations connues)
     var fb=clean.match(/^(\d+)[xX]?\s+(.+)$/);
@@ -6849,7 +6849,7 @@ function parseList(raw){
         .replace(/\s+\([^)]+\)(?:\s+[^()\s]+)*\s*$/,'')        // (SET) anything
         .trim();
       name2=stripDFC(name2);
-      if(qty2>0&&name2){cards.push({qty:qty2,name:name2,nl:name2.toLowerCase(),setc:'',num:'',sec:sec});return;}
+      if(qty2>0&&name2){cards.push({qty:qty2,name:name2,nl:name2.toLowerCase(),setc:'',set:'',num:'',sec:sec});return;}
     }
     console.warn('[parseList] ligne non reconnue :',line);
   });return cards;
@@ -7543,6 +7543,53 @@ var dViewMode='list', dImgCache={};
 var _dPrintingsCache={};  // nl → [{set, num, image, price, set_name, lang}]
 var _dVersionPick={};     // nl → index dans le tableau printings
 var _dPrintingsLoading={}; // nl → true pendant fetch
+// ===== PERSISTANCE CACHES DECK (images, prix, meta, versions) =====
+// Évite de re-fetch Scryfall à chaque refresh ; durée de vie 7 jours.
+var _DCACHE_KEY='mtg_deckcache_v2';
+var _DCACHE_TTL=7*86400*1000;
+var _dcachePersistTimer=null;
+function _persistDeckCacheDebounced(){
+  if(_dcachePersistTimer)clearTimeout(_dcachePersistTimer);
+  _dcachePersistTimer=setTimeout(_persistDeckCache,1500);
+}
+function _persistDeckCache(){
+  try{
+    var payload={
+      ts:Date.now(),
+      img:dImgCache,
+      price:(typeof allPriceMap!=='undefined'?allPriceMap:{}),
+      meta:(typeof dCardMeta!=='undefined'?dCardMeta:{}),
+      vpick:_dVersionPick,
+      // Limite : on stocke les printings cache mais cap à 200 cartes pour éviter quota
+      prints:_dcacheTopN(_dPrintingsCache,200)
+    };
+    localStorage.setItem(_DCACHE_KEY,JSON.stringify(payload));
+  }catch(e){
+    // Quota dépassé : on retente sans les printings
+    try{
+      var minimal={ts:Date.now(),img:dImgCache,price:allPriceMap||{},meta:dCardMeta||{},vpick:_dVersionPick};
+      localStorage.setItem(_DCACHE_KEY,JSON.stringify(minimal));
+    }catch(e2){}
+  }
+}
+function _dcacheTopN(obj,n){
+  var keys=Object.keys(obj||{});if(keys.length<=n)return obj;
+  var out={};for(var i=0;i<n;i++)out[keys[i]]=obj[keys[i]];return out;
+}
+function _restoreDeckCache(){
+  try{
+    var raw=localStorage.getItem(_DCACHE_KEY);if(!raw)return;
+    var p=JSON.parse(raw);if(!p||!p.ts)return;
+    if(Date.now()-p.ts>_DCACHE_TTL){localStorage.removeItem(_DCACHE_KEY);return;}
+    if(p.img)Object.keys(p.img).forEach(function(k){if(!dImgCache[k])dImgCache[k]=p.img[k];});
+    if(p.price&&typeof allPriceMap!=='undefined')Object.keys(p.price).forEach(function(k){if(!allPriceMap[k])allPriceMap[k]=p.price[k];});
+    if(p.meta&&typeof dCardMeta!=='undefined')Object.keys(p.meta).forEach(function(k){if(!dCardMeta[k])dCardMeta[k]=p.meta[k];});
+    if(p.vpick)Object.keys(p.vpick).forEach(function(k){if(_dVersionPick[k]==null)_dVersionPick[k]=p.vpick[k];});
+    if(p.prints)Object.keys(p.prints).forEach(function(k){if(!_dPrintingsCache[k])_dPrintingsCache[k]=p.prints[k];});
+  }catch(e){}
+}
+// Restore au boot
+if(typeof window!=='undefined')window.addEventListener('DOMContentLoaded',_restoreDeckCache);
 // Compte les exemplaires possédés par un profil pour un printing précis (name+set+num)
 function _dOwnedForPrint(name,set,num,profIdx){
   var pm=(typeof profs!=='undefined'&&profs[profIdx])?profs[profIdx]:null;
@@ -7571,6 +7618,7 @@ function _dFetchPrintings(name,nl,cb){
       });
       _dPrintingsCache[nl]=arr;
       delete _dPrintingsLoading[nl];
+      _persistDeckCacheDebounced();
       // Initialise l'index sur la version "détectée" depuis le rawName si jamais
       if(_dVersionPick[nl]==null){
         var card=(typeof dCards!=='undefined'?dCards:[]).find(function(c){return c.nl===nl;});
@@ -7685,6 +7733,7 @@ function dCycleVersion(nl,delta){
     });
   }catch(e){}
   _dPersistVersionsToDeck();
+  _persistDeckCacheDebounced();
 }
 function _dPersistVersionsToDeck(){
   if(typeof actDeck==='undefined'||!actDeck||!decks[actDeck])return;
@@ -7733,7 +7782,7 @@ function fetchDeckImages(){
     return nl;
   }
   function fuzzyFallback(){
-    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();return;}
+    if(!notFound.length){renderPriceEstimate();renderDeckStats();renderDeck();analyzeSmartDeck();_persistDeckCacheDebounced();return;}
     console.log('[Deck img] Fallback fuzzy pour '+notFound.length+' carte(s) :',notFound.map(function(x){return x.name;}).join(', '));
     var i=0;
     function next(){
