@@ -7,10 +7,30 @@
 <script>
 // Bloque le prompt install natif Chrome/Edge AU PLUS TÔT (avant tout autre script)
 window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();return false;},{capture:true});
+// Migration one-shot : nettoie SW + caches périmés (versions <2026-05-17)
+// Ne s'exécute qu'une fois grâce au flag localStorage 'ml_reset_done_2026_05_17'
+(function(){
+  var KEY='ml_reset_done_2026_05_17';
+  if(localStorage.getItem(KEY))return;
+  if(!('serviceWorker' in navigator))return;
+  if(window.electronAPI)return;
+  console.log('[migration] Reset SW + caches en cours…');
+  Promise.all([
+    navigator.serviceWorker.getRegistrations().then(function(regs){
+      return Promise.all(regs.map(function(r){return r.unregister();}));
+    }).catch(function(){}),
+    (typeof caches!=='undefined')?caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){return caches.delete(k);}));
+    }).catch(function(){}):Promise.resolve()
+  ]).then(function(){
+    try{localStorage.setItem(KEY,'1');}catch(e){}
+    console.log('[migration] Reset OK → reload');
+    window.location.reload(true);
+  });
+})();
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
-  // Si un nouveau SW prend le contrôle pendant la session → reload pour récupérer fresh content
   var _swReloaded=false;
   navigator.serviceWorker.addEventListener('controllerchange',function(){if(!_swReloaded){_swReloaded=true;window.location.reload();}});
 }
