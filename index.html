@@ -8575,7 +8575,8 @@ function dlTxt(content,filename){
 //                 received:bool, column:0|1|-2 (legacy) }
 // _purchaseLists garde son nom pour minimiser l'impact sur l'UI existante.
 var _purchaseLists={};
-var _activePurListId=null;
+var _activePurListId=(function(){try{return localStorage.getItem('mtg_pur_active')||null;}catch(e){return null;}})();
+var _sharedListsLoaded=false; // devient true au premier snapshot reçu
 var _purDragCardId=null;
 var _purFriendIdx=1;
 var _purSearchMode='card';
@@ -8640,14 +8641,22 @@ function subscribeSharedLists(){
       var seen={};
       snap.forEach(function(doc){seen[doc.id]=1;_purchaseLists[doc.id]=doc.data();});
       Object.keys(_purchaseLists).forEach(function(k){if(!seen[k])delete _purchaseLists[k];});
+      _sharedListsLoaded=true;
+      // Restaure la liste active depuis localStorage si disponible et valide
       if(_activePurListId&&!_purchaseLists[_activePurListId]){
         var ids=Object.keys(_purchaseLists);
         _activePurListId=ids.length?ids[0]:null;
+        _purPersistActiveListId();
       }
       renderPurListSel();
       var pm=document.getElementById('purchase-mgr');
       if(pm&&pm.style.display!=='none')renderPurchaseMgr();
-    },function(err){console.warn('subscribeSharedLists',err);});
+    },function(err){console.warn('subscribeSharedLists',err);_sharedListsLoaded=true;
+      var pm=document.getElementById('purchase-mgr');
+      if(pm&&pm.style.display!=='none')renderPurchaseMgr();});
+}
+function _purPersistActiveListId(){
+  try{if(_activePurListId)localStorage.setItem('mtg_pur_active',_activePurListId);else localStorage.removeItem('mtg_pur_active');}catch(e){}
 }
 
 function savePurchaseList(id){
@@ -8668,14 +8677,14 @@ function newPurchaseList(){
   var ref=db.collection('shared_lists').doc();
   var id=ref.id;
   _purchaseLists[id]={name:name,createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:[]};
-  _activePurListId=id;
+  _activePurListId=id;_purPersistActiveListId();
   savePurchaseList(id);
   renderPurListSel();
   renderPurchaseMgr();
 }
 
 function selectPurList(id){
-  _activePurListId=id;
+  _activePurListId=id;_purPersistActiveListId();
   renderPurchaseMgr();
 }
 
@@ -8691,7 +8700,7 @@ function deletePurchaseList(){
     .delete().catch(function(e){console.warn('deletePurchaseList',e);});
   delete _purchaseLists[_activePurListId];
   var ids=Object.keys(_purchaseLists);
-  _activePurListId=ids.length?ids[0]:null;
+  _activePurListId=ids.length?ids[0]:null;_purPersistActiveListId();
   renderPurListSel();
   renderPurchaseMgr();
 }
@@ -8923,7 +8932,7 @@ function renderPurListSel(){
   if(!sel)return;
   var ids=Object.keys(_purchaseLists);
   if(!ids.length){sel.innerHTML='<option value="">— Aucune liste —</option>';return;}
-  if(!_activePurListId||!_purchaseLists[_activePurListId])_activePurListId=ids[0];
+  if(!_activePurListId||!_purchaseLists[_activePurListId]){_activePurListId=ids[0];_purPersistActiveListId();}
   sel.innerHTML=ids.map(function(id){
     return '<option value="'+id+'"'+(id===_activePurListId?' selected':'')+'>'+esc(_purchaseLists[id].name)+'</option>';
   }).join('');
@@ -9185,11 +9194,16 @@ function renderPurchaseMgr(){
     if(delBtn)delBtn.style.display='none';
     if(inviteBtn)inviteBtn.style.display='none';
     if(metaBar)metaBar.style.display='none';
-    wrap.innerHTML='<div style="text-align:center;padding:2.5rem 1rem">'
-      +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste — créez-en une ou importez un fichier.</div>'
-      +'<button class="btn btnp btnsm" onclick="newPurchaseList()" style="margin-right:6px">+ Créer une liste</button>'
-      +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer fichier</button>'
-      +'</div>';
+    // Indicateur de chargement si la souscription Firestore n'a pas encore répondu
+    if(!_sharedListsLoaded){
+      wrap.innerHTML='<div style="text-align:center;padding:2.5rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">⌛ Chargement des listes partagées…</div>';
+    }else{
+      wrap.innerHTML='<div style="text-align:center;padding:2.5rem 1rem">'
+        +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste — créez-en une ou importez un fichier.</div>'
+        +'<button class="btn btnp btnsm" onclick="newPurchaseList()" style="margin-right:6px">+ Créer une liste</button>'
+        +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer fichier</button>'
+        +'</div>';
+    }
     purFilterDecks();
     return;
   }
@@ -9863,7 +9877,7 @@ function purParseImportedList(text,filename){
   var ref=db.collection('shared_lists').doc();
   var id=ref.id;
   _purchaseLists[id]={name:parsed.listName,createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:parsed.cards};
-  _activePurListId=id;
+  _activePurListId=id;_purPersistActiveListId();
   savePurchaseList(id);
   renderPurListSel();
   renderPurchaseMgr();
