@@ -2862,6 +2862,7 @@ body.mana-cursor{cursor:none}
       <option value="vintage">Vintage</option>
     </select>
       <button class="btn btnsm" onclick="bldVerifyLegality()" title="Vérifier la légalité du deck dans le format choisi (bans + identité couleur Commander + singleton)" style="font-size:.74rem;white-space:nowrap">✅ Vérifier</button>
+      <button class="btn btnsm" onclick="bldShowDeckStats()" title="Graphiques : courbe de mana, distribution des couleurs et types de cartes" style="font-size:.74rem;white-space:nowrap">📊 Stats</button>
     </div>
     <div style="display:flex;gap:6px">
       <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
@@ -18035,6 +18036,102 @@ function bldGetBanStatus(card){
   return'ok';
 }
 // ===== VÉRIF LÉGALITÉ DECK (format + identité Commander) =====
+// ===== DECK-3 : graphes mana curve / couleur / type =====
+function bldShowDeckStats(){
+  if(!bldMain||!bldMain.length){mlAlert('Stats','Aucune carte dans le deck.');return;}
+  var names=bldMain.map(function(c){return c.name;});
+  _bldFetchLegalityData(names,function(){_bldRenderStatsModal();});
+}
+function _bldRenderStatsModal(){
+  // Calcul des stats
+  var curve={0:0,1:0,2:0,3:0,4:0,5:0,6:0,7:0}; // CMC
+  var colors={W:0,U:0,B:0,R:0,G:0,C:0};
+  var types={Creature:0,Instant:0,Sorcery:0,Artifact:0,Enchantment:0,Planeswalker:0,Battle:0,Land:0,Other:0};
+  var totalNonLand=0,totalCards=0;
+  bldMain.forEach(function(c){
+    var qty=c.qty||1;
+    totalCards+=qty;
+    var d=bldData[(c.name||'').toLowerCase()];
+    if(!d)return;
+    var tl=(d.type_line||'').toLowerCase();
+    var isLand=tl.includes('land');
+    // Type
+    var t=tl.includes('creature')?'Creature':tl.includes('planeswalker')?'Planeswalker':tl.includes('battle')?'Battle':tl.includes('instant')?'Instant':tl.includes('sorcery')?'Sorcery':tl.includes('artifact')?'Artifact':tl.includes('enchantment')?'Enchantment':isLand?'Land':'Other';
+    types[t]=(types[t]||0)+qty;
+    // CMC (skip lands)
+    if(!isLand){
+      totalNonLand+=qty;
+      var cmc=Math.min(7,Math.floor(d.cmc||0));
+      curve[cmc]+=qty;
+    }
+    // Couleur (sur les non-terrains)
+    if(!isLand&&d.colors){
+      if(!d.colors.length)colors.C+=qty;
+      else d.colors.forEach(function(col){if(colors[col]!=null)colors[col]+=qty;});
+    }
+    // Lands : produce mana
+    if(isLand&&d.produced_mana){
+      d.produced_mana.forEach(function(col){if(colors[col]!=null)colors[col]+=qty;});
+    }
+  });
+  // SVG mana curve
+  var maxCurve=Math.max.apply(null,Object.values(curve));
+  var curveSvg='<svg width="100%" height="120" viewBox="0 0 320 120" style="display:block">';
+  var W=320,H=120,padL=24,padB=20;
+  for(var i=0;i<=7;i++){
+    var v=curve[i];
+    var h=maxCurve?Math.max(2,Math.round((v/maxCurve)*(H-padB-8))):0;
+    var x=padL+i*((W-padL)/8)+4;
+    var bw=((W-padL)/8)-8;
+    var y=H-padB-h;
+    curveSvg+='<rect x="'+x+'" y="'+y+'" width="'+bw+'" height="'+h+'" fill="#c8a8ff" rx="3"/>';
+    curveSvg+='<text x="'+(x+bw/2)+'" y="'+(H-padB+12)+'" font-size="9" fill="#888" text-anchor="middle">'+(i===7?'7+':i)+'</text>';
+    if(v)curveSvg+='<text x="'+(x+bw/2)+'" y="'+(y-3)+'" font-size="9" fill="#c8a8ff" text-anchor="middle">'+v+'</text>';
+  }
+  curveSvg+='</svg>';
+  // Couleurs (bars horizontaux)
+  var colorColors={W:'#f8e7b9',U:'#79afff',B:'#a08aa0',R:'#f87f5a',G:'#7fc88f',C:'#aaaaaa'};
+  var totalCol=Object.values(colors).reduce(function(a,b){return a+b;},0)||1;
+  var colSvg='<svg width="100%" height="100" viewBox="0 0 320 100" style="display:block">';
+  ['W','U','B','R','G','C'].forEach(function(k,i){
+    var v=colors[k],pct=Math.round((v/totalCol)*100);
+    var y=8+i*15;
+    colSvg+='<text x="0" y="'+(y+10)+'" font-size="10" fill="#aaa">'+k+'</text>';
+    colSvg+='<rect x="18" y="'+y+'" width="240" height="11" fill="rgba(0,0,0,.4)" rx="2"/>';
+    if(v)colSvg+='<rect x="18" y="'+y+'" width="'+Math.round(v/totalCol*240)+'" height="11" fill="'+colorColors[k]+'" rx="2"/>';
+    colSvg+='<text x="265" y="'+(y+10)+'" font-size="10" fill="#ccc">'+v+' ('+pct+'%)</text>';
+  });
+  colSvg+='</svg>';
+  // Types
+  var typesArr=Object.keys(types).filter(function(k){return types[k]>0;}).sort(function(a,b){return types[b]-types[a];});
+  var maxType=Math.max.apply(null,typesArr.map(function(k){return types[k];}));
+  var typeSvg='<svg width="100%" height="'+(typesArr.length*16+10)+'" viewBox="0 0 320 '+(typesArr.length*16+10)+'" style="display:block">';
+  typesArr.forEach(function(k,i){
+    var v=types[k];
+    var y=5+i*16;
+    typeSvg+='<text x="0" y="'+(y+10)+'" font-size="10" fill="#aaa">'+k+'</text>';
+    typeSvg+='<rect x="72" y="'+y+'" width="200" height="11" fill="rgba(0,0,0,.4)" rx="2"/>';
+    typeSvg+='<rect x="72" y="'+y+'" width="'+Math.round(v/maxType*200)+'" height="11" fill="#e8c860" rx="2"/>';
+    typeSvg+='<text x="278" y="'+(y+10)+'" font-size="10" fill="#ccc">'+v+'</text>';
+  });
+  typeSvg+='</svg>';
+  // Métriques
+  var avgCmc=0,sumCmc=0;
+  for(var ic=0;ic<=7;ic++){sumCmc+=curve[ic]*ic;}
+  if(totalNonLand)avgCmc=(sumCmc/totalNonLand).toFixed(2);
+  var html='<div style="max-height:70vh;overflow-y:auto;text-align:left">'
+    +'<div style="display:flex;gap:14px;justify-content:center;margin-bottom:12px;font-size:.8rem;color:var(--tx2)">'
+    +'<span><strong style="color:var(--gold2)">'+totalCards+'</strong> cartes</span>'
+    +'<span><strong style="color:var(--gold2)">'+totalNonLand+'</strong> non-terrains</span>'
+    +'<span>CMC moyen : <strong style="color:#c8a8ff">'+avgCmc+'</strong></span>'
+    +'</div>'
+    +'<div style="font-size:.78rem;color:#c8a8ff;margin:6px 0 3px">📈 Courbe de mana (CMC)</div>'+curveSvg
+    +'<div style="font-size:.78rem;color:#c8a8ff;margin:10px 0 3px">🎨 Distribution des couleurs</div>'+colSvg
+    +'<div style="font-size:.78rem;color:#c8a8ff;margin:10px 0 3px">🏷 Types de cartes</div>'+typeSvg
+    +'</div>';
+  mlAlert('📊 Stats du deck',html,{html:true,okLabel:'Fermer'});
+}
+
 function bldVerifyLegality(){
   var fmt=bldFormat||'';
   if(!fmt){mlAlert('Vérification','Choisis d\'abord un format dans le menu déroulant.');return;}
