@@ -1934,6 +1934,13 @@ body.mana-cursor{cursor:none}
         <button class="dm mm-sort-btn" data-mode="type" onclick="mmSetSort('type')">Type</button>
         <button class="dm mm-sort-btn" data-mode="cmc" onclick="mmSetSort('cmc')">CMC</button>
         <button class="dm mm-sort-btn" data-mode="name" onclick="mmSetSort('name')">Nom</button>
+        <span style="font-size:.72rem;color:var(--tx3);margin-left:8px">puis</span>
+        <select id="mm-sec-sort" onchange="mmSetSecondarySort(this.value)" title="Tri à l'intérieur de chaque section" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:3px 8px;font-size:.74rem">
+          <option value="name">Nom (A→Z)</option>
+          <option value="cmc">CMC</option>
+          <option value="color">Couleur</option>
+          <option value="type">Type</option>
+        </select>
         <button class="btn btnsm" onclick="mmCollapseAllDone()" style="margin-left:auto" title="Replie toutes les sections complétées à 100%">▶ Replier les ✓</button>
         <button class="btn btnsm" onclick="mmExpandAll()" title="Étend toutes les sections">▼ Tout étendre</button>
         <button class="btn btnsm" onclick="mmFillOwned()" title="Place ce que vous possédez (libre) dans les decks de la liste">⚡ Placer ce que j'ai</button>
@@ -2078,12 +2085,21 @@ body.mana-cursor{cursor:none}
         <button class="dm dview-btn" data-mode="montage" onclick="setDView('montage')" style="flex:1;font-size:.74rem" title="Suivre le montage physique du deck">🔨 Montage</button>
       </div>
       <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;margin-bottom:4px">TRIER PAR</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
         <button class="dm active" id="dsort-sec" onclick="setDSort('sec',this)">Section</button>
         <button class="dm" id="dsort-type" onclick="setDSort('type',this)">Type</button>
         <button class="dm" id="dsort-cmc" onclick="setDSort('cmc',this)">CMC</button>
         <button class="dm" id="dsort-name" onclick="setDSort('name',this)">Nom</button>
         <button class="dm" id="dsort-color" onclick="setDSort('color',this)">Couleur</button>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center;margin-bottom:12px">
+        <span style="font-size:.65rem;color:var(--tx3)">puis</span>
+        <select id="d-sec-sort" onchange="setDSecondarySort(this.value)" title="Tri à l'intérieur de chaque section" style="flex:1;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:2px 6px;font-size:.7rem">
+          <option value="name">Nom (A→Z)</option>
+          <option value="cmc">CMC</option>
+          <option value="color">Couleur</option>
+          <option value="type">Type</option>
+        </select>
       </div>
       <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;margin-bottom:6px">COURBE DE MANA</div>
       <div id="dcurve" style="margin-bottom:12px"></div>
@@ -6716,6 +6732,7 @@ function setDSort(mode,btn){
   if(btn)btn.classList.add('active');
   renderDeck();
 }
+function setDSecondarySort(mode){_montageSecondarySort=mode;renderDeck();}
 function getVSec(c){
   if(dSortMode==='sec')return c.sec;
   if(dSortMode==='name')return 'Cartes';
@@ -7641,21 +7658,19 @@ function renderDeckMontage(quietUpdate){
     +'</div>';
   if(complete)html+='<div class="montage-confetti">🎉 Deck assemblé ! 🎉</div>';
   html+='</div>';
-  // Tri selon dSortMode (Section / Type / CMC / Nom / Couleur)
+  // Tri principal selon dSortMode, puis tri secondaire selon _montageSecondarySort
   var sorted=dCards.slice();
-  if(dSortMode==='name')sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
-  else if(dSortMode==='cmc')sorted.sort(function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);});
-  else if(dSortMode==='color'){
-    var _CORD={W:0,U:1,B:2,R:3,G:4};
-    var _RORD={mythic:0,rare:1,uncommon:2,common:3};
-    function _clrKey(c){var m=dCardMeta[c.nl]||{};var tl=(m.typeLine||'').toLowerCase();if(tl.indexOf('land')>=0)return 7;var cc=m.colors||[];if(!cc.length)return 6;if(cc.length>1)return 5;return _CORD[cc[0]]!==undefined?_CORD[cc[0]]:4;}
-    sorted.sort(function(a,b){
-      var oa=_clrKey(a),ob=_clrKey(b);if(oa!==ob)return oa-ob;
-      var ma=dCardMeta[a.nl]||{},mb=dCardMeta[b.nl]||{};
-      var ra=_RORD[ma.rarity]!==undefined?_RORD[ma.rarity]:4,rb=_RORD[mb.rarity]!==undefined?_RORD[mb.rarity]:4;
-      if(ra!==rb)return ra-rb;return a.name.localeCompare(b.name);
-    });
-  } else sorted.sort(function(a,b){return a.name.localeCompare(b.name);});
+  // Pour le mode 'sec' (section du deck), on garde l'ordre puis on applique le secondaire dans la section.
+  // Pour les autres modes (name/cmc/color/type), _combinedSort gère tout.
+  if(dSortMode==='sec'){
+    // tri secondaire seulement (les sections sont déduites de c.sec)
+    sorted.sort(_sortFn(_montageSecondarySort));
+  } else {
+    sorted.sort(_combinedSort(dSortMode,_montageSecondarySort));
+  }
+  // Sync select avec l'état
+  var dSecSel=document.getElementById('d-sec-sort');
+  if(dSecSel&&dSecSel.value!==_montageSecondarySort)dSecSel.value=_montageSecondarySort;
   // Préparer la liste de zoom dans l'ordre d'affichage
   _zoomList=sorted.map(function(c){return {nl:c.nl,name:c.name};});
   // Sections via getVSec
@@ -7751,6 +7766,31 @@ function fetchCardsMetaBatch(cards,cb){
   });
 }
 
+// Sort helpers composables : permet de chaîner un tri principal + secondaire
+function _sortFn(mode){
+  if(mode==='name')return function(a,b){return (a.name||'').localeCompare(b.name||'');};
+  if(mode==='cmc')return function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);};
+  if(mode==='color'){
+    var _CORD={W:0,U:1,B:2,R:3,G:4};
+    return function(a,b){
+      function _k(c){var m=dCardMeta[c.nl]||{};var tl=(m.typeLine||'').toLowerCase();if(tl.indexOf('land')>=0)return 7;var cc=m.colors||[];if(!cc.length)return 6;if(cc.length>1)return 5;return _CORD[cc[0]]!==undefined?_CORD[cc[0]]:4;}
+      return _k(a)-_k(b);
+    };
+  }
+  if(mode==='type'){
+    var ORDER=['creature','instant','sorcery','enchantment','artifact','planeswalker','land'];
+    return function(a,b){
+      function _r(c){var tl=((dCardMeta[c.nl]||{}).typeLine||'').toLowerCase();for(var i=0;i<ORDER.length;i++)if(tl.indexOf(ORDER[i])>=0)return i;return 99;}
+      return _r(a)-_r(b);
+    };
+  }
+  return function(){return 0;};
+}
+function _combinedSort(primary,secondary){
+  var p=_sortFn(primary),s=_sortFn(secondary);
+  return function(a,b){var r=p(a,b);if(r!==0)return r;r=s(a,b);if(r!==0)return r;return (a.name||'').localeCompare(b.name||'');};
+}
+
 // Helper : génère des pastilles de couleur pour une carte
 var _COLOR_HEX={W:'#f3e8c7',U:'#7eb0e3',B:'#9a86a8',R:'#e87a6a',G:'#74c69d'};
 var _SEC_COLOR_HEX={'Blanc':'#f3e8c7','Bleu':'#7eb0e3','Noir':'#9a86a8','Rouge':'#e87a6a','Vert':'#74c69d','Multicolore':'#d4a017','Incolore':'#9d9d9d','Terrains':'#a67c52'};
@@ -7768,10 +7808,12 @@ function _cardPips(card){
 // ===== MONTAGE MULTI-DECKS =====
 var _mmSelectedDeckIds=[];
 var _mmSortMode='color';
+var _mmSecondarySort='name'; // tri secondaire à l'intérieur de chaque section
 var _mmGroupByDeck=false;
 var _mmSaveTO=null;
 var _mmCollapsed={}; // sec name -> true si replié
 var _montageCollapsed={}; // idem pour Montage single deck
+var _montageSecondarySort='name'; // tri secondaire dans Montage single deck
 
 function mmToggleSection(sec){_mmCollapsed[sec]=!_mmCollapsed[sec];renderMultiMontage();}
 function mmCollapseAllDone(){
@@ -7808,6 +7850,7 @@ function mmSetSort(mode){
   document.querySelectorAll('.mm-sort-btn').forEach(function(b){b.classList.toggle('active',b.dataset.mode===mode);});
   renderMultiMontage();
 }
+function mmSetSecondarySort(mode){_mmSecondarySort=mode;renderMultiMontage();}
 function mmSetGroupByDeck(v){_mmGroupByDeck=!!v;renderMultiMontage();}
 
 function _mmSaveSelected(){
@@ -8016,14 +8059,11 @@ function renderMultiMontage(){
   if(progEl)progEl.innerHTML=grandBuilt+' <span style="color:var(--tx3)">/ '+grandTot+'</span> &nbsp; <span style="color:var(--gold2);font-weight:600">'+grandPct+'%</span>';
   if(barFill)barFill.style.width=grandPct+'%';
   if(!entries.length){listEl.innerHTML='<div style="text-align:center;color:var(--tx3);padding:1.5rem;font-style:italic">Sélectionne au moins un deck.</div>';return;}
-  // Tri
-  if(_mmSortMode==='name')entries.sort(function(a,b){return a.name.localeCompare(b.name);});
-  else if(_mmSortMode==='cmc')entries.sort(function(a,b){return ((dCardMeta[a.nl]||{}).cmc||0)-((dCardMeta[b.nl]||{}).cmc||0);});
-  else if(_mmSortMode==='color'){
-    var _CORD={W:0,U:1,B:2,R:3,G:4};
-    function _clrKey(e){var m=dCardMeta[e.nl]||{};var tl=(m.typeLine||'').toLowerCase();if(tl.indexOf('land')>=0)return 7;var cc=m.colors||[];if(!cc.length)return 6;if(cc.length>1)return 5;return _CORD[cc[0]]!==undefined?_CORD[cc[0]]:4;}
-    entries.sort(function(a,b){var oa=_clrKey(a),ob=_clrKey(b);if(oa!==ob)return oa-ob;return a.name.localeCompare(b.name);});
-  } else entries.sort(function(a,b){return a.name.localeCompare(b.name);});
+  // Tri principal + secondaire (composé)
+  entries.sort(_combinedSort(_mmSortMode,_mmSecondarySort));
+  // Sync select avec l'état
+  var secSel=document.getElementById('mm-sec-sort');
+  if(secSel&&secSel.value!==_mmSecondarySort)secSel.value=_mmSecondarySort;
   // Sections
   function _sec(e){
     var meta=dCardMeta[e.nl]||{};
