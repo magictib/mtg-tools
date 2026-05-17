@@ -10542,8 +10542,23 @@ function arShuffle(){_arShuffle(_ar.lib);arRenderRight();arLogAction('shuffle',{
 function arTapAllLands(){
   var all=(_ar.lands||[]);if(!all.length)return;
   var anyUntapped=all.some(function(c){return !c.tapped;});
-  all.forEach(function(c){c.tapped=anyUntapped;});
+  all.forEach(function(c){
+    var wasTapped=c.tapped;
+    c.tapped=anyUntapped;
+    // Si on vient de taper (transition false → true), auto-mana (1 couleur uniquement)
+    if(anyUntapped&&!wasTapped){
+      var d=_arCardDataCache[(c.name||'').toLowerCase()];
+      var produced=(d&&d.produced_mana&&d.produced_mana.length)?d.produced_mana:_arLandColors(c.name);
+      if(produced.length===1){
+        var col=produced[0];
+        if(_arMana.hasOwnProperty(col))_arMana[col]++;else _arMana.C++;
+      }
+      // Multi-couleur → on ne devine pas, l'utilisateur tape individuellement pour avoir le picker
+    }
+  });
+  arRenderManaPool();
   arRenderLands();_arSyncToRoom();
+  if(anyUntapped)arLogAction('tap_all_lands',{});
 }
 function arUntapAll(){
   _ar.field.forEach(function(c){c.tapped=false;});
@@ -10710,6 +10725,18 @@ function arHandClick(e,el){
   if(_ar.mulPhase){arToggleMulSel(el.dataset.id);return;}
   if(_ar.drag&&_ar.drag.moved)return;
   var id=el.dataset.id;
+  // Shift-clic = révéler la carte aux adversaires (online uniquement)
+  if(e&&e.shiftKey&&_arRoom&&!_arBot){
+    var c=_ar.hand.find(function(x){return x.id===id;});
+    if(c){
+      arLogAction('reveal',{name:c.name,sourceId:c.id});
+      // Effet visuel local éphémère
+      var hc=document.querySelector('.ar-hand-card[data-id="'+id+'"]');
+      if(hc){hc.style.outline='3px solid #c8a8ff';hc.style.boxShadow='0 0 20px rgba(180,140,255,.85)';
+        setTimeout(function(){hc.style.outline='';hc.style.boxShadow='';},1500);}
+    }
+    return;
+  }
   // If same card, deselect
   if(_ar.selected===id){_ar.selected=null;arRenderHand();return;}
   _ar.selected=id;arRenderHand();
@@ -10992,7 +11019,8 @@ function arTokenSearch(){
           for(var q=0;q<qty;q++){
             _ar.field.push({id:_arMakeId(),name:card.name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true,owner:_arRoom?_arRoom.playerNum:0});
           }
-          arRenderField();
+          arRenderField();_arSyncToRoom();
+          arLogAction('token',{name:card.name,qty:qty});
           document.getElementById('ar-token-ov').style.display='none';
         };
         res.appendChild(div);
@@ -11256,7 +11284,8 @@ function arCreateCustomToken(){
   for(var q=0;q<qty;q++){
     _ar.field.push({id:_arMakeId(),name:name,x:Math.floor(Math.random()*(r.width-100)),y:Math.floor(Math.random()*(r.height-130)),tapped:false,counters:0,token:true,owner:_arRoom?_arRoom.playerNum:0});
   }
-  arRenderField();
+  arRenderField();_arSyncToRoom();
+  arLogAction('token',{name:name,qty:qty});
   document.getElementById('ar-token-ov').style.display='none';
 }
 
@@ -11488,7 +11517,21 @@ function arUpdateMultiBar(){
 function arMultiTap(){
   var ids=(_ar.multiSel||[]).slice();
   var allTapped=ids.every(function(id){var c=_ar.field.find(function(x){return x.id===id;});return c&&c.tapped;});
-  ids.forEach(function(id){var c=_ar.field.find(function(x){return x.id===id;});if(c)c.tapped=!allTapped;});
+  var goingToTap=!allTapped;
+  ids.forEach(function(id){
+    var c=_ar.field.find(function(x){return x.id===id;});if(!c)return;
+    var wasTapped=c.tapped;
+    c.tapped=goingToTap;
+    // Auto-mana sur transition false → true si carte produit du mana (1 couleur)
+    if(goingToTap&&!wasTapped){
+      var d=_arCardDataCache[(c.name||'').toLowerCase()];
+      if(d&&d.produced_mana&&d.produced_mana.length===1){
+        var col=d.produced_mana[0];
+        if(_arMana.hasOwnProperty(col))_arMana[col]++;else _arMana.C++;
+      }
+    }
+  });
+  arRenderManaPool();
   arRenderField();arUpdateMultiBar();_arSyncToRoom();
 }
 function arMultiUntap(){
@@ -12670,7 +12713,9 @@ function _arActionToText(a){
     case 'turn':return {cls:'system',text:'— Tour '+p.turn+' — '+byName+' commence'};
     case 'phase':return {cls:'system',text:byName+' → phase '+esc(p.name||'')};
     case 'shuffle':return {cls:'system',text:byName+' mélange'};
-    case 'token':return {cls:a.by===pn?'mine':'opp',by:byName,text:'crée un jeton '+esc(p.name||'')};
+    case 'token':return {cls:a.by===pn?'mine':'opp',by:byName,text:'🪙 crée '+(p.qty>1?p.qty+'× ':'')+'un jeton '+esc(p.name||'')};
+    case 'reveal':return {cls:a.by===pn?'mine':'opp',by:byName,text:'👁 révèle '+esc(p.name||'une carte')+' depuis la main'};
+    case 'tap_all_lands':return {cls:a.by===pn?'mine':'opp',by:byName,text:'⟳ tape tous ses terrains'};
     case 'attack_declared':return {cls:a.by===pn?'mine':'opp',by:byName,text:'⚔ attaque avec '+(p.names||[]).map(esc).join(', ')};
     case 'block_declared':return {cls:a.by===pn?'mine':'opp',by:byName,text:'🛡 bloque avec '+(p.names||[]).map(esc).join(', ')};
     case 'stack_cast':return {cls:a.by===pn?'mine':'opp',by:byName,text:'🌀 lance '+esc(p.name||'un sort')+' (en pile)'};
