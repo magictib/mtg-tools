@@ -908,6 +908,7 @@ body.mana-cursor{cursor:none}
 .ar-combat-target{outline:3px dashed #ff5000!important;outline-offset:2px;box-shadow:0 0 18px rgba(255,80,0,.65)!important;animation:ar-combat-target-pulse .55s ease-in-out infinite}
 .ar-just-played{animation:ar-card-arrive .35s cubic-bezier(.22,.61,.36,1) both}
 @keyframes ar-resolve-flash{0%{transform:scale(.7);opacity:0}25%{transform:scale(1.05);opacity:1}65%{transform:scale(1) translateY(20px);opacity:.85}100%{transform:scale(.6) translateY(120px);opacity:0}}
+@keyframes ar-trigger-slide-in{0%{transform:translateX(330px);opacity:0}100%{transform:translateX(0);opacity:1}}
 @keyframes ar-card-arrive{0%{transform:scale(.35) translateY(80px) rotate(-12deg);opacity:0;box-shadow:0 0 35px rgba(201,168,76,.9)}55%{transform:scale(1.08) translateY(-4px) rotate(2deg);opacity:1}100%{transform:scale(1) translateY(0) rotate(0);opacity:1;box-shadow:0 4px 16px rgba(0,0,0,.7)}}
 @keyframes ar-combat-target-pulse{0%,100%{outline-color:#ff5000;box-shadow:0 0 14px rgba(255,80,0,.5)}50%{outline-color:#ff9040;box-shadow:0 0 24px rgba(255,140,0,.85)}}
 @keyframes ar-water-pulse{0%,100%{box-shadow:0 0 0 1.5px #3090ff,0 0 10px rgba(30,120,255,.7),0 4px 16px rgba(0,0,0,.7)}50%{box-shadow:0 0 0 2.5px #50c0ff,0 0 24px rgba(50,160,255,.9),0 0 38px rgba(30,100,255,.45)}}
@@ -10987,6 +10988,66 @@ function _arPlayCardActual(id,x,y){
   _ar.fieldUsed=true;
   _arSyncToRoom();
   arLogAction('play',{name:card.name});
+  // Reminder de capacités déclenchées (ETB)
+  _arCheckTriggers(card.name,'etb');
+}
+
+// ===== TRIGGERS REMINDER =====
+function _arCheckTriggers(cardName,eventType){
+  var d=_arCardDataCache[(cardName||'').toLowerCase()];
+  if(!d||!d.oracle_text)return;
+  var text=d.oracle_text;
+  var triggers=[];
+  var lc=text.toLowerCase();
+  // Détecte les patterns courants de déclenchement
+  if(eventType==='etb'){
+    if(/when (this|~|enchanted creature) enters the battlefield|when ([\w ,'-]+) enters the battlefield|enters the battlefield, /i.test(text)){
+      var m=text.match(/(When [^.]+(enters the battlefield)[^.]*\.)/i);
+      if(m)triggers.push({when:'ETB',text:m[0]});
+      else triggers.push({when:'ETB',text:'Capacité d\'entrée en jeu'});
+    }
+  }
+  // Autres triggers visibles dans l'oracle (génériques)
+  ['Whenever','At the beginning'].forEach(function(kw){
+    if(text.indexOf(kw)>=0&&eventType==='etb'){
+      var rx=new RegExp(kw+'\\s[^.]+\\.','g');
+      var matches=text.match(rx)||[];
+      matches.slice(0,2).forEach(function(m){
+        triggers.push({when:kw==='Whenever'?'TRG':'BEGIN',text:m});
+      });
+    }
+  });
+  if(triggers.length)_arShowTriggerToast(cardName,triggers);
+}
+function _arShowTriggerToast(cardName,triggers){
+  var existing=document.getElementById('ar-trigger-toast');if(existing)existing.remove();
+  var box=document.createElement('div');
+  box.id='ar-trigger-toast';
+  box.style.cssText='position:fixed;top:88px;right:18px;z-index:170;width:300px;background:linear-gradient(180deg,rgba(60,40,10,.97),rgba(40,20,5,.97));border:1.5px solid rgba(255,180,60,.65);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px rgba(255,140,40,.35),0 4px 18px rgba(0,0,0,.7);font-size:.72rem;color:#fff;animation:ar-trigger-slide-in .3s ease-out';
+  var html='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="color:#ffc848;font-weight:700;font-size:.85rem">💡 Trigger ?</span><span style="color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(cardName)+'">'+esc(cardName)+'</span><button onclick="this.parentNode.parentNode.remove()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:.9rem;padding:0 4px">✕</button></div>';
+  triggers.forEach(function(t,i){
+    html+='<div style="background:rgba(0,0,0,.4);border-left:2px solid #ffc848;padding:4px 7px;margin:4px 0;border-radius:3px;font-style:italic;color:#ffe8c0;line-height:1.35">'+esc(t.text)+'</div>';
+  });
+  html+='<div style="display:flex;gap:6px;margin-top:8px">';
+  if(_arRoom&&!_arBot){
+    html+='<button class="ar-btn ar-btn-gold" onclick="_arPushTriggerToStack(\''+escJs(cardName)+'\',\''+escJs(triggers[0].text)+'\');this.parentNode.parentNode.remove()" style="flex:1;font-size:.7rem">📥 Mettre sur la pile</button>';
+  }
+  html+='<button class="ar-btn" onclick="this.parentNode.parentNode.remove()" style="flex:1;font-size:.7rem">✓ Géré</button>';
+  html+='</div>';
+  box.innerHTML=html;
+  document.body.appendChild(box);
+  setTimeout(function(){if(box.parentNode&&!box.matches(':hover'))box.remove();},9000);
+}
+function _arPushTriggerToStack(cardName,triggerText){
+  if(!_arRoom)return;
+  var pn=_arRoom.playerNum||0;
+  var entry={id:_arMakeStackId(),by:pn,name:'⚡ Trigger : '+cardName,sourceId:'_trigger_',x:0,y:0,fromZone:'trigger',ts:Date.now(),passes:[],triggerText:triggerText};
+  _arSharedStack.push(entry);
+  _arSharedStackDirty=true;
+  _arRenderSharedStack();
+  _arSyncToRoom();
+  arLogAction('trigger',{source:cardName,text:triggerText});
+  _arStartSharedStackTimer();
 }
 
 function arMv(id,from,to){
@@ -11006,6 +11067,7 @@ function arMv(id,from,to){
     card.x=Math.floor(Math.random()*(Math.max(100,r.width-100)));
     card.y=Math.floor(Math.random()*(Math.max(50,r.height-130)));
     card.counters=0;card.owner=_arRoom?_arRoom.playerNum:0;_ar.field.push(card);
+    if(typeof _arCheckTriggers==='function')_arCheckTriggers(card.name,'etb');
   }else if(to==='lands'){
     var landsEl=document.getElementById('ar-lands');
     var rl=landsEl?landsEl.getBoundingClientRect():{width:400,height:120};
@@ -12883,6 +12945,7 @@ function _arActionToText(a){
     case 'concede':return {cls:'system',text:'🏳 '+byName+' a concédé la partie'};
     case 'paid':return {cls:a.by===pn?'mine':'opp',by:byName,text:'💰 paie '+esc(p.cost||'?')+' pour '+esc(p.name||'')};
     case 'clock_expired':return {cls:'system',text:'⏲ Temps écoulé pour '+byName};
+    case 'trigger':return {cls:a.by===pn?'mine':'opp',by:byName,text:'⚡ déclenche : '+esc(p.source||'?')};
     default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
   }
 }
