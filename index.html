@@ -9013,6 +9013,60 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
   html+='</div></div>';
   return html;
 }
+function _purRenderSummaryBanner(allCards){
+  var g=_purGroupCardsByRole(allCards);
+  var sum=function(arr){return arr.reduce(function(a,c){return a+(c.qty||1);},0);};
+  var nDecide=sum(g.decide);
+  var nBorrowPending=sum(g.borrow_pending);
+  var nBorrowConfirmed=sum(g.borrow_confirmed);
+  var nLendConfirmed=sum(g.lend_confirmed);
+  var nBuyMine=sum(g.buy_mine)+sum(g.buy_mine_refused);
+  var nOfferSent=sum(g.offer_sent);
+  var nOfferReceived=sum(g.offer_received);
+  var nOthersBuy=sum(g.others_buy);
+  var nDone=allCards.filter(function(c){return c.received||c.status==='delivered';}).reduce(function(a,c){return a+(c.qty||1);},0);
+  var nTotal=allCards.reduce(function(a,c){return a+(c.qty||1);},0);
+  var chip=function(label,n,color,bg,filter){
+    var dim=n===0?'opacity:.4':'';
+    var click=filter?'onclick="purFilterByRole(\''+filter+'\')"':'';
+    return '<div '+click+' style="display:flex;flex-direction:column;align-items:center;padding:6px 12px;background:'+bg+';border:1px solid '+color+'66;border-radius:8px;cursor:'+(filter?'pointer':'default')+';transition:transform .1s;'+dim+'" onmouseover="if(\''+filter+'\')this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'translateY(0)\'">'
+      +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:1.15rem;color:'+color+';line-height:1">'+n+'</span>'
+      +'<span style="font-size:.62rem;color:var(--tx2);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;white-space:nowrap">'+label+'</span>'
+      +'</div>';
+  };
+  var html='<div id="pur-summary-banner" style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px;margin-bottom:14px;background:rgba(0,0,0,.32);border-radius:10px;border:1px solid var(--bd);align-items:center;justify-content:center">';
+  html+=chip('🤝 À décider',nDecide,'#ffc848','rgba(60,40,10,.4)','decide');
+  html+=chip('📥 Mes emprunts',nBorrowPending+nBorrowConfirmed,'#c8a8ff','rgba(60,30,90,.4)','borrow');
+  html+=chip('📤 Prêts à honorer',nLendConfirmed,'#90e8c0','rgba(20,60,40,.4)','lend');
+  html+=chip('🛒 Mes achats',nBuyMine,'#e8c860','rgba(40,30,10,.4)','buy');
+  if(nOfferSent+nOfferReceived>0)html+=chip('🤝 Offres prêt',nOfferSent+nOfferReceived,'#90e8c0','rgba(20,60,40,.4)','offer');
+  html+=chip('ℹ Achats autres',nOthersBuy,'var(--tx3)','rgba(20,20,30,.4)','others');
+  html+='<div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;padding:0 6px">'
+    +'<span style="font-size:.7rem;color:var(--tx3)">Progression</span>'
+    +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:1rem;color:var(--gold2)">'+nDone+' / '+nTotal+'</span>'
+    +'<div style="width:120px;height:5px;background:rgba(0,0,0,.5);border-radius:3px;margin-top:3px;overflow:hidden">'
+    +'<div style="width:'+(nTotal?Math.round(nDone/nTotal*100):0)+'%;height:100%;background:linear-gradient(90deg,var(--gold),#ffc848);transition:width .3s"></div>'
+    +'</div></div>';
+  html+='</div>';
+  return html;
+}
+function purFilterByRole(role){
+  // Scroll vers la section + highlight bref
+  var sectionTitles={decide:'À toi de décider',borrow:'emprunt',lend:'prêt',buy:'achat',offer:'propos',others:'autre'};
+  var key=sectionTitles[role]||role;
+  var sections=document.querySelectorAll('#pur-table-wrap > div > div');
+  for(var i=0;i<sections.length;i++){
+    var hdr=sections[i].querySelector('span');
+    if(hdr&&hdr.textContent.toLowerCase().indexOf(key.toLowerCase())>=0){
+      sections[i].scrollIntoView({behavior:'smooth',block:'start'});
+      var orig=sections[i].style.outline;
+      sections[i].style.outline='2px solid var(--gold2)';
+      sections[i].style.outlineOffset='4px';
+      setTimeout(function(s,o){return function(){s.style.outline=o;};}(sections[i],orig),1200);
+      break;
+    }
+  }
+}
 function _purRenderActionCenter(allCards){
   _zoomList=[];
   // Applique le filtre rôle si actif
@@ -9138,7 +9192,7 @@ function renderPurchaseMgr(){
   }
   // Mode Action Center : vue par rôle
   if(_purViewMode==='action'){
-    wrap.innerHTML=_purRenderActionCenter(lst.cards||[]);
+    wrap.innerHTML=_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
     purFilterDecks();
     return;
   }
