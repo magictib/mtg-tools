@@ -3669,7 +3669,8 @@ body.mana-cursor{cursor:none}
   <!-- Opponent info bar (multiplayer) -->
   <div id="ar-opponent-bar">
     <div id="ar-opponents-list" style="display:flex;gap:14px;flex-wrap:wrap;flex:1;align-items:center"></div>
-    <button class="ar-btn ar-btn-red" onclick="arCancelRoom()" title="Quitter la partie en ligne" style="margin-left:6px">✕ Quitter</button>
+    <button class="ar-btn" onclick="if(confirm('Concéder la partie ?'))arConcede()" title="Reconnaître la défaite et quitter" style="margin-left:6px;border-color:rgba(255,200,80,.45);color:#ffc848">🏳 Concéder</button>
+    <button class="ar-btn ar-btn-red" onclick="arCancelRoom()" title="Quitter sans concéder" style="margin-left:4px">✕</button>
   </div>
 
   <!-- Priority bar -->
@@ -10361,10 +10362,16 @@ function arRenderRight(){
 
 // --- Actions ---
 function arLifeAdj(n){
+  var prevLife=_ar.life;
   _ar.life=Math.max(0,_ar.life+n);
   arRenderTopbar();
   // Secousse compteur perso si dégâts
   if(n<0){var lv=document.getElementById('ar-life-val');if(lv){lv.classList.remove('ar-life-shake');void lv.offsetWidth;lv.classList.add('ar-life-shake');}}
+  // Détection mort à 0 PV
+  if(_ar.life<=0&&prevLife>0){
+    arLogAction('defeat',{cause:'life'});
+    setTimeout(function(){if(confirm('☠ Vous êtes à 0 PV ! Concéder la partie ?')){arConcede();}},150);
+  }
   var wrap=document.getElementById('ar-life-delta-wrap');
   if(wrap){
     var d=document.createElement('div');
@@ -11695,15 +11702,45 @@ function _arRenderOpponentBars(){
     var lifeStr=(o.slot.life!=null?o.slot.life:'—');
     var isTarget=_arRoom._defaultTargetPn===pn;
     el.style.borderColor=isTarget?'rgba(255,140,50,.7)':'rgba(80,140,255,.18)';
+    // Cmd damage que J'ai infligé à cet adversaire
+    var myCmdDmg=(_ar.cmdDmgDealt||{})[pn]||0;
+    // Cmd damage que les autres adversaires lui ont infligé (vue résumée)
+    var allDmgToHim=myCmdDmg;
+    var dmgBreakdown=myCmdDmg>0?[(_arRoom.playerNum)+':'+myCmdDmg]:[];
+    Object.keys(_arRoom.opps).forEach(function(otherPnStr){
+      var otherPn=parseInt(otherPnStr);if(otherPn===pn)return;
+      var dealt=(_arRoom.opps[otherPn].slot.cmdDmgDealt||{})[pn]||0;
+      if(dealt>0){allDmgToHim+=dealt;dmgBreakdown.push(otherPn+':'+dealt);}
+    });
+    var cmdDmgBadge=myCmdDmg>0?'<span style="color:#ff5060;font-size:.7rem;font-weight:700" title="Vous lui avez infligé '+myCmdDmg+' dégâts commander">⚔'+myCmdDmg+(myCmdDmg>=21?'☠':'')+'</span>':'';
     el.innerHTML='<span class="ar-conn-dot" data-pn="'+pn+'" title="Connexion" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3c8;box-shadow:0 0 5px currentColor"></span>'
       +'<span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2)">J'+pn+' '+esc(o.slot.name||'')+'</span>'
       +'<span>❤ <span id="ar-op-life-'+pn+'" class="ar-life-val-mini">'+lifeStr+'</span></span>'
       +'<span title="Cartes en main">🂠 '+(o.slot.handCount||0)+'</span>'
       +'<span title="Bibliothèque">📚 '+(o.slot.libCount||0)+'</span>'
+      +cmdDmgBadge
+      +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',1)" title="+1 dégât commander de vous">⚔+</button>'
+      +(myCmdDmg>0?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',-1)" title="-1 dégât commander de vous">⚔−</button>':'')
       +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpGravePn('+pn+')" title="Cimetière">🪦'+o.grave+'</button>'
       +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpExilePn('+pn+')" title="Exile">✦'+o.exile+'</button>'
       +(isTarget?'<span style="color:#ff8060;font-size:.65rem">🎯</span>':'');
   });
+}
+function arCmdDmg(targetPn,delta){
+  if(!_arRoom)return;
+  _ar.cmdDmgDealt=_ar.cmdDmgDealt||{};
+  _ar.cmdDmgDealt[targetPn]=Math.max(0,(_ar.cmdDmgDealt[targetPn]||0)+delta);
+  // Inflige aussi des dégâts de vie à l'adversaire (cmd dmg = damage normaux + tracker séparé)
+  if(delta>0){
+    // On ne modifie pas la vie adverse directement (chaque joueur gère la sienne) ; on logue juste
+    arLogAction('cmd_damage',{target:targetPn,delta:delta,total:_ar.cmdDmgDealt[targetPn]});
+    if(_ar.cmdDmgDealt[targetPn]>=21){
+      arLogAction('cmd_kill',{target:targetPn});
+      alert('☠ '+(_arRoom.opps[targetPn]?_arRoom.opps[targetPn].slot.name:'J'+targetPn)+' a reçu 21+ dégâts de votre commandant → mort par dégâts commander !');
+    }
+  }
+  _arSyncToRoom();
+  _arRenderOpponentBars();
 }
 function _arRenderAllOpLands(allCards){
   var opLandsEl=document.getElementById('ar-op-lands');
@@ -11867,7 +11904,8 @@ function _arSyncToRoom(){
     var upd={};
     upd['p'+pn]={uid:uid,name:PN[0]||'Joueur '+pn,life:_ar.life,
       handCount:_ar.hand.length,libCount:_ar.lib.length,
-      cmd:_ar.cmd,cmdCasts:_ar.cmdCasts};
+      cmd:_ar.cmd,cmdCasts:_ar.cmdCasts,
+      cmdDmgDealt:_ar.cmdDmgDealt||{}};
     upd.field=_ar.field;
     upd['p'+pn+'_lands']=_ar.lands||[];
     upd['p'+pn+'_grave']=_ar.grave||[];
@@ -12301,6 +12339,10 @@ function _arActionToText(a){
     case 'stack_resolved':return {cls:'system',text:'⚡ résolution : '+esc(p.name||'')};
     case 'stack_cancel':return {cls:'system',text:byName+' annule '+esc(p.name||'')};
     case 'rejoin':return {cls:'system',text:'↻ '+(esc(p.name||byName))+' s\'est reconnecté'};
+    case 'cmd_damage':return {cls:a.by===pn?'mine':'opp',by:byName,text:'⚔ inflige '+p.delta+' dégât(s) commander à J'+p.target+' ('+p.total+'/21)'};
+    case 'cmd_kill':return {cls:'system',text:'☠ J'+p.target+' tué par dégâts commander'};
+    case 'defeat':return {cls:'system',text:'☠ '+byName+' est éliminé ('+(p.cause||'?')+')'};
+    case 'concede':return {cls:'system',text:'🏳 '+byName+' a concédé la partie'};
     default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
   }
 }
@@ -12392,6 +12434,15 @@ function arLeaveRoom(){
   var bar=document.getElementById('ar-opponent-bar');if(bar)bar.classList.remove('mp-on');
   var divLine=document.getElementById('ar-divider-line');if(divLine)divLine.classList.remove('mp-on');
   var opLands=document.getElementById('ar-op-lands');if(opLands)opLands.classList.remove('mp-on');
+}
+function arConcede(){
+  if(_arRoom&&!_arBot){
+    arLogAction('concede',{});
+    // Donne un instant au log pour s'écrire avant fermeture
+    setTimeout(function(){arCancelRoom();},250);
+  }else{
+    arCancelRoom();
+  }
 }
 function arCancelRoom(){
   if(_arBot){arStopBot();arClose();return;}
