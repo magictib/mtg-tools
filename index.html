@@ -2848,7 +2848,8 @@ body.mana-cursor{cursor:none}
   <!-- Setup : format + charger deck -->
   <div class="card" style="margin-bottom:8px">
     <div class="lbl" style="margin-bottom:6px">Format & Deck</div>
-    <select id="bld-fmt-sel" onchange="bldSetFormat(this.value)" style="width:100%;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none;margin-bottom:8px">
+    <div style="display:flex;gap:5px;margin-bottom:8px">
+      <select id="bld-fmt-sel" onchange="bldSetFormat(this.value)" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
       <option value="">— Format (ban list) —</option>
       <option value="commander">Commander</option>
       <option value="paupercmd">Pauper EDH</option>
@@ -2859,6 +2860,8 @@ body.mana-cursor{cursor:none}
       <option value="legacy">Legacy</option>
       <option value="vintage">Vintage</option>
     </select>
+      <button class="btn btnsm" onclick="bldVerifyLegality()" title="Vérifier la légalité du deck dans le format choisi (bans + identité couleur Commander + singleton)" style="font-size:.74rem;white-space:nowrap">✅ Vérifier</button>
+    </div>
     <div style="display:flex;gap:6px">
       <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
         <option value="">— Charger un deck existant —</option>
@@ -17983,6 +17986,110 @@ function bldGetBanStatus(card){
   if(leg==='not_legal'||leg==='restricted')return'notlegal';
   return'ok';
 }
+// ===== VÉRIF LÉGALITÉ DECK (format + identité Commander) =====
+function bldVerifyLegality(){
+  var fmt=bldFormat||'';
+  if(!fmt){mlAlert('Vérification','Choisis d\'abord un format dans le menu déroulant.');return;}
+  if(!bldMain||!bldMain.length){mlAlert('Vérification','Aucune carte dans le deck.');return;}
+  // Préparer les noms uniques à vérifier
+  var allNames=bldMain.map(function(c){return c.name;});
+  var cmdName=(typeof bldCmd!=='undefined'&&bldCmd)?bldCmd.name:null;
+  if(cmdName)allNames.push(cmdName);
+  var uniqueNames=[];allNames.forEach(function(n){if(uniqueNames.indexOf(n)<0)uniqueNames.push(n);});
+  // Fetch toutes les données manquantes via Scryfall
+  var w=document.getElementById('pur-table-wrap')||document.body;
+  mlAlert('Vérification du deck','Récupération des données Scryfall en cours…',{html:true,okLabel:'Fermer'}).then(function(){});
+  _bldFetchLegalityData(uniqueNames,function(){
+    _mlClose(null); // ferme l'alert pendant
+    _bldRenderLegalityReport(fmt,cmdName);
+  });
+}
+function _bldFetchLegalityData(names,cb){
+  var toFetch=names.filter(function(n){return !bldData[(n||'').toLowerCase()]||!bldData[(n||'').toLowerCase()].legalities;});
+  if(!toFetch.length){cb();return;}
+  var chunks=[];for(var i=0;i<toFetch.length;i+=75)chunks.push(toFetch.slice(i,i+75));
+  var remaining=chunks.length;
+  chunks.forEach(function(chunk){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:chunk.map(function(n){return{name:n};})})
+    }).then(function(r){return r.json();}).then(function(data){
+      (data.data||[]).forEach(function(card){
+        bldData[(card.name||'').toLowerCase()]=card;
+      });
+      remaining--;if(remaining===0)cb();
+    }).catch(function(){remaining--;if(remaining===0)cb();});
+  });
+}
+function _bldComputeColorIdentity(card){
+  if(!card)return [];
+  if(card.color_identity&&card.color_identity.length)return card.color_identity;
+  return [];
+}
+function _bldRenderLegalityReport(fmt,cmdName){
+  var isCmd=COMMANDER_FMTS.indexOf(fmt)>=0;
+  var scryKey=BLD_FMT_SCRYFALL[fmt]||fmt;
+  // Identité couleur du commandant
+  var cmdIdentity=[];
+  if(isCmd&&cmdName){
+    var cmdData=bldData[(cmdName||'').toLowerCase()];
+    cmdIdentity=_bldComputeColorIdentity(cmdData);
+  }
+  // Vérif par carte
+  var issues={banned:[],notLegal:[],outOfIdentity:[],unknown:[]};
+  var totalCount=0;
+  bldMain.forEach(function(c){
+    totalCount+=(c.qty||1);
+    var d=bldData[(c.name||'').toLowerCase()];
+    if(!d){issues.unknown.push(c.name);return;}
+    if(d.legalities){
+      var leg=d.legalities[scryKey];
+      if(leg==='banned'){issues.banned.push(c.name);}
+      else if(leg==='not_legal'||leg==='restricted'){issues.notLegal.push(c.name+(leg==='restricted'?' (restricted)':''));}
+    }
+    if(isCmd&&cmdIdentity.length>=0){
+      var ci=_bldComputeColorIdentity(d);
+      var outOfId=ci.some(function(col){return cmdIdentity.indexOf(col)<0;});
+      if(outOfId)issues.outOfIdentity.push(c.name+' ['+ci.join('')+' vs '+(cmdIdentity.join('')||'C')+']');
+    }
+  });
+  // Comptage exigé selon format
+  var expectedSize=isCmd?(fmt==='oathbreaker'?60:100):(fmt==='pauper'||fmt==='standard'||fmt==='pioneer'||fmt==='modern'||fmt==='legacy'||fmt==='vintage'?60:0);
+  var sizeIssue=expectedSize&&totalCount!==expectedSize?'Le deck a '+totalCount+' cartes (attendu : '+expectedSize+')':null;
+  // Singleton check pour Commander
+  var dupes=[];
+  if(isCmd){
+    var counts={};
+    bldMain.forEach(function(c){counts[c.name]=(counts[c.name]||0)+(c.qty||1);});
+    var BASICS={Plains:1,Island:1,Swamp:1,Mountain:1,Forest:1,Wastes:1,'Snow-Covered Plains':1,'Snow-Covered Island':1,'Snow-Covered Swamp':1,'Snow-Covered Mountain':1,'Snow-Covered Forest':1};
+    Object.keys(counts).forEach(function(n){if(counts[n]>1&&!BASICS[n]){dupes.push(n+' ×'+counts[n]);}});
+  }
+  // Construit le rapport
+  var anyIssue=issues.banned.length||issues.notLegal.length||issues.outOfIdentity.length||sizeIssue||dupes.length;
+  var html='<div style="max-height:60vh;overflow-y:auto;text-align:left">';
+  if(!anyIssue&&!issues.unknown.length){
+    html+='<div style="text-align:center;padding:14px;color:#90e8c0;font-size:1rem">✅ Deck légal en <strong>'+esc(fmt)+'</strong></div>';
+    html+='<div style="text-align:center;font-size:.78rem;color:var(--tx2)">'+totalCount+' carte(s) — toutes autorisées'+(isCmd?', identité '+(cmdIdentity.join('')||'C')+' respectée':'')+'</div>';
+  }else{
+    html+='<div style="font-size:.86rem;color:#ff9090;margin-bottom:10px"><strong>⚠ '+(issues.banned.length+issues.notLegal.length+issues.outOfIdentity.length+(sizeIssue?1:0)+dupes.length)+' problème(s)</strong> en '+esc(fmt)+'</div>';
+    if(sizeIssue)html+='<div style="background:rgba(255,180,60,.12);border:1px solid rgba(255,180,60,.4);border-radius:6px;padding:8px;margin-bottom:8px;color:#ffc848;font-size:.78rem">📏 '+esc(sizeIssue)+'</div>';
+    function block(title,arr,color){
+      if(!arr.length)return '';
+      return '<div style="margin-bottom:8px"><div style="font-size:.78rem;color:'+color+';margin-bottom:3px;font-weight:600">'+title+' ('+arr.length+')</div>'
+        +'<ul style="margin:0;padding-left:18px;font-size:.74rem;color:var(--tx2);line-height:1.6">'+arr.map(function(n){return '<li>'+esc(n)+'</li>';}).join('')+'</ul></div>';
+    }
+    html+=block('🚫 Bannies',issues.banned,'#ff5060');
+    html+=block('❌ Non autorisées',issues.notLegal,'#ff8848');
+    html+=block('🌈 Hors identité couleur',issues.outOfIdentity,'#c8a8ff');
+    html+=block('🔄 Doublons (Commander = singleton)',dupes,'#ffc848');
+  }
+  if(issues.unknown.length){
+    html+='<div style="margin-top:10px;background:rgba(120,120,160,.15);border:1px solid rgba(120,120,160,.35);border-radius:6px;padding:8px;font-size:.72rem;color:var(--tx3)">❓ '+issues.unknown.length+' carte(s) non reconnue(s) par Scryfall : '+issues.unknown.slice(0,5).map(esc).join(', ')+(issues.unknown.length>5?'…':'')+'</div>';
+  }
+  html+='</div>';
+  mlAlert(anyIssue?'⚠ Vérification : problèmes détectés':'✅ Vérification : tout est OK',html,{html:true,okLabel:'Fermer'});
+}
+
 function bldRefreshBanInGrid(){
   document.querySelectorAll('#bld-resgrid .edh-card').forEach(function(el){
     var nm=(el.dataset.cardname||'').toLowerCase();
