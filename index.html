@@ -2447,6 +2447,7 @@ body.mana-cursor{cursor:none}
       <input type="file" id="pur-file-in" accept=".txt,.csv" style="display:none" onchange="purHandleFileImport(event)">
       <button class="btn btnsm" onclick="purTogglePastePanel()" title="Coller une liste de cartes directement">📋 Coller liste</button>
       <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter .txt</button>
+      <button class="btn btnsm" id="pur-cm-btn" onclick="purExportCardmarket()" title="Génère ta liste d'achats prête à coller dans Cardmarket Wants Builder">🛒 Cardmarket</button>
       <button class="btn btnsm" id="pur-view-btn" onclick="togglePurImgMode()" style="display:none">🖼 Images</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
     </div>
@@ -9493,6 +9494,53 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
   html+='</div></div>';
   return html;
 }
+// ===== EXPORT CARDMARKET (panier) =====
+function purExportCardmarket(){
+  if(!_activePurListId||!_purchaseLists[_activePurListId]){mlAlert('Aucune liste','Sélectionne d\'abord une liste partagée.');return;}
+  var cards=(_purchaseLists[_activePurListId].cards||[]);
+  // Cible : MES achats (buy_mine + buy_mine_refused) — les vraies cartes que je dois acheter
+  var toBuy=cards.filter(function(c){
+    var r=_purCardRoleForMe(c);
+    return r==='buy_mine'||r==='buy_mine_refused';
+  });
+  if(!toBuy.length){mlAlert('Rien à exporter','Tu n\'as aucune carte à acheter dans cette liste.');return;}
+  // Regroupe par nom (somme qty)
+  var byName={};
+  toBuy.forEach(function(c){byName[c.name]=(byName[c.name]||0)+(c.qty||1);});
+  var lines=Object.keys(byName).sort().map(function(n){return byName[n]+' '+n;});
+  var listText=lines.join('\n');
+  var total=Object.keys(byName).reduce(function(s,n){var p=_purPriceCache[(n||'').toLowerCase()];return s+(p||0)*byName[n];},0);
+  // Modale d'export
+  var content='<div style="text-align:left">'
+    +'<div style="font-size:.82rem;color:var(--tx2);margin-bottom:10px">'+lines.length+' carte(s) unique(s), <strong>'+toBuy.reduce(function(s,c){return s+(c.qty||1);},0)+'</strong> exemplaire(s), estimation <strong style="color:var(--gold2)">'+total.toFixed(2)+'€</strong></div>'
+    +'<textarea id="ml-cm-text" readonly style="width:100%;min-height:180px;background:rgba(0,0,0,.5);border:1px solid var(--bd2);border-radius:7px;padding:8px 12px;color:var(--tx);font-family:monospace;font-size:.78rem;resize:vertical;box-sizing:border-box">'+esc(listText)+'</textarea>'
+    +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;justify-content:center">'
+    +'<button class="btn btnp" onclick="_purCopyCardmarketList()">📋 Copier la liste</button>'
+    +'<a class="btn" href="https://www.cardmarket.com/en/Magic/Wants/Builder" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">🌐 Ouvrir Cardmarket → coller</a>'
+    +'<button class="btn" onclick="_purDownloadCardmarketList()">📥 Télécharger .txt</button>'
+    +'</div>'
+    +'<div style="font-size:.7rem;color:var(--tx3);margin-top:8px;line-height:1.5;text-align:center">Sur Cardmarket : <em>Wants → Builder → Import</em>, colle le texte, choisis la langue → ajoute au panier en 1 clic.</div>'
+    +'</div>';
+  mlAlert('🛒 Export Cardmarket',content,{html:true,okLabel:'Fermer'});
+}
+function _purCopyCardmarketList(){
+  var ta=document.getElementById('ml-cm-text');if(!ta)return;
+  ta.select();
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(ta.value).then(function(){mlToast('📋 Liste copiée — colle dans Cardmarket Wants Builder');});}
+    else{document.execCommand('copy');mlToast('📋 Liste copiée');}
+  }catch(e){mlToast('Erreur copie : sélectionne et Ctrl+C',{color:'rgba(255,100,100,.6)'});}
+}
+function _purDownloadCardmarketList(){
+  var ta=document.getElementById('ml-cm-text');if(!ta)return;
+  var blob=new Blob([ta.value],{type:'text/plain;charset=utf-8'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='cardmarket-'+((_activePurListId&&_purchaseLists[_activePurListId])?_purchaseLists[_activePurListId].name.replace(/[^a-z0-9_-]/gi,'_'):'achats')+'.txt';
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);if(a.parentNode)a.parentNode.removeChild(a);},100);
+}
+
 function _purRenderSummaryBanner(allCards){
   var g=_purGroupCardsByRole(allCards);
   var sum=function(arr){return arr.reduce(function(a,c){return a+(c.qty||1);},0);};
