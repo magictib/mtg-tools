@@ -9498,6 +9498,97 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
   html+='</div></div>';
   return html;
 }
+// ===== QOL-1 : Quick search palette (Ctrl/⌘+K) =====
+var _qkOpen=false;
+function qkBuildItems(){
+  var items=[];
+  // Navigation
+  var tabs=[['coll','◈ Collection'],['build','♠ Deck'],['analyse','📊 Analyse'],['arena','⚡ Arène'],['meta','🌐 Méta'],['scry','🔮 Biblio'],['trade','⚖ Échanges'],['conv','⇄ Convertisseur'],['rules','📜 Règles']];
+  tabs.forEach(function(t){items.push({kind:'tab',label:t[1],sub:'Onglet',action:function(){if(typeof goTab==='function')goTab(t[0]);}});});
+  // Decks
+  if(typeof decks==='object'){
+    Object.keys(decks).forEach(function(id){
+      var d=decks[id];if(!d)return;
+      items.push({kind:'deck',label:d.name||'(sans nom)',sub:'Deck'+(d.format?' · '+d.format:''),action:function(){if(typeof goTab==='function')goTab('build');if(typeof bldLoadDeck==='function')bldLoadDeck(id);}});
+    });
+  }
+  // Listes partagées
+  if(typeof _purchaseLists==='object'){
+    Object.keys(_purchaseLists).forEach(function(id){
+      var l=_purchaseLists[id];if(!l)return;
+      items.push({kind:'list',label:l.name||'(sans nom)',sub:'Liste partagée · '+((l.cards||[]).length)+' cartes',action:function(){if(typeof goTab==='function')goTab('build');if(typeof openPurchaseMgr==='function')openPurchaseMgr();if(typeof selectPurList==='function')selectPurList(id);}});
+    });
+  }
+  // Amis
+  if(typeof PN!=='undefined'){
+    for(var i=1;i<(PN.length||0);i++){if(PN[i])items.push({kind:'friend',label:PN[i],sub:'Ami · profil #'+i,action:function(){if(typeof goTab==='function')goTab('coll');}});}
+  }
+  // Actions globales
+  items.push({kind:'action',label:'🎁 Wishlist matching',sub:'Action',action:function(){if(typeof mlScanWishlistMatching==='function')mlScanWishlistMatching();}});
+  items.push({kind:'action',label:'🛒 Export Cardmarket',sub:'Action',action:function(){if(typeof purExportCardmarket==='function')purExportCardmarket();}});
+  items.push({kind:'action',label:'🎨 Changer le thème',sub:'Préférences',action:function(){if(typeof toggleHub==='function')toggleHub();}});
+  return items;
+}
+function _qkRender(query){
+  var box=document.getElementById('qk-results');if(!box)return;
+  var items=qkBuildItems();
+  var q=(query||'').trim().toLowerCase();
+  if(q){
+    items=items.filter(function(it){return (it.label||'').toLowerCase().indexOf(q)>=0||(it.sub||'').toLowerCase().indexOf(q)>=0;});
+  }
+  items=items.slice(0,30);
+  if(!items.length){box.innerHTML='<div style="text-align:center;padding:30px;color:var(--tx3);font-style:italic">Aucun résultat pour "'+esc(q)+'"</div>';_qkSelected=-1;return;}
+  box.innerHTML=items.map(function(it,i){
+    var icon={tab:'📑',deck:'♠',list:'📋',friend:'👤',action:'⚡'}[it.kind]||'•';
+    return '<div class="qk-item" data-idx="'+i+'" onclick="_qkActivate('+i+')" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;cursor:pointer;margin:2px 0"><span style="font-size:1rem;width:22px;text-align:center">'+icon+'</span><div style="flex:1;min-width:0"><div style="font-size:.85rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(it.label)+'</div><div style="font-size:.66rem;color:var(--tx3)">'+esc(it.sub)+'</div></div></div>';
+  }).join('');
+  _qkItems=items;
+  _qkSelected=0;
+  _qkHighlight();
+}
+function _qkHighlight(){
+  document.querySelectorAll('#qk-results .qk-item').forEach(function(el,i){
+    el.style.background=i===_qkSelected?'rgba(180,140,255,.22)':'transparent';
+  });
+}
+function _qkActivate(idx){
+  var it=_qkItems&&_qkItems[idx];
+  qkClose();
+  if(it&&typeof it.action==='function')setTimeout(it.action,80);
+}
+var _qkItems=[],_qkSelected=-1;
+function qkOpen(){
+  if(_qkOpen)return;
+  _qkOpen=true;
+  var ov=document.createElement('div');
+  ov.id='qk-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9997;display:flex;align-items:flex-start;justify-content:center;padding-top:14vh;backdrop-filter:blur(4px)';
+  ov.onclick=function(e){if(e.target===ov)qkClose();};
+  ov.innerHTML='<div style="background:linear-gradient(180deg,rgba(20,15,40,.99),rgba(10,5,25,.99));border:1.5px solid rgba(180,140,255,.55);border-radius:12px;padding:14px;max-width:560px;width:92%;box-shadow:0 22px 60px rgba(0,0,0,.85),0 0 30px rgba(140,100,220,.3)">'
+    +'<input id="qk-input" type="text" placeholder="🔍 Decks, listes, amis, onglets…" oninput="_qkRender(this.value)" style="width:100%;padding:10px 14px;background:rgba(0,0,0,.45);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.95rem;outline:none;margin-bottom:10px;box-sizing:border-box">'
+    +'<div id="qk-results" style="max-height:60vh;overflow-y:auto"></div>'
+    +'<div style="margin-top:8px;font-size:.66rem;color:var(--tx3);display:flex;gap:12px;justify-content:space-between"><span>↑↓ naviguer · ↵ ouvrir · Esc fermer</span><span>Ctrl+K</span></div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  setTimeout(function(){var i=document.getElementById('qk-input');if(i)i.focus();_qkRender('');},30);
+  document.addEventListener('keydown',_qkKey);
+}
+function qkClose(){
+  _qkOpen=false;
+  var ov=document.getElementById('qk-ov');if(ov)ov.remove();
+  document.removeEventListener('keydown',_qkKey);
+}
+function _qkKey(e){
+  if(e.key==='Escape'){qkClose();}
+  else if(e.key==='ArrowDown'){e.preventDefault();if(_qkItems.length){_qkSelected=Math.min(_qkItems.length-1,_qkSelected+1);_qkHighlight();var el=document.querySelectorAll('#qk-results .qk-item')[_qkSelected];if(el)el.scrollIntoView({block:'nearest'});}}
+  else if(e.key==='ArrowUp'){e.preventDefault();if(_qkItems.length){_qkSelected=Math.max(0,_qkSelected-1);_qkHighlight();var el=document.querySelectorAll('#qk-results .qk-item')[_qkSelected];if(el)el.scrollIntoView({block:'nearest'});}}
+  else if(e.key==='Enter'){e.preventDefault();if(_qkSelected>=0)_qkActivate(_qkSelected);}
+}
+window.addEventListener('keydown',function(e){
+  // Ctrl+K ou Cmd+K
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();_qkOpen?qkClose():qkOpen();}
+});
+
 // ===== SOCIAL-3 : Decks publics URL partageable =====
 function deckShare(deckId){
   var dk=decks[deckId];if(!dk){mlAlert('Erreur','Deck introuvable.');return;}
