@@ -12219,21 +12219,42 @@ function arRenderTopbar(){
     ok.textContent='Valider ('+_ar.mulSel.length+'/'+_ar.muls+')';
     ok.disabled=_ar.mulSel.length!==_ar.muls;
   }
-  // Discard bar (fin de tour si main > maxHand)
+  // Discard bar (fin de tour si main > maxHand effectif)
   var discBar=document.getElementById('ar-disc-bar');
   if(discBar){
     discBar.classList.toggle('on',_ar.discardPhase);
     if(_ar.discardPhase){
       var needEl=document.getElementById('ar-disc-need');if(needEl)needEl.textContent=_ar.discardNeed;
       var need2El=document.getElementById('ar-disc-need2');if(need2El)need2El.textContent=_ar.discardNeed;
-      var maxEl=document.getElementById('ar-disc-max');if(maxEl)maxEl.textContent=isFinite(_ar.maxHand)?_ar.maxHand:'∞';
+      var maxEl=document.getElementById('ar-disc-max');
+      if(maxEl){
+        try{var effD=_arComputeEffectiveMaxHand();maxEl.textContent=isFinite(effD.value)?effD.value:'∞';}
+        catch(e){maxEl.textContent=isFinite(_ar.maxHand)?_ar.maxHand:'∞';}
+      }
       var okEl=document.getElementById('ar-disc-ok');
       if(okEl){okEl.textContent='Confirmer ('+_ar.discardSel.length+'/'+_ar.discardNeed+')';okEl.disabled=_ar.discardSel.length!==_ar.discardNeed;}
     }
   }
-  // Bouton max hand : reflète la valeur courante
+  // Bouton max hand : reflète la valeur EFFECTIVE (base + effets cartes)
   var mhEl=document.getElementById('ar-maxhand-val');
-  if(mhEl)mhEl.textContent=isFinite(_ar.maxHand)?_ar.maxHand:'∞';
+  var mhBtn=document.getElementById('ar-maxhand-btn');
+  if(mhEl){
+    try{
+      var eff=_arComputeEffectiveMaxHand();
+      mhEl.textContent=isFinite(eff.value)?eff.value:'∞';
+      if(mhBtn){
+        if(eff.source&&eff.source!=='manuel'){
+          mhBtn.title='Taille max effective de la main : '+(isFinite(eff.value)?eff.value:'∞')+' (par '+eff.source+'). Base manuelle : '+(isFinite(_ar.maxHand)?_ar.maxHand:'∞')+'. Clique pour modifier la base.';
+          mhBtn.style.borderColor='rgba(100,200,120,.55)';
+          mhBtn.style.color='#a0ffb0';
+        }else{
+          mhBtn.title='Taille max de la main en fin de tour (défaut 7, ∞ avec Tour reliquaire / Grimoire). Clique pour modifier.';
+          mhBtn.style.borderColor='';
+          mhBtn.style.color='';
+        }
+      }
+    }catch(e){mhEl.textContent=isFinite(_ar.maxHand)?_ar.maxHand:'∞';}
+  }
 }
 
 var _arHandSort='order'; // 'order' | 'name' | 'cmc' | 'color' | 'type'
@@ -12471,14 +12492,61 @@ function arSetPhase(n){
   _arUpdateCombatBar();
 }
 
+// Calcule la taille max de main effective en scannant les permanents que je contrôle.
+// Patterns détectés dans oracle_text FR + EN ; override manuel via _ar.maxHand=Infinity.
+// Retourne {value:N|Infinity, source:nom carte ou 'manuel' ou null}.
+var _AR_NAMES_NOMAX=['reliquary tower','spellbook','thought vessel','venser\'s journal','rh-dro the deep diver',
+  'tour reliquaire','grimoire','réserve de pensée','journal de venser'];
+var _AR_UNLIMITED_RE=[
+  /you have no maximum hand size/i,
+  /no maximum hand size/i,
+  /your maximum hand size is unlimited/i,
+  /votre main n[''']a (?:pas |aucune )?(?:de )?(?:taille )?(?:limite|maximum)/i,
+  /aucune (?:taille )?(?:limite|maximum) (?:de taille )?(?:de )?main/i,
+  /votre (?:taille )?(?:maximale?|maximum) de main est illimit/i
+];
+var _AR_ADD_RE=[
+  /maximum hand size is increased by (\d+)/i,
+  /(?:taille |main )(?:maximale?|maximum)[^.]*?augment\w*\s*(?:de |par )(\d+)/i
+];
+function _arComputeEffectiveMaxHand(){
+  var base=(_ar.maxHand==null?7:_ar.maxHand);
+  // Override manuel ∞ prioritaire (l'utilisateur sait ce qu'il veut)
+  if(!isFinite(base))return {value:Infinity,source:'manuel'};
+  var myPn=_arRoom?_arRoom.playerNum:0;
+  var mine=[].concat(_ar.field||[],_ar.lands||[]).filter(function(c){
+    return !c.owner||c.owner===myPn;
+  });
+  var bonus=0,unlimited=false,source=null;
+  for(var i=0;i<mine.length;i++){
+    var name=(mine[i].name||'').toLowerCase().trim();
+    // Fallback noms connus (au cas où oracle_text n'est pas encore en cache)
+    if(_AR_NAMES_NOMAX.indexOf(name)>=0){unlimited=true;source=mine[i].name;break;}
+    var data=_arCardDataCache[name];
+    var txt=(data&&data.oracle_text)||'';
+    if(!txt)continue;
+    // Test 'no max'
+    var noMax=_AR_UNLIMITED_RE.some(function(re){return re.test(txt);});
+    if(noMax){unlimited=true;source=mine[i].name;break;}
+    // Test '+N'
+    for(var j=0;j<_AR_ADD_RE.length;j++){
+      var m=_AR_ADD_RE[j].exec(txt);
+      if(m){bonus+=parseInt(m[1])||0;if(!source)source=mine[i].name;break;}
+    }
+  }
+  if(unlimited)return {value:Infinity,source:source};
+  if(bonus>0)return {value:base+bonus,source:source};
+  return {value:base,source:null};
+}
 function arNextTurn(){
   if(_ar.mulPhase)return;
   if(_ar.discardPhase)return; // déjà en train de résoudre une défausse
   if(_arBot){_arBotLog('Utilisez "Fin de tour →" en mode vs IA');return;}
-  // Règle MTG : si main > maxHand en fin de tour, défausse l'excès avant de passer
-  var max=(_ar.maxHand==null?7:_ar.maxHand);
-  if(isFinite(max)&&_ar.hand.length>max){
-    _arStartDiscard(_ar.hand.length-max);
+  // Règle MTG : si main > maxHand effectif (base + effets cartes) en fin de tour,
+  // défausse l'excès avant de passer. Auto-détecte Tour reliquaire / Grimoire etc.
+  var eff=_arComputeEffectiveMaxHand();
+  if(isFinite(eff.value)&&_ar.hand.length>eff.value){
+    _arStartDiscard(_ar.hand.length-eff.value);
     return; // arConfirmDiscard rappellera arNextTurn une fois résolu
   }
   _ar.field.forEach(function(c){c.tapped=false;});
