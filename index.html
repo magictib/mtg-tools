@@ -3592,6 +3592,7 @@ body.mana-cursor{cursor:none}
       <div class="row" style="margin-bottom:.5rem">
         <div class="lbl" style="margin-bottom:0">Historique</div>
         <button class="btn btnsm btnp" onclick="toggleManualGame()">+ Saisir</button>
+        <button class="btn btnsm" onclick="gamesRestore()" title="Récupère l'historique depuis Firebase (prefs ou backup) si le local est vide" style="margin-right:6px">↻ Restaurer</button>
         <button class="btn btnsm btnrd" onclick="clearGames()" style="display:none" id="game-clear-btn">Tout effacer</button>
       </div>
       <!-- Formulaire saisie manuelle -->
@@ -11793,7 +11794,14 @@ function loadGames(){
   updateBgButtons();
   renderGameStats();renderGameHistory();
 }
-function saveGames(){try{localStorage.setItem('mtg_games',JSON.stringify(games));}catch(e){}_fsPrefs.games=games;_saveFsPrefs();}
+function saveGames(){
+  try{localStorage.setItem('mtg_games',JSON.stringify(games));}catch(e){}
+  _fsPrefs.games=games;_saveFsPrefs();
+  // Backup séparé : résistant aux corruptions de prefs, écrit en debounce
+  if(_gamesBackupTimer)clearTimeout(_gamesBackupTimer);
+  _gamesBackupTimer=setTimeout(gamesBackup,3000);
+}
+var _gamesBackupTimer=null;
 function savePlayerBgs(){try{localStorage.setItem('mtg_player_bgs',JSON.stringify(playerBgImages));}catch(e){}}
 var _friendGames=[];var _friendGamesLoaded=false;
 function _loadFriendGames(cb){
@@ -17772,6 +17780,45 @@ function deleteGame(id){
 function clearGames(){
   if(!confirm('Effacer tout l\'historique ?'))return;
   games=[];saveGames();renderGameStats();renderGameHistory();
+}
+// Récupération d'historique : refetch Firestore prefs + scan backups
+function gamesRestore(){
+  if(!userId){alert('Pas connecté à Firebase');return;}
+  var diag=[];
+  diag.push('🔍 Diagnostic en cours…');
+  diag.push('localStorage mtg_games : '+(localStorage.getItem('mtg_games')?(JSON.parse(localStorage.getItem('mtg_games')||'[]').length+' parties'):'absent'));
+  alert(diag.join('\n'));
+  // Cherche dans prefs/games (priorité)
+  db.collection('users').doc(userId).collection('settings').doc('prefs').get().then(function(d){
+    var prefs=d.exists?(d.data()||{}):{};
+    var prefsGames=Array.isArray(prefs.games)?prefs.games:[];
+    // Cherche aussi dans backups/games_history (séparé pour résistance)
+    return db.collection('users').doc(userId).collection('backups').doc('games_history').get().then(function(b){
+      var bData=b.exists?(b.data()||{}):{};
+      var backupGames=Array.isArray(bData.games)?bData.games:[];
+      // Choisis la source la plus riche
+      var best=prefsGames,source='prefs';
+      if(backupGames.length>prefsGames.length){best=backupGames;source='backup';}
+      var msg='📦 Sources trouvées :\n'
+        +'• prefs/games : '+prefsGames.length+' partie(s)\n'
+        +'• backups/games_history : '+backupGames.length+' partie(s)\n'
+        +'• localStorage actuel : '+games.length+' partie(s)\n\n';
+      if(best.length===0){msg+='⚠ Aucune sauvegarde trouvée sur Firebase.';alert(msg);return;}
+      if(best.length<=games.length){msg+='ℹ Le local actuel a déjà le plus de parties — rien à restaurer.';alert(msg);return;}
+      msg+='Restaurer depuis '+source+' ('+best.length+' parties) ?\nLe local actuel ('+games.length+') sera remplacé.';
+      if(!confirm(msg))return;
+      games=best;saveGames();
+      renderGameStats();renderGameHistory();
+      alert('✓ Restauration terminée — '+best.length+' parties récupérées');
+    });
+  }).catch(function(e){alert('❌ Erreur : '+e.message);});
+}
+// Backup séparé pour résistance aux corruptions de prefs
+function gamesBackup(){
+  if(!userId||!games.length)return;
+  db.collection('users').doc(userId).collection('backups').doc('games_history')
+    .set({games:games,ts:Date.now(),count:games.length},{merge:false})
+    .catch(function(e){console.warn('[backup games]',e);});
 }
 
 function mgColorBtns(pi,activeColors){
