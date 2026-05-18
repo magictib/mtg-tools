@@ -26374,6 +26374,52 @@ function anaRender(deckId){
   });
   _curveHtml+='</div><div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div></div>';
 
+  // === Probabilités de partie (loi hypergéométrique) ===
+  // Pour chaque type d'effet clé, calcule la proba d'en avoir ≥1 dans la main d'ouverture
+  // et de l'avoir piochée d'ici le tour N.
+  var _probHtml=(function(){
+    var totalCardsP=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+    if(totalCardsP<7)return '';
+    // Hypergéométrique : P(X≥k) avec K succès dans N=totalCardsP, n cartes piochées
+    function probAtLeast1(K,n){
+      if(K<=0||n<=0||totalCardsP<=0)return 0;
+      // P(X=0) = C(N-K, n) / C(N, n)
+      var p0=1;
+      for(var i=0;i<n;i++){
+        if(totalCardsP-K-i<=0){p0=0;break;}
+        p0*=(totalCardsP-K-i)/(totalCardsP-i);
+      }
+      return 1-p0;
+    }
+    // Compte les cartes par catégorie utile
+    var keyCounts={ramp:0,draw:0,removal:0,land:0,wincon:0,interaction:0};
+    rows.forEach(function(r){
+      if(!r.inCache)return;var qty=r.card.qty||1;var rl=r.roles;
+      Object.keys(keyCounts).forEach(function(k){if(rl[k])keyCounts[k]+=qty;});
+    });
+    var openHand=7;
+    var html='<div class="card"><div class="lbl">Probabilités d\'avoir un effet</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Chance d\'avoir AU MOINS 1 carte de chaque catégorie dans la main d\'ouverture (7) puis aux tours suivants (+1 carte/tour).</div>';
+    var lbls={land:'Terrain ⛰',ramp:'Ramp 🌿',draw:'Pioche 📚',removal:'Removal ⚔',wincon:'Menace ⚡',interaction:'Interaction 🛡'};
+    var keys=['land','ramp','draw','removal','interaction','wincon'];
+    // Header
+    html+='<div style="display:grid;grid-template-columns:1.2fr repeat(4,1fr);gap:6px;font-size:10.5px;color:var(--tx3);padding:3px 4px;border-bottom:.5px solid var(--bd2)"><div></div><div style="text-align:right">Main (7)</div><div style="text-align:right">T3 (9)</div><div style="text-align:right">T5 (11)</div><div style="text-align:right">T8 (14)</div></div>';
+    keys.forEach(function(k){
+      var K=keyCounts[k];if(!K)return;
+      var p7=probAtLeast1(K,7),p9=probAtLeast1(K,9),p11=probAtLeast1(K,11),p14=probAtLeast1(K,14);
+      function pct(p){var v=Math.round(p*100);var col=v>=80?'var(--gr2)':v>=50?'var(--am)':'var(--rd2)';return '<span style="color:'+col+';font-weight:600">'+v+'%</span>';}
+      html+='<div style="display:grid;grid-template-columns:1.2fr repeat(4,1fr);gap:6px;font-size:11px;padding:4px 4px;border-bottom:.5px solid rgba(255,255,255,.04);align-items:center">';
+      html+='<div style="color:var(--tx2)">'+lbls[k]+' <span style="color:var(--tx3);font-size:10px">×'+K+'</span></div>';
+      html+='<div style="text-align:right;font-family:monospace">'+pct(p7)+'</div>';
+      html+='<div style="text-align:right;font-family:monospace">'+pct(p9)+'</div>';
+      html+='<div style="text-align:right;font-family:monospace">'+pct(p11)+'</div>';
+      html+='<div style="text-align:right;font-family:monospace">'+pct(p14)+'</div>';
+      html+='</div>';
+    });
+    html+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">Loi hypergéométrique sur '+totalCardsP+' cartes. Vert ≥ 80%, ambre ≥ 50%, rouge sinon.</div>';
+    html+='</div>';
+    return html;
+  })();
   // === Manabase : sources par couleur vs demande (Karsten-like) ===
   var mb=_anaColorManabase(deck);
   var _mbHtml='';
@@ -26616,7 +26662,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -26625,7 +26671,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
