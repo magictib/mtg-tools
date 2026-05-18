@@ -24092,8 +24092,12 @@ function anaOpenDashboard(){
 function anaCloseDashboard(){var w=document.getElementById('ana-dashboard-wrap');if(w)w.style.display='none';}
 function anaRenderDashboard(){
   var host=document.getElementById('ana-dashboard-body');if(!host)return;
-  var ids=Object.keys(decks||{});
-  if(!ids.length){host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">Aucun deck sauvegardé.</div>';return;}
+  // Filtre : uniquement les decks du profil courant (PN[0]) — comme "Mes decks"
+  // Évite d'inclure des decks d'amis ou d'admin qui pollueraient la vue
+  var ids=Object.keys(decks||{}).filter(function(id){
+    return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):((decks[id].owner||0)===0);
+  });
+  if(!ids.length){host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">Aucun deck sauvegardé pour ce profil.</div>';return;}
   host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">⏳ Chargement des métadonnées Scryfall pour tous tes decks…</div>';
   // Pré-charge metadata pour toutes les cartes (peut être lent)
   var allNls=[];
@@ -24173,7 +24177,10 @@ function anaOpenCompare(){
       var sel=document.getElementById(id);if(!sel)return;
       var current=sel.value;
       var opts='<option value="">— '+(id.endsWith('a')?'Deck A':'Deck B')+' —</option>';
-      Object.keys(decks).forEach(function(did){
+      // Filtre par profil courant (cohérent avec "Mes decks")
+      Object.keys(decks).filter(function(did){
+        return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[did],0):((decks[did].owner||0)===0);
+      }).forEach(function(did){
         var d=decks[did];if(!d)return;
         opts+='<option value="'+did+'"'+(current===did?' selected':'')+'>'+esc(d.name||'Sans nom')+'</option>';
       });
