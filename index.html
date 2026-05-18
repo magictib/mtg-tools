@@ -16448,6 +16448,43 @@ function _arBotPay(mc){
   p.W-=cost.W;p.U-=cost.U;p.B-=cost.B;p.R-=cost.R;p.G-=cost.G;p.C-=cost.C;
   var rem=cost.generic;['W','U','B','R','G','C'].forEach(function(c){var u=Math.min(rem,p[c]);p[c]-=u;rem-=u;});
 }
+// Score d'une carte pour le bot (plus haut = plus impactant à jouer maintenant)
+function _arBotCardScore(card,data){
+  if(!data)return 0;
+  var s=0;
+  var tl=(data.type_line||'').toLowerCase();
+  var txt=(data.oracle_text||'').toLowerCase();
+  var kw=data.keywords||[];
+  var pwr=parseInt(data.power||0)||0,tgh=parseInt(data.toughness||0)||0;
+  // Créatures : P+T + bonus mots-clés évasifs / value
+  if(tl.indexOf('creature')>=0){
+    s+=pwr+tgh;
+    if(kw.indexOf('Flying')>=0)s+=2.5;
+    if(kw.indexOf('Trample')>=0)s+=1.5;
+    if(kw.indexOf('Menace')>=0)s+=1.2;
+    if(kw.indexOf('Lifelink')>=0)s+=1.2;
+    if(kw.indexOf('Vigilance')>=0)s+=1;
+    if(kw.indexOf('Deathtouch')>=0)s+=2;
+    if(kw.indexOf('First strike')>=0||kw.indexOf('Double strike')>=0)s+=1.5;
+    if(kw.indexOf('Indestructible')>=0)s+=2.5;
+    if(kw.indexOf('Hexproof')>=0||kw.indexOf('Ward')>=0)s+=1.5;
+    if(kw.indexOf('Haste')>=0)s+=1;
+  }
+  // Planeswalker = haute valeur immédiate
+  if(tl.indexOf('planeswalker')>=0)s+=8;
+  // Removal / value : bonus si effets utiles
+  if(/destroy target|exile target/.test(txt))s+=4;
+  if(/return target.*hand/.test(txt))s+=3;
+  if(/draw \w+ cards?/.test(txt))s+=2.5;
+  if(/deals? \d+ damage to (any|target player|target opponent)/.test(txt))s+=2;
+  if(/counter target/.test(txt))s+=3;
+  if(/search your library/.test(txt))s+=2;
+  // Pénalité pour cartes 'win-more' en début de partie
+  if(_ar.turn<=4&&(data.cmc||0)>=6)s-=2;
+  // Bonus : carte chère = impact (équilibre)
+  s+=(data.cmc||0)*0.4;
+  return s;
+}
 function _arBotMainPhase(done){
   if(!_arBot){done();return;}
   _arBotInitMana();
@@ -16459,12 +16496,29 @@ function _arBotMainPhase(done){
     return _arBotCanPay(d.mana_cost);
   });
   if(_arBotDifficulty==='novice'){_arShuffle(playable);playable=playable.slice(0,Math.floor(Math.random()*(playable.length+1)));}
-  else{
+  else if(_arBotDifficulty==='intermediate'){
     playable.sort(function(a,b){
       var da=_arCardDataCache[(a.name||'').toLowerCase()];var db=_arCardDataCache[(b.name||'').toLowerCase()];
-      if(_arBotDifficulty==='expert'){var ac=da&&da.type_line.includes('Creature');var bc=db&&db.type_line.includes('Creature');if(ac&&!bc)return-1;if(!ac&&bc)return 1;}
       return((da?da.cmc:99)-(db?db.cmc:99));
     });
+  }else{
+    // Expert : tri par score décroissant (plus impactant d'abord), évalue ce qui restera affordable
+    playable.sort(function(a,b){
+      var da=_arCardDataCache[(a.name||'').toLowerCase()];var db=_arCardDataCache[(b.name||'').toLowerCase()];
+      return _arBotCardScore(b,db)-_arBotCardScore(a,da);
+    });
+  }
+  // Réserve mana pour instants en main (expert/intermédiaire)
+  var instantsInHand=_arBot.hand.filter(function(c){
+    var d=_arCardDataCache[(c.name||'').toLowerCase()];
+    return d&&d.type_line&&d.type_line.includes('Instant')&&_arBotCanPay(d.mana_cost);
+  });
+  var reserveMana=0;
+  if(_arBotDifficulty!=='novice'&&instantsInHand.length){
+    // Réserve le CMC de l'instant le moins cher pour pouvoir le jouer au tour adverse
+    reserveMana=Math.min.apply(null,instantsInHand.map(function(c){
+      var d=_arCardDataCache[(c.name||'').toLowerCase()];return (d&&d.cmc)||1;
+    }));
   }
   var playNext=function(idx){
     if(!_arBot||idx>=playable.length){done();return;}
@@ -16472,6 +16526,11 @@ function _arBotMainPhase(done){
     if(_arBot.hand.indexOf(card)<0){playNext(idx+1);return;}
     var d=_arCardDataCache[(card.name||'').toLowerCase()];
     if(!d||!_arBotCanPay(d.mana_cost)){playNext(idx+1);return;}
+    // Si jouer cette carte vide la réserve pour instant → skip (sauf en novice)
+    if(reserveMana>0&&_arBotDifficulty!=='novice'){
+      var totalMana=_arBot.mana.W+_arBot.mana.U+_arBot.mana.B+_arBot.mana.R+_arBot.mana.G+_arBot.mana.C;
+      if(totalMana-(d.cmc||0)<reserveMana){playNext(idx+1);return;}
+    }
     _arBotCastCard(card,function(){setTimeout(function(){playNext(idx+1);},600);});
   };
   playNext(0);
@@ -16526,15 +16585,45 @@ function _arBotDeclareAttackers(){
       if(_arBot.field.filter(_arIsCreature).length>pCrs.length)atks.push(c);
     });
   }else{
+    // Expert : évalue chaque attaque pour valeur attendue
+    var totalPower=pCrs.reduce(function(s,c){var d=_arCardDataCache[(c.name||'').toLowerCase()];return s+(parseInt((d&&d.power)||0)||0);},0);
     crs.forEach(function(c){
       var cd=_arCardDataCache[(c.name||'').toLowerCase()]||{};var kw=cd.keywords||[];
-      var pow=parseInt(cd.power||0);
-      if(kw.includes('Flying')||kw.includes('Trample')||kw.includes('Menace')){atks.push(c);return;}
-      var canBlk=pCrs.filter(function(bc){var bkw=_arGetKw(bc.name);return!(kw.includes('Flying')&&!bkw.includes('Flying')&&!bkw.includes('Reach'));});
+      var pow=parseInt(cd.power||0)||0;var tgh=parseInt(cd.toughness||0)||1;
+      var myScore=_arBotCardScore(c,cd);
+      // Évasion → toujours attaquer (sauf si peut être tué sans coup)
+      if(kw.includes('Flying')||kw.includes('Menace')){
+        var hasReach=pCrs.some(function(bc){var bkw=_arGetKw(bc.name);return bkw.includes('Flying')||bkw.includes('Reach');});
+        if(!hasReach){atks.push(c);return;}
+      }
+      if(kw.includes('Trample')&&totalPower<tgh*2){atks.push(c);return;}
+      var canBlk=pCrs.filter(function(bc){
+        if(bc.tapped)return false;
+        var bkw=_arGetKw(bc.name);
+        if(kw.includes('Flying')&&!bkw.includes('Flying')&&!bkw.includes('Reach'))return false;
+        return true;
+      });
+      // Pas de bloqueur potentiel → attaque
       if(!canBlk.length){atks.push(c);return;}
-      var best=canBlk.reduce(function(b,bc){var bd=_arCardDataCache[(bc.name||'').toLowerCase()]||{};return(parseInt(bd.power||0))>(parseInt((_arCardDataCache[(b.name||'').toLowerCase()]||{}).power||0))?bc:b;},canBlk[0]);
-      var bd=_arCardDataCache[(best.name||'').toLowerCase()]||{};
-      if(parseInt(bd.power||0)<parseInt(cd.toughness||0)||pow>=parseInt(bd.toughness||0))atks.push(c);
+      // Évalue le pire blocage possible
+      var bestBlocker=canBlk.reduce(function(b,bc){
+        var bd=_arCardDataCache[(bc.name||'').toLowerCase()]||{};
+        var bbd=_arCardDataCache[(b.name||'').toLowerCase()]||{};
+        var bp=parseInt(bd.power||0)||0,bbp=parseInt(bbd.power||0)||0;
+        return bp>bbp?bc:b;
+      },canBlk[0]);
+      var bd=_arCardDataCache[(bestBlocker.name||'').toLowerCase()]||{};
+      var bp=parseInt(bd.power||0)||0,bt=parseInt(bd.toughness||0)||1;
+      var theirScore=_arBotCardScore(bestBlocker,bd);
+      var iDie=bp>=tgh, theyDie=pow>=bt;
+      // Bonne attaque si :
+      // - Je tue sans mourir (free trade)
+      // - On meurt tous les deux mais sa valeur > la mienne (favourable trade)
+      // - Je ne meurs pas (suis trop gros, je ping juste)
+      if(theyDie&&!iDie){atks.push(c);return;}
+      if(iDie&&theyDie&&theirScore>myScore+1){atks.push(c);return;}
+      if(!iDie&&!theyDie&&_arBot.life>10){atks.push(c);return;} // chip damage si pas en danger
+      // Sinon : skip (mauvaise attaque)
     });
   }
   if(!atks.length){_arBotFinishTurn();return;}
