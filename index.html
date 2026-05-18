@@ -26592,6 +26592,42 @@ function _anaBilandSuggestions(pairs){
   });
   return res;
 }
+// Classification des duals : tier de qualité + condition d'entrée
+// S = quasi-toujours dégagé (Fetch/Shock/Original duals/Triomes-cycling)
+// A = conditionnel souvent dégagé (Fast, Check, Pain, Battle, Filter)
+// B = conditionnel souvent engagé (Reveal, Pathway, Surveil)
+// C = toujours engagé (Refuge, Gain, Gate)
+var _DUAL_CYCLES=[
+  {tier:'S',icon:'⚡',cond:'Engagé sauf si tu paies 2 PV',label:'Shockland',
+    cards:['Hallowed Fountain','Watery Grave','Steam Vents','Blood Crypt','Stomping Ground','Sacred Foundry','Godless Shrine','Temple Garden','Breeding Pool','Overgrown Tomb']},
+  {tier:'S',icon:'🔍',cond:'Sacrifie + paie 1 PV : cherche un terrain {couleurs}',label:'Fetchland',
+    cards:['Flooded Strand','Polluted Delta','Bloodstained Mire','Wooded Foothills','Windswept Heath','Marsh Flats','Scalding Tarn','Misty Rainforest','Verdant Catacombs','Arid Mesa']},
+  {tier:'S',icon:'⭐',cond:'Dégagé, aucun coût (Dual original ABU)',label:'Dual ABU',
+    cards:['Tundra','Underground Sea','Volcanic Island','Badlands','Taiga','Plateau','Scrubland','Savannah','Tropical Island','Bayou']},
+  {tier:'A',icon:'✓',cond:'Engagé sauf si tu contrôles le bon basic',label:'Checkland',
+    cards:['Glacial Fortress','Drowned Catacomb','Sulfur Falls','Dragonskull Summit','Rootbound Crag','Isolated Chapel','Clifftop Retreat','Sunpetal Grove','Hinterland Harbor','Woodland Cemetery']},
+  {tier:'A',icon:'🚀',cond:'Engagé seulement si tu contrôles ≥3 autres terrains (T1-2 dégagé)',label:'Fastland',
+    cards:['Seachrome Coast','Darkslick Shores','Spirebluff Canal','Blackcleave Cliffs','Copperline Gorge','Concealed Courtyard','Inspiring Vantage','Razorverge Thicket','Botanical Sanctum','Blooming Marsh']},
+  {tier:'A',icon:'⚔',cond:'Dégagé. Tu paies 1 PV pour ajouter une couleur (Painland)',label:'Painland',
+    cards:['Adarkar Wastes','Underground River','Sulfurous Springs','Karplusan Forest','Brushland','Caves of Koilos','Battlefield Forge','Llanowar Wastes','Yavimaya Coast','Shivan Reef']},
+  {tier:'A',icon:'🏞',cond:'Dégagé si tu contrôles ≥2 basics du bon type (Battle land)',label:'Battleland',
+    cards:['Prairie Stream','Sunken Hollow','Smoldering Marsh','Cinder Glade','Canopy Vista']},
+  {tier:'B',icon:'🧪',cond:'Dégagé. Tap pour {C}, ou tap+coût d\'1 mana pour {couleur×2} (Filterland)',label:'Filterland',
+    cards:['Mystic Gate','Sunken Ruins','Graven Cairns','Fire-Lit Thicket','Wooded Bastion','Fetid Heath','Cascade Bluffs','Twilight Mire','Flooded Grove','Rugged Prairie']},
+  {tier:'B',icon:'👁',cond:'Dégagé si tu révèles un basic du bon type depuis ta main (Revealland)',label:'Revealland',
+    cards:['Port Town','Choked Estuary','Furycalm Snarl','Necroblossom Snarl','Game Trail']},
+  {tier:'B',icon:'🛤',cond:'Choisis 1 couleur quand il entre : ne peut produire que celle-ci (Pathway)',label:'Pathway',
+    cards:['Hengegate Pathway','Brightclimb Pathway','Needleverge Pathway','Branchloft Pathway','Riverglide Pathway','Clearwater Pathway','Cragcrown Pathway','Barkchannel Pathway','Darkbore Pathway','Blightstep Pathway']},
+  {tier:'C',icon:'💤',cond:'Toujours engagé, ajoute 2 couleurs (Gate / Tap-dual)',label:'Gate',
+    cards:['Azorius Guildgate','Dimir Guildgate','Izzet Guildgate','Rakdos Guildgate','Boros Guildgate','Selesnya Guildgate','Gruul Guildgate','Golgari Guildgate','Simic Guildgate','Orzhov Guildgate']}
+];
+function _anaDualInfo(name){
+  for(var i=0;i<_DUAL_CYCLES.length;i++){
+    var c=_DUAL_CYCLES[i];
+    if(c.cards.indexOf(name)>=0)return {tier:c.tier,icon:c.icon,cond:c.cond,label:c.label};
+  }
+  return {tier:'?',icon:'•',cond:'',label:'?'};
+}
 
 /* ----- Alertes de validité format (taille deck, copies) ----- */
 function _anaFormatWarnings(deck,fmt,totalCards){
@@ -26948,47 +26984,8 @@ function anaRender(deckId){
     html+='</div>';
     return html;
   })();
-  // === Manabase : sources par couleur vs demande (Karsten-like) ===
-  var mb=_anaColorManabase(deck);
-  var _mbHtml='';
-  if(mb.demand.total>0){
-    var colNames={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
-    var colPips={W:'#c8b870',U:'#4090ff',B:'#9060c0',R:'#ff5040',G:'#30b048'};
-    _mbHtml='<div class="card"><div class="lbl">Manabase — sources vs demande</div>';
-    _mbHtml+='<div style="font-size:11px;color:var(--tx3);margin-bottom:6px">'+mb.sources.total+' terrain(s)'+(mb.sources.W+mb.sources.U+mb.sources.B+mb.sources.R+mb.sources.G>mb.sources.total?' + producteurs hors terrain':'')+'</div>';
-    var warnings=[];
-    ['W','U','B','R','G'].forEach(function(col){
-      if(mb.demand[col]<=0)return;
-      var src=mb.sources[col];var tgt=mb.targets[col];var dem=mb.demand[col];var cards=mb.demandCards[col];
-      var ratio=tgt?src/tgt:1;
-      var stat,statColor;
-      if(ratio>=1.0){stat='✓ OK';statColor='var(--gr2)';}
-      else if(ratio>=0.75){stat='⚠ Limite (-'+(tgt-src)+')';statColor='var(--am)';warnings.push({col:col,deficit:tgt-src,severity:'mid'});}
-      else{stat='✗ Sous-sourcé (-'+(tgt-src)+')';statColor='var(--rd2)';warnings.push({col:col,deficit:tgt-src,severity:'high'});}
-      _mbHtml+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:.5px solid rgba(255,255,255,.05);font-size:11.5px">';
-      _mbHtml+='<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:'+colPips[col]+';color:#fff;text-align:center;line-height:16px;font-size:9px;font-weight:700;font-family:monospace;flex-shrink:0">'+col+'</span>';
-      _mbHtml+='<span style="flex:1;color:var(--tx2);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+colNames[col]+'</span>';
-      _mbHtml+='<span style="color:var(--tx3);font-size:10px;flex-shrink:0">'+cards+' cartes · '+dem.toFixed(0)+' pips</span>';
-      _mbHtml+='<span style="font-family:monospace;color:var(--tx2);font-size:11px;flex-shrink:0"><b style="color:'+statColor+'">'+src+'</b>/'+tgt+'</span>';
-      _mbHtml+='<span style="color:'+statColor+';font-size:10px;font-weight:600;flex-shrink:0">'+stat+'</span>';
-      _mbHtml+='</div>';
-    });
-    if(warnings.length){
-      _mbHtml+='<div style="margin-top:8px;padding:7px 9px;background:rgba(255,140,40,.08);border-left:2px solid var(--am);border-radius:4px;font-size:11px;color:var(--tx2);line-height:1.5">';
-      _mbHtml+='<b style="color:var(--am)">💡 Recommandations :</b><br>';
-      warnings.sort(function(a,b){return b.deficit-a.deficit;}).forEach(function(w){
-        var col=w.col;
-        var suggBasic=({W:'Plaines',U:'Îles',B:'Marais',R:'Montagnes',G:'Forêts'})[col];
-        _mbHtml+='<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+colPips[col]+';margin-right:4px;vertical-align:middle"></span>';
-        _mbHtml+=colNames[col]+' : ajoute '+w.deficit+' source(s) (ex : +'+w.deficit+' '+suggBasic+', ou terrains duals/fetchs aux couleurs).<br>';
-      });
-      _mbHtml+='<span style="font-size:10px;color:var(--tx3);font-style:italic">Cible Karsten ≈ pips × 1.4 + 6, ajustée à la taille du deck.</span>';
-      _mbHtml+='</div>';
-    }else if(mb.demand.total>0){
-      _mbHtml+='<div style="margin-top:8px;padding:6px 8px;background:rgba(100,200,120,.08);border-left:2px solid var(--gr2);border-radius:4px;font-size:11px;color:var(--gr2)">✓ Manabase équilibrée — toutes les couleurs ont assez de sources pour leur demande.</div>';
-    }
-    _mbHtml+='</div>';
-  }
+  // === Manabase : fusionnée dans "Analyse des terrains" ===
+  var _mbHtml="";
 
   // === Snapshots / Versions du deck ===
   var _snapHtml='<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between">';
@@ -27217,7 +27214,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -27226,7 +27223,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
@@ -27663,28 +27660,89 @@ function anaRender(deckId){
       }
     }
   })();
+  // === Karsten : sources par couleur (sources lands + non-land tels que signets/dorks) ===
+  (function(){
+    var mb=_anaColorManabase(deck);
+    if(mb.demand.total<=0)return;
+    var colNames={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
+    var tierCol={W:'#c8b870',U:'#4090ff',B:'#9060c0',R:'#ff5040',G:'#30b048'};
+    var nonLandSrc=mb.sources.W+mb.sources.U+mb.sources.B+mb.sources.R+mb.sources.G-mb.sources.total;
+    html+='<div style="margin-top:10px;padding-top:10px;border-top:.5px solid var(--bd2)">';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px">Sources par couleur (cible Karsten ≈ pips × 1.4 + 6'+(nonLandSrc>0?' · '+nonLandSrc+' source(s) hors terrain comptée(s)':'')+') :</div>';
+    var warnings=[];
+    ['W','U','B','R','G'].forEach(function(col){
+      if(mb.demand[col]<=0)return;
+      var src=mb.sources[col],tgt=mb.targets[col],dem=mb.demand[col],cards=mb.demandCards[col];
+      var ratio=tgt?src/tgt:1;
+      var stat,statColor;
+      if(ratio>=1.0){stat='✓ OK';statColor='var(--gr2)';}
+      else if(ratio>=0.75){stat='⚠ Limite (-'+(tgt-src)+')';statColor='var(--am)';warnings.push({col:col,deficit:tgt-src});}
+      else{stat='✗ Sous-sourcé (-'+(tgt-src)+')';statColor='var(--rd2)';warnings.push({col:col,deficit:tgt-src});}
+      html+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:.5px solid rgba(255,255,255,.04);font-size:11px">';
+      html+='<span class="pip pip-'+col+'" style="font-size:10px;padding:1px 7px">'+col+'</span>';
+      html+='<span style="flex:1;color:var(--tx2)">'+colNames[col]+'</span>';
+      html+='<span style="color:var(--tx3);font-size:10px">'+cards+' cartes · '+dem.toFixed(0)+' pips</span>';
+      html+='<span style="font-family:monospace;color:var(--tx2);font-size:11px"><b style="color:'+statColor+'">'+src+'</b>/'+tgt+'</span>';
+      html+='<span style="color:'+statColor+';font-size:10px;font-weight:600;min-width:88px;text-align:right">'+stat+'</span>';
+      html+='</div>';
+    });
+    if(warnings.length){
+      html+='<div style="margin-top:6px;padding:6px 9px;background:rgba(255,140,40,.07);border-left:2px solid var(--am);border-radius:0 4px 4px 0;font-size:10.5px;color:var(--tx2)">';
+      html+='💡 ';
+      warnings.sort(function(a,b){return b.deficit-a.deficit;}).forEach(function(w,i){
+        if(i>0)html+=' · ';
+        var bn=({W:'Plaines',U:'Îles',B:'Marais',R:'Montagnes',G:'Forêts'})[w.col];
+        html+='<b style="color:'+tierCol[w.col]+'">'+colNames[w.col]+'</b> : +'+w.deficit+' source(s) (basics '+bn+' ou duals)';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+  })();
   if(deckCi&&deckCi.length>1){
     var _pairs=[];for(var _i=0;_i<deckCi.length;_i++)for(var _j=_i+1;_j<deckCi.length;_j++)_pairs.push([deckCi[_i],deckCi[_j]]);
     var _biSug=_anaBilandSuggestions(_pairs);
     var _deckNlSet2={};cards.forEach(function(c){_deckNlSet2[(c.nl||stripDFC(c.name||'').toLowerCase())]=1;});
     _biSug=_biSug.filter(function(b){return !_deckNlSet2[b.name.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim()];});
     if(_biSug.length){
-      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">';
-      html+='<div style="font-size:10px;color:var(--tx3)">Bi-terrains suggérés :</div>';
+      // Classifie chaque suggestion par tier + tri (S avant A avant B avant C)
+      _biSug.forEach(function(b){var info=_anaDualInfo(b.name);b.tier=info.tier;b.icon=info.icon;b.cond=info.cond;b.label=info.label;});
+      var tierOrder={S:0,A:1,B:2,C:3,'?':9};
+      _biSug.sort(function(a,b){return (tierOrder[a.tier]||9)-(tierOrder[b.tier]||9);});
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-top:10px;margin-bottom:5px">';
+      html+='<div style="font-size:10px;color:var(--tx3)">Bi-terrains suggérés (tri par qualité) :</div>';
       html+='<button class="dm" style="font-size:9px;padding:2px 7px;border-radius:8px" onclick="toggleBilandsImg()">'+(_bilandsImgMode?'Mode texte':'Mode images')+'</button>';
       html+='</div>';
+      // Légende tiers
+      html+='<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:9px;color:var(--tx3);margin-bottom:6px">';
+      html+='<span><b style="color:#78c890">S</b> dégagé/peu coût</span>';
+      html+='<span><b style="color:#5b8cf5">A</b> conditionnel souvent dégagé</span>';
+      html+='<span><b style="color:#f5b95b">B</b> conditionnel souvent engagé</span>';
+      html+='<span><b style="color:#e07070">C</b> engagé toujours</span>';
+      html+='</div>';
+      var tierColors={S:'#78c890',A:'#5b8cf5',B:'#f5b95b',C:'#e07070','?':'var(--tx3)'};
       if(_bilandsImgMode){
         html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px">';
         _biSug.forEach(function(b){
-          html+='<div style="text-align:center">';
-          html+='<img src="https://api.scryfall.com/cards/named?exact='+encodeURIComponent(b.name)+'&format=image&version=small" style="width:104px;border-radius:7px;display:block;box-shadow:0 2px 8px rgba(0,0,0,.4)" loading="lazy" title="'+esc(b.name)+'" alt="'+esc(b.name)+'">';
+          var tc=tierColors[b.tier]||'var(--tx3)';
+          html+='<div style="text-align:center;position:relative" title="'+esc(b.label)+' — '+esc(b.cond)+'">';
+          html+='<span style="position:absolute;top:-4px;left:-4px;z-index:2;width:22px;height:22px;border-radius:50%;background:'+tc+';color:#0a0a0a;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;border:1.5px solid #0a0a0a;font-family:monospace;box-shadow:0 2px 6px rgba(0,0,0,.6)">'+b.tier+'</span>';
+          html+='<img src="https://api.scryfall.com/cards/named?exact='+encodeURIComponent(b.name)+'&format=image&version=small" style="width:104px;border-radius:7px;display:block;box-shadow:0 2px 8px rgba(0,0,0,.4)" loading="lazy" alt="'+esc(b.name)+'">';
           html+='<div style="font-size:9px;margin-top:3px">'+_metaColorPips(b.pair)+'</div>';
+          html+='<div style="font-size:8.5px;color:'+tc+';margin-top:2px">'+b.icon+' '+esc(b.label)+'</div>';
           html+='</div>';
         });
         html+='</div>';
       } else {
-        html+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
-        _biSug.forEach(function(b){html+='<span style="font-size:10px;padding:2px 8px;background:rgba(200,160,64,.15);border:.5px solid rgba(200,160,64,.3);border-radius:10px;color:var(--gold2);cursor:pointer" onmouseenter="showTip(\''+esc(b.name)+'\',event)" onmouseleave="hideTip()">'+esc(b.name)+'</span>';});
+        html+='<div style="display:flex;flex-direction:column;gap:3px">';
+        _biSug.forEach(function(b){
+          var tc=tierColors[b.tier]||'var(--tx3)';
+          html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:rgba(0,0,0,.18);border-left:2px solid '+tc+';border-radius:0 5px 5px 0;font-size:11px" title="'+esc(b.cond)+'">';
+          html+='<b style="color:'+tc+';font-family:monospace;font-size:11px;min-width:14px">'+b.tier+'</b>';
+          html+='<span style="color:var(--gold2);min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+b.icon+' '+esc(b.name)+'</span>';
+          html+='<span style="color:var(--tx3);font-size:10px;font-style:italic;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(b.cond)+'</span>';
+          html+='<span style="flex-shrink:0">'+_metaColorPips(b.pair)+'</span>';
+          html+='</div>';
+        });
         html+='</div>';
       }
     }
