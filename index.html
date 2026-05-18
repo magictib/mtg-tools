@@ -5631,6 +5631,27 @@ function normalizeRow(r,fmt){
     finish:(r['Printing']||'').toLowerCase()==='foil'?'Foil':'Standard',
     price:0
   };
+  // Helvault moderne (snake_case)
+  if(fmt==='H') return {
+    name:stripDFC(r['card_name']||''),set:(r['set_code']||'').toUpperCase(),num:r['collector_number']||'',
+    qty:parseInt(r['quantity'])||1,lang:r['language']||'',cond:r['condition']||'',
+    finish:(r['finish']||r['foil']||'').toLowerCase().indexOf('foil')>=0?'Foil':'Standard',
+    price:parseFloat(r['purchase_price']||r['price']||0)||0
+  };
+  // TappedOut
+  if(fmt==='T') return {
+    name:stripDFC(r['Name']||''),set:r['Set']||r['Edition']||'',num:r['Card Number']||r['Collector Number']||'',
+    qty:parseInt(r['Quantity'])||parseInt(r['Count'])||1,lang:r['Language']||'',cond:r['Condition']||'',
+    finish:(r['Foil/Non-Foil']||r['Foil']||'').toLowerCase().indexOf('foil')>=0?'Foil':'Standard',
+    price:parseFloat(r['Acquired Price']||r['Price']||0)||0
+  };
+  // Archidekt CSV export
+  if(fmt==='AR') return {
+    name:stripDFC(r['Name']||''),set:(r['Edition Code']||r['Edition']||'').toUpperCase(),num:r['Collector Number']||'',
+    qty:parseInt(r['Quantity'])||1,lang:r['Language']||'',cond:r['Condition']||'',
+    finish:(r['Modifier']||r['Foil']||'').toLowerCase().indexOf('foil')>=0?'Foil':'Standard',
+    price:parseFloat(r['Price']||0)||0
+  };
   var nF={A:'name',B:'Card Name',C:'Name'};
   var sF={A:'expansion',B:'Set Name',C:'Edition'};
   var nrF={A:'printNumber',B:'Collector Number',C:'Collector Number'};
@@ -19186,10 +19207,25 @@ function addCollCard(){
 }
 function _detectFmt(hdrs){
   var hs=hdrs.map(function(h){return h.trim();});
+  var hsLow=hs.map(function(h){return h.toLowerCase();});
+  // ManaLAB native (CardNexus)
   if(hs.indexOf('name')>=0)return 'A';
+  // Helvault folders
   if(hs.indexOf('Folder Name')>=0&&hs.indexOf('Card Name')>=0)return 'G';
+  // ManaBox : 'Scryfall ID' / 'ManaBox ID' / 'Purchase price currency'
+  if(hsLow.indexOf('manabox id')>=0||hsLow.indexOf('scryfall id')>=0||hsLow.indexOf('purchase price currency')>=0)return 'E';
+  // Helvault moderne (snake_case)
+  if(hsLow.indexOf('card_name')>=0&&hsLow.indexOf('set_code')>=0)return 'H';
+  // TappedOut : 'Foil/Non-Foil' column + 'Quantity'
+  if(hsLow.indexOf('foil/non-foil')>=0||hsLow.indexOf('acquired price')>=0)return 'T';
+  // Archidekt : 'Quantity' + 'Edition Code'
+  if(hsLow.indexOf('edition code')>=0&&hsLow.indexOf('quantity')>=0)return 'AR';
+  // Deckbox : 'My Price', 'Artist Proof'
   if(hs.indexOf('My Price')>=0||hs.indexOf('Artist Proof')>=0)return 'F';
+  // Moxfield exports : 'Set code' lower OR 'Purchase price'
   if(hs.indexOf('Set code')>=0||hs.indexOf('Purchase price')>=0)return 'E';
+  // Moxfield deck JSON (with Board column) — rare en CSV mais possible
+  if(hs.indexOf('Board')>=0&&hs.indexOf('Quantity')>=0)return 'D';
   if(hs.indexOf('Card Name')>=0)return 'B';
   return 'C';
 }
