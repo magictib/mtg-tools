@@ -1207,7 +1207,12 @@ body.mana-cursor{cursor:none}
 #ar-blocker-bar{display:none;position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:119;background:rgba(20,0,0,.92);border:1px solid rgba(255,80,80,.4);border-top:none;border-radius:0 0 9px 9px;padding:4px 12px;font-size:.72rem;color:#ff9090;white-space:nowrap;gap:8px;align-items:center}
 #ar-blocker-bar.on{display:flex}
 #ar-combat-bar{display:none;position:absolute;top:42px;left:50%;transform:translateX(-50%);z-index:118;background:linear-gradient(180deg,rgba(30,10,0,.95),rgba(20,5,0,.92));border:1px solid rgba(255,140,40,.55);border-top:none;border-radius:0 0 11px 11px;padding:5px 14px;font-size:.74rem;color:#ffd0a0;white-space:nowrap;gap:10px;align-items:center;box-shadow:0 4px 18px rgba(255,80,0,.25)}
-#ar-combat-bar.on{display:flex}
+#ar-combat-bar.on{display:flex;animation:ar-combat-bar-pulse 1.4s ease-in-out infinite}
+@keyframes ar-combat-bar-pulse{0%,100%{box-shadow:0 4px 18px rgba(255,80,0,.25)}50%{box-shadow:0 4px 24px rgba(255,140,40,.55),0 0 0 1px rgba(255,140,40,.4)}}
+/* Combat phase visual : tint orange subtil sur tout le plateau */
+#arena-ov.ar-combat-phase #ar-field{box-shadow:inset 0 0 32px rgba(255,80,0,.12),inset 0 0 80px rgba(255,80,0,.08)}
+#arena-ov.ar-combat-phase #ar-topbar{border-bottom-color:rgba(255,140,40,.45)}
+#arena-ov.ar-combat-phase #ar-ph-2{box-shadow:0 0 12px rgba(255,140,40,.65);background:linear-gradient(180deg,#3a1808,#1f0a02)!important;color:#ffaa60!important;animation:ar-combat-bar-pulse 1.4s ease-in-out infinite}
 #ar-combat-bar #ar-combat-info{font-size:.72rem;color:#ffc890;letter-spacing:.04em}
 /* Bot field */
 #ar-bot-field{height:0;flex-shrink:0;background:rgba(15,8,40,.45);border-bottom:2px solid rgba(80,140,255,.28);position:relative;overflow:hidden;transition:height .25s}
@@ -13795,14 +13800,18 @@ function _arUpdateCombatBar(){
   var inCombat=_ar.phase===2;
   var hasAtk=(_ar.attackers||[]).length>0;
   var hasBlk=(_ar.blockers||[]).length>0;
-  var show=online&&inCombat&&(hasAtk||hasBlk);
+  // En solo aussi : on affiche la bande dès qu'il y a une déclaration (utile pour visualiser les flèches)
+  var show=(online||inCombat)&&(hasAtk||hasBlk);
   bar.classList.toggle('on',show);
+  // Indicateur visuel phase combat sur la topbar (pulse rouge)
+  var ovEl=document.getElementById('arena-ov');
+  if(ovEl)ovEl.classList.toggle('ar-combat-phase',inCombat&&(hasAtk||hasBlk));
   if(show){
     var atkBtn=document.getElementById('ar-confirm-atk-btn');
     var blkBtn=document.getElementById('ar-confirm-blk-btn');
     var info=document.getElementById('ar-combat-info');
-    if(atkBtn)atkBtn.style.display=hasAtk?'inline-flex':'none';
-    if(blkBtn)blkBtn.style.display=hasBlk?'inline-flex':'none';
+    if(atkBtn)atkBtn.style.display=(online&&hasAtk)?'inline-flex':'none';
+    if(blkBtn)blkBtn.style.display=(online&&hasBlk)?'inline-flex':'none';
     if(info){
       var parts=[];
       if(hasAtk)parts.push('<strong style="color:#ffaa60">'+(_ar.attackers.length)+'</strong> attaquant'+(_ar.attackers.length>1?'s':''));
@@ -13810,6 +13819,7 @@ function _arUpdateCombatBar(){
       info.innerHTML='⚔ '+parts.join(' · ');
     }
   }
+  _arQueueArrows();
 }
 function arDeclareAttackers(){
   if(!_arRoom||_arBot)return;
@@ -14543,15 +14553,14 @@ function _arDrawArrows(){
   if(cv.height!==rect.height)cv.height=Math.max(1,Math.floor(rect.height));
   var ctx=cv.getContext('2d');
   ctx.clearRect(0,0,cv.width,cv.height);
-  if(!_arRoom||_arBot){return;} // pas d'overlay flèches en solo/bot
   var myAtk=_ar.attackers||[];
   var myBlk=_ar.blockers||[];
-  var opAtkMap=_arRoom._opAtk||{};
-  var opBlkMap=_arRoom._opBlk||{};
-  var opAtkTargetsMap=_arRoom._opAtkTargets||{};
+  var opAtkMap=(_arRoom&&_arRoom._opAtk)||{};
+  var opBlkMap=(_arRoom&&_arRoom._opBlk)||{};
+  var opAtkTargetsMap=(_arRoom&&_arRoom._opAtkTargets)||{};
   var myAtkTargets=_ar.atkTargets||{};
-  var N=_arRoom.numPlayers||2;
-  var myPn=_arRoom.playerNum;
+  var N=_arRoom?(_arRoom.numPlayers||2):(_arBot?2:1);
+  var myPn=_arRoom?_arRoom.playerNum:1;
   // Aucune combat declared : skip
   var anyAtk=myAtk.length||Object.keys(opAtkMap).some(function(k){return opAtkMap[k].length;});
   var anyBlk=myBlk.length||Object.keys(opBlkMap).some(function(k){return opBlkMap[k].length;});
@@ -14566,16 +14575,17 @@ function _arDrawArrows(){
   // Points d'ancrage des joueurs : moi en bas centre, opponents répartis sur la barre haute
   var meAnchor={x:rect.width/2,y:rect.height-8};
   var opps=[];
-  for(var i=1;i<=N;i++){if(i!==myPn)opps.push(i);}
+  if(_arRoom){for(var i=1;i<=N;i++){if(i!==myPn)opps.push(i);}}
+  else{opps=[0];} // solo/bot : adversaire fictif pn=0
   var anchorsByPn={};
-  // Mes propres dégâts vont vers mon ancre
   anchorsByPn[myPn]=meAnchor;
   opps.forEach(function(pn,idx){
     var x=(idx+1)/(opps.length+1)*rect.width;
     anchorsByPn[pn]={x:x,y:8};
   });
   // Mes attaquants → leur cible déclarée (ou target par défaut = next pn)
-  var defaultTargetPn=_arRoom._defaultTargetPn||_arDefaultTargetPn(myPn,N);
+  var defaultTargetPn=(_arRoom&&_arRoom._defaultTargetPn)||_arDefaultTargetPn(myPn,N);
+  if(!_arRoom)defaultTargetPn=0; // solo : cible = adversaire fictif
   myAtk.forEach(function(id){
     var c=cardCenter(id);if(!c)return;
     var targetPn=myAtkTargets[id]||defaultTargetPn;
