@@ -2467,7 +2467,19 @@ body.mana-cursor{cursor:none}
     <div class="row" style="gap:8px">
       <button class="btn btnp" onclick="anaShowPreEditor()" style="flex:1">🎯 Plan de jeu &amp; thèmes</button>
       <button class="btn btnp" onclick="anaAnalyzeGeneric()" style="flex:1">⚡ Analyser</button>
+      <button class="btn btnsm" onclick="anaOpenCompare()" title="Comparer deux decks côte à côte">🆚 Comparer</button>
       <button class="btn btnsm" onclick="anaClearCache()" title="Vider le cache d'analyse">🗑 Cache</button>
+    </div>
+    <div id="ana-compare-wrap" style="display:none;margin-top:10px;padding:10px;background:rgba(0,0,0,.25);border-radius:8px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--tx2)">🆚 <b>Comparaison de decks</b></span>
+        <button class="btn btnsm" onclick="anaCloseCompare()" style="margin-left:auto">✕ Fermer</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <select id="ana-cmp-a" class="psel" onchange="anaRunCompare()"><option value="">— Deck A —</option></select>
+        <select id="ana-cmp-b" class="psel" onchange="anaRunCompare()"><option value="">— Deck B —</option></select>
+      </div>
+      <div id="ana-cmp-results"></div>
     </div>
     <div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">🌐 La langue des images est définie dans <b>Mes préférences</b> (icône ✎ en haut à droite).</div>
     <div id="ana-status" style="margin-top:8px;font-size:11px;color:var(--tx3);font-style:italic;min-height:1em"></div>
@@ -23091,6 +23103,138 @@ function anaInit(){
   anaPopulateDeckSel();
 }
 
+// ===== Comparaison de decks côte-à-côte =====
+function anaOpenCompare(){
+  var w=document.getElementById('ana-compare-wrap');if(!w)return;
+  w.style.display=w.style.display==='none'?'block':'none';
+  // Populate selects with available decks
+  if(w.style.display==='block'){
+    ['ana-cmp-a','ana-cmp-b'].forEach(function(id){
+      var sel=document.getElementById(id);if(!sel)return;
+      var current=sel.value;
+      var opts='<option value="">— '+(id.endsWith('a')?'Deck A':'Deck B')+' —</option>';
+      Object.keys(decks).forEach(function(did){
+        var d=decks[did];if(!d)return;
+        opts+='<option value="'+did+'"'+(current===did?' selected':'')+'>'+esc(d.name||'Sans nom')+'</option>';
+      });
+      sel.innerHTML=opts;
+    });
+  }
+}
+function anaCloseCompare(){var w=document.getElementById('ana-compare-wrap');if(w)w.style.display='none';}
+function _anaCompareMetrics(deck){
+  if(!deck)return null;
+  var cards=deck.cards||[];
+  var totalCards=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+  // Roles counts
+  var counts={land:0,ramp:0,draw:0,removal:0,interaction:0,wincon:0};
+  var unanalyzed=0;
+  var cmcSum=0,nonLandCnt=0;
+  cards.forEach(function(c){
+    var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
+    var qty=c.qty||1;
+    if(!meta){unanalyzed+=qty;return;}
+    var rl=anaRoles(meta);
+    Object.keys(counts).forEach(function(k){counts[k]+=(rl[k]||0)*qty;});
+    if(!rl.land){cmcSum+=(meta.cmc||0)*qty;nonLandCnt+=qty;}
+  });
+  var avgCmc=nonLandCnt?cmcSum/nonLandCnt:0;
+  var mb=_anaColorManabase(deck);
+  var sim=anaSimulate(deck,60); // 60 runs : plus rapide pour la compare
+  return {totalCards:totalCards,counts:counts,avgCmc:avgCmc,manabase:mb,sim:sim,unanalyzed:unanalyzed,deck:deck};
+}
+function anaRunCompare(){
+  var ida=document.getElementById('ana-cmp-a').value;
+  var idb=document.getElementById('ana-cmp-b').value;
+  var host=document.getElementById('ana-cmp-results');if(!host)return;
+  if(!ida||!idb){host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">Sélectionne les deux decks à comparer.</div>';return;}
+  if(ida===idb){host.innerHTML='<div style="color:var(--am);font-style:italic;font-size:11px;padding:10px 0">⚠ Choisis deux decks différents.</div>';return;}
+  var deckA=decks[ida],deckB=decks[idb];
+  host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">⏳ Calcul des métriques (chargement Scryfall si besoin)…</div>';
+  // Pré-load des metadata
+  var allNls=[];
+  (deckA.cards||[]).concat(deckB.cards||[]).forEach(function(c){if(!_anaData[c.nl])allNls.push(c.nl);});
+  var fb=allNls.map(function(nl){return {nl:nl,name:nl};});
+  function _doRender(){
+    var mA=_anaCompareMetrics(deckA),mB=_anaCompareMetrics(deckB);
+    if(!mA||!mB){host.innerHTML='<div style="color:var(--rd2)">Erreur de chargement des métriques.</div>';return;}
+    host.innerHTML=_anaRenderCompare(mA,mB);
+  }
+  if(allNls.length&&typeof anaFetchMissing==='function')anaFetchMissing(allNls,fb,_doRender);
+  else _doRender();
+}
+function _anaRenderCompare(mA,mB){
+  function cell(val,col){return '<div style="text-align:center;padding:6px 4px;font-family:monospace;color:'+(col||'var(--tx)')+'">'+val+'</div>';}
+  function lbl(t){return '<div style="font-size:10.5px;color:var(--tx3);padding:6px 4px">'+t+'</div>';}
+  function deltaCol(a,b,higherBetter){
+    if(a===b)return['var(--tx2)','var(--tx2)'];
+    var aBetter=higherBetter?a>b:a<b;
+    return aBetter?['#78c890','#e07070']:['#e07070','#78c890'];
+  }
+  function num(n,d){return (typeof n==='number')?n.toFixed(d==null?1:d):'—';}
+  var html='<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:0;background:rgba(0,0,0,.3);border-radius:7px;overflow:hidden;font-size:11px">';
+  // Header
+  html+='<div style="background:rgba(201,168,76,.1);padding:8px 4px;font-size:10px;color:var(--gold2);text-align:center;letter-spacing:.04em">Métrique</div>';
+  html+='<div style="background:rgba(91,140,245,.1);padding:8px 4px;font-size:11px;color:#8ab0ff;text-align:center;font-family:Goudy Mediaeval,serif;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">A · '+esc(mA.deck.name||'?')+'</div>';
+  html+='<div style="background:rgba(255,160,80,.1);padding:8px 4px;font-size:11px;color:#ffb060;text-align:center;font-family:Goudy Mediaeval,serif;letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">B · '+esc(mB.deck.name||'?')+'</div>';
+  // Section structure
+  html+='<div style="grid-column:span 3;padding:5px 8px;background:rgba(0,0,0,.4);font-size:10px;color:var(--tx3);letter-spacing:.05em">STRUCTURE</div>';
+  function rowMetric(label,valA,valB,higherBetter,fmt){
+    var cols=deltaCol(valA,valB,higherBetter);
+    var fA=fmt?fmt(valA):valA,fB=fmt?fmt(valB):valB;
+    return lbl(label)+cell(fA,cols[0])+cell(fB,cols[1]);
+  }
+  html+=rowMetric('Total cartes',mA.totalCards,mB.totalCards,null,function(v){return v;});
+  html+=rowMetric('CMC moyen',mA.avgCmc,mB.avgCmc,false,function(v){return num(v,2);});
+  html+=rowMetric('Terrains',mA.counts.land,mB.counts.land,null,function(v){return v;});
+  // Section composition
+  html+='<div style="grid-column:span 3;padding:5px 8px;background:rgba(0,0,0,.4);font-size:10px;color:var(--tx3);letter-spacing:.05em">COMPOSITION</div>';
+  html+=rowMetric('🌿 Ramp',mA.counts.ramp,mB.counts.ramp,true,function(v){return Math.round(v);});
+  html+=rowMetric('📚 Pioche',mA.counts.draw,mB.counts.draw,true,function(v){return Math.round(v);});
+  html+=rowMetric('⚔ Removal',mA.counts.removal,mB.counts.removal,true,function(v){return Math.round(v);});
+  html+=rowMetric('🛡 Interaction',mA.counts.interaction,mB.counts.interaction,true,function(v){return Math.round(v);});
+  html+=rowMetric('⚡ Menaces',mA.counts.wincon,mB.counts.wincon,true,function(v){return Math.round(v);});
+  // Section manabase
+  html+='<div style="grid-column:span 3;padding:5px 8px;background:rgba(0,0,0,.4);font-size:10px;color:var(--tx3);letter-spacing:.05em">MANABASE</div>';
+  ['W','U','B','R','G'].forEach(function(col){
+    var sA=mA.manabase.sources[col],sB=mB.manabase.sources[col];
+    var dA=mA.manabase.demand[col],dB=mB.manabase.demand[col];
+    if(dA<=0&&dB<=0)return;
+    var ratioA=dA>0?sA/(mA.manabase.targets[col]||1):1,ratioB=dB>0?sB/(mB.manabase.targets[col]||1):1;
+    var colsR=deltaCol(ratioA,ratioB,true);
+    html+=lbl(col+' sources / cible');
+    html+=cell((dA>0?sA+'/'+mA.manabase.targets[col]:'—'),colsR[0]);
+    html+=cell((dB>0?sB+'/'+mB.manabase.targets[col]:'—'),colsR[1]);
+  });
+  // Section simulation
+  if(mA.sim&&mB.sim){
+    html+='<div style="grid-column:span 3;padding:5px 8px;background:rgba(0,0,0,.4);font-size:10px;color:var(--tx3);letter-spacing:.05em">SIMULATION (60 runs)</div>';
+    html+=rowMetric('Mulligan rate',mA.sim.mulRate,mB.sim.mulRate,false,function(v){return Math.round(v*100)+'%';});
+    html+=rowMetric('Mains mortes',mA.sim.deadHandRate,mB.sim.deadHandRate,false,function(v){return Math.round(v*100)+'%';});
+    html+=rowMetric('1er sort moyen',mA.sim.avgFirstSpell,mB.sim.avgFirstSpell,false,function(v){return 'T'+num(v,1);});
+    html+=rowMetric('Lands T5',mA.sim.avgManaT5,mB.sim.avgManaT5,true,function(v){return num(v,1);});
+    html+=rowMetric('Sorts cumul T7',mA.sim.avgSpellsT7,mB.sim.avgSpellsT7,true,function(v){return num(v,1);});
+    html+=rowMetric('Wincon atteint',mA.sim.winconReached,mB.sim.winconReached,true,function(v){return Math.round(v*100)+'%';});
+  }
+  html+='</div>';
+  // Verdict global
+  var pointsA=0,pointsB=0;
+  if(mA.avgCmc<mB.avgCmc)pointsA++;else if(mB.avgCmc<mA.avgCmc)pointsB++;
+  ['ramp','draw','removal','interaction','wincon'].forEach(function(k){
+    if(mA.counts[k]>mB.counts[k])pointsA++;else if(mB.counts[k]>mA.counts[k])pointsB++;
+  });
+  if(mA.sim&&mB.sim){
+    if(mA.sim.mulRate<mB.sim.mulRate)pointsA++;else if(mB.sim.mulRate<mA.sim.mulRate)pointsB++;
+    if(mA.sim.winconReached>mB.sim.winconReached)pointsA++;else if(mB.sim.winconReached>mA.sim.winconReached)pointsB++;
+    if(mA.sim.avgFirstSpell<mB.sim.avgFirstSpell)pointsA++;else if(mB.sim.avgFirstSpell<mA.sim.avgFirstSpell)pointsB++;
+  }
+  var verdict='';
+  if(pointsA>pointsB)verdict='🏆 <b style="color:#8ab0ff">Deck A</b> domine sur '+pointsA+' métrique(s) vs '+pointsB+' pour B';
+  else if(pointsB>pointsA)verdict='🏆 <b style="color:#ffb060">Deck B</b> domine sur '+pointsB+' métrique(s) vs '+pointsA+' pour A';
+  else verdict='⚖ Decks équivalents ('+pointsA+'-'+pointsB+')';
+  html+='<div style="margin-top:8px;padding:8px 10px;background:rgba(201,168,76,.08);border:.5px solid var(--gold);border-radius:7px;text-align:center;font-size:11.5px;color:var(--tx2)">'+verdict+'</div>';
+  return html;
+}
 function _anaGetDeck(deckId){
   if(!deckId)return null;
   if(deckId.startsWith('ep:')){
