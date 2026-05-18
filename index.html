@@ -20183,6 +20183,37 @@ function ntfRenderPicks(){
         '<button onclick="ntfRemove(\''+s+'\','+i+')" style="background:none;border:none;color:var(--rd2);cursor:pointer;padding:0 0 0 3px;font-size:.9rem;line-height:1">×</button></span>';
     }).join('');
   });
+  // Balance par valeur (delta €) — visible uniquement pour 'exchange'
+  var balEl=document.getElementById('ntf-balance');
+  if(!balEl){
+    var anchor=document.getElementById('ntf-rlist');
+    if(anchor&&anchor.parentNode){
+      balEl=document.createElement('div');balEl.id='ntf-balance';
+      balEl.style.cssText='margin-top:10px;padding:8px 12px;background:rgba(0,0,0,.3);border-radius:8px;border:.5px solid var(--bd2);font-size:.78rem;display:none';
+      anchor.parentNode.appendChild(balEl);
+    }
+  }
+  if(!balEl)return;
+  if(ntfType!=='exchange'){balEl.style.display='none';return;}
+  if(!ntfOffered.length&&!ntfRequested.length){balEl.style.display='none';return;}
+  var totO=ntfOffered.reduce(function(s,c){return s+(c.price||0)*(c.qty||1);},0);
+  var totR=ntfRequested.reduce(function(s,c){return s+(c.price||0)*(c.qty||1);},0);
+  var delta=totO-totR; // positif = tu donnes plus que tu reçois
+  var absD=Math.abs(delta);
+  var deltaCol=absD<1?'var(--gr2)':absD<5?'var(--am)':'var(--rd2)';
+  var deltaTxt=absD<1?'⚖ Équilibré':(delta>0?'⚠ Tu donnes '+delta.toFixed(2)+'€ de plus':'⚠ Tu reçois '+absD.toFixed(2)+'€ de plus');
+  var html='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+  html+='<span>📤 <b style="color:var(--tx2)">Tu donnes</b> : '+totO.toFixed(2)+'€</span>';
+  html+='<span>📥 <b style="color:var(--tx2)">Tu reçois</b> : '+totR.toFixed(2)+'€</span>';
+  html+='<span style="color:'+deltaCol+';font-weight:600;margin-left:auto">'+deltaTxt+'</span>';
+  html+='</div>';
+  // Suggestion d'équilibrage : carte basique 1-2€
+  if(absD>=2){
+    var side=delta>0?'reçoit':'donne';
+    var sideArr=delta>0?ntfRequested:ntfOffered;
+    html+='<div style="font-size:10.5px;color:var(--tx3);margin-top:4px;font-style:italic">💡 Ajoute une carte ~'+absD.toFixed(2)+'€ côté "'+side+'" pour équilibrer.</div>';
+  }
+  balEl.innerHTML=html;balEl.style.display='block';
 }
 function ntfSubmit(){
   if(ntfFrom===ntfTo){alert('Les profils doivent être différents');return;}
