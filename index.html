@@ -23432,6 +23432,50 @@ function anaFormatRules(fmt){
 
 /* ----- Format-aware targets ----- */
 function anaIsCommanderFormat(fmt){return ['commander','paupercmd','brawl','oathbreaker'].indexOf(fmt)>=0;}
+// Détecteur de faiblesses : scan oracle texts pour réponses critiques manquantes
+function _anaWeaknessScan(deck,fmt){
+  var isComm=anaIsCommanderFormat(fmt);
+  var hits={boardwipe:0,enchRem:0,artRem:0,graveHate:0,spotRem:0,ramp:0,cmdProtection:0,massDraw:0,counterMagic:0,recursion:0};
+  (deck.cards||[]).forEach(function(c){
+    var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()]||{};
+    var o=(meta.oracleText||'').toLowerCase();
+    var qty=c.qty||1;
+    if(!o)return;
+    if(/destroy all (creatures|nonland permanents)|exile all (creatures|nonland permanents)|destroy each (creature|nonland permanent)/.test(o))hits.boardwipe+=qty;
+    if(/destroy target enchantment|exile target enchantment|return target enchantment to.*owner.*hand|destroy target nonland permanent|exile target nonland permanent|destroy target non-?land permanent/.test(o))hits.enchRem+=qty;
+    if(/destroy target artifact|exile target artifact|return target artifact to.*owner.*hand/.test(o))hits.artRem+=qty;
+    if(/exile target (player.s |opponent.s )?graveyard|exile (all cards from|target card from a) .*graveyard|each opponent('s)? exiles? .*graveyard|graveyards? are exiled/.test(o))hits.graveHate+=qty;
+    if(/destroy target creature|exile target creature|return target creature to.*owner.*hand|fight target creature|deals \d+ damage to target (creature|any target)/.test(o))hits.spotRem+=qty;
+    if(/search your library for (a|up to (one|two|three|four)) (basic )?land|add \{[wubrgcxs0-9]\}|adds? one mana|adds? two mana|create.*treasure token|put a land card.*onto the battlefield/.test(o))hits.ramp+=qty;
+    if(/hexproof|indestructible|protection from|ward|prevent all damage.*dealt to.*creatures you control|creatures you control gain (indestructible|hexproof|protection)/.test(o))hits.cmdProtection+=qty;
+    if(/draws? (two|three|four|five|six|seven|x) cards|draws? cards equal to|draws? that many cards/.test(o))hits.massDraw+=qty;
+    if(/counter target/.test(o))hits.counterMagic+=qty;
+    if(/return.*from.*graveyard.*(battlefield|hand|library)|put.*from.*graveyard.*battlefield|reanimat/.test(o))hits.recursion+=qty;
+  });
+  // Seuils par format
+  var th=isComm
+    ? {boardwipe:[1,3],enchRem:[1,2],artRem:[1,2],graveHate:[0,1],spotRem:[3,6],ramp:[6,10],cmdProtection:[1,3],massDraw:[6,10],counterMagic:[0,3],recursion:[0,2]}
+    : {boardwipe:[0,2],enchRem:[0,2],artRem:[0,2],graveHate:[0,1],spotRem:[2,4],ramp:[0,2],cmdProtection:[0,0],massDraw:[2,4],counterMagic:[0,2],recursion:[0,1]};
+  var defs=[
+    {k:'boardwipe',lbl:'Anti-board (wipe)',ico:'🌊',rec:'Wrath of God / Damnation / Toxic Deluge / Blasphemous Act'},
+    {k:'enchRem',lbl:'Removal enchantement',ico:'🌿',rec:'Krosan Grip / Disenchant / Generous Gift / Naturalize'},
+    {k:'artRem',lbl:'Removal artefact',ico:'⚙',rec:'Krosan Grip / Vandalblast / Reclamation Sage'},
+    {k:'graveHate',lbl:'Hate cimetière',ico:'🪦',rec:'Bojuka Bog / Tormod\'s Crypt / Soul-Guide Lantern / Rest in Peace'},
+    {k:'spotRem',lbl:'Spot removal créature',ico:'⚔',rec:'Swords to Plowshares / Path to Exile / Beast Within'},
+    {k:'ramp',lbl:'Ramp',ico:'🌱',rec:'Sol Ring / Arcane Signet / Cultivate / Three Visits'},
+    {k:'cmdProtection',lbl:'Protection',ico:'🛡',rec:'Lightning Greaves / Swiftfoot Boots / Heroic Intervention'},
+    {k:'massDraw',lbl:'Pioche / card advantage',ico:'📚',rec:'Rhystic Study / Sylvan Library / Phyrexian Arena / Esper Sentinel'},
+    {k:'counterMagic',lbl:'Contresorts',ico:'🪶',rec:'Counterspell / Swan Song / Negate (si profil contrôle)'},
+    {k:'recursion',lbl:'Recursion cimetière',ico:'♻',rec:'Eternal Witness / Sun Titan / Regrowth / Animate Dead'}
+  ];
+  var critical=[],minor=[];
+  defs.forEach(function(d){
+    var n=hits[d.k],seuil=th[d.k];
+    if(n<=seuil[0])critical.push({def:d,count:n,target:seuil[1]});
+    else if(n<seuil[1])minor.push({def:d,count:n,target:seuil[1]});
+  });
+  return {critical:critical,minor:minor,hits:hits,isComm:isComm};
+}
 function anaTargets(fmt,totalCards,themes){
   var th=themes||{};
   var drawMult=th.draw||1;var rampMult=th.ramp||1;var winconMult=th.wincon||1;
@@ -26623,52 +26667,35 @@ function anaRender(deckId){
   });
   _curveHtml+='</div><div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div></div>';
 
-  // === Probabilités de partie (loi hypergéométrique) ===
-  // Pour chaque type d'effet clé, calcule la proba d'en avoir ≥1 dans la main d'ouverture
-  // et de l'avoir piochée d'ici le tour N.
-  var _probHtml=(function(){
-    var totalCardsP=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
-    if(totalCardsP<7)return '';
-    // Hypergéométrique : P(X≥k) avec K succès dans N=totalCardsP, n cartes piochées
-    function probAtLeast1(K,n){
-      if(K<=0||n<=0||totalCardsP<=0)return 0;
-      // P(X=0) = C(N-K, n) / C(N, n)
-      var p0=1;
-      for(var i=0;i<n;i++){
-        if(totalCardsP-K-i<=0){p0=0;break;}
-        p0*=(totalCardsP-K-i)/(totalCardsP-i);
-      }
-      return 1-p0;
+  // Retiré : "Probabilités de partie" → doublon avec la "Simulation 100 parties" plus précise
+  var _probHtml="";
+  // === Détecteur de faiblesses : scan des réponses critiques manquantes ===
+  var _weakHtml=(function(){
+    var w=_anaWeaknessScan(deck,fmt);
+    if(!w.critical.length&&!w.minor.length)return '<div class="card" style="border-color:rgba(100,200,120,.3)"><div class="lbl" style="color:var(--gr2)">🛡 Détecteur de faiblesses</div><div style="font-size:11.5px;color:var(--gr2);padding:6px 0">✓ Aucune faiblesse critique détectée — toutes les catégories essentielles sont couvertes pour ce format.</div></div>';
+    var html='<div class="card"><div class="lbl">🛡 Détecteur de faiblesses</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Catégories de cartes pivots dont le deck manque (seuils '+(w.isComm?'Commander':'standard')+'). Scan des oracles via patterns FR/EN.</div>';
+    if(w.critical.length){
+      html+='<div style="font-size:11px;color:var(--rd2);margin-bottom:4px;font-weight:600">🔴 Critique ('+w.critical.length+')</div>';
+      w.critical.forEach(function(x){
+        html+='<div style="padding:6px 9px;background:rgba(200,80,80,.1);border-left:2px solid var(--rd2);border-radius:0 5px 5px 0;margin-bottom:4px">';
+        html+='<div style="display:flex;align-items:center;gap:6px;font-size:11.5px"><b style="color:var(--rd2);min-width:24px">'+x.def.ico+'</b><span style="flex:1;color:var(--tx2)">'+x.def.lbl+'</span><span style="font-family:monospace;color:var(--rd2);font-size:10.5px">'+x.count+'/'+x.target+'</span></div>';
+        html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;padding-left:30px;font-style:italic">Suggestions : '+x.def.rec+'</div>';
+        html+='</div>';
+      });
     }
-    // Compte les cartes par catégorie utile
-    var keyCounts={ramp:0,draw:0,removal:0,land:0,wincon:0,interaction:0};
-    rows.forEach(function(r){
-      if(!r.inCache)return;var qty=r.card.qty||1;var rl=r.roles;
-      Object.keys(keyCounts).forEach(function(k){if(rl[k])keyCounts[k]+=qty;});
-    });
-    var openHand=7;
-    var html='<div class="card"><div class="lbl">Probabilités d\'avoir un effet</div>';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Chance d\'avoir AU MOINS 1 carte de chaque catégorie dans la main d\'ouverture (7) puis aux tours suivants (+1 carte/tour).</div>';
-    var lbls={land:'Terrain ⛰',ramp:'Ramp 🌿',draw:'Pioche 📚',removal:'Removal ⚔',wincon:'Menace ⚡',interaction:'Interaction 🛡'};
-    var keys=['land','ramp','draw','removal','interaction','wincon'];
-    // Header
-    html+='<div style="display:grid;grid-template-columns:1.2fr repeat(4,1fr);gap:6px;font-size:10.5px;color:var(--tx3);padding:3px 4px;border-bottom:.5px solid var(--bd2)"><div></div><div style="text-align:right">Main (7)</div><div style="text-align:right">T3 (9)</div><div style="text-align:right">T5 (11)</div><div style="text-align:right">T8 (14)</div></div>';
-    keys.forEach(function(k){
-      var K=keyCounts[k];if(!K)return;
-      var p7=probAtLeast1(K,7),p9=probAtLeast1(K,9),p11=probAtLeast1(K,11),p14=probAtLeast1(K,14);
-      function pct(p){var v=Math.round(p*100);var col=v>=80?'var(--gr2)':v>=50?'var(--am)':'var(--rd2)';return '<span style="color:'+col+';font-weight:600">'+v+'%</span>';}
-      html+='<div style="display:grid;grid-template-columns:1.2fr repeat(4,1fr);gap:6px;font-size:11px;padding:4px 4px;border-bottom:.5px solid rgba(255,255,255,.04);align-items:center">';
-      html+='<div style="color:var(--tx2)">'+lbls[k]+' <span style="color:var(--tx3);font-size:10px">×'+K+'</span></div>';
-      html+='<div style="text-align:right;font-family:monospace">'+pct(p7)+'</div>';
-      html+='<div style="text-align:right;font-family:monospace">'+pct(p9)+'</div>';
-      html+='<div style="text-align:right;font-family:monospace">'+pct(p11)+'</div>';
-      html+='<div style="text-align:right;font-family:monospace">'+pct(p14)+'</div>';
-      html+='</div>';
-    });
-    html+='<div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">Loi hypergéométrique sur '+totalCardsP+' cartes. Vert ≥ 80%, ambre ≥ 50%, rouge sinon.</div>';
+    if(w.minor.length){
+      html+='<div style="font-size:11px;color:var(--am);margin:8px 0 4px;font-weight:600">🟠 Léger ('+w.minor.length+')</div>';
+      w.minor.forEach(function(x){
+        html+='<div style="padding:5px 9px;background:rgba(255,140,40,.07);border-left:2px solid var(--am);border-radius:0 5px 5px 0;margin-bottom:3px">';
+        html+='<div style="display:flex;align-items:center;gap:6px;font-size:11px"><b style="color:var(--am);min-width:24px">'+x.def.ico+'</b><span style="flex:1;color:var(--tx2)">'+x.def.lbl+'</span><span style="font-family:monospace;color:var(--am);font-size:10.5px">'+x.count+'/'+x.target+'</span></div>';
+        html+='</div>';
+      });
+    }
     html+='</div>';
     return html;
   })();
+
   // === Game-flow heatmap : action probable par tour (1..10) ===
   // Simule l'action attendue à chaque tour : par exemple T1 → land + 1-CMC sort,
   // T3 → land + 3-CMC sort, etc. Couvre l'idée de courbe jouée.
@@ -27005,7 +27032,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_flowHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -27014,7 +27041,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_flowHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
