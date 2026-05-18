@@ -646,7 +646,13 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .gcolor-btn i.ms{font-size:1.15rem}
 .gcolor-btn.on{opacity:1;border-color:#fff;transform:scale(1.18)}
 .gimg-btn{background:none;border:.5px solid var(--bd2);border-radius:6px;padding:2px 6px;font-size:.72rem;color:var(--tx3);cursor:pointer;white-space:nowrap;flex-shrink:0}
-.collhdr{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
+.collhdr{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px;position:sticky;top:0;background:var(--s1);z-index:5;backdrop-filter:blur(6px)}
+/* Aide raccourcis clavier overlay */
+#kbd-help-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+#kbd-help-overlay.on{display:flex}
+#kbd-help-box{background:linear-gradient(180deg,#1a120a,#0c0805);border:1.5px solid rgba(201,168,76,.5);border-radius:14px;padding:24px 28px;max-width:560px;width:90%;max-height:88vh;overflow-y:auto;box-shadow:0 22px 60px rgba(0,0,0,.92)}
+.kbd-row{display:flex;align-items:center;gap:12px;padding:5px 0;font-size:13px}
+.kbd-row kbd{font-family:monospace;font-size:11.5px;padding:2px 7px;background:rgba(201,168,76,.18);border:.5px solid rgba(201,168,76,.5);border-radius:5px;color:var(--gold2);min-width:32px;text-align:center}
 .collhdr>div{cursor:pointer;user-select:none;transition:color .1s}
 .collhdr>div:hover{color:var(--tx)}
 .collrow{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:pointer}
@@ -1537,6 +1543,29 @@ body.mana-cursor{cursor:none}
 <body>
 <!-- Fond thématique fixe — indépendant du body pour éviter les conflits overflow -->
 <div id="ml-theme-bg" style="position:fixed;inset:0;z-index:0;pointer-events:none;"></div>
+<!-- Overlay raccourcis clavier (? ou Ctrl+/) -->
+<div id="kbd-help-overlay" onclick="if(event.target===this)closeKbdHelp()">
+  <div id="kbd-help-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:1.1rem">⌨ Raccourcis clavier</div>
+      <button class="btn btnsm" onclick="closeKbdHelp()">✕</button>
+    </div>
+    <div style="font-size:11px;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;margin:8px 0 4px">Navigation</div>
+    <div class="kbd-row"><kbd>Ctrl+1</kbd> Collection</div>
+    <div class="kbd-row"><kbd>Ctrl+2</kbd> Constructeur</div>
+    <div class="kbd-row"><kbd>Ctrl+3</kbd> Deck Manager</div>
+    <div class="kbd-row"><kbd>Ctrl+4</kbd> Analyse</div>
+    <div class="kbd-row"><kbd>Ctrl+5</kbd> Arène</div>
+    <div class="kbd-row"><kbd>Ctrl+6</kbd> Échanges</div>
+    <div style="font-size:11px;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;margin:14px 0 4px">Recherche</div>
+    <div class="kbd-row"><kbd>Ctrl+K</kbd> Focus champ de recherche (page active)</div>
+    <div class="kbd-row"><kbd>/</kbd> Focus aussi (sans modifiers, hors input)</div>
+    <div style="font-size:11px;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;margin:14px 0 4px">Général</div>
+    <div class="kbd-row"><kbd>?</kbd> Cette aide</div>
+    <div class="kbd-row"><kbd>Esc</kbd> Ferme modal / overlay</div>
+    <div class="kbd-row"><kbd>Ctrl+Z</kbd> Undo (collection / deck)</div>
+  </div>
+</div>
 
 <!-- Loading overlay -->
 <div id="loading-overlay">
@@ -5686,6 +5715,56 @@ function getProfCards(i){
 // ===== TABS =====
 function openDeckModal(){goTab('deck');}
 function closeDeckModal(){goTab('build');}
+// ===== Raccourcis clavier globaux =====
+function openKbdHelp(){var o=document.getElementById('kbd-help-overlay');if(o)o.classList.add('on');}
+function closeKbdHelp(){var o=document.getElementById('kbd-help-overlay');if(o)o.classList.remove('on');}
+(function(){
+  if(typeof window==='undefined')return;
+  var TAB_KEYS={'1':'coll','2':'build','3':'deck','4':'analyse','5':'arena','6':'trade'};
+  document.addEventListener('keydown',function(e){
+    var tag=(e.target&&e.target.tagName||'').toLowerCase();
+    var isInput=tag==='input'||tag==='textarea'||tag==='select'||(e.target&&e.target.isContentEditable);
+    // Esc : ferme modals/overlays connus
+    if(e.key==='Escape'){
+      var kbd=document.getElementById('kbd-help-overlay');if(kbd&&kbd.classList.contains('on')){closeKbdHelp();return;}
+      var modal=document.querySelector('.ar-zone-ov[style*="display: flex"], #arena-ov[style*="display: flex"]');
+      // Laisse les handlers existants gérer
+    }
+    // ? ou Shift+/ : aide (hors input)
+    if(!isInput&&(e.key==='?'||(e.shiftKey&&e.key==='/'))){
+      e.preventDefault();openKbdHelp();return;
+    }
+    if(e.ctrlKey||e.metaKey){
+      // Ctrl+1..6 : tabs
+      if(TAB_KEYS[e.key]){
+        e.preventDefault();
+        var id=TAB_KEYS[e.key];
+        var btn=document.getElementById('tb-'+id);
+        if(btn&&typeof btn.click==='function')btn.click();
+        else if(typeof goTab==='function')goTab(id);
+        return;
+      }
+      // Ctrl+K / Ctrl+/ : focus search dans la page active
+      if(e.key==='k'||e.key==='/'){
+        e.preventDefault();
+        var active=document.querySelector('.page.active');
+        if(!active)return;
+        // Cherche le 1er input visible (search ou text)
+        var search=active.querySelector('input[type="text"][id*="srch"], input[type="text"][placeholder*="echerch"], input[type="text"][placeholder*="ercher"], input[type="text"]');
+        if(search){search.focus();search.select&&search.select();}
+        return;
+      }
+    }
+    // / sans modifiers (hors input) → focus search aussi
+    if(!isInput&&e.key==='/'&&!e.ctrlKey&&!e.metaKey){
+      e.preventDefault();
+      var active2=document.querySelector('.page.active');
+      if(!active2)return;
+      var s2=active2.querySelector('input[type="text"][id*="srch"], input[type="text"][placeholder*="echerch"], input[type="text"]');
+      if(s2){s2.focus();s2.select&&s2.select();}
+    }
+  });
+})();
 function goTab(id) {
   document.querySelectorAll('.page').forEach(function(el){el.classList.remove('active');});
   document.querySelectorAll('.tab-btn').forEach(function(el){el.classList.remove('active');});
