@@ -2074,6 +2074,7 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm" onclick="document.getElementById('coll-import-fin').click()" title="Remplace toute la collection par ce fichier CSV">⬆ Import complet</button>
       <button class="btn btnsm" onclick="document.getElementById('coll-update-fin').click()" title="Ajoute uniquement les cartes absentes de la collection actuelle">⬆ Màj collection</button>
       <button class="btn btnsm" onclick="exportCollCSV()">⬇ Exporter</button>
+      <button class="btn btnsm" onclick="toggleCollDashboard()" title="Vue d'ensemble de la collection : valeur totale, répartition par couleur/rareté, top cartes">📊 Dashboard</button>
       <button class="btn btnsm" id="scryfall-offline-btn" onclick="toggleScryfallOffline()" title="Basculer entre mode en ligne (API Scryfall) et hors ligne (données locales uniquement)"></button>
       <input type="file" id="coll-import-fin" accept=".csv" style="display:none" onchange="importCollCSV(this)">
       <input type="file" id="coll-update-fin" accept=".csv" style="display:none" onchange="importCollUpdate(this)">
@@ -2130,6 +2131,7 @@ body.mana-cursor{cursor:none}
       </div>
     </div>
   </div>
+  <div class="card" id="coll-dashboard" style="display:none;margin-top:8px"></div>
   <div class="card" id="collcard" style="display:none">
     <div class="g3" id="collstats" style="margin-bottom:6px"></div>
     <div id="collbreak" style="margin-bottom:8px"></div>
@@ -19160,6 +19162,130 @@ function sortColl(field){
 function toggleCollSortDir(){
   collSort.dir*=-1;
   renderColl();
+}
+// ===== Collection Dashboard =====
+function toggleCollDashboard(){
+  var el=document.getElementById('coll-dashboard');if(!el)return;
+  if(el.style.display==='none'||!el.style.display){
+    el.style.display='block';renderCollDashboard();
+  }else el.style.display='none';
+}
+function renderCollDashboard(){
+  var el=document.getElementById('coll-dashboard');if(!el)return;
+  var cards=getProfCards(collP);
+  if(!cards.length){el.innerHTML='<div style="color:var(--tx3);font-style:italic;text-align:center;padding:14px">Collection vide.</div>';return;}
+  var unique=cards.length;
+  var totalExemplaires=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+  var totalValue=cards.reduce(function(s,c){return s+(c.price||0)*(c.qty||1);},0);
+  // Répartition par couleur
+  var colorDist={W:0,U:0,B:0,R:0,G:0,M:0,C:0}; // M=multicolor, C=colorless
+  var rarityDist={common:0,uncommon:0,rare:0,mythic:0,other:0};
+  var setDist={}; // set → count
+  var topCards=[];
+  cards.forEach(function(c){
+    var qty=c.qty||1;
+    var cached=collCache[c.name.toLowerCase()];
+    if(cached){
+      var cols=cached.colors||[];
+      if(cols.length===0)colorDist.C+=qty;
+      else if(cols.length>1)colorDist.M+=qty;
+      else colorDist[cols[0]]=(colorDist[cols[0]]||0)+qty;
+      var r=cached.rarity||'other';
+      if(rarityDist.hasOwnProperty(r))rarityDist[r]+=qty;
+      else rarityDist.other+=qty;
+    }else{
+      colorDist.C+=qty; // assume colorless si pas en cache (peu impact)
+    }
+    if(c.set)setDist[c.set]=(setDist[c.set]||0)+qty;
+    var price=c.price||0;
+    if(price>0)topCards.push({name:c.name,set:c.set||'',qty:qty,price:price,total:price*qty});
+  });
+  topCards.sort(function(a,b){return b.price-a.price;});
+  // Sets triés par nombre
+  var sortedSets=Object.keys(setDist).sort(function(a,b){return setDist[b]-setDist[a];}).slice(0,10);
+  // Build HTML
+  var colNames={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',M:'Multi',C:'Incolore'};
+  var colCss={W:'#c8b870',U:'#4090ff',B:'#9060c0',R:'#ff5040',G:'#30b048',M:'linear-gradient(90deg,#c8b870,#4090ff,#9060c0,#ff5040,#30b048)',C:'#888'};
+  var rarNames={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique',other:'Autre'};
+  var rarCss={common:'#888',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030',other:'#666'};
+  var html='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+  html+='<div class="lbl" style="margin:0">📊 Dashboard collection</div>';
+  html+='<button class="btn btnsm" onclick="toggleCollDashboard()">✕</button>';
+  html+='</div>';
+  // KPIs en grille
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px">';
+  html+='<div class="stat"><div class="sv">'+totalExemplaires.toLocaleString('fr-FR')+'</div><div class="sl">Cartes (total)</div></div>';
+  html+='<div class="stat"><div class="sv">'+unique.toLocaleString('fr-FR')+'</div><div class="sl">Lignes uniques</div></div>';
+  html+='<div class="stat"><div class="sv" style="color:var(--gold2)">'+totalValue.toLocaleString('fr-FR',{maximumFractionDigits:2})+'€</div><div class="sl">Valeur totale</div></div>';
+  html+='<div class="stat"><div class="sv">'+Object.keys(setDist).length+'</div><div class="sl">Sets représentés</div></div>';
+  html+='</div>';
+  // Répartition par couleur
+  var totalColored=Object.keys(colorDist).reduce(function(s,k){return s+colorDist[k];},0)||1;
+  html+='<div style="font-size:11px;color:var(--tx3);margin-bottom:4px;font-family:Goudy Mediaeval,serif;letter-spacing:.05em;text-transform:uppercase">Répartition par couleur</div>';
+  html+='<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;margin-bottom:6px;background:rgba(0,0,0,.4)">';
+  ['W','U','B','R','G','M','C'].forEach(function(c){
+    var v=colorDist[c];if(!v)return;
+    var pct=v/totalColored*100;
+    html+='<div style="background:'+colCss[c]+';width:'+pct.toFixed(1)+'%" title="'+colNames[c]+' : '+v+' ('+pct.toFixed(1)+'%)"></div>';
+  });
+  html+='</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:10.5px;color:var(--tx3);margin-bottom:14px">';
+  ['W','U','B','R','G','M','C'].forEach(function(c){
+    var v=colorDist[c];if(!v)return;
+    html+='<span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+(c==='M'?'#c8b870':colCss[c])+';margin-right:4px;vertical-align:middle"></span>'+colNames[c]+' <b style="color:var(--tx2)">'+v+'</b></span>';
+  });
+  html+='</div>';
+  // Répartition par rareté
+  var totalRar=Object.keys(rarityDist).reduce(function(s,k){return s+rarityDist[k];},0)||1;
+  html+='<div style="font-size:11px;color:var(--tx3);margin-bottom:4px;font-family:Goudy Mediaeval,serif;letter-spacing:.05em;text-transform:uppercase">Répartition par rareté</div>';
+  html+='<div style="display:flex;height:18px;border-radius:5px;overflow:hidden;margin-bottom:6px;background:rgba(0,0,0,.4)">';
+  ['common','uncommon','rare','mythic','other'].forEach(function(r){
+    var v=rarityDist[r];if(!v)return;
+    var pct=v/totalRar*100;
+    html+='<div style="background:'+rarCss[r]+';width:'+pct.toFixed(1)+'%" title="'+rarNames[r]+' : '+v+' ('+pct.toFixed(1)+'%)"></div>';
+  });
+  html+='</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:10.5px;color:var(--tx3);margin-bottom:14px">';
+  ['common','uncommon','rare','mythic','other'].forEach(function(r){
+    var v=rarityDist[r];if(!v)return;
+    html+='<span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+rarCss[r]+';margin-right:4px;vertical-align:middle"></span>'+rarNames[r]+' <b style="color:var(--tx2)">'+v+'</b></span>';
+  });
+  html+='</div>';
+  // Top 10 cartes les plus chères
+  if(topCards.length){
+    html+='<div style="font-size:11px;color:var(--tx3);margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.05em;text-transform:uppercase">Top 10 cartes les plus chères</div>';
+    html+='<div style="display:grid;grid-template-columns:30px 1fr 70px 60px 70px;gap:0;background:rgba(0,0,0,.3);border-radius:6px;overflow:hidden;margin-bottom:14px;font-size:11px">';
+    html+='<div style="background:rgba(201,168,76,.1);padding:5px;color:var(--gold2);text-align:center;font-size:9.5px">#</div>';
+    html+='<div style="background:rgba(201,168,76,.1);padding:5px 8px;color:var(--gold2);font-size:9.5px">Carte</div>';
+    html+='<div style="background:rgba(201,168,76,.1);padding:5px;color:var(--gold2);text-align:center;font-size:9.5px">Set</div>';
+    html+='<div style="background:rgba(201,168,76,.1);padding:5px;color:var(--gold2);text-align:center;font-size:9.5px">Prix</div>';
+    html+='<div style="background:rgba(201,168,76,.1);padding:5px;color:var(--gold2);text-align:center;font-size:9.5px">×qty</div>';
+    topCards.slice(0,10).forEach(function(c,i){
+      var bg=i%2===0?'rgba(0,0,0,.18)':'rgba(0,0,0,.05)';
+      html+='<div style="padding:5px;background:'+bg+';text-align:center;color:var(--tx3);font-family:monospace">'+(i+1)+'</div>';
+      html+='<div style="padding:5px 8px;background:'+bg+';color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</div>';
+      html+='<div style="padding:5px;background:'+bg+';text-align:center;color:var(--tx3);font-size:10px">'+esc(c.set)+'</div>';
+      html+='<div style="padding:5px;background:'+bg+';text-align:center;color:var(--gold2);font-family:monospace">'+c.price.toFixed(2)+'€</div>';
+      html+='<div style="padding:5px;background:'+bg+';text-align:center;color:var(--tx2);font-family:monospace">'+c.qty+'</div>';
+    });
+    html+='</div>';
+  }
+  // Top sets
+  if(sortedSets.length){
+    html+='<div style="font-size:11px;color:var(--tx3);margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.05em;text-transform:uppercase">Top 10 sets représentés</div>';
+    var maxSetCount=setDist[sortedSets[0]];
+    html+='<div style="display:flex;flex-direction:column;gap:3px">';
+    sortedSets.forEach(function(s){
+      var n=setDist[s];var pct=(n/maxSetCount*100).toFixed(0);
+      html+='<div style="display:flex;align-items:center;gap:6px;font-size:11px">';
+      html+='<span style="color:var(--tx2);min-width:70px">'+esc(s)+'</span>';
+      html+='<div style="flex:1;height:11px;background:rgba(0,0,0,.3);border-radius:3px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:var(--gold2)"></div></div>';
+      html+='<span style="color:var(--tx3);font-family:monospace;min-width:40px;text-align:right">'+n+' cartes</span>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  el.innerHTML=html;
 }
 function renderColl(){
   // Re-render profile slots to update info badges
