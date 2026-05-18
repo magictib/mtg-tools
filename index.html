@@ -12478,30 +12478,71 @@ function _arRenderSparkline(){
     +'<circle cx="'+pts[pts.length-1].split(',')[0]+'" cy="'+pts[pts.length-1].split(',')[1]+'" r="2" fill="'+color+'"/>';
 }
 function arAutoArrangeField(){
-  // Range mes propres permanents par type sur 2 rangées : créatures haut, autres bas
+  // Range les permanents par type sur des rangées MTGA-style :
+  // - Mode solo : mes cartes en bas (créatures bord, autres au-dessus)
+  // - Mode MP : adversaires en haut (miroir), moi en bas
+  // - Wrap automatique si trop de cartes pour une rangée
   var fieldEl=document.getElementById('ar-field');if(!fieldEl)return;
   var rect=fieldEl.getBoundingClientRect();
   var myPn=_arRoom?_arRoom.playerNum:0;
-  var mine=_ar.field.filter(function(c){return !c.owner||c.owner===myPn;});
-  if(!mine.length)return;
-  var creatures=[],others=[];
-  mine.forEach(function(c){
+  var isMP=!!_arRoom;
+  var cardW=82,cardH=115,gap=8,pad=12;
+  var rowH=cardH+gap;
+  function categorize(c){
     var d=_arCardDataCache[(c.name||'').toLowerCase()];
     var tl=(d&&d.type_line||'').toLowerCase();
-    if(tl.includes('creature')||tl.includes('summon'))creatures.push(c);
-    else others.push(c);
+    if(tl.indexOf('creature')>=0||tl.indexOf('summon')>=0)return 'creature';
+    if(tl.indexOf('planeswalker')>=0)return 'planeswalker';
+    return 'other';
+  }
+  function packRows(arr){
+    var perRow=Math.max(1,Math.floor((rect.width-2*pad)/(cardW+gap)));
+    var rows=[];
+    for(var i=0;i<arr.length;i+=perRow)rows.push(arr.slice(i,i+perRow));
+    return rows;
+  }
+  // Place un bloc : anchorTop=true → empile vers le bas depuis baseY (haut du plateau)
+  //                anchorTop=false → empile vers le haut depuis baseY (bas du plateau)
+  function placeBlock(arr,baseY,anchorTop){
+    if(!arr.length)return 0;
+    var rows=packRows(arr);
+    rows.forEach(function(row,ri){
+      var y=anchorTop?baseY+ri*rowH:baseY-(rows.length-1-ri)*rowH;
+      var totalW=row.length*cardW+(row.length-1)*gap;
+      var startX=Math.max(pad,Math.floor((rect.width-totalW)/2));
+      row.forEach(function(c,i){c.x=startX+i*(cardW+gap);c.y=y;});
+    });
+    return rows.length;
+  }
+  // Sépare mes cartes vs adversaires
+  var mine=[],opp=[];
+  _ar.field.forEach(function(c){
+    if(!isMP||!c.owner||c.owner===myPn)mine.push(c);
+    else opp.push(c);
   });
-  var cardW=82,cardH=115,gap=8;
-  // Y des rangées : créatures en haut de MA moitié (~55% de la hauteur), autres juste en dessous
-  var rowCreatY=Math.floor(rect.height*0.30);
-  var rowOtherY=Math.floor(rect.height*0.55);
-  var placeRow=function(arr,y){
-    var totalW=arr.length*cardW+(arr.length-1)*gap;
-    var startX=Math.max(8,Math.floor((rect.width-totalW)/2));
-    arr.forEach(function(c,i){c.x=startX+i*(cardW+gap);c.y=y;c.tapped=c.tapped;});
-  };
-  placeRow(creatures,rowCreatY);
-  placeRow(others,rowOtherY);
+  // MES PERMANENTS — en bas (créatures bord, autres juste au-dessus, planeswalkers entre)
+  var myCreats=mine.filter(function(c){return categorize(c)==='creature';});
+  var myPws=mine.filter(function(c){return categorize(c)==='planeswalker';});
+  var myOthers=mine.filter(function(c){return categorize(c)==='other';});
+  var myBaseY=rect.height-cardH-pad; // créatures au plus bas
+  var creatRows=placeBlock(myCreats,myBaseY,false);
+  // Planeswalkers : rangée juste au-dessus des créatures
+  var pwY=myBaseY-(Math.max(1,creatRows)*rowH);
+  var pwRows=placeBlock(myPws,pwY,false);
+  // Autres permanents (artefacts/enchantements) : au-dessus des PW
+  var otherY=pwY-(Math.max(0,pwRows)*rowH);
+  placeBlock(myOthers,otherY,false);
+  // ADVERSAIRES (miroir) — en haut, même logique anchorTop
+  if(opp.length){
+    var oCreats=opp.filter(function(c){return categorize(c)==='creature';});
+    var oPws=opp.filter(function(c){return categorize(c)==='planeswalker';});
+    var oOthers=opp.filter(function(c){return categorize(c)==='other';});
+    var oCreatRows=placeBlock(oCreats,pad,true);
+    var oPwY=pad+(Math.max(1,oCreatRows)*rowH);
+    var oPwRows=placeBlock(oPws,oPwY,true);
+    var oOtherY=oPwY+(Math.max(0,oPwRows)*rowH);
+    placeBlock(oOthers,oOtherY,true);
+  }
   arRenderField();_arSyncToRoom();
 }
 function arDoTap(id,zone){
