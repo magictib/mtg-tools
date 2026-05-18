@@ -21140,30 +21140,78 @@ function renderBldDecks(){
   var dc=document.getElementById('bld-deckcard');
   if(dc)dc.style.display=(bldMain.length||bldSide.length||bldAvoir.length)?'block':'none';
   var rc={common:'var(--tx3)',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030'};
-  // Legality warning banner
+  // Legality warning banner — étendu : banlist + copies + color identity + tailles
   var _warnEl=document.getElementById('bld-legality-warn');
   if(_warnEl){
     var _fmtKey=bldFormat?BLD_FMT_SCRYFALL[bldFormat]:null;
     var _cmdNl=dCommander&&dCommander.name?stripDFC(dCommander.name).toLowerCase():'';
+    var _isEdh=['commander','paupercmd','brawl','oathbreaker'].indexOf(bldFormat)>=0;
+    var problems=[]; // [{sev:'err'|'warn', text}]
     if(_fmtKey&&bldMain.length){
+      // 1. Cartes interdites
       var _illegal=[];
       bldMain.forEach(function(c){
         var cnl=stripDFC(c.name||'').toLowerCase();
-        if(_cmdNl&&cnl===_cmdNl)return; // commandant exempté
+        if(_cmdNl&&cnl===_cmdNl)return;
         var leg=c.legalities&&c.legalities[_fmtKey];
         if(leg==='banned'||leg==='not_legal')_illegal.push(c.name);
       });
       if(_illegal.length){
-        var _fmtLbl={commander:'Commander',paupercmd:'Pauper EDH',pauper:'Pauper',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',vintage:'Vintage'}[bldFormat]||bldFormat;
-        _warnEl.style.display='block';
-        _warnEl.innerHTML='<div style="background:rgba(200,60,60,.13);border:.5px solid rgba(200,60,60,.45);border-radius:8px;padding:7px 10px;font-size:.75rem;color:var(--rd2)">'
-          +'<span style="font-weight:600">⛔ Deck illégal en '+esc(_fmtLbl)+'</span>'
-          +' — '+_illegal.length+' carte'+((_illegal.length>1)?'s':'')+' interdite'+((_illegal.length>1)?'s':'')+' : '
-          +_illegal.map(function(n){return '<span style="color:var(--tx2)">'+esc(n)+'</span>';}).join(', ')
-          +'</div>';
-      } else {
-        _warnEl.style.display='none';_warnEl.innerHTML='';
+        var _fmtLbl={commander:'Commander',paupercmd:'Pauper EDH',pauper:'Pauper',standard:'Standard',pioneer:'Pioneer',modern:'Modern',legacy:'Legacy',vintage:'Vintage',brawl:'Brawl'}[bldFormat]||bldFormat;
+        problems.push({sev:'err',text:'⛔ '+_illegal.length+' carte(s) interdite(s) en '+_fmtLbl+' : '+_illegal.slice(0,5).map(esc).join(', ')+(_illegal.length>5?' (+'+(_illegal.length-5)+')':'')});
       }
+      // 2. Copies (max 4 sauf singleton ou basics)
+      var maxCopies=_isEdh?1:4;
+      var BASIC_LANDS=['plains','island','swamp','mountain','forest','wastes','snow-covered plains','snow-covered island','snow-covered swamp','snow-covered mountain','snow-covered forest'];
+      var copyMap={};
+      bldMain.forEach(function(c){
+        var nl=stripDFC(c.name||'').toLowerCase();
+        if(BASIC_LANDS.indexOf(nl)>=0)return;
+        // Cartes qui disent 'A deck can have any number of cards named X' (Relentless Rats, Shadowborn Apostle…)
+        var ot=(c.oracle_text||'').toLowerCase();
+        if(/a deck can have any number of cards named/.test(ot))return;
+        copyMap[nl]=(copyMap[nl]||0)+1;
+      });
+      var tooMany=Object.keys(copyMap).filter(function(n){return copyMap[n]>maxCopies;});
+      if(tooMany.length){
+        problems.push({sev:'err',text:'⛔ Trop d\'exemplaires (max '+maxCopies+(_isEdh?' singleton':'')+') : '+tooMany.slice(0,3).map(function(n){return n+' ×'+copyMap[n];}).join(', ')});
+      }
+      // 3. Color identity (EDH)
+      if(_isEdh&&dCommander){
+        var cmdCi=(dCommander.color_identity||[]).map(function(c){return c.toLowerCase();});
+        var ciSet={};cmdCi.forEach(function(c){ciSet[c]=1;});
+        var ciViolations=[];
+        bldMain.forEach(function(c){
+          var ci=(c.color_identity||[]).map(function(x){return x.toLowerCase();});
+          var bad=ci.filter(function(col){return !ciSet[col];});
+          if(bad.length)ciViolations.push(c.name);
+        });
+        if(ciViolations.length){
+          problems.push({sev:'err',text:'⛔ Color identity violée ('+cmdCi.join('').toUpperCase()+') : '+ciViolations.slice(0,3).map(esc).join(', ')+(ciViolations.length>3?' (+'+(ciViolations.length-3)+')':'')});
+        }
+      }
+      // 4. Taille deck
+      var nMain=bldMain.reduce(function(s,c){return s+(c._qty||1);},0)||bldMain.length;
+      if(_isEdh&&dCommander){
+        var expected=100;
+        if(nMain!==expected-1&&nMain!==expected){
+          problems.push({sev:'warn',text:'⚠ Deck Commander attendu = 99 cartes hors commandant (actuel : '+nMain+').'});
+        }
+      }else if(['standard','pioneer','modern','legacy','vintage','pauper'].indexOf(bldFormat)>=0){
+        if(nMain<60){problems.push({sev:'warn',text:'⚠ Deck constructed : minimum 60 cartes (actuel : '+nMain+').'});}
+      }
+      // 5. Sideboard taille (max 15)
+      var nSide=bldSide.reduce(function(s,c){return s+(c._qty||1);},0)||bldSide.length;
+      if(nSide>15)problems.push({sev:'warn',text:'⚠ Sideboard > 15 cartes (actuel : '+nSide+').'});
+    }
+    if(problems.length){
+      _warnEl.style.display='block';
+      _warnEl.innerHTML=problems.map(function(p){
+        var bg=p.sev==='err'?'rgba(200,60,60,.13)':'rgba(255,140,40,.1)';
+        var bd=p.sev==='err'?'rgba(200,60,60,.45)':'rgba(255,140,40,.4)';
+        var col=p.sev==='err'?'var(--rd2)':'var(--am)';
+        return '<div style="background:'+bg+';border:.5px solid '+bd+';border-radius:7px;padding:6px 10px;font-size:.75rem;color:'+col+';margin-bottom:4px">'+p.text+'</div>';
+      }).join('');
     } else {
       _warnEl.style.display='none';_warnEl.innerHTML='';
     }
