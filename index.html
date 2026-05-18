@@ -23071,6 +23071,82 @@ function anaInferTags(meta){
 
 /* ----- Helpers ----- */
 function _anaIsBasicLandNl(nl){return ['plains','island','swamp','mountain','forest','wastes','plaine','île','ile','marais','montagne','forêt','foret','snow-covered plains','snow-covered island','snow-covered swamp','snow-covered mountain','snow-covered forest'].indexOf(nl)>=0;}
+// Couleurs produites par un terrain/permanent (utilise meta.producedMana en priorité,
+// puis fallback nom basique pour les terrains de base FR + EN)
+function _anaProducedColors(card,meta){
+  if(meta&&meta.producedMana&&meta.producedMana.length){
+    return meta.producedMana.filter(function(c){return ['W','U','B','R','G','C'].indexOf(c)>=0;});
+  }
+  var n=(card.name||'').toLowerCase();
+  var tl=((meta&&meta.typeLine)||'').toLowerCase();
+  if(/plains|plaine/.test(n)||tl.indexOf('plains')>=0)return ['W'];
+  if(/island|île|ile/.test(n)||tl.indexOf('island')>=0)return ['U'];
+  if(/swamp|marais/.test(n)||tl.indexOf('swamp')>=0)return ['B'];
+  if(/mountain|montagne/.test(n)||tl.indexOf('mountain')>=0)return ['R'];
+  if(/forest|forêt|foret/.test(n)||tl.indexOf('forest')>=0)return ['G'];
+  if(/wastes/.test(n))return ['C'];
+  return [];
+}
+// Parse un coût en mana ({2}{W}{W} → {W:2,U:0,B:0,R:0,G:0,C:0,generic:2})
+function _anaParseCostPips(manaCost){
+  var out={W:0,U:0,B:0,R:0,G:0,C:0,generic:0};
+  if(!manaCost)return out;
+  var symbols=manaCost.match(/\{[^}]+\}/g)||[];
+  symbols.forEach(function(s){
+    var raw=s.slice(1,-1).toUpperCase();
+    if(/^\d+$/.test(raw))out.generic+=parseInt(raw)||0;
+    else if(raw==='X')out.generic+=2; // estimation
+    else if(['W','U','B','R','G','C'].indexOf(raw)>=0)out[raw]++;
+    else if(/^(W|U|B|R|G)\/(W|U|B|R|G|P)$/.test(raw)){
+      // Hybride : compte demi pour chaque couleur
+      var parts=raw.split('/');
+      if(['W','U','B','R','G'].indexOf(parts[0])>=0)out[parts[0]]+=0.5;
+      if(['W','U','B','R','G'].indexOf(parts[1])>=0)out[parts[1]]+=0.5;
+    }
+    else if(/^2\/(W|U|B|R|G)$/.test(raw)){var c=raw.split('/')[1];out[c]+=0.5;out.generic+=1.5;}
+    else if(/^(W|U|B|R|G)P$/.test(raw)){out[raw.charAt(0)]+=1;} // Phyrexian
+  });
+  return out;
+}
+// Analyse manabase complète : sources par couleur vs demande
+function _anaColorManabase(deck){
+  var sources={W:0,U:0,B:0,R:0,G:0,C:0,total:0};
+  var demand={W:0,U:0,B:0,R:0,G:0,total:0}; // pips totaux
+  var demandCards={W:0,U:0,B:0,R:0,G:0}; // nb cartes avec au moins 1 pip de cette couleur
+  (deck.cards||[]).forEach(function(c){
+    var qty=c.qty||1;
+    var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()]||{};
+    var tl=((meta.typeLine)||'').toLowerCase();
+    var isLand=tl.indexOf('land')>=0;
+    if(isLand){
+      sources.total+=qty;
+      var prod=_anaProducedColors(c,meta);
+      prod.forEach(function(col){if(sources.hasOwnProperty(col))sources[col]+=qty;});
+    }else{
+      // Permanent qui produit du mana (mana rocks, dorks)
+      if(meta.producedMana&&meta.producedMana.length){
+        meta.producedMana.forEach(function(col){if(sources.hasOwnProperty(col))sources[col]+=qty;});
+      }
+      // Demande en couleur
+      var p=_anaParseCostPips(meta.manaCost||'');
+      ['W','U','B','R','G'].forEach(function(col){
+        if(p[col]>0){demand[col]+=p[col]*qty;demandCards[col]+=qty;demand.total+=p[col]*qty;}
+      });
+    }
+  });
+  // Cible : règle Karsten simplifiée : pour X pips d'une couleur, vise ~X+8 sources (Commander)
+  // ou X×1.4+5 pour 60-card. On adapte selon taille deck.
+  var deckSize=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+  var scale=deckSize>=80?1.0:(deckSize/100); // Commander = 1, 60-card = 0.6
+  var targets={};
+  ['W','U','B','R','G'].forEach(function(col){
+    if(demand[col]<=0){targets[col]=0;return;}
+    // Plus de pips d'une couleur → plus de sources nécessaires
+    var t=Math.max(8,Math.round(demand[col]*1.4+6));
+    targets[col]=Math.round(t*scale);
+  });
+  return {sources:sources,demand:demand,demandCards:demandCards,targets:targets,deckSize:deckSize};
+}
 function _anaProperName(nl,fallbackList){
   if(_anaData[nl]&&_anaData[nl].name)return _anaData[nl].name;
   if(fallbackList){for(var i=0;i<fallbackList.length;i++){if(fallbackList[i].nl===nl)return fallbackList[i].name;}}
@@ -23256,7 +23332,7 @@ function _anaIngestCard(card,nlHint){
   var _p=card.legalities&&card.legalities.pauper;
   var _rar=(_p==='legal'||_p==='banned')?'common':(card.rarity||'');
   var _mc=card.mana_cost||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].mana_cost)||'';
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc};
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc,producedMana:card.produced_mana||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].produced_mana)||[]};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -26298,6 +26374,48 @@ function anaRender(deckId){
   });
   _curveHtml+='</div><div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div></div>';
 
+  // === Manabase : sources par couleur vs demande (Karsten-like) ===
+  var mb=_anaColorManabase(deck);
+  var _mbHtml='';
+  if(mb.demand.total>0){
+    var colNames={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
+    var colPips={W:'#c8b870',U:'#4090ff',B:'#9060c0',R:'#ff5040',G:'#30b048'};
+    _mbHtml='<div class="card"><div class="lbl">Manabase — sources vs demande</div>';
+    _mbHtml+='<div style="font-size:11px;color:var(--tx3);margin-bottom:6px">'+mb.sources.total+' terrain(s)'+(mb.sources.W+mb.sources.U+mb.sources.B+mb.sources.R+mb.sources.G>mb.sources.total?' + producteurs hors terrain':'')+'</div>';
+    var warnings=[];
+    ['W','U','B','R','G'].forEach(function(col){
+      if(mb.demand[col]<=0)return;
+      var src=mb.sources[col];var tgt=mb.targets[col];var dem=mb.demand[col];var cards=mb.demandCards[col];
+      var ratio=tgt?src/tgt:1;
+      var stat,statColor;
+      if(ratio>=1.0){stat='✓ OK';statColor='var(--gr2)';}
+      else if(ratio>=0.75){stat='⚠ Limite (-'+(tgt-src)+')';statColor='var(--am)';warnings.push({col:col,deficit:tgt-src,severity:'mid'});}
+      else{stat='✗ Sous-sourcé (-'+(tgt-src)+')';statColor='var(--rd2)';warnings.push({col:col,deficit:tgt-src,severity:'high'});}
+      _mbHtml+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:.5px solid rgba(255,255,255,.05);font-size:11.5px">';
+      _mbHtml+='<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:'+colPips[col]+';color:#fff;text-align:center;line-height:16px;font-size:9px;font-weight:700;font-family:monospace;flex-shrink:0">'+col+'</span>';
+      _mbHtml+='<span style="flex:1;color:var(--tx2);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+colNames[col]+'</span>';
+      _mbHtml+='<span style="color:var(--tx3);font-size:10px;flex-shrink:0">'+cards+' cartes · '+dem.toFixed(0)+' pips</span>';
+      _mbHtml+='<span style="font-family:monospace;color:var(--tx2);font-size:11px;flex-shrink:0"><b style="color:'+statColor+'">'+src+'</b>/'+tgt+'</span>';
+      _mbHtml+='<span style="color:'+statColor+';font-size:10px;font-weight:600;flex-shrink:0">'+stat+'</span>';
+      _mbHtml+='</div>';
+    });
+    if(warnings.length){
+      _mbHtml+='<div style="margin-top:8px;padding:7px 9px;background:rgba(255,140,40,.08);border-left:2px solid var(--am);border-radius:4px;font-size:11px;color:var(--tx2);line-height:1.5">';
+      _mbHtml+='<b style="color:var(--am)">💡 Recommandations :</b><br>';
+      warnings.sort(function(a,b){return b.deficit-a.deficit;}).forEach(function(w){
+        var col=w.col;
+        var suggBasic=({W:'Plaines',U:'Îles',B:'Marais',R:'Montagnes',G:'Forêts'})[col];
+        _mbHtml+='<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+colPips[col]+';margin-right:4px;vertical-align:middle"></span>';
+        _mbHtml+=colNames[col]+' : ajoute '+w.deficit+' source(s) (ex : +'+w.deficit+' '+suggBasic+', ou terrains duals/fetchs aux couleurs).<br>';
+      });
+      _mbHtml+='<span style="font-size:10px;color:var(--tx3);font-style:italic">Cible Karsten ≈ pips × 1.4 + 6, ajustée à la taille du deck.</span>';
+      _mbHtml+='</div>';
+    }else if(mb.demand.total>0){
+      _mbHtml+='<div style="margin-top:8px;padding:6px 8px;background:rgba(100,200,120,.08);border-left:2px solid var(--gr2);border-radius:4px;font-size:11px;color:var(--gr2)">✓ Manabase équilibrée — toutes les couleurs ont assez de sources pour leur demande.</div>';
+    }
+    _mbHtml+='</div>';
+  }
+
   // === Header HTML : info deck (sans badges de score, déplacés dans _scorePanel) ===
   var _hdr='<div class="card">';
   _hdr+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
@@ -26498,7 +26616,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -26507,7 +26625,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
