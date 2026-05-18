@@ -916,10 +916,14 @@ body.mana-cursor{cursor:none}
 .ar-pile-back{width:90px;height:54px;border-radius:5px;background:#162d4a;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:var(--gold2)}
 .ar-pile-cnt{font-family:'Goudy Mediaeval',serif;font-size:1.1rem;color:var(--gold2);line-height:1.2}
 .ar-pile-lbl{font-size:.58rem;color:var(--tx3);letter-spacing:.07em;text-transform:uppercase}
-#ar-hand{--ar-hs:1;height:calc(30px + 140px * var(--ar-hs));flex-shrink:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;padding:8px 12px;gap:4px;overflow-x:auto;overflow-y:visible;border-top:2px solid rgba(201,168,76,.2);scrollbar-width:thin;transition:background .15s,border-top-color .15s}
-.ar-hand-card{flex-shrink:0;width:calc(100px * var(--ar-hs,1));height:calc(140px * var(--ar-hs,1));border-radius:7px;overflow:hidden;cursor:grab;border:2px solid transparent;transition:transform .15s,border-color .15s,box-shadow .15s;position:relative;touch-action:none;user-select:none}
-.ar-hand-card:hover{transform:translateY(-18px) scale(1.06);z-index:5}
-.ar-hand-card.ar-sel{border-color:#60b8ff!important;box-shadow:0 0 0 3px rgba(64,160,255,.35),0 4px 16px rgba(0,0,0,.7);transform:translateY(-24px) scale(1.08)}
+#ar-hand{--ar-hs:1;height:calc(36px + 150px * var(--ar-hs));flex-shrink:0;background:linear-gradient(to top,rgba(0,0,0,.85) 0%,rgba(0,0,0,.55) 70%,rgba(0,0,0,.4) 100%);display:flex;align-items:flex-end;justify-content:center;padding:8px 12px 4px;gap:0;overflow-x:auto;overflow-y:visible;border-top:2px solid rgba(201,168,76,.35);scrollbar-width:thin;transition:background .15s,border-top-color .15s;box-shadow:inset 0 8px 22px rgba(0,0,0,.65),inset 0 60px 60px -40px rgba(201,168,76,.05)}
+/* Fan layout MTGA-style : cartes en éventail avec léger arc et overlap.
+   --rot et --lift sont posés inline par arRenderHand (rotation arc + lift bombé). */
+.ar-hand-card{--rot:0deg;--lift:0px;flex-shrink:0;width:calc(110px * var(--ar-hs,1));height:calc(154px * var(--ar-hs,1));border-radius:8px;overflow:hidden;cursor:grab;border:2px solid rgba(201,168,76,.25);transition:transform .2s cubic-bezier(.34,1.32,.64,1),border-color .15s,box-shadow .15s,margin .2s;position:relative;touch-action:none;user-select:none;margin-left:-32px;transform-origin:bottom center;box-shadow:-3px 0 8px rgba(0,0,0,.7),0 6px 12px rgba(0,0,0,.55);transform:translateY(calc(-1 * var(--lift))) rotate(var(--rot))}
+.ar-hand-card:first-child{margin-left:0}
+/* Hover : carte sort de l'éventail, grossit, garde un peu de rotation */
+.ar-hand-card:hover{transform:translateY(-44px) scale(1.45) rotate(0deg)!important;z-index:30;border-color:rgba(201,168,76,.95);box-shadow:0 18px 42px rgba(0,0,0,.9),0 0 18px rgba(201,168,76,.45)}
+.ar-hand-card.ar-sel{border-color:#60b8ff!important;box-shadow:0 0 0 3px rgba(64,160,255,.55),0 12px 28px rgba(0,0,0,.8),0 0 22px rgba(64,160,255,.45)!important;transform:translateY(-36px) scale(1.18) rotate(var(--rot))!important;z-index:25}
 .ar-hand-card.ar-mul-sel{border-color:var(--rd2)!important;box-shadow:0 0 0 3px rgba(220,80,80,.35)}
 .ar-hand-card img,.ar-field-card img{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block;pointer-events:none}
 .ar-field-card{position:absolute;width:82px;height:115px;border-radius:7px;overflow:visible;cursor:grab;border:2px solid transparent;box-shadow:0 4px 16px rgba(0,0,0,.7);touch-action:none;user-select:none;transition:border-color .1s}
@@ -12155,11 +12159,21 @@ function arRenderHand(){
   if(hint)hint.style.display=(_ar.field.length||_ar.fieldUsed)?'none':'flex';
   if(!_ar.hand.length){hand.innerHTML='<div style="color:rgba(255,255,255,.25);font-size:.82rem;font-style:italic;margin:auto">Main vide</div>';return;}
   var sorted=_arSortedHand();
-  hand.innerHTML=sorted.map(function(c){
+  var total=sorted.length;
+  // Fan layout : calcule rotation par carte pour un arc subtil (max ±9°)
+  // Plus la main est grande, plus chaque carte tourne légèrement.
+  var maxRot=Math.min(9,total*1.2);
+  hand.innerHTML=sorted.map(function(c,i){
     var isSel=_ar.selected===c.id;
     var isMul=_ar.mulPhase&&_ar.mulSel.indexOf(c.id)>=0;
     var cls='ar-hand-card'+(isSel?' ar-sel':'')+(isMul?' ar-mul-sel':'');
-    return '<div class="'+cls+'" data-id="'+c.id+'" data-zone="hand" data-name="'+esc(c.name)+'" onpointerdown="arPtrDown(event,this)" onclick="arHandClick(event,this)" onmouseenter="arShowTip(\''+esc(c.name)+'\',event)" onmouseleave="arHideTip()" title="'+esc(c.name)+'">'
+    // Rotation = position dans l'arc : centre = 0°, extrémités = ±maxRot
+    var rot=total>1?((i-(total-1)/2)/((total-1)/2))*maxRot:0;
+    // Léger lift en arc pour les cartes du centre (effet bombé)
+    var arc=total>1?Math.abs((i-(total-1)/2)/((total-1)/2)):0;
+    var lift=Math.round((1-arc*arc)*6);
+    var style='--rot:'+rot.toFixed(2)+'deg;--lift:'+lift+'px';
+    return '<div class="'+cls+'" data-id="'+c.id+'" data-zone="hand" data-name="'+esc(c.name)+'" style="'+style+'" onpointerdown="arPtrDown(event,this)" onclick="arHandClick(event,this)" onmouseenter="arShowTip(\''+esc(c.name)+'\',event)" onmouseleave="arHideTip()" title="'+esc(c.name)+'">'
       +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'" loading="lazy">'
       +'</div>';
   }).join('');
