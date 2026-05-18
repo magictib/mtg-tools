@@ -933,6 +933,17 @@ body.mana-cursor{cursor:none}
 .ar-opponent-card .ar-card-btn{display:none!important}
 #ar-divider-line{position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(201,168,76,.25);pointer-events:none;z-index:1;display:none}
 #ar-divider-line.mp-on{display:block}
+/* MTGA-style action toast — flash de la dernière action significative en haut du plateau */
+.ar-action-toast{position:absolute;top:14px;left:50%;transform:translateX(-50%) translateY(-30px);z-index:140;pointer-events:none;padding:6px 16px;border-radius:8px;background:linear-gradient(135deg,rgba(20,12,40,.94),rgba(8,6,20,.94));border:1.5px solid rgba(201,168,76,.5);color:#fff;font-size:.82rem;line-height:1.3;max-width:62%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .2s,transform .25s cubic-bezier(.34,1.4,.64,1);box-shadow:0 6px 22px rgba(0,0,0,.7),0 0 14px rgba(201,168,76,.18);font-family:'Cinzel','Goudy Mediaeval',serif;letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.ar-action-toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.ar-action-toast.mine{border-color:rgba(100,200,120,.65);box-shadow:0 6px 22px rgba(0,0,0,.7),0 0 16px rgba(80,200,120,.32)}
+.ar-action-toast.opp{border-color:rgba(255,120,120,.7);box-shadow:0 6px 22px rgba(0,0,0,.7),0 0 16px rgba(255,80,80,.4);background:linear-gradient(135deg,rgba(40,12,16,.96),rgba(20,5,8,.96))}
+.ar-action-toast.chat{border-color:rgba(120,180,255,.6);background:linear-gradient(135deg,rgba(12,18,40,.94),rgba(6,8,20,.94))}
+.ar-toast-by{color:var(--gold2);font-weight:700;margin-right:6px}
+.ar-action-toast.opp .ar-toast-by{color:#ffb0b0}
+.ar-action-toast.mine .ar-toast-by{color:#a0ffb0}
+.ar-action-toast.chat .ar-toast-by{color:#a0c8ff}
+.ar-toast-txt{color:rgba(255,255,255,.92)}
 #ar-op-lands{height:80px;flex-shrink:0;background:rgba(0,0,0,.4);border-bottom:2px dashed rgba(80,140,255,.22);position:relative;overflow:hidden;display:none}
 #ar-op-lands.mp-on{display:block}
 #ar-op-lands-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:.72rem;color:rgba(255,255,255,.18);font-style:italic}
@@ -14944,6 +14955,8 @@ function _arShakeEl(id,delta){
 function _arFormatTs(ts){var d=new Date(ts);return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
 
 function _arRenderLogIfOpen(newEntry){
+  // Toast MTGA-style : flash de l'action en haut du plateau (sauf system noisy et chat)
+  if(newEntry)_arShowActionToast(newEntry);
   // Si panneau fermé : juste maj le badge unread
   if(!_arLogOpen){
     if(newEntry&&_arRoom&&newEntry.by!==_arRoom.playerNum){
@@ -14954,6 +14967,55 @@ function _arRenderLogIfOpen(newEntry){
     return;
   }
   _arRenderLogFull();
+}
+// Phase 1A.4 — Toast d'action MTGA-style. Affiche brièvement la dernière
+// action significative en haut du plateau pour visibilité immédiate.
+var _arToastEl=null,_arToastTimer=null,_arToastQueue=[];
+function _arShowActionToast(entry){
+  if(!entry||!entry.type)return;
+  // Filtre actions trop bruyantes ou non visuelles
+  var skip={'tap':1,'untap':1,'cmd_damage':1,'cmd_kill':1};
+  if(skip[entry.type])return;
+  if(entry.type==='chat'){
+    // chat : on affiche aussi (utile en MP) mais avec style différent
+  }
+  var t=_arActionToText(entry);
+  if(!t||(!t.text&&!t.by))return;
+  // Construit ou récupère l'élément toast
+  if(!_arToastEl){
+    _arToastEl=document.createElement('div');
+    _arToastEl.id='ar-action-toast';
+    var field=document.getElementById('ar-field');
+    if(field)field.appendChild(_arToastEl);
+    else document.body.appendChild(_arToastEl);
+  }
+  // Si déjà un toast actif, on enfile pour ne pas écraser instantanément
+  if(_arToastEl.classList.contains('on')){
+    _arToastQueue.push(entry);
+    if(_arToastQueue.length>3)_arToastQueue.shift();
+    return;
+  }
+  _arRenderToastEntry(entry,t);
+}
+function _arRenderToastEntry(entry,t){
+  if(!_arToastEl||!t)return;
+  var myPn=_arRoom?_arRoom.playerNum:0;
+  var isMine=entry.by===myPn;
+  _arToastEl.className='ar-action-toast on '+(isMine?'mine':(t.cls==='chat'?'chat':'opp'));
+  var byHtml=t.by?'<span class="ar-toast-by">'+esc(t.by)+'</span> ':'';
+  _arToastEl.innerHTML=byHtml+'<span class="ar-toast-txt">'+(t.text||'')+'</span>';
+  if(_arToastTimer)clearTimeout(_arToastTimer);
+  _arToastTimer=setTimeout(function(){
+    _arToastEl.classList.remove('on');
+    setTimeout(function(){
+      // Dépile si autres toasts en attente
+      if(_arToastQueue.length){
+        var next=_arToastQueue.shift();
+        var nt=_arActionToText(next);
+        if(nt)_arRenderToastEntry(next,nt);
+      }
+    },260);
+  },entry.type==='chat'?4200:2600);
 }
 function _arRenderLogFull(){
   var list=document.getElementById('ar-log-list');if(!list)return;
@@ -14975,6 +15037,8 @@ function _arIngestActionsFromRemote(remoteActions){
       _arLogSeenIds[a.id]=1;
       _arActionLog.push(a);
       hadNew=true;
+      // Toast pour actions adverses (visibilité immédiate type MTGA)
+      if(_arRoom&&a.by!==_arRoom.playerNum)_arShowActionToast(a);
       // Si autre joueur et panneau fermé : incrément unread
       if(_arRoom&&a.by!==_arRoom.playerNum&&!_arLogOpen){
         _arLogUnread++;
