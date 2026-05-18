@@ -1739,6 +1739,10 @@ body.mana-cursor{cursor:none}
       <button class="btn btnsm active" id="bld-exp-fmt-mox" onclick="bldExportSetFmt('mox',this)">Moxfield</button>
       <button class="btn btnsm" id="bld-exp-fmt-myth" onclick="bldExportSetFmt('myth',this)">Mythic Tools</button>
       <button class="btn btnsm" id="bld-exp-fmt-txt" onclick="bldExportSetFmt('txt',this)">Texte brut</button>
+      <button class="btn btnsm" id="bld-exp-fmt-arena" onclick="bldExportSetFmt('arena',this)" title="Format MTG Arena : 1 Sol Ring (M21) 252">MTG Arena</button>
+      <button class="btn btnsm" id="bld-exp-fmt-xmage" onclick="bldExportSetFmt('xmage',this)" title="Format XMage : 1 [SET:NUM] Name">XMage</button>
+      <button class="btn btnsm" id="bld-exp-fmt-cock" onclick="bldExportSetFmt('cock',this)" title="Format Cockatrice .cod XML">Cockatrice</button>
+      <button class="btn btnsm" id="bld-exp-dl" onclick="bldExportDownload()" title="Télécharger en fichier" style="margin-left:auto;border-color:rgba(100,200,120,.5);color:#78c890">💾 Télécharger</button>
     </div>
     <textarea id="bld-exp-ta" readonly style="width:100%;box-sizing:border-box;height:300px;resize:vertical;background:var(--s2);color:var(--tx);border:.5px solid var(--bd2);border-radius:8px;padding:8px;font-family:monospace;font-size:.75rem;line-height:1.55;outline:none"></textarea>
     <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
@@ -20856,22 +20860,58 @@ function bldExportDeck(){
 function bldExportClose(){var m=document.getElementById('bld-export-modal');if(m)m.style.display='none';}
 function bldExportSetFmt(fmt,btn){
   _bldExpFmt=fmt;
-  document.querySelectorAll('#bld-exp-fmt-mox,#bld-exp-fmt-myth,#bld-exp-fmt-txt').forEach(function(b){b.classList.remove('active');});
+  ['mox','myth','txt','arena','xmage','cock'].forEach(function(f){var b=document.getElementById('bld-exp-fmt-'+f);if(b)b.classList.remove('active');});
   if(btn)btn.classList.add('active');
   _bldExpRefresh();
 }
+function _bldFmtLine(fmt,c){
+  // c: {qty, name, set?, num?}
+  if(fmt==='myth')return c.qty+'x '+c.name;
+  if(fmt==='arena'){var s=c.qty+' '+c.name;if(c.set)s+=' ('+c.set.toUpperCase()+')';if(c.num)s+=' '+c.num;return s;}
+  if(fmt==='xmage'){var sx='['+((c.set||'?').toUpperCase())+':'+(c.num||'?')+']';return c.qty+' '+sx+' '+c.name;}
+  return c.qty+' '+c.name;
+}
 function _bldExpRefresh(){
   var ta=document.getElementById('bld-exp-ta');if(!ta)return;
-  var fmtLine=function(c){return _bldExpFmt==='myth'?c.qty+'x '+c.name:c.qty+' '+c.name;};
+  if(_bldExpFmt==='cock'){
+    // XML Cockatrice .cod
+    var xml='<?xml version="1.0" encoding="UTF-8"?>\n<cockatrice_deck version="1">\n  <deckname>'+esc((decks[bldCurDeckId]||{}).name||'Deck')+'</deckname>\n  <comments></comments>\n  <zone name="main">\n';
+    bldMain.forEach(function(c){xml+='    <card number="'+c.qty+'" name="'+esc(c.name)+'"/>\n';});
+    xml+='  </zone>\n';
+    if(bldSide.length){
+      xml+='  <zone name="side">\n';
+      bldSide.forEach(function(c){xml+='    <card number="'+c.qty+'" name="'+esc(c.name)+'"/>\n';});
+      xml+='  </zone>\n';
+    }
+    xml+='</cockatrice_deck>\n';
+    ta.value=xml;return;
+  }
   var lines=[];
   if(_bldExpFmt==='txt')lines.push('// Deck ('+bldMain.reduce(function(s,c){return s+c.qty;},0)+' cartes)');
-  bldMain.forEach(function(c){lines.push(fmtLine(c));});
+  if(_bldExpFmt==='arena'&&dCommander){
+    lines.push('Commander');
+    lines.push(_bldFmtLine('arena',{qty:1,name:dCommander.name,set:dCommander.set,num:dCommander.num}));
+    lines.push('');
+    lines.push('Deck');
+  }
+  bldMain.forEach(function(c){lines.push(_bldFmtLine(_bldExpFmt,c));});
   if(bldSide.length){
     lines.push('');
-    lines.push(_bldExpFmt==='myth'?'Sideboard:':'// Sideboard');
-    bldSide.forEach(function(c){lines.push(fmtLine(c));});
+    lines.push(_bldExpFmt==='myth'?'Sideboard:':_bldExpFmt==='arena'?'Sideboard':'// Sideboard');
+    bldSide.forEach(function(c){lines.push(_bldFmtLine(_bldExpFmt,c));});
   }
   ta.value=lines.join('\n');
+}
+function bldExportDownload(){
+  var ta=document.getElementById('bld-exp-ta');if(!ta||!ta.value)return;
+  var deckName=((decks[bldCurDeckId]||{}).name||'deck').replace(/[^a-z0-9_-]+/gi,'_');
+  var ext={mox:'txt',myth:'txt',txt:'txt',arena:'txt',xmage:'dck',cock:'cod'}[_bldExpFmt]||'txt';
+  var mime=_bldExpFmt==='cock'?'application/xml':'text/plain;charset=utf-8';
+  var blob=new Blob([ta.value],{type:mime});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');a.href=url;a.download=deckName+'_'+_bldExpFmt+'.'+ext;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},1000);
 }
 function bldExportCopy(){
   var ta=document.getElementById('bld-exp-ta');if(!ta)return;
