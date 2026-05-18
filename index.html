@@ -23623,6 +23623,129 @@ function anaFormatRules(fmt){
 
 /* ----- Format-aware targets ----- */
 function anaIsCommanderFormat(fmt){return ['commander','paupercmd','brawl','oathbreaker'].indexOf(fmt)>=0;}
+// ===== Anti-synergies contextuelles =====
+// Détecte les cartes qui sont MAL adaptées au deck dans lequel elles sont jouées.
+// Pattern : cardName + condition prerequisite + diagnostic message
+function _anaDetectAntiSynergies(deck,fmt){
+  var nameSet={};
+  var basicCnt={W:0,U:0,B:0,R:0,G:0};
+  var landCount=0;
+  var avgCmcSum=0,nonLandCnt=0;
+  var typeLineMap={creatures:0,instants:0,sorceries:0,artifacts:0,enchantments:0};
+  var anyManaArt=0; // artefacts qui produisent du mana
+  var anyTokenMaker=0;
+  var anyGravePayoff=0;
+  var anyTribal={}; // tribe → count
+  (deck.cards||[]).forEach(function(c){
+    var qty=c.qty||1;
+    var nm=(c.name||'').toLowerCase().trim();
+    nameSet[nm]=(nameSet[nm]||0)+qty;
+    var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()]||{};
+    var tl=(meta.typeLine||'').toLowerCase();
+    var o=(meta.oracleText||'').toLowerCase();
+    if(tl.indexOf('land')>=0){
+      landCount+=qty;
+      // basics
+      if(/plains|plaine/.test(nm))basicCnt.W+=qty;
+      else if(/island|île|ile/.test(nm))basicCnt.U+=qty;
+      else if(/swamp|marais/.test(nm))basicCnt.B+=qty;
+      else if(/mountain|montagne/.test(nm))basicCnt.R+=qty;
+      else if(/forest|forêt|foret/.test(nm))basicCnt.G+=qty;
+    }else{
+      if(meta.cmc!=null){avgCmcSum+=meta.cmc*qty;nonLandCnt+=qty;}
+    }
+    if(tl.indexOf('creature')>=0)typeLineMap.creatures+=qty;
+    if(tl.indexOf('instant')>=0)typeLineMap.instants+=qty;
+    if(tl.indexOf('sorcery')>=0)typeLineMap.sorceries+=qty;
+    if(tl.indexOf('artifact')>=0)typeLineMap.artifacts+=qty;
+    if(tl.indexOf('enchantment')>=0)typeLineMap.enchantments+=qty;
+    if((meta.producedMana||[]).length>0&&tl.indexOf('artifact')>=0)anyManaArt+=qty;
+    if(/create.*(token|treasure|food|clue|blood)/.test(o))anyTokenMaker+=qty;
+    if(/from.*graveyard|reanimat|return.*from.*graveyard/.test(o))anyGravePayoff+=qty;
+    // Tribal detection (subtypes after dash)
+    var sub=(meta.typeLine||'').split(' — ')[1]||'';
+    sub.split(/\s+/).forEach(function(s){if(s&&s.length>3)anyTribal[s.toLowerCase()]=(anyTribal[s.toLowerCase()]||0)+qty;});
+  });
+  var avgCmc=nonLandCnt?avgCmcSum/nonLandCnt:0;
+  var issues=[];
+  // Patterns d'anti-synergie
+  // 1. Cabal Coffers / Urborg : besoin de Marais
+  if(nameSet['cabal coffers']&&basicCnt.B<3){
+    issues.push({card:'Cabal Coffers',issue:'Tu n\'as que '+basicCnt.B+' Marais. Cabal Coffers a besoin de ≥4 Marais pour devenir bon.',sev:'high'});
+  }
+  if(nameSet['nykthos, shrine to nyx']){
+    var devot=0;['W','U','B','R','G'].forEach(function(col){var b=basicCnt[col];if(b>=8)devot+=b;});
+    // Pas trivial à mesurer sans pip count, on flag léger seulement si pas mono ni quasi-mono
+    if(landCount>0&&basicCnt.B+basicCnt.W+basicCnt.U+basicCnt.R+basicCnt.G<landCount*0.4){
+      issues.push({card:'Nykthos, Shrine to Nyx',issue:'Peu de basics — Nykthos perd en puissance hors deck mono ou dévotion forte.',sev:'mid'});
+    }
+  }
+  // 2. Land Tax : besoin d'être derrière en lands → mauvais en deck à 40 terrains
+  if(nameSet['land tax']&&landCount>=37){
+    issues.push({card:'Land Tax',issue:'Tu as '+landCount+' terrains — Land Tax brille surtout en deck à 20-26 terrains (souvent en infériorité de lands).',sev:'mid'});
+  }
+  // 3. Cascade triggers : Maelstrom Wanderer / Bloodbraid Elf / Shardless Agent
+  if((nameSet['bloodbraid elf']||nameSet['shardless agent']||nameSet['maelstrom wanderer'])){
+    var lowCmcSpells=(deck.cards||[]).filter(function(c){var m=_anaData[c.nl]||{};return m.cmc!=null&&m.cmc<(nameSet['maelstrom wanderer']?8:nameSet['bloodbraid elf']?4:3)&&!(m.typeLine||'').toLowerCase().includes('land');}).reduce(function(s,c){return s+(c.qty||1);},0);
+    if(lowCmcSpells<8){
+      issues.push({card:nameSet['bloodbraid elf']?'Bloodbraid Elf':nameSet['shardless agent']?'Shardless Agent':'Maelstrom Wanderer',issue:'Cascade nécessite des sorts CMC bas pour cibler — tu n\'en as que '+lowCmcSpells+' (vise ≥15).',sev:'high'});
+    }
+  }
+  // 4. Smothering Tithe / Esper Sentinel : nécessite des adversaires casteurs
+  // Skip — ces cartes sont fines partout en multijoueur
+  // 5. Storm payoffs (Tendrils, Grapeshot, Past in Flames) sans suffisamment de cantrips
+  if(nameSet['tendrils of agony']||nameSet['grapeshot']||nameSet['ad nauseam']){
+    var cantripCount=(deck.cards||[]).filter(function(c){var m=_anaData[c.nl]||{};var o=(m.oracleText||'').toLowerCase();return m.cmc!=null&&m.cmc<=2&&/draw a card|draws? a card/.test(o);}).reduce(function(s,c){return s+(c.qty||1);},0);
+    var ramps=(deck.cards||[]).filter(function(c){var m=_anaData[c.nl]||{};var o=(m.oracleText||'').toLowerCase();return /add.*mana|ritual|black lotus|dark ritual|cabal ritual/.test(o);}).reduce(function(s,c){return s+(c.qty||1);},0);
+    if(cantripCount+ramps<15){
+      issues.push({card:'Storm payoff',issue:'Storm exige beaucoup de cantrips/rituels (tu as '+(cantripCount+ramps)+', vise ≥20).',sev:'mid'});
+    }
+  }
+  // 6. Reanimation cibles sans Reanimate / Animate Dead
+  if(anyGravePayoff>2){
+    var hasMillSelf=(deck.cards||[]).some(function(c){var m=_anaData[c.nl]||{};var o=(m.oracleText||'').toLowerCase();return /put.*top.*library.*graveyard|mill \d+|self-mill|surveil/.test(o);});
+    var hasDiscard=(deck.cards||[]).some(function(c){var m=_anaData[c.nl]||{};var o=(m.oracleText||'').toLowerCase();return /discard a card|looter|rummage/.test(o);});
+    if(!hasMillSelf&&!hasDiscard){
+      issues.push({card:'Recursion sans alimentation',issue:'Tu as '+anyGravePayoff+' cartes qui ramènent du cimetière mais aucun mill/discard pour le remplir.',sev:'mid'});
+    }
+  }
+  // 7. Anti-synergie : Coffers sans Urborg en deck multicolore
+  if(nameSet['cabal coffers']&&!nameSet['urborg, tomb of yawgmoth']){
+    var ci=_anaDeckCi(deck)||[];
+    if(ci.length>1)issues.push({card:'Cabal Coffers',issue:'En deck multicolore sans Urborg, Tomb of Yawgmoth, Coffers est inactif.',sev:'high'});
+  }
+  // 8. Equipement sans créatures
+  var equipCount=(deck.cards||[]).filter(function(c){var m=_anaData[c.nl]||{};return (m.typeLine||'').toLowerCase().indexOf('equipment')>=0;}).reduce(function(s,c){return s+(c.qty||1);},0);
+  if(equipCount>=4&&typeLineMap.creatures<10){
+    issues.push({card:'Équipements',issue:'Tu as '+equipCount+' équipement(s) mais seulement '+typeLineMap.creatures+' créatures — porteurs insuffisants.',sev:'mid'});
+  }
+  // 9. Aura matters sans aura
+  if(nameSet['kor spiritdancer']||nameSet['sram, senior edificer']){
+    var auras=(deck.cards||[]).filter(function(c){var m=_anaData[c.nl]||{};return (m.typeLine||'').toLowerCase().indexOf('aura')>=0;}).reduce(function(s,c){return s+(c.qty||1);},0);
+    if(auras<8){
+      issues.push({card:'Aura matters',issue:'Tu as Kor Spiritdancer/Sram mais seulement '+auras+' auras — vise ≥15 pour rentabiliser.',sev:'mid'});
+    }
+  }
+  // 10. Tribal payoffs sans tribu
+  var TRIBAL_PAYOFFS={
+    'lord of atlantis':'merfolk','master of the pearl trident':'merfolk','merrow reejerey':'merfolk',
+    'goblin chieftain':'goblin','goblin king':'goblin','goblin warchief':'goblin',
+    'elvish archdruid':'elf','elvish champion':'elf','imperious perfect':'elf',
+    'lord of the undead':'zombie','death baron':'zombie','cemetery reaper':'zombie',
+    'metallic mimic':null // mimic is generic
+  };
+  Object.keys(TRIBAL_PAYOFFS).forEach(function(payoff){
+    if(!nameSet[payoff])return;
+    var tribe=TRIBAL_PAYOFFS[payoff];if(!tribe)return;
+    var count=anyTribal[tribe]||0;
+    if(count<6){
+      issues.push({card:payoff.replace(/\b\w/g,function(c){return c.toUpperCase();}),issue:'Payoff tribal '+tribe+' mais seulement '+count+' '+tribe+'(s) dans le deck.',sev:'mid'});
+    }
+  });
+  // 11. CMC moyen trop haut pour deck aggro
+  // (skip si pas d'archétype détecté ; sinon implicit)
+  return issues;
+}
 // ===== Détecteur de combos infinis =====
 // Base de combos classiques EDH/Modern : chaque entrée liste les noms requis
 // pour activer le combo. Si TOUS les noms sont dans le deck → détecté.
@@ -26996,6 +27119,25 @@ function anaRender(deckId){
 
   // Retiré : "Probabilités de partie" → doublon avec la "Simulation 100 parties" plus précise
   var _probHtml="";
+  // === Anti-synergies contextuelles ===
+  var _antiSynHtml=(function(){
+    var issues=_anaDetectAntiSynergies(deck,fmt);
+    if(!issues.length)return '';
+    var html='<div class="card"><div class="lbl">⚠ Anti-synergies détectées</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Cartes qui sont MAL adaptées au reste de ton deck (manque de cartes synergiques requises).</div>';
+    issues.forEach(function(issue){
+      var sevCol=issue.sev==='high'?'var(--rd2)':'var(--am)';
+      var sevIco=issue.sev==='high'?'🔴':'🟠';
+      html+='<div style="padding:6px 9px;background:rgba(200,80,80,.06);border-left:2px solid '+sevCol+';border-radius:0 5px 5px 0;margin-bottom:4px">';
+      html+='<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;margin-bottom:2px">';
+      html+='<span>'+sevIco+'</span><b style="color:'+sevCol+'">'+esc(issue.card)+'</b>';
+      html+='</div>';
+      html+='<div style="font-size:10.5px;color:var(--tx2);line-height:1.5;padding-left:22px">'+esc(issue.issue)+'</div>';
+      html+='</div>';
+    });
+    html+='</div>';
+    return html;
+  })();
   // === Détecteur de combos infinis ===
   var _comboHtml=(function(){
     var combos=_anaDetectCombos(deck);
@@ -27351,7 +27493,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -27360,7 +27502,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
