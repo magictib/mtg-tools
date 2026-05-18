@@ -21873,10 +21873,18 @@ var _anaState=null;
 var _anaMissingCards=[];
 var _anaSimMode='duel'; // 'multi' = 40 PV / 20 tours | 'duel' = 20 PV / 14 tours
 var _anaOptMode='all'; // 'all' = toutes suggestions | 'collection' = cartes des decks uniquement
+var _anaBudgetMax=null; // null = pas de limite, sinon nombre EUR max par carte
 var _anaFormatOverride={}; // deckId → format string surchargé par l'utilisateur
 function anaSetOptMode(mode){
   _anaOptMode=mode;
   var deckId=document.getElementById('ana-deck-sel').value;
+  if(deckId&&_anaState)try{anaRender(deckId);}catch(e){}
+}
+function anaSetBudget(maxStr){
+  if(maxStr==null||maxStr===''||maxStr==='inf')_anaBudgetMax=null;
+  else{var v=parseFloat(maxStr);_anaBudgetMax=(!isNaN(v)&&v>=0)?v:null;}
+  var deckId=document.getElementById('ana-deck-sel');
+  deckId=deckId&&deckId.value;
   if(deckId&&_anaState)try{anaRender(deckId);}catch(e){}
 }
 function _anaQSetFormat(deckId,fmt){
@@ -23463,7 +23471,9 @@ function _anaIngestCard(card,nlHint){
   var _p=card.legalities&&card.legalities.pauper;
   var _rar=(_p==='legal'||_p==='banned')?'common':(card.rarity||'');
   var _mc=card.mana_cost||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].mana_cost)||'';
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc,producedMana:card.produced_mana||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].produced_mana)||[]};
+  var _pr=card.prices||{};
+  var _priceEur=parseFloat(_pr.eur)||parseFloat(_pr.eur_foil)||(parseFloat(_pr.usd)*0.92)||(parseFloat(_pr.usd_foil)*0.92)||0;
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc,producedMana:card.produced_mana||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].produced_mana)||[],priceEur:_priceEur};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -24421,6 +24431,18 @@ function anaShowPreEditor(noToggle){
   html+='<div style="font-size:12px;font-weight:bold;color:'+(mColl?'#8ab0ff':'var(--tx2)')+'">Ma collection</div>';
   html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;line-height:1.4">Uniquement vos cartes possédées. Suggestions directement jouables, pool plus restreint.</div>';
   html+='</button>';
+  html+='</div>';
+  // ─── Filtre budget : limite prix EUR par carte suggérée ─────────────────
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:8px 12px;background:var(--s2);border:.5px solid var(--bd2);border-radius:9px">';
+  html+='<span style="font-size:12px;color:var(--tx2)">💰 <b>Budget max</b> par carte suggérée :</span>';
+  var budOptions=[{v:'',l:'Pas de limite'},{v:'1',l:'≤ 1 €'},{v:'2',l:'≤ 2 €'},{v:'5',l:'≤ 5 €'},{v:'10',l:'≤ 10 €'},{v:'20',l:'≤ 20 €'},{v:'50',l:'≤ 50 €'}];
+  html+='<select onchange="anaSetBudget(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:11.5px;outline:none;cursor:pointer">';
+  budOptions.forEach(function(o){
+    var cur=(_anaBudgetMax==null&&o.v==='')||(_anaBudgetMax!=null&&parseFloat(o.v)===_anaBudgetMax);
+    html+='<option value="'+o.v+'"'+(cur?' selected':'')+'>'+o.l+'</option>';
+  });
+  html+='</select>';
+  if(_anaBudgetMax!=null)html+='<span style="font-size:10.5px;color:var(--am);font-style:italic">Filtre actif — cartes sans prix Scryfall non filtrées</span>';
   html+='</div>';
 
   // ─── Q1 : Plan A ────────────────────────────────────────────────
@@ -26468,6 +26490,14 @@ function anaRender(deckId){
   // Filtrer par collection si nécessaire (calculé une seule fois, réutilisé partout)
   var _collNlsFilter=_anaOptMode==='collection'?_anaCollectionNlSet():null;
   var suggPool=_collNlsFilter?suggestions.filter(function(s){return _collNlsFilter[s.nl];}):suggestions;
+  // Filtre budget : exclut les cartes au-dessus du seuil EUR (utilise meta.priceEur ou allPriceMap)
+  if(_anaBudgetMax!=null){
+    suggPool=suggPool.filter(function(s){
+      var price=(s.meta&&s.meta.priceEur)||(typeof allPriceMap!=='undefined'&&allPriceMap[s.nl])||0;
+      // Si prix inconnu (0), on garde (sinon on filtre tout)
+      return price<=_anaBudgetMax;
+    });
+  }
   var topSuggestions=suggPool.slice(0,10);
 
   // Plan d'optimisation
