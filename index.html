@@ -3773,8 +3773,11 @@ body.mana-cursor{cursor:none}
         <select id="ht-deck-sel" style="flex:1;min-width:140px;font-size:.82rem;padding:4px 8px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
           <option value="">— Choisir un deck —</option>
         </select>
-        <button class="btn btnsm btnp" onclick="htStart()">▶ Tester</button>
+        <button class="btn btnsm btnp" onclick="htStart()" title="Test interactif d'une main : pioche, tour suivant, mulligan manuel">▶ Tester (1 main)</button>
+        <button class="btn btnsm" onclick="htSimulate()" title="Lance 1000 mains virtuelles et affiche les statistiques agrégées" style="border-color:rgba(140,100,220,.55);color:#c8a8ff">🎲 Simuler 1000 mains</button>
       </div>
+      <!-- Panneau résultats simulateur -->
+      <div id="ht-sim-results" style="display:none;margin-top:12px"></div>
       <div id="ht-active" style="display:none;margin-top:10px">
         <!-- Barre d'info -->
         <div class="ht-info-bar">
@@ -16824,6 +16827,134 @@ function htStart(){
   htRender();
 }
 
+// Simulateur Monte-Carlo : lance N mains virtuelles, agrège les stats
+function htSimulate(){
+  var sel=document.getElementById('ht-deck-sel');
+  var id=sel&&sel.value;
+  if(!id){alert('Choisissez un deck');return;}
+  var deck=decks[id];if(!deck){alert('Deck introuvable');return;}
+  var cards=_htExpandDeck(id);
+  if(cards.length<7){alert('Le deck doit contenir au moins 7 cartes');return;}
+  var N=1000;
+  var resEl=document.getElementById('ht-sim-results');
+  if(resEl){resEl.style.display='block';resEl.innerHTML='<div style="text-align:center;color:var(--tx3);padding:20px;font-style:italic">Chargement des métadonnées Scryfall…</div>';}
+  // Pré-charge les métadonnées Scryfall pour toutes les cartes du deck (catégorisation)
+  var uniqueNames={};cards.forEach(function(c){uniqueNames[c.name.toLowerCase()]=c.name;});
+  var nls=Object.keys(uniqueNames);
+  var fallback=nls.map(function(nl){return {nl:nl,name:uniqueNames[nl]};});
+  function _runSim(){
+    if(resEl)resEl.innerHTML='<div style="text-align:center;color:var(--tx3);padding:20px;font-style:italic">Simulation de '+N+' mains en cours…</div>';
+    setTimeout(_doSimulate,50);
+  }
+  if(typeof anaFetchMissing==='function'){
+    anaFetchMissing(nls,fallback,_runSim);
+  }else _runSim();
+  function _doSimulate(){
+  // Catégorise chaque carte du deck via _anaData (déjà chargé pour l'Analyse)
+  function isLand(name){var m=_anaData[name.toLowerCase()];return m&&((m.typeLine||'').toLowerCase().indexOf('land')>=0);}
+  function categories(name){
+    var m=_anaData[name.toLowerCase()];if(!m)return {};
+    var r=anaRoles?anaRoles(m):{};
+    return r||{};
+  }
+  // Phase 1 : pré-calcule la liste des cartes du deck (1 entrée par exemplaire)
+  // pour pouvoir distribuer rapidement
+  var stats={
+    nHands:0,
+    landsDistrib:[0,0,0,0,0,0,0,0], // 0..7 lands
+    avgLands:0,
+    hasRamp:0,hasDraw:0,hasRemoval:0,hasWincon:0,hasInteraction:0,
+    keep:0,mulligan6:0,mulligan5:0,mulligan4:0,
+    avgCmcOnCurve:0
+  };
+  // Heuristique 'keep' : 2-5 terrains ET au moins 1 sort à CMC <= 4
+  function shouldKeep(hand){
+    var lands=hand.filter(function(c){return isLand(c.name);}).length;
+    if(lands<2||lands>5)return false;
+    // Au moins 1 sort affordable T3
+    var aff=hand.some(function(c){
+      if(isLand(c.name))return false;
+      var m=_anaData[c.name.toLowerCase()];
+      return m&&(m.cmc||0)<=4;
+    });
+    return aff;
+  }
+  for(var i=0;i<N;i++){
+    // Shuffle copie
+    var lib=cards.slice();_htShuffle(lib);
+    var hand=lib.slice(0,7);
+    var lands=hand.filter(function(c){return isLand(c.name);}).length;
+    stats.landsDistrib[Math.min(7,lands)]++;
+    stats.avgLands+=lands;
+    // Catégories présentes
+    var hasR=false,hasD=false,hasRem=false,hasW=false,hasI=false;
+    hand.forEach(function(c){
+      var rl=categories(c.name);
+      if(rl.ramp)hasR=true;
+      if(rl.draw)hasD=true;
+      if(rl.removal)hasRem=true;
+      if(rl.wincon)hasW=true;
+      if(rl.interaction)hasI=true;
+    });
+    if(hasR)stats.hasRamp++;
+    if(hasD)stats.hasDraw++;
+    if(hasRem)stats.hasRemoval++;
+    if(hasW)stats.hasWincon++;
+    if(hasI)stats.hasInteraction++;
+    // Mulligan decision (London mulligan : pioche 7, choisit de garder ou mul à 6)
+    if(shouldKeep(hand)){stats.keep++;}
+    else{
+      // Simule mul à 6 : pioche 7 et met 1 en bas
+      var lib2=cards.slice();_htShuffle(lib2);var hand2=lib2.slice(0,7);
+      if(shouldKeep(hand2.slice(0,6)))stats.mulligan6++;
+      else{
+        var lib3=cards.slice();_htShuffle(lib3);var hand3=lib3.slice(0,7);
+        if(shouldKeep(hand3.slice(0,5)))stats.mulligan5++;
+        else stats.mulligan4++;
+      }
+    }
+    stats.nHands++;
+  }
+  stats.avgLands/=N;
+  htRenderSimResults(stats,deck);
+  } // close _doSimulate
+}
+function htRenderSimResults(stats,deck){
+  var el=document.getElementById('ht-sim-results');if(!el)return;
+  function pct(n){return Math.round((n/stats.nHands)*100);}
+  function pctBar(p,col){return '<span style="display:inline-block;width:60px;height:8px;background:rgba(255,255,255,.08);border-radius:4px;vertical-align:middle;margin-right:6px;overflow:hidden"><span style="display:block;width:'+p+'%;height:100%;background:'+col+'"></span></span>';}
+  function row(lbl,n,col){var p=pct(n);return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11.5px"><div style="flex:1;color:var(--tx2)">'+lbl+'</div>'+pctBar(p,col)+'<b style="color:'+col+';font-family:monospace;min-width:36px;text-align:right">'+p+'%</b></div>';}
+  var html='<div class="card" style="background:rgba(20,15,40,.4);border-color:rgba(140,100,220,.4)">';
+  html+='<div class="lbl" style="color:#c8a8ff">📊 Simulation : '+stats.nHands+' mains de '+esc(deck.name||'?')+'</div>';
+  // Section 1 : Décision mulligan
+  html+='<div style="font-size:10.5px;color:var(--tx3);margin-bottom:4px;font-style:italic">Heuristique : garder si 2-5 terrains ET ≥1 sort à CMC≤4</div>';
+  html+='<div style="margin-bottom:10px">';
+  html+=row('✓ Garder à 7','keep'in stats?stats.keep:0,'#60ff90');
+  html+=row('🔄 Mul à 6 (gardée)',stats.mulligan6,'#ffc848');
+  html+=row('🔄 Mul à 5 (gardée)',stats.mulligan5,'#ff9050');
+  html+=row('✗ Mul à 4 ou pire',stats.mulligan4,'#ff5060');
+  html+='</div>';
+  // Section 2 : Distribution terrains
+  html+='<div style="font-size:11px;color:var(--tx2);margin-bottom:4px"><b>Terrains en main d\'ouverture</b> · moyenne <b style="color:var(--gold2)">'+stats.avgLands.toFixed(2)+'</b></div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:3px;margin-bottom:10px">';
+  var maxL=Math.max.apply(null,stats.landsDistrib)||1;
+  stats.landsDistrib.forEach(function(n,i){
+    var h=Math.round((n/maxL)*40);
+    var p=pct(n);
+    var col=i===0||i===7?'#e07070':(i>=2&&i<=4?'#78c890':'#f5b95b');
+    html+='<div style="text-align:center;font-size:10px;color:var(--tx3)"><div style="height:42px;display:flex;align-items:flex-end;justify-content:center"><div style="width:14px;height:'+(h<2?2:h)+'px;background:'+col+';border-radius:2px 2px 0 0"></div></div><div style="margin-top:2px;font-weight:600;color:var(--tx2)">'+(i===7?'7+':i)+'</div><div style="font-family:monospace;color:'+col+'">'+p+'%</div></div>';
+  });
+  html+='</div>';
+  // Section 3 : Catégories présentes en main
+  html+='<div style="font-size:11px;color:var(--tx2);margin-bottom:4px"><b>Probabilité d\'avoir au moins 1 :</b></div>';
+  html+=row('🌿 Ramp',stats.hasRamp,'#5bf590');
+  html+=row('📚 Pioche',stats.hasDraw,'#5b8cf5');
+  html+=row('⚔ Removal',stats.hasRemoval,'#f55b5b');
+  html+=row('🛡 Interaction',stats.hasInteraction,'#f5b95b');
+  html+=row('⚡ Menace (wincon)',stats.hasWincon,'#c95bf5');
+  html+='</div>';
+  el.innerHTML=html;
+}
 function htReset(close){
   _ht={on:false,deckId:null,lib:[],hand:[],field:[],grave:[],exile:[],turn:0,muls:0,mulPhase:false,mulSel:[]};
   document.getElementById('ht-active').style.display='none';
