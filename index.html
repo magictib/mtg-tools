@@ -23845,6 +23845,9 @@ function anaSimulate(deck,runs){
   if(lib.length<10)return null;
 
   var stats={mulligans:0,kept:0,manaT5:[],spellsT7:[],firstSpell:[],firstRamp:[],firstDraw:[],firstWincon:[],deadHands:0,landsT5:[]};
+  // Phase 6 : tracking per-card usage pour cut suggestions
+  var seenCount={}; // nl → nb runs où la carte a été VUE (piochée à un moment)
+  var playedCount={}; // nl → nb runs où la carte a été JOUÉE
 
   for(var run=0;run<runs;run++){
     // Mulligan jusqu'a 3 fois (Paris simplifie : 2-5 terrains acceptables)
@@ -23867,10 +23870,14 @@ function anaSimulate(deck,runs){
     var spellsCast=0;
     var firstSpellT=null,firstRampT=null,firstDrawT=null,firstWinconT=null;
     var landsInPlay=0;
+    var seenThisRun={}; // nl → 1, distinct nls vues dans cette run
+    var playedThisRun={}; // nl → 1, distinct nls jouées dans cette run
+    // Tag les cartes initiales de la main
+    hand.forEach(function(c){seenThisRun[c.nl]=1;});
 
     for(var t=1;t<=10;t++){
       // Phase draw (sauf T1)
-      if(t>1&&library.length)hand.push(library.shift());
+      if(t>1&&library.length){var drawn=library.shift();hand.push(drawn);seenThisRun[drawn.nl]=1;}
 
       // Land drop (1 par tour si possible, choix : prendre un land basique en priorite)
       var landIdx=hand.findIndex(function(c){return c.isLand;});
@@ -23892,6 +23899,8 @@ function anaSimulate(deck,runs){
             battlefield.push(c);
             manaPool-=c.cmc;
             spellsCast++;
+            // Tracking : carte jouée dans cette run
+            playedThisRun[c.nl]=1;
             if(firstSpellT===null)firstSpellT=t;
             if(c.roles.ramp&&firstRampT===null)firstRampT=t;
             if(c.roles.draw&&firstDrawT===null)firstDrawT=t;
@@ -23901,6 +23910,10 @@ function anaSimulate(deck,runs){
           }
         }
       });
+      if(t===10){
+        Object.keys(seenThisRun).forEach(function(nl){seenCount[nl]=(seenCount[nl]||0)+1;});
+        Object.keys(playedThisRun).forEach(function(nl){playedCount[nl]=(playedCount[nl]||0)+1;});
+      }
 
       if(t===5){stats.manaT5.push(landsInPlay);stats.landsT5.push(landsInPlay);}
       if(t===7)stats.spellsT7.push(spellsCast);
@@ -23913,6 +23926,26 @@ function anaSimulate(deck,runs){
   }
 
   function avg(arr){return arr.length?arr.reduce(function(s,n){return s+n;},0)/arr.length:0;}
+  function stdev(arr){if(arr.length<2)return 0;var m=avg(arr);var v=arr.reduce(function(s,n){return s+(n-m)*(n-m);},0)/arr.length;return Math.sqrt(v);}
+
+  // Cut suggestions : cartes vues mais rarement jouées (< 30% usage rate quand vues)
+  var cutSuggestions=[];
+  Object.keys(seenCount).forEach(function(nl){
+    var seen=seenCount[nl]||0;
+    if(seen<runs*0.3)return; // ignore les cartes rarement vues (faible signal)
+    var played=playedCount[nl]||0;
+    var usageRate=seen>0?played/seen:0;
+    if(usageRate<0.3){
+      // Trouve le nom + meta pour le retour
+      var deckCard=(deck.cards||[]).find(function(c){return c.nl===nl;});
+      if(!deckCard)return;
+      var meta=_anaData[nl]||{};
+      // Skip lands et commandant
+      if(meta.tags&&meta.tags.isLand)return;
+      cutSuggestions.push({nl:nl,name:deckCard.name,qty:deckCard.qty||1,seen:seen,played:played,usageRate:usageRate,cmc:meta.cmc||0});
+    }
+  });
+  cutSuggestions.sort(function(a,b){return a.usageRate-b.usageRate;});
 
   return {
     runs:runs,
@@ -23926,9 +23959,17 @@ function anaSimulate(deck,runs){
     avgFirstRamp:avg(stats.firstRamp),
     avgFirstDraw:avg(stats.firstDraw),
     avgFirstWincon:avg(stats.firstWincon),
+    // Variance : écart-type pour mesurer la consistance
+    stdFirstSpell:stdev(stats.firstSpell),
+    stdFirstRamp:stdev(stats.firstRamp),
+    stdFirstDraw:stdev(stats.firstDraw),
+    stdFirstWincon:stdev(stats.firstWincon),
+    stdSpellsT7:stdev(stats.spellsT7),
+    stdManaT5:stdev(stats.manaT5),
     rampReached:stats.firstRamp.length/runs,
     drawReached:stats.firstDraw.length/runs,
-    winconReached:stats.firstWincon.length/runs
+    winconReached:stats.firstWincon.length/runs,
+    cutSuggestions:cutSuggestions.slice(0,10)
   };
 }
 
@@ -27365,6 +27406,40 @@ function anaRender(deckId){
     else if(sim.mulRate<0.2&&sim.avgFirstSpell<3&&sim.winconReached>0.7){verdict='✓ Deck rapide et fiable';verdictCol='#78c890';}
     else verdict='✓ Comportement nominal';
     if(verdict)html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(0,0,0,.25);border-radius:8px;font-size:11px;color:'+verdictCol+'">'+verdict+'</div>';
+    // Variance / consistance : écart-type pour mesurer la régularité du deck
+    function _tStdTxt(avg,std,lbl){
+      var pct=avg>0?std/avg:0;
+      var col=pct<0.25?'#78c890':pct<0.5?'#f5b95b':'#e07070';
+      var qual=pct<0.25?'régulier':pct<0.5?'variable':'erratique';
+      return '<div style="font-size:10.5px;color:var(--tx2);padding:3px 0">'+lbl+' <b style="color:'+col+'">±'+std.toFixed(1)+'</b> <span style="color:var(--tx3);font-size:9.5px">('+qual+')</span></div>';
+    }
+    html+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">📈 Variance / consistance ▾</summary>';
+    html+='<div style="padding:6px 9px;background:rgba(0,0,0,.15);border-radius:6px;font-size:10.5px">';
+    html+='<div style="color:var(--tx3);margin-bottom:4px;font-style:italic;font-size:10px">Écart-type sur '+sim.runs+' runs : plus c\'est bas, plus le deck est régulier.</div>';
+    html+=_tStdTxt(sim.avgFirstSpell,sim.stdFirstSpell,'1er sort');
+    if(sim.rampReached>0)html+=_tStdTxt(sim.avgFirstRamp,sim.stdFirstRamp,'1er ramp');
+    if(sim.drawReached>0)html+=_tStdTxt(sim.avgFirstDraw,sim.stdFirstDraw,'1ère pioche');
+    if(sim.winconReached>0)html+=_tStdTxt(sim.avgFirstWincon,sim.stdFirstWincon,'1er wincon');
+    html+=_tStdTxt(sim.avgManaT5,sim.stdManaT5,'Lands T5');
+    html+=_tStdTxt(sim.avgSpellsT7,sim.stdSpellsT7,'Sorts cumul T7');
+    html+='</div></details>';
+    // Cut suggestions : cartes rarement jouées quand vues
+    if(sim.cutSuggestions&&sim.cutSuggestions.length){
+      html+='<details style="margin-top:6px" open><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">✂ Cut suggestions ('+sim.cutSuggestions.length+' carte'+(sim.cutSuggestions.length>1?'s':'')+' sous-utilisée'+(sim.cutSuggestions.length>1?'s':'')+') ▾</summary>';
+      html+='<div style="padding:6px 9px;background:rgba(200,80,80,.06);border-left:2px solid var(--rd2);border-radius:0 5px 5px 0">';
+      html+='<div style="color:var(--tx3);margin-bottom:4px;font-style:italic;font-size:10px">Cartes vues ≥30% des runs mais jouées <30% du temps. Candidates au cut.</div>';
+      sim.cutSuggestions.forEach(function(c){
+        var ur=Math.round(c.usageRate*100);
+        var seenPct=Math.round((c.seen/sim.runs)*100);
+        html+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:11px;border-bottom:.5px solid rgba(255,255,255,.04)">';
+        html+='<span style="color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>';
+        html+='<span style="color:var(--tx3);font-size:10px">CMC '+c.cmc+'</span>';
+        html+='<span style="color:var(--tx3);font-size:10px">vue '+seenPct+'%</span>';
+        html+='<span style="color:var(--rd2);font-family:monospace;font-size:10.5px;font-weight:600">jouée '+ur+'%</span>';
+        html+='</div>';
+      });
+      html+='</div></details>';
+    }
     html+='</div>';
   }
 
