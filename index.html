@@ -2269,7 +2269,8 @@ body.mana-cursor{cursor:none}
       <input type="text" id="collsrch" placeholder="Rechercher par nom..." oninput="renderColl()" style="flex:1">
       <input type="text" id="collsrch-oracle" placeholder='Recherche oracle ("deathtouch", "search your library")...' oninput="renderColl()" style="flex:1.3" title="Cherche dans le texte oracle des cartes. Plusieurs mots = ET logique.">
     </div>
-    <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap" id="coll-adv-filters">
+    <button class="dm" id="coll-adv-toggle" onclick="collToggleAdv()" style="margin-top:6px;font-size:.72rem" title="Affiche/masque les filtres CMC, prix, type, finition…">⚙ Filtres avancés <span id="coll-adv-arrow">▾</span></button>
+    <div style="display:none;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap" id="coll-adv-filters">
       <input type="number" id="coll-cmc-min" placeholder="CMC min" min="0" max="20" oninput="renderColl()" style="width:84px;padding:3px 8px;font-size:.78rem" title="Coût mana minimum">
       <input type="number" id="coll-cmc-max" placeholder="CMC max" min="0" max="20" oninput="renderColl()" style="width:84px;padding:3px 8px;font-size:.78rem" title="Coût mana maximum">
       <input type="number" id="coll-price-min" placeholder="€ min" step="0.1" min="0" oninput="renderColl()" style="width:80px;padding:3px 8px;font-size:.78rem">
@@ -3249,13 +3250,21 @@ body.mana-cursor{cursor:none}
       <option value="legacy">Legacy</option>
       <option value="vintage">Vintage</option>
     </select>
+      <!-- Actions primaires (toujours visibles) -->
       <button class="btn btnsm" onclick="bldVerifyLegality()" title="Vérifier la légalité du deck dans le format choisi (bans + identité couleur Commander + singleton)" style="font-size:.74rem;white-space:nowrap">✅ Vérifier</button>
-      <button class="btn btnsm" onclick="bldShowDeckStats()" title="Graphiques : courbe de mana, distribution des couleurs et types de cartes" style="font-size:.74rem;white-space:nowrap">📊 Stats</button>
-      <button class="btn btnsm" onclick="bldOpenCompareDeck()" title="Comparer deux decks (uniques à chacun + communes)" style="font-size:.74rem;white-space:nowrap">🔄 Comparer</button>
-      <button class="btn btnsm" onclick="bldShareCurrent()" title="Publier le deck courant en lecture seule via URL partageable" style="font-size:.74rem;white-space:nowrap">🔗 Partager</button>
-      <button class="btn btnsm" onclick="bldMulliganSim()" title="Simule 2000 mains d'ouverture, statistiques de mana-screw/flood" style="font-size:.74rem;white-space:nowrap">🎴 Mulligan</button>
-      <button class="btn btnsm" onclick="bldShowSynergies()" title="Détecte les thèmes/synergies internes du deck (counters, sacrifice, graveyard…)" style="font-size:.74rem;white-space:nowrap">🧬 Synergies</button>
-      <button class="btn btnsm" onclick="bldEdhrecSuggest()" title="Suggestions EDHREC pour ton commandant : top cartes les plus jouées dans son deck moyen" style="font-size:.74rem;white-space:nowrap;border-color:rgba(140,100,220,.55);color:#c8a8ff">🧙 EDHREC</button>
+      <button class="btn btnsm" onclick="bldEdhrecSuggest()" title="Suggestions EDHREC pour ton commandant" style="font-size:.74rem;white-space:nowrap;border-color:rgba(140,100,220,.55);color:#c8a8ff">🧙 EDHREC</button>
+      <!-- Menu déroulant pour les outils secondaires -->
+      <div style="position:relative;display:inline-block">
+        <button class="btn btnsm" onclick="bldToggleToolsMenu(event)" title="Outils complémentaires : stats, mulligan, synergies, partage…" style="font-size:.74rem;white-space:nowrap">🧰 Outils ▾</button>
+        <div id="bld-tools-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:rgba(8,12,22,.98);border:1px solid rgba(201,168,76,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.85);min-width:180px;padding:4px 0;backdrop-filter:blur(6px)">
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShowDeckStats();bldCloseToolsMenu()">📊 Stats — courbe & types</button>
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShowSynergies();bldCloseToolsMenu()">🧬 Synergies — thèmes internes</button>
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldMulliganSim();bldCloseToolsMenu()">🎴 Mulligan — sim 2000 mains</button>
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldOpenCompareDeck();bldCloseToolsMenu()">🔄 Comparer — 2 decks</button>
+          <div class="ar-cmenu-sep"></div>
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShareCurrent();bldCloseToolsMenu()">🔗 Partager — URL lecture seule</button>
+        </div>
+      </div>
     </div>
     <div style="display:flex;gap:6px">
       <select id="bld-deck-sel" style="flex:1;font-size:.82rem;padding:5px 9px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);outline:none">
@@ -19678,6 +19687,18 @@ function toggleCollSortDir(){
   collSort.dir*=-1;
   renderColl();
 }
+// Toggle des filtres avancés
+function collToggleAdv(){
+  var div=document.getElementById('coll-adv-filters');
+  var arr=document.getElementById('coll-adv-arrow');
+  if(!div)return;
+  var shown=div.style.display!=='none';
+  div.style.display=shown?'none':'flex';
+  if(arr)arr.textContent=shown?'▾':'▴';
+  try{localStorage.setItem('mtg_coll_adv_open',shown?'':'1');}catch(e){}
+}
+// Restaure l'état au boot (si dispo avant DOMContentLoaded sans crash)
+(function(){try{if(localStorage.getItem('mtg_coll_adv_open'))document.addEventListener('DOMContentLoaded',function(){var d=document.getElementById('coll-adv-filters');if(d)d.style.display='flex';var a=document.getElementById('coll-adv-arrow');if(a)a.textContent='▴';});}catch(e){}})();
 // Reset des filtres avancés collection
 function collResetFilters(){
   ['coll-cmc-min','coll-cmc-max','coll-price-min','coll-price-max','collsrch-oracle','collsrch'].forEach(function(id){var e=document.getElementById(id);if(e)e.value='';});
@@ -20922,6 +20943,20 @@ function _bldRenderStatsModal(){
   mlAlert('📊 Stats du deck',html,{html:true,okLabel:'Fermer'});
 }
 
+// Menu Outils du Builder (regroupe les boutons secondaires)
+function bldToggleToolsMenu(e){
+  if(e){e.stopPropagation();}
+  var m=document.getElementById('bld-tools-menu');if(!m)return;
+  m.style.display=m.style.display==='none'?'block':'none';
+}
+function bldCloseToolsMenu(){var m=document.getElementById('bld-tools-menu');if(m)m.style.display='none';}
+// Click ailleurs ferme
+document.addEventListener('click',function(e){
+  var m=document.getElementById('bld-tools-menu');
+  if(m&&m.style.display==='block'&&!e.target.closest('#bld-tools-menu')&&!e.target.closest('button[onclick*="bldToggleToolsMenu"]')){
+    m.style.display='none';
+  }
+});
 // ===== Builder : suggestions EDHREC pour commandant =====
 function bldEdhrecSuggest(){
   if(bldFormat!=='commander'&&bldFormat!=='paupercmd'){
