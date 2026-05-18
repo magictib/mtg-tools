@@ -2096,7 +2096,36 @@ body.mana-cursor{cursor:none}
       </div>
       <div id="cadd-msg" style="font-size:.78rem;color:var(--gr2);margin-top:6px;display:none"></div>
     </div>
-    <input type="text" id="collsrch" placeholder="Rechercher une carte..." oninput="renderColl()" style="margin-top:6px">
+    <div style="display:flex;gap:4px;margin-top:6px;align-items:stretch">
+      <input type="text" id="collsrch" placeholder="Rechercher par nom..." oninput="renderColl()" style="flex:1">
+      <input type="text" id="collsrch-oracle" placeholder='Recherche oracle ("deathtouch", "search your library")...' oninput="renderColl()" style="flex:1.3" title="Cherche dans le texte oracle des cartes. Plusieurs mots = ET logique.">
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap" id="coll-adv-filters">
+      <input type="number" id="coll-cmc-min" placeholder="CMC min" min="0" max="20" oninput="renderColl()" style="width:84px;padding:3px 8px;font-size:.78rem" title="Coût mana minimum">
+      <input type="number" id="coll-cmc-max" placeholder="CMC max" min="0" max="20" oninput="renderColl()" style="width:84px;padding:3px 8px;font-size:.78rem" title="Coût mana maximum">
+      <input type="number" id="coll-price-min" placeholder="€ min" step="0.1" min="0" oninput="renderColl()" style="width:80px;padding:3px 8px;font-size:.78rem">
+      <input type="number" id="coll-price-max" placeholder="€ max" step="0.1" min="0" oninput="renderColl()" style="width:80px;padding:3px 8px;font-size:.78rem">
+      <select id="coll-type-filter" onchange="renderColl()" style="font-size:.78rem;padding:3px 8px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;outline:none">
+        <option value="">Tous types</option>
+        <option value="creature">Créature</option>
+        <option value="instant">Éphémère</option>
+        <option value="sorcery">Rituel</option>
+        <option value="artifact">Artefact</option>
+        <option value="enchantment">Enchantement</option>
+        <option value="planeswalker">Planeswalker</option>
+        <option value="land">Terrain</option>
+      </select>
+      <select id="coll-finish-filter" onchange="renderColl()" style="font-size:.78rem;padding:3px 8px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;outline:none" title="Finition">
+        <option value="">Toutes finitions</option>
+        <option value="normal">Normal</option>
+        <option value="foil">Foil</option>
+        <option value="etched">Etched</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:4px;font-size:.74rem;color:var(--tx2)" title="N'affiche que les cartes en doublon (qty ≥ 2)">
+        <input type="checkbox" id="coll-dup-only" onchange="renderColl()" style="margin:0">Doublons uniquement
+      </label>
+      <button class="btn btnsm" onclick="collResetFilters()" style="font-size:.7rem">↺ Reset</button>
+    </div>
     <div id="coll-filters" style="margin-top:8px;display:none">
       <select id="coll-set" onchange="collFiltSet=this.value;renderColl()" style="margin-bottom:6px"></select>
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="coll-rar-btns">
@@ -19163,6 +19192,16 @@ function toggleCollSortDir(){
   collSort.dir*=-1;
   renderColl();
 }
+// Reset des filtres avancés collection
+function collResetFilters(){
+  ['coll-cmc-min','coll-cmc-max','coll-price-min','coll-price-max','collsrch-oracle','collsrch'].forEach(function(id){var e=document.getElementById(id);if(e)e.value='';});
+  ['coll-type-filter','coll-finish-filter'].forEach(function(id){var e=document.getElementById(id);if(e)e.value='';});
+  var d=document.getElementById('coll-dup-only');if(d)d.checked=false;
+  collFiltSet='';var sf=document.getElementById('coll-set');if(sf)sf.value='';
+  collFiltRar='';document.querySelectorAll('#coll-rar-btns .dm').forEach(function(b,i){b.classList.toggle('active',i===0);});
+  collFiltColors=new Set();document.querySelectorAll('#coll-filters [id^=cf-]').forEach(function(b){b.classList.remove('on');});
+  renderColl();
+}
 // ===== Collection Dashboard =====
 function toggleCollDashboard(){
   var el=document.getElementById('coll-dashboard');if(!el)return;
@@ -19304,9 +19343,26 @@ function renderColl(){
     setEl.innerHTML='<option value="">Toutes les extensions</option>'+sets.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>';}).join('');
     setEl.value=collFiltSet;
   }
+  // Filtres avancés
+  var oracleSrch=(document.getElementById('collsrch-oracle')||{}).value||'';
+  var oracleTerms=oracleSrch.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  var cmcMin=parseFloat((document.getElementById('coll-cmc-min')||{}).value);if(isNaN(cmcMin))cmcMin=null;
+  var cmcMax=parseFloat((document.getElementById('coll-cmc-max')||{}).value);if(isNaN(cmcMax))cmcMax=null;
+  var priceMin=parseFloat((document.getElementById('coll-price-min')||{}).value);if(isNaN(priceMin))priceMin=null;
+  var priceMax=parseFloat((document.getElementById('coll-price-max')||{}).value);if(isNaN(priceMax))priceMax=null;
+  var typeFilter=((document.getElementById('coll-type-filter')||{}).value||'').toLowerCase();
+  var finishFilter=((document.getElementById('coll-finish-filter')||{}).value||'').toLowerCase();
+  var dupOnly=(document.getElementById('coll-dup-only')||{}).checked;
   var filtered=cards.filter(function(c){
     if(srch&&c.name.toLowerCase().indexOf(srch)<0)return false;
     if(collFiltSet&&c.set!==collFiltSet)return false;
+    if(dupOnly&&(c.qty||1)<2)return false;
+    if(priceMin!=null&&(c.price||0)<priceMin)return false;
+    if(priceMax!=null&&(c.price||0)>priceMax)return false;
+    if(finishFilter){
+      var fin=fNF(c.finish||'');
+      if(finishFilter==='normal'?(fin==='foil'||fin==='etched'):(fin!==finishFilter))return false;
+    }
     var cached=collCache[c.name.toLowerCase()];
     if(collFiltRar&&cached&&cached.rarity!==collFiltRar)return false;
     if(collFiltColors.size>0){
@@ -19315,6 +19371,19 @@ function renderColl(){
       var ok=false;
       collFiltColors.forEach(function(fc){if(fc==='C'?cols.length===0:cols.indexOf(fc)>=0)ok=true;});
       if(!ok)return false;
+    }
+    // CMC, type, oracle text : on a besoin du meta Scryfall complet (_anaData ou via collCache étendu)
+    var meta=(typeof _anaData!=='undefined'&&_anaData[c.name.toLowerCase()])||cached||null;
+    if(cmcMin!=null){if(!meta||meta.cmc==null)return false;if(meta.cmc<cmcMin)return false;}
+    if(cmcMax!=null){if(!meta||meta.cmc==null)return false;if(meta.cmc>cmcMax)return false;}
+    if(typeFilter){
+      var tl=(meta&&meta.typeLine)||(meta&&meta.type_line)||'';
+      if(!tl.toLowerCase().includes(typeFilter))return false;
+    }
+    if(oracleTerms.length){
+      var ot=((meta&&(meta.oracleText||meta.oracle_text))||'').toLowerCase();
+      if(!ot)return false;
+      for(var i=0;i<oracleTerms.length;i++){if(ot.indexOf(oracleTerms[i])<0)return false;}
     }
     return true;
   });
@@ -19481,7 +19550,9 @@ function _buildDatFromAPI(c){
   var prices=[{l:'USD',v:p.usd,s:'$'},{l:'EUR',v:p.eur,s:'€'},{l:'Foil USD',v:p.usd_foil,s:'$'},{l:'Foil EUR',v:p.eur_foil,s:'€'}].filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
   var pt=c.power!=null?c.power+'/'+c.toughness+' ':c.loyalty?'Loyauté '+c.loyalty+' ':'';
   var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
-  return {colors:c.colors||[],rarity:c.rarity||'',img:img,oracle:oracle,type:c.type_line||'',prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
+  // Texte oracle brut pour la recherche (les filtres avancés en ont besoin)
+  var rawOracle=c.oracle_text||(c.card_faces&&c.card_faces.map(function(f){return f.oracle_text||'';}).filter(Boolean).join(' '))||'';
+  return {colors:c.colors||[],rarity:c.rarity||'',img:img,oracle:oracle,type:c.type_line||'',typeLine:c.type_line||'',cmc:c.cmc||0,oracleText:rawOracle,prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
 }
 function _apiBatch(batch){
   fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -21630,7 +21701,8 @@ function _cacheFromIDB(c){
   var prices=[{l:'USD',v:p.usd,s:'$'},{l:'EUR',v:p.eur,s:'€'},{l:'Foil USD',v:p.usd_foil,s:'$'},{l:'Foil EUR',v:p.eur_foil,s:'€'}].filter(function(x){return x.v;}).map(function(x){return '<span style="color:var(--gold2)">'+x.s+parseFloat(x.v).toFixed(2)+'</span> '+x.l;}).join(' · ');
   var pt=c.power!=null?c.power+'/'+c.toughness+' ':c.loyalty?'Loyauté '+c.loyalty+' ':'';
   var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
-  return {colors:c.colors||[],rarity:c.rarity||'',img:c.image_uri||'',oracle:oracle,type:c.type_line||'',prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
+  var rawOracle=c.oracle_text||(c.faces&&c.faces.map(function(f){return f.oracle_text||'';}).filter(Boolean).join(' '))||'';
+  return {colors:c.colors||[],rarity:c.rarity||'',img:c.image_uri||'',oracle:oracle,type:c.type_line||'',typeLine:c.type_line||'',cmc:c.cmc||0,oracleText:rawOracle,prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
 }
 function _populateIDB(cards,onProg){
   return _openIDB().then(function(d){
