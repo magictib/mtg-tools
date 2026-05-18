@@ -27465,6 +27465,48 @@ function anaRender(deckId){
   _scorePanel+='<div id="ana-score-num" style="margin:4px 0;font-size:12px"><b style="color:'+grade.col+'">'+overall+'</b><span style="color:var(--tx3);font-size:10px">/100</span></div>';
   _scorePanel+='<div style="height:4px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-bottom:8px">';
   _scorePanel+='<div id="ana-score-bar" style="width:'+overall+'%;height:100%;background:'+grade.col+';border-radius:3px"></div></div>';
+  // ── Radar chart des 6 sous-scores ──
+  (function(){
+    var size=150,cx=size/2,cy=size/2,maxR=size/2-18;
+    var axes=_subCatDef; // 6 axes
+    var n=axes.length;
+    var points=axes.map(function(sc,i){
+      var sv=Math.max(0,Math.min(100,subScores[sc.k]||0));
+      var ang=-Math.PI/2+(i*2*Math.PI/n);
+      var r=(sv/100)*maxR;
+      return {x:cx+Math.cos(ang)*r,y:cy+Math.sin(ang)*r,sv:sv,sc:sc,ang:ang};
+    });
+    // Grid : cercles à 25/50/75/100%
+    var svg='<svg viewBox="0 0 '+size+' '+size+'" style="display:block;margin:0 auto 6px;width:100%;max-width:160px">';
+    [0.25,0.5,0.75,1].forEach(function(t){
+      var pts=axes.map(function(_,i){
+        var ang=-Math.PI/2+(i*2*Math.PI/n);
+        return (cx+Math.cos(ang)*maxR*t)+','+(cy+Math.sin(ang)*maxR*t);
+      }).join(' ');
+      svg+='<polygon points="'+pts+'" fill="none" stroke="rgba(255,255,255,.08)" stroke-width=".5"/>';
+    });
+    // Axes lines
+    axes.forEach(function(sc,i){
+      var ang=-Math.PI/2+(i*2*Math.PI/n);
+      svg+='<line x1="'+cx+'" y1="'+cy+'" x2="'+(cx+Math.cos(ang)*maxR)+'" y2="'+(cy+Math.sin(ang)*maxR)+'" stroke="rgba(255,255,255,.1)" stroke-width=".5"/>';
+    });
+    // Polygon score
+    var scorePts=points.map(function(p){return p.x+','+p.y;}).join(' ');
+    svg+='<polygon points="'+scorePts+'" fill="rgba(201,168,76,.25)" stroke="'+grade.col+'" stroke-width="1.5"/>';
+    // Points
+    points.forEach(function(p){
+      var col=p.sv>=80?'#78c890':p.sv>=60?'#f5b95b':'#e07070';
+      svg+='<circle cx="'+p.x+'" cy="'+p.y+'" r="2.5" fill="'+col+'" stroke="#0a0a0a" stroke-width=".5"/>';
+    });
+    // Labels (positionnés à l'extérieur des axes)
+    points.forEach(function(p,i){
+      var ang=p.ang;var lx=cx+Math.cos(ang)*(maxR+10),ly=cy+Math.sin(ang)*(maxR+10);
+      var anchor=Math.cos(ang)>0.3?'start':Math.cos(ang)<-0.3?'end':'middle';
+      svg+='<text x="'+lx+'" y="'+(ly+3)+'" font-size="7" fill="var(--tx3)" font-family="Goudy Mediaeval,serif" text-anchor="'+anchor+'">'+p.sc.l+'</text>';
+    });
+    svg+='</svg>';
+    _scorePanel+=svg;
+  })();
   _subCatDef.forEach(function(sc){
     var sv=Math.round(subScores[sc.k]||0);
     var col=sv>=80?'#78c890':sv>=60?'#f5b95b':'#e07070';
