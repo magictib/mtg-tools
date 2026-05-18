@@ -1113,6 +1113,10 @@ body.mana-cursor{cursor:none}
 .ar-lbtn:hover{background:rgba(255,255,255,.22)}
 .ar-mul-bar{display:none;position:absolute;top:50px;left:0;right:0;z-index:30;background:rgba(180,30,30,.18);border-bottom:2px solid rgba(220,70,70,.45);padding:8px 14px;align-items:center;gap:10px;flex-wrap:wrap}
 .ar-mul-bar.on{display:flex}
+/* Discard bar — gate fin de tour si main > maxHand */
+.ar-disc-bar{display:none;position:absolute;top:50px;left:0;right:0;z-index:31;background:linear-gradient(180deg,rgba(80,40,10,.65),rgba(40,18,5,.6));border-bottom:2px solid rgba(255,140,40,.55);padding:8px 14px;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:inset 0 -8px 16px rgba(255,80,0,.08),0 2px 16px rgba(255,80,0,.18);animation:ar-combat-bar-pulse 1.4s ease-in-out infinite}
+.ar-disc-bar.on{display:flex}
+.ar-hand-card.ar-disc-sel{border-color:#ff8060!important;box-shadow:0 0 0 3px rgba(255,128,80,.6),0 12px 28px rgba(0,0,0,.85),0 0 22px rgba(255,128,80,.55)!important;transform:translateY(-30px) scale(1.12) rotate(var(--rot))!important;z-index:24}
 .ar-zone-ov{position:absolute;inset:0;background:rgba(0,0,0,.82);z-index:90;display:flex;align-items:center;justify-content:center}
 .ar-zone-ov-inner{background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:16px;max-width:88vw;max-height:80vh;overflow-y:auto;min-width:280px}
 #ar-ghost{position:fixed;pointer-events:none;z-index:700;display:none;width:82px;height:115px}
@@ -3799,6 +3803,7 @@ body.mana-cursor{cursor:none}
     <!-- Primary actions – hidden when bot manages turns -->
     <button class="ar-btn ar-btn-gold ar-normal-only" onclick="arNextTurn()" title="Détaper tout + piocher + tour suivant">↺ Tour</button>
     <button class="ar-btn ar-normal-only" onclick="arMulligan()" id="ar-mul-btn">⊘ Mul (<span id="ar-mul-n">0</span>)</button>
+    <button class="ar-btn ar-normal-only" onclick="arSetMaxHand()" id="ar-maxhand-btn" title="Taille max de la main en fin de tour (défaut 7, ∞ avec Tour reliquaire / Grimoire)">✋ Max <span id="ar-maxhand-val">7</span></button>
     <div class="ar-sep ar-normal-only"></div>
     <!-- Hand sort & field arrange -->
     <button class="ar-btn" onclick="arCycleHandSort()" id="ar-handsort-btn" title="Tri de la main (cycle : Ordre / CMC / Type / Couleur / A-Z)" style="padding:4px 7px">⇅ Ordre</button>
@@ -3875,6 +3880,13 @@ body.mana-cursor{cursor:none}
     <span style="font-size:.8rem;color:var(--tx2)">Sélectionnez <strong id="ar-mul-need" style="color:var(--rd2)">1</strong> carte(s) à remettre sous le deck</span>
     <button class="ar-btn" id="ar-mul-ok" onclick="arConfirmMul()" disabled>Valider (0/<span id="ar-mul-need2">1</span>)</button>
     <button class="ar-btn" onclick="arCancelMul()">Annuler</button>
+  </div>
+
+  <!-- Discard bar (fin de tour : excès de cartes en main) -->
+  <div class="ar-disc-bar" id="ar-disc-bar">
+    <span style="font-size:.82rem;color:#ffd0a0">✋ Défausse <strong id="ar-disc-need" style="color:#ff8060">1</strong> carte(s) — main &gt; <span id="ar-disc-max">7</span></span>
+    <button class="ar-btn ar-btn-gold" id="ar-disc-ok" onclick="arConfirmDiscard()" disabled>Confirmer (0/<span id="ar-disc-need2">1</span>)</button>
+    <button class="ar-btn" onclick="arCancelDiscard()" title="Annuler le passage au tour suivant et continuer ce tour">Annuler</button>
   </div>
 
   <!-- Opponent info bar (multiplayer) -->
@@ -11828,7 +11840,7 @@ var _AR_HB_INTERVAL_MS=5000;
 var _AR_LOG_CAP_LOCAL=300;
 var _AR_LOG_CAP_REMOTE=400;
 var _arScryData=null;
-var _ar={active:false,lib:[],hand:[],field:[],grave:[],exile:[],lands:[],cmd:null,cmdCasts:0,life:40,startLife:40,turn:0,phase:0,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false,attackers:[],blockers:[]};
+var _ar={active:false,lib:[],hand:[],field:[],grave:[],exile:[],lands:[],cmd:null,cmdCasts:0,life:40,startLife:40,turn:0,phase:0,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false,attackers:[],blockers:[],maxHand:7,discardPhase:false,discardSel:[],discardNeed:0};
 var _arCtxMenuState=null;
 var _arMultiBarState=null;
 
@@ -11980,7 +11992,7 @@ function arOpen(){
   _arImgCache={};
   var deckDisplayName=decks[id]?decks[id].name:(function(){if(id&&id.startsWith('pool:')){var pd=_arPool.find(function(d){return d.id===id.slice(5);});return pd?pd.name:id;}return id;})();
   _ar={active:true,lib:_arShuffle(expanded.lib),hand:[],field:[],grave:[],exile:[],lands:[],
-    cmd:expanded.cmd,cmdCasts:0,life:startLife,startLife:startLife,originalDeckId:id,turn:1,phase:1,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false,attackers:[],blockers:[],
+    cmd:expanded.cmd,cmdCasts:0,life:startLife,startLife:startLife,originalDeckId:id,turn:1,phase:1,muls:0,mulPhase:false,mulSel:[],drag:null,selected:null,multiSel:[],fieldUsed:false,attackers:[],blockers:[],maxHand:_ar.maxHand||7,discardPhase:false,discardSel:[],discardNeed:0,
     lifeHist:[{t:Date.now(),turn:0,life:startLife}],
     ss:{deckId:id,deckName:deckDisplayName,t0:Date.now(),turns:0,muls:0,drawn:7}};
   // Draw opening hand
@@ -12177,7 +12189,7 @@ function arRestart(){
   _ar.cmd=expanded.cmd;_ar.cmdCasts=0;
   _ar.hand=[];_ar.field=[];_ar.grave=[];_ar.exile=[];_ar.lands=[];
   var did=_ar.originalDeckId;
-  _ar.life=_ar.startLife;_ar.turn=1;_ar.phase=1;_ar.muls=0;_ar.mulPhase=false;_ar.mulSel=[];_ar.selected=null;_ar.multiSel=[];_ar.fieldUsed=false;_ar.attackers=[];_ar.blockers=[];
+  _ar.life=_ar.startLife;_ar.turn=1;_ar.phase=1;_ar.muls=0;_ar.mulPhase=false;_ar.mulSel=[];_ar.selected=null;_ar.multiSel=[];_ar.fieldUsed=false;_ar.attackers=[];_ar.blockers=[];_ar.discardPhase=false;_ar.discardSel=[];_ar.discardNeed=0;
   _ar.ss={deckId:did,deckName:decks[did]?decks[did].name:'',t0:Date.now(),turns:0,muls:0,drawn:7};
   for(var i=0;i<7;i++)if(_ar.lib.length)_ar.hand.push(_ar.lib.pop());
   arRender();
@@ -12207,6 +12219,21 @@ function arRenderTopbar(){
     ok.textContent='Valider ('+_ar.mulSel.length+'/'+_ar.muls+')';
     ok.disabled=_ar.mulSel.length!==_ar.muls;
   }
+  // Discard bar (fin de tour si main > maxHand)
+  var discBar=document.getElementById('ar-disc-bar');
+  if(discBar){
+    discBar.classList.toggle('on',_ar.discardPhase);
+    if(_ar.discardPhase){
+      var needEl=document.getElementById('ar-disc-need');if(needEl)needEl.textContent=_ar.discardNeed;
+      var need2El=document.getElementById('ar-disc-need2');if(need2El)need2El.textContent=_ar.discardNeed;
+      var maxEl=document.getElementById('ar-disc-max');if(maxEl)maxEl.textContent=isFinite(_ar.maxHand)?_ar.maxHand:'∞';
+      var okEl=document.getElementById('ar-disc-ok');
+      if(okEl){okEl.textContent='Confirmer ('+_ar.discardSel.length+'/'+_ar.discardNeed+')';okEl.disabled=_ar.discardSel.length!==_ar.discardNeed;}
+    }
+  }
+  // Bouton max hand : reflète la valeur courante
+  var mhEl=document.getElementById('ar-maxhand-val');
+  if(mhEl)mhEl.textContent=isFinite(_ar.maxHand)?_ar.maxHand:'∞';
 }
 
 var _arHandSort='order'; // 'order' | 'name' | 'cmc' | 'color' | 'type'
@@ -12251,7 +12278,8 @@ function arRenderHand(){
   hand.innerHTML=sorted.map(function(c,i){
     var isSel=_ar.selected===c.id;
     var isMul=_ar.mulPhase&&_ar.mulSel.indexOf(c.id)>=0;
-    var cls='ar-hand-card'+(isSel?' ar-sel':'')+(isMul?' ar-mul-sel':'');
+    var isDisc=_ar.discardPhase&&_ar.discardSel.indexOf(c.id)>=0;
+    var cls='ar-hand-card'+(isSel?' ar-sel':'')+(isMul?' ar-mul-sel':'')+(isDisc?' ar-disc-sel':'');
     // Rotation = position dans l'arc : centre = 0°, extrémités = ±maxRot
     var rot=total>1?((i-(total-1)/2)/((total-1)/2))*maxRot:0;
     // Léger lift en arc pour les cartes du centre (effet bombé)
@@ -12445,7 +12473,14 @@ function arSetPhase(n){
 
 function arNextTurn(){
   if(_ar.mulPhase)return;
+  if(_ar.discardPhase)return; // déjà en train de résoudre une défausse
   if(_arBot){_arBotLog('Utilisez "Fin de tour →" en mode vs IA');return;}
+  // Règle MTG : si main > maxHand en fin de tour, défausse l'excès avant de passer
+  var max=(_ar.maxHand==null?7:_ar.maxHand);
+  if(isFinite(max)&&_ar.hand.length>max){
+    _arStartDiscard(_ar.hand.length-max);
+    return; // arConfirmDiscard rappellera arNextTurn une fois résolu
+  }
   _ar.field.forEach(function(c){c.tapped=false;});
   (_ar.lands||[]).forEach(function(c){c.tapped=false;});
   _ar.attackers=[];_ar.blockers=[];
@@ -12463,6 +12498,55 @@ function arNextTurn(){
   }
   arRender();_arSyncToRoom();_arUpdateCombatBar();
   arLogAction('turn',{turn:_ar.turn});
+}
+// Phase de défausse forcée (excès de cartes en main vs maxHand)
+function _arStartDiscard(n){
+  _ar.discardPhase=true;_ar.discardSel=[];_ar.discardNeed=n;
+  arRender();
+  arRenderTopbar();
+  // Toast d'info
+  if(typeof _arShowActionToast==='function')_arShowActionToast({type:'discard_required',by:_arRoom?_arRoom.playerNum:0,payload:{n:n}});
+}
+function arToggleDiscardSel(id){
+  if(!_ar.discardPhase)return;
+  var idx=_ar.discardSel.indexOf(id);
+  if(idx>=0)_ar.discardSel.splice(idx,1);
+  else if(_ar.discardSel.length<_ar.discardNeed)_ar.discardSel.push(id);
+  arRenderHand();arRenderTopbar();
+}
+function arConfirmDiscard(){
+  if(!_ar.discardPhase||_ar.discardSel.length!==_ar.discardNeed)return;
+  var sel=_ar.discardSel.slice();
+  var discardedNames=[];
+  _ar.hand=_ar.hand.filter(function(c){
+    if(sel.indexOf(c.id)>=0){discardedNames.push(c.name);_ar.grave.push(c);return false;}
+    return true;
+  });
+  _ar.discardPhase=false;_ar.discardSel=[];_ar.discardNeed=0;
+  if(typeof arLogAction==='function')arLogAction('discard_end',{names:discardedNames,n:discardedNames.length});
+  // Continue le tour suivant
+  arNextTurn();
+}
+function arCancelDiscard(){
+  // Annule = abandonne le changement de tour, joueur peut continuer son tour actuel
+  _ar.discardPhase=false;_ar.discardSel=[];_ar.discardNeed=0;
+  arRender();
+}
+// Bouton topbar : définir la taille max de main (7 par défaut, ∞ si Tour reliquaire etc.)
+function arSetMaxHand(){
+  var cur=(_ar.maxHand==null?7:_ar.maxHand);
+  var msg='Taille max de la main (à la fin du tour, l\'excès doit être défaussé).\n'
+    +'Valeur actuelle : '+(isFinite(cur)?cur:'∞ (illimitée)')+'\n\n'
+    +'Saisis un nombre, ou "inf" / "∞" pour illimité (Tour reliquaire, Grimoire, etc.) :';
+  var ans=prompt(msg,isFinite(cur)?String(cur):'inf');
+  if(ans==null)return;
+  ans=ans.trim().toLowerCase();
+  var newMax;
+  if(ans===''||ans==='inf'||ans==='infini'||ans==='infinity'||ans==='∞')newMax=Infinity;
+  else{var n=parseInt(ans,10);if(isNaN(n)||n<0)return;newMax=n;}
+  _ar.maxHand=newMax;
+  arRenderTopbar();
+  if(typeof showToast==='function')showToast('✋ Taille max de main : '+(isFinite(newMax)?newMax:'∞'));
 }
 
 function _arSetOnlineTurnIndicator(myTurn,curPn){
@@ -12742,6 +12826,7 @@ function arCancelMul(){_ar.mulPhase=false;_ar.mulSel=[];arRender();}
 
 function arHandClick(e,el){
   if(_ar.mulPhase){arToggleMulSel(el.dataset.id);return;}
+  if(_ar.discardPhase){arToggleDiscardSel(el.dataset.id);return;}
   if(_ar.drag&&_ar.drag.moved)return;
   var id=el.dataset.id;
   // Shift-clic = révéler la carte aux adversaires (online uniquement)
@@ -13579,6 +13664,7 @@ function arPtrDown(e,el){
   if(e.target.closest('#ar-ctx-menu'))return;
   e.preventDefault();
   if(_ar.mulPhase&&el.dataset.zone==='hand'){arToggleMulSel(el.dataset.id);return;}
+  if(_ar.discardPhase&&el.dataset.zone==='hand'){arToggleDiscardSel(el.dataset.id);return;}
   var ctx=document.getElementById('ar-ctx-menu');if(ctx)ctx.style.display='none';
   // Clear multi-selection when clicking a card not already in it
   if((_ar.multiSel||[]).length>0&&(_ar.multiSel||[]).indexOf(el.dataset.id)===-1){
@@ -14990,6 +15076,8 @@ function _arActionToText(a){
     case 'defeat':return {cls:'system',text:'☠ '+byName+' est éliminé ('+(p.cause||'?')+')'};
     case 'concede':return {cls:'system',text:'🏳 '+byName+' a concédé la partie'};
     case 'paid':return {cls:a.by===pn?'mine':'opp',by:byName,text:'💰 paie '+esc(p.cost||'?')+' pour '+esc(p.name||'')};
+    case 'discard_required':return {cls:a.by===pn?'mine':'opp',by:byName,text:'✋ doit défausser '+(p.n||1)+' carte(s) (excès en main)'};
+    case 'discard_end':return {cls:a.by===pn?'mine':'opp',by:byName,text:'🗑 défausse '+(p.n||1)+' carte(s) en fin de tour'+((p.names||[]).length?' : '+(p.names||[]).map(esc).join(', '):'')};
     case 'clock_expired':return {cls:'system',text:'⏲ Temps écoulé pour '+byName};
     case 'trigger':return {cls:a.by===pn?'mine':'opp',by:byName,text:'⚡ déclenche : '+esc(p.source||'?')};
     default:return {cls:'system',text:a.type+' '+JSON.stringify(p).slice(0,60)};
