@@ -7624,21 +7624,38 @@ function _restoreDeckCache(){
 }
 // Restore au boot
 if(typeof window!=='undefined')window.addEventListener('DOMContentLoaded',_restoreDeckCache);
-// Compte les exemplaires possédés par un profil pour un printing précis (name+set+num)
-function _dOwnedForPrint(name,set,num,profIdx){
+// Compte les exemplaires possédés par un profil pour un printing précis.
+// Tolérant : matche par set CODE ('DMU') OU set NAME complet ('Dominaria United'),
+// et normalise le collector number (strip leading zeros, '001'==='1').
+function _dOwnedForPrint(name,set,num,setName,profIdx){
   var pm=(typeof profs!=='undefined'&&profs[profIdx])?profs[profIdx]:null;
   if(!pm||!pm.length||typeof pm[0]==='string')return 0;
   var nLow=stripDFC(name||'').toLowerCase();
   var sLow=(set||'').toLowerCase().trim();
-  var numLow=(num||'').toLowerCase().trim();
+  var snLow=(setName||'').toLowerCase().trim();
+  var numNorm=String(num||'').toLowerCase().trim().replace(/^0+/,'')||'0';
   var total=0;
   pm.forEach(function(c){
     if(stripDFC(c.name||'').toLowerCase()!==nLow)return;
-    if((c.set||'').toLowerCase().trim()!==sLow)return;
-    if((c.num||'').toLowerCase().trim()!==numLow)return;
+    var cSet=(c.set||'').toLowerCase().trim();
+    var setOk=cSet===sLow||(snLow&&cSet===snLow);
+    if(!setOk)return;
+    var cNum=String(c.num||'').toLowerCase().trim().replace(/^0+/,'')||'0';
+    if(cNum!==numNorm)return;
     total+=(c.qty||1);
   });
   return total;
+}
+// Compte les exemplaires possédés par nom uniquement (toutes versions confondues)
+function _dOwnedAnyVersion(name,profIdx){
+  var pm=(typeof profs!=='undefined'&&profs[profIdx])?profs[profIdx]:null;
+  if(!pm||!pm.length)return 0;
+  var nLow=stripDFC(name||'').toLowerCase();
+  // Format ancien (array de strings)
+  if(typeof pm[0]==='string'){
+    return pm.reduce(function(s,k){var n=stripDFC((k||'').split('||')[0]).toLowerCase();return s+(n===nLow?1:0);},0);
+  }
+  return pm.reduce(function(s,c){return s+(stripDFC(c.name||'').toLowerCase()===nLow?(c.qty||1):0);},0);
 }
 function _dFetchPrintings(name,nl,cb){
   if(_dPrintingsCache[nl]||_dPrintingsLoading[nl]){cb&&cb();return;}
@@ -7740,15 +7757,22 @@ function dCycleVersion(nl,delta){
     });
     // Mise à jour prix + statut possession + bordure couleur — par nl, indépendant du clone d'image.
     var ownProf=(typeof dOwner!=='undefined'?dOwner:0);
-    var ownedQty=_dOwnedForPrint(card.name,p.set,p.num,ownProf);
+    var ownedExact=_dOwnedForPrint(card.name,p.set,p.num,p.set_name,ownProf);
+    var ownedAny=_dOwnedAnyVersion(card.name,ownProf);
     var used=0;
     try{
       var uMap=(typeof getDeckUsageByPriority==='function')?getDeckUsageByPriority(ownProf,actDeck):null;
       if(uMap){var ue=uMap.get(nl);if(ue)used=ue.qty||0;}
     }catch(e){}
-    var fi=Math.max(0,ownedQty-used);
-    var newBc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
-    var statusHtml=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
+    var fiExact=Math.max(0,ownedExact-used);
+    var fiAny=Math.max(0,ownedAny-used);
+    // Priorité : version exacte > autre version > rien
+    var newBc,statusHtml;
+    if(fiExact>=card.qty){newBc='var(--gr2)';statusHtml='<span style="color:var(--gr2)">✓ Possédée</span>';}
+    else if(fiAny>=card.qty){newBc='var(--am)';statusHtml='<span style="color:var(--am)" title="Vous possédez '+fiAny+' exemplaire(s) d\'une autre version">⊕ Autre version</span>';}
+    else if(fiExact>0){newBc='var(--am)';statusHtml='<span style="color:var(--am)">◑ Partielle</span>';}
+    else if(fiAny>0){newBc='var(--am)';statusHtml='<span style="color:var(--am)" title="'+fiAny+' exemplaire(s) d\'une autre version">◑ Partielle (autre)</span>';}
+    else{newBc='var(--rd2)';statusHtml='<span style="color:var(--rd2)">✗ Manquante</span>';}
     var newPrice=(p.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[nl])||0;
     // Stratégie : pour chaque img matching alt, on remonte au plus proche ancêtre qui contient
     // [data-ml-price] ou [data-ml-status]. Plus robuste que data-card-nl (peut manquer si HTML caché).
@@ -8056,11 +8080,25 @@ function renderDeck(){
       html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">';
       sc.forEach(function(card){
         var k=getKey(card);
-        // Possession spécifique à la version (set+num) si l'utilisateur a choisi une version
-        var ownedThisPrint=card.set?(_dOwnedForPrint(card.name,card.set,card.num,dOwner)):null;
-        var fi=ownedThisPrint!==null?Math.max(0,ownedThisPrint-((_owUsgR.get(card.nl)||{qty:0}).qty)):ownerFreeR(card);
-        var bc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
-        var statusTxt=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
+        // Possession : exact (set+num) en priorité, sinon fallback "autre version"
+        var bc,statusTxt;
+        if(card.set){
+          var pkPrint=_dPrintingsCache[card.nl]&&_dPrintingsCache[card.nl][_dVersionPick[card.nl]||0];
+          var setName=pkPrint?pkPrint.set_name:'';
+          var ownedExactR=_dOwnedForPrint(card.name,card.set,card.num,setName,dOwner);
+          var ownedAnyR=_dOwnedAnyVersion(card.name,dOwner);
+          var usedR=(_owUsgR.get(card.nl)||{qty:0}).qty;
+          var fiE=Math.max(0,ownedExactR-usedR),fiA=Math.max(0,ownedAnyR-usedR);
+          if(fiE>=card.qty){bc='var(--gr2)';statusTxt='<span style="color:var(--gr2)">✓ Possédée</span>';}
+          else if(fiA>=card.qty){bc='var(--am)';statusTxt='<span style="color:var(--am)" title="'+fiA+' exemplaire(s) d\'une autre version">⊕ Autre version</span>';}
+          else if(fiE>0){bc='var(--am)';statusTxt='<span style="color:var(--am)">◑ Partielle</span>';}
+          else if(fiA>0){bc='var(--am)';statusTxt='<span style="color:var(--am)" title="'+fiA+' exemplaire(s) d\'une autre version">◑ Partielle (autre)</span>';}
+          else{bc='var(--rd2)';statusTxt='<span style="color:var(--rd2)">✗ Manquante</span>';}
+        } else {
+          var fi=ownerFreeR(card);
+          bc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
+          statusTxt=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
+        }
         var img=dImgCache[card.nl];
         // Prix spécifique à la version si dispo (sinon fallback générique)
         var pickedPrint=card.set&&_dPrintingsCache[card.nl]?_dPrintingsCache[card.nl][_dVersionPick[card.nl]||0]:null;
