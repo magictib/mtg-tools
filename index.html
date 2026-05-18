@@ -1047,8 +1047,27 @@ body.mana-cursor{cursor:none}
 .ar-scry-card-item img{width:68px;height:95px;border-radius:5px;display:block;pointer-events:none}
 .ar-scry-drop-slot{width:5px;height:95px;background:rgba(201,168,76,.7);border-radius:3px;flex-shrink:0;align-self:flex-end}
 /* Multiplayer opponent bar */
-#ar-opponent-bar{background:rgba(0,0,0,.5);border-bottom:1px solid rgba(80,140,255,.22);padding:5px 12px;display:none;flex-shrink:0;gap:16px;align-items:center;font-size:.78rem;color:var(--tx2)}
+#ar-opponent-bar{background:linear-gradient(180deg,rgba(20,12,8,.88) 0%,rgba(0,0,0,.55) 100%);border-bottom:2px solid rgba(201,168,76,.35);padding:6px 12px 8px;display:none;flex-shrink:0;gap:10px;align-items:stretch;font-size:.78rem;color:var(--tx2);box-shadow:inset 0 -10px 18px -10px rgba(80,140,255,.08)}
 #ar-opponent-bar.mp-on{display:flex}
+/* MTGA-style opponent player card */
+.ar-opp-card{display:flex!important;gap:8px!important;align-items:center!important;padding:5px 9px 5px 5px!important;border-radius:9px!important;background:linear-gradient(135deg,rgba(8,16,32,.92),rgba(20,10,30,.85))!important;border:1.5px solid rgba(80,140,255,.32)!important;cursor:pointer;transition:border-color .15s,transform .12s,box-shadow .15s;position:relative;min-width:200px;box-shadow:0 2px 8px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05)}
+.ar-opp-card:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.7),0 0 12px rgba(80,140,255,.18)}
+.ar-opp-card.targeted{border-color:rgba(255,140,50,.78)!important;box-shadow:0 0 14px rgba(255,140,50,.32),0 0 0 1.5px rgba(255,140,50,.55)!important}
+.ar-opp-avatar{width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#5070b8 0%,#1a2640 70%);display:flex;align-items:center;justify-content:center;color:#dbe5f8;font-family:'Goudy Mediaeval',serif;font-size:.92rem;font-weight:700;border:1.5px solid rgba(180,200,255,.45);flex-shrink:0;box-shadow:inset 0 2px 4px rgba(0,0,0,.4),0 0 8px rgba(80,140,255,.18);text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.ar-opp-info{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
+.ar-opp-name{font-family:'Goudy Mediaeval',serif;font-size:.78rem;color:var(--gold2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1;letter-spacing:.02em}
+.ar-opp-life-row{display:flex;align-items:center;gap:8px;line-height:1}
+.ar-opp-life-big{font-family:'Goudy Mediaeval',serif;font-size:1.45rem;color:#ff6680;font-weight:700;text-shadow:0 0 6px rgba(255,80,100,.4),0 1px 2px rgba(0,0,0,.7);line-height:1;display:flex;align-items:center;gap:3px}
+.ar-opp-life-big::before{content:'\2764';font-size:.85rem;color:#ff4060;text-shadow:0 0 4px rgba(255,40,80,.55)}
+.ar-opp-mini-hand{display:flex;gap:1px;align-items:center;height:18px;flex-shrink:0}
+.ar-opp-mini-card{width:11px;height:16px;border-radius:1.5px;background:linear-gradient(135deg,#23304a,#0e1428);border:.5px solid rgba(180,200,255,.35);box-shadow:0 1px 1px rgba(0,0,0,.5);margin-left:-3px}
+.ar-opp-mini-card:first-child{margin-left:0}
+.ar-opp-stats{display:flex;gap:5px;align-items:center;font-size:.62rem;color:var(--tx3);margin-left:auto}
+.ar-opp-stat{display:inline-flex;align-items:center;gap:2px;padding:1px 4px;background:rgba(0,0,0,.4);border-radius:3px;border:.5px solid rgba(255,255,255,.08);cursor:pointer;transition:background .12s}
+.ar-opp-stat:hover{background:rgba(201,168,76,.18)}
+.ar-opp-cmd-dmg{color:#ff6080;font-weight:700;font-size:.72rem;padding:1px 5px;background:rgba(255,60,80,.14);border:.5px solid rgba(255,80,100,.35);border-radius:4px}
+.ar-opp-conn-dot{position:absolute;top:4px;right:5px;width:7px;height:7px;border-radius:50%;background:#3c8;box-shadow:0 0 5px currentColor}
+.ar-mini-btn{padding:1px 5px!important;font-size:.62rem!important;line-height:1!important;min-height:0!important}
 .ar-opp-card:hover{background:rgba(0,0,0,.45)!important;border-color:rgba(80,140,255,.4)!important}
 .ar-life-val-mini{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem}
 .ar-mini-btn{padding:2px 5px;font-size:.65rem;min-width:0}
@@ -14156,44 +14175,56 @@ function _arRenderOpponentBars(){
   var existing={};
   container.querySelectorAll('.ar-opp-card').forEach(function(e){existing[e.dataset.pn]=e;});
   Object.keys(existing).forEach(function(p){if(pns.indexOf(parseInt(p))<0)container.removeChild(existing[p]);});
+  // Cap mini-hand visuelle à 7 (au-delà : +N badge)
+  function miniHandHtml(count){
+    var c=Math.min(7,count||0);
+    var html='';for(var i=0;i<c;i++)html+='<span class="ar-opp-mini-card"></span>';
+    if(count>7)html+='<span style="font-size:.6rem;color:var(--tx3);margin-left:3px">+'+(count-7)+'</span>';
+    return html;
+  }
+  function avatarInitials(name){
+    name=name||'';
+    var parts=name.trim().split(/\s+/);
+    if(parts.length>=2)return (parts[0][0]+parts[1][0]).toUpperCase();
+    return (name.slice(0,2)||'?').toUpperCase();
+  }
   pns.forEach(function(pn){
     var o=_arRoom.opps[pn];
     var el=existing[pn];
     if(!el){
       el=document.createElement('div');el.className='ar-opp-card';el.dataset.pn=pn;
-      el.style.cssText='display:flex;gap:8px;align-items:center;font-size:.78rem;padding:2px 8px;border-radius:7px;background:rgba(0,0,0,.32);border:1px solid rgba(80,140,255,.18);cursor:pointer';
+      el.style.cssText='';
       el.title='Cliquer pour cibler ce joueur lors de la prochaine déclaration d\'attaque';
       el.onclick=function(){_arSetDefaultAttackTarget(pn);};
       container.appendChild(el);
     }
     var lifeStr=(o.slot.life!=null?o.slot.life:'—');
     var isTarget=_arRoom._defaultTargetPn===pn;
-    el.style.borderColor=isTarget?'rgba(255,140,50,.7)':'rgba(80,140,255,.18)';
-    // Cmd damage que J'ai infligé à cet adversaire
+    el.classList.toggle('targeted',isTarget);
     var myCmdDmg=(_ar.cmdDmgDealt||{})[pn]||0;
-    // Cmd damage que les autres adversaires lui ont infligé (vue résumée)
-    var allDmgToHim=myCmdDmg;
-    var dmgBreakdown=myCmdDmg>0?[(_arRoom.playerNum)+':'+myCmdDmg]:[];
-    Object.keys(_arRoom.opps).forEach(function(otherPnStr){
-      var otherPn=parseInt(otherPnStr);if(otherPn===pn)return;
-      var dealt=(_arRoom.opps[otherPn].slot.cmdDmgDealt||{})[pn]||0;
-      if(dealt>0){allDmgToHim+=dealt;dmgBreakdown.push(otherPn+':'+dealt);}
-    });
     var useCmd=_arRoom.useCmdDmg!==false;
-    var cmdDmgBadge=(useCmd&&myCmdDmg>0)?'<span style="color:#ff5060;font-size:.7rem;font-weight:700" title="Vous lui avez infligé '+myCmdDmg+' dégâts commander">⚔'+myCmdDmg+(myCmdDmg>=21?'☠':'')+'</span>':'';
-    el.innerHTML='<span class="ar-conn-dot" data-pn="'+pn+'" title="Connexion" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3c8;box-shadow:0 0 5px currentColor"></span>'
-      +'<span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2)">J'+pn+' '+esc(o.slot.name||'')+'</span>'
-      +'<span>❤ <span id="ar-op-life-'+pn+'" class="ar-life-val-mini">'+lifeStr+'</span></span>'
-      +(_arRoom.useChessClock?'<span class="ar-opp-clock" data-pn="'+pn+'" style="font-family:monospace;font-size:.7rem;color:var(--tx2)">⏲ —</span>':'')
-      +'<span title="Cartes en main">🂠 '+(o.slot.handCount||0)+'</span>'
-      +'<span title="Bibliothèque">📚 '+(o.slot.libCount||0)+'</span>'
-      +cmdDmgBadge
-      +(useCmd?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',1)" title="+1 dégât commander de vous">⚔+</button>':'')
-      +(useCmd&&myCmdDmg>0?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',-1)" title="-1 dégât commander de vous">⚔−</button>':'')
-      +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpGravePn('+pn+')" title="Cimetière">🪦'+o.grave+'</button>'
-      +'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arViewOpExilePn('+pn+')" title="Exile">✦'+o.exile+'</button>'
-      +_arRenderOpponentCounters(o.counters)
-      +(isTarget?'<span style="color:#ff8060;font-size:.65rem">🎯</span>':'');
+    var cmdDmgBadge=(useCmd&&myCmdDmg>0)?'<span class="ar-opp-cmd-dmg" title="Vous lui avez infligé '+myCmdDmg+' dégâts commander">⚔'+myCmdDmg+(myCmdDmg>=21?'☠':'')+'</span>':'';
+    var clockHtml=_arRoom.useChessClock?'<span class="ar-opp-clock" data-pn="'+pn+'" style="font-family:monospace;font-size:.65rem;color:#c8a8ff">⏲ —</span>':'';
+    el.innerHTML=
+      '<span class="ar-opp-conn-dot ar-conn-dot" data-pn="'+pn+'" title="Connexion"></span>'
+      +'<div class="ar-opp-avatar" title="J'+pn+'">'+esc(avatarInitials(o.slot.name||('J'+pn)))+'</div>'
+      +'<div class="ar-opp-info">'
+        +'<div class="ar-opp-name">J'+pn+' · '+esc(o.slot.name||'')+(isTarget?' <span style="color:#ff8060">🎯</span>':'')+'</div>'
+        +'<div class="ar-opp-life-row">'
+          +'<span class="ar-opp-life-big" title="Points de vie">'+lifeStr+'</span>'
+          +'<span class="ar-opp-mini-hand" title="'+(o.slot.handCount||0)+' carte(s) en main">'+miniHandHtml(o.slot.handCount||0)+'</span>'
+          +clockHtml
+        +'</div>'
+      +'</div>'
+      +'<div class="ar-opp-stats">'
+        +cmdDmgBadge
+        +(useCmd?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',1)" title="+1 dégât commander">⚔+</button>':'')
+        +(useCmd&&myCmdDmg>0?'<button class="ar-btn ar-mini-btn" onclick="event.stopPropagation();arCmdDmg('+pn+',-1)" title="-1 dégât commander">⚔−</button>':'')
+        +'<span class="ar-opp-stat" onclick="event.stopPropagation();arViewOpGravePn('+pn+')" title="Cimetière">🪦'+o.grave+'</span>'
+        +'<span class="ar-opp-stat" onclick="event.stopPropagation();arViewOpExilePn('+pn+')" title="Exil">⬡'+o.exile+'</span>'
+        +'<span class="ar-opp-stat" title="Bibliothèque">📚'+(o.slot.libCount||0)+'</span>'
+        +_arRenderOpponentCounters(o.counters)
+      +'</div>';
   });
 }
 function arCmdDmg(targetPn,delta){
