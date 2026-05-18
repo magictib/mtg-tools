@@ -8137,7 +8137,7 @@ function _renderCardZoom(){
   var card=_zoomList[_zoomIdx];if(!card)return;
   var img=(typeof dImgCache!=='undefined'&&dImgCache[card.nl])||(typeof _purImgCache!=='undefined'&&_purImgCache&&_purImgCache[card.nl])||'';
   var imgEl=img
-    ?'<img class="cz-img" src="'+img+'" alt="'+esc(card.name||'')+'" onclick="closeCardZoom()">'
+    ?'<img class="cz-img" src="'+img+'" alt="'+esc(card.name||'')+'" data-no-localize="1" onclick="closeCardZoom()">'
     :'<div class="cz-placeholder"><span class="cz-loading">Chargement de '+esc(card.name||'')+'…</span></div>';
   var html=imgEl
     +'<button class="cz-close" onclick="closeCardZoom()" title="Fermer (Esc)">✕ Fermer</button>'
@@ -21957,6 +21957,9 @@ function _localizeOneImg(img){
   if(src.indexOf('scryfall')<0)return;
   if(img.dataset&&img.dataset.noLocalize==='1')return;
   if(img.dataset&&img.dataset.localizedTo===_userLang)return;
+  // Belt-and-suspenders : ne JAMAIS localiser une image dans une carte de deck (mode image)
+  // — la version choisie par l'utilisateur prime sur la langue.
+  if(img.closest&&img.closest('.ml-deck-card'))return;
   // Sauvegarder l'URL CDN anglaise pour fallback
   if(!img.dataset.originalSrc&&src.indexOf('cards.scryfall.io')>=0)img.dataset.originalSrc=src;
   if(!_userLang||_userLang==='en'){
@@ -21984,6 +21987,8 @@ function _batchLocalizeImgs(lang){
     if(src.indexOf('scryfall')<0)return;
     if((img.dataset.noLocalize||'0')==='1')return;
     if(img.dataset.localizedTo===lang)return;
+    // Idem _localizeOneImg : protège toujours les images de deck (mode image), version choisie prime
+    if(img.closest&&img.closest('.ml-deck-card'))return;
     if(!img.dataset.originalSrc&&src.indexOf('cards.scryfall.io')>=0)img.dataset.originalSrc=src;
     var ck=lang+'|'+name;
     if(_localizedImgCache[ck]){_applyLocalizedSrc(img,_localizedImgCache[ck],lang);return;}
