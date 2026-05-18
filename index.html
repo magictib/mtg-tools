@@ -14706,6 +14706,8 @@ function _arSyncToRoom(){
 // Dérivées en temps réel à partir des listes attackers/blockers déjà synchronisées.
 // Mes attaquants → joueur adverse ; ses attaquants → moi ; bloqueurs → 1er attaquant en face.
 var _arArrowsRAF=null;
+// Phase 2.1 : arrow temporaire pendant un drag depuis le field
+var _arDragArrow=null;
 function _arQueueArrows(){
   if(_arArrowsRAF)return;
   _arArrowsRAF=requestAnimationFrame(function(){_arArrowsRAF=null;_arDrawArrows();});
@@ -14719,6 +14721,25 @@ function _arDrawArrows(){
   if(cv.height!==rect.height)cv.height=Math.max(1,Math.floor(rect.height));
   var ctx=cv.getContext('2d');
   ctx.clearRect(0,0,cv.width,cv.height);
+  // Phase 2.1 : flèche temporaire pendant un drag (drag-to-block / drag-to-target visuel)
+  if(_arDragArrow&&_arDragArrow.fromId){
+    var srcEl=field.querySelector('.ar-field-card[data-id="'+_arDragArrow.fromId+'"]');
+    if(srcEl){
+      var sr=srcEl.getBoundingClientRect();
+      var src={x:sr.left-rect.left+sr.width/2,y:sr.top-rect.top+sr.height/2};
+      // Couleur selon contexte : cyan si on survole un attaquant adverse (= blocage),
+      // orange si pastille adv (= attaque), or par défaut
+      var dragColor='#ffd860';
+      try{
+        var hit=document.elementFromPoint(_arDragArrow.toX+rect.left,_arDragArrow.toY+rect.top);
+        if(hit){
+          if(hit.closest&&hit.closest('.ar-field-card.ar-opponent-card'))dragColor='#3090ff';
+          else if(hit.closest&&hit.closest('.ar-opp-card'))dragColor='#ff5000';
+        }
+      }catch(e){}
+      _arDrawArrow(ctx,src,{x:_arDragArrow.toX,y:_arDragArrow.toY},dragColor);
+    }
+  }
   var myAtk=_ar.attackers||[];
   var myBlk=_ar.blockers||[];
   var opAtkMap=(_arRoom&&_arRoom._opAtk)||{};
@@ -15431,6 +15452,13 @@ function arPtrMove(e){
     var cr=cmdBox.getBoundingClientRect();
     cmdBox.classList.toggle('ar-drop-over',!!dragCmd&&cx>=cr.left&&cx<=cr.right&&cy>=cr.top&&cy<=cr.bottom);
   }
+  // Phase 2.1 : ligne visuelle pendant le drag (drag-to-target / drag-to-block)
+  // Active pour drag depuis le field — montre vers quoi tu vas assigner combat/blocage.
+  if(_arDrag.zone==='field'){
+    var fieldRect=document.getElementById('ar-field').getBoundingClientRect();
+    _arDragArrow={fromId:_arDrag.id,toX:cx-fieldRect.left,toY:cy-fieldRect.top};
+    _arQueueArrows();
+  }
 }
 function arPtrUp(e){
   if(_arLasso){arFinalizeLasso();return;}
@@ -15448,8 +15476,10 @@ function arPtrUp(e){
   if(_arDrag.longPressTimer){clearTimeout(_arDrag.longPressTimer);_arDrag.longPressTimer=null;}
   var ghost=document.getElementById('ar-ghost');ghost.style.display='none';
   var ovEnd=document.getElementById('arena-ov');if(ovEnd)ovEnd.classList.remove('ar-dragging');
-  // Clear drop-over highlights
+  // Clear drop-over highlights et drag arrow
   document.querySelectorAll('.ar-drop-over').forEach(function(el){el.classList.remove('ar-drop-over');});
+  document.querySelectorAll('.ar-combat-target').forEach(function(el){el.classList.remove('ar-combat-target');});
+  _arDragArrow=null;_arQueueArrows();
   if(_arDrag.zone!=='cmd')_arDrag.el.style.opacity='';
   if(!_arDrag.moved){
     if(_arDrag.zone==='hand')arHandClick(e,_arDrag.el);
