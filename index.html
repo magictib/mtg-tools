@@ -7705,8 +7705,6 @@ function dCycleVersion(nl,delta){
       });
     });
     // Mise à jour prix + statut possession + bordure couleur — par nl, indépendant du clone d'image.
-    // Trouve tous les <div.ml-deck-card data-card-nl="..."> (peut y en avoir plusieurs si même nom).
-    var roots=document.querySelectorAll('.ml-deck-card');
     var ownProf=(typeof dOwner!=='undefined'?dOwner:0);
     var ownedQty=_dOwnedForPrint(card.name,p.set,p.num,ownProf);
     var used=0;
@@ -7718,24 +7716,33 @@ function dCycleVersion(nl,delta){
     var newBc=fi===0?'var(--rd2)':fi<card.qty?'var(--am)':'var(--gr2)';
     var statusHtml=fi===0?'<span style="color:var(--rd2)">✗ Manquante</span>':fi<card.qty?'<span style="color:var(--am)">◑ Partielle</span>':'<span style="color:var(--gr2)">✓ Possédée</span>';
     var newPrice=(p.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[nl])||0;
-    roots.forEach(function(root){
-      if((root.dataset.cardNl||'').toLowerCase()!==nl.toLowerCase())return;
-      // Bordure de l'image
-      var rImg=root.querySelector('img');
-      if(rImg){
+    // Stratégie : pour chaque img matching alt, on remonte au plus proche ancêtre qui contient
+    // [data-ml-price] ou [data-ml-status]. Plus robuste que data-card-nl (peut manquer si HTML caché).
+    var updatedRoots=[];
+    document.querySelectorAll('img[alt]').forEach(function(im){
+      if((im.alt||'').toLowerCase()!==card.name.toLowerCase())return;
+      var root=im.parentElement;
+      while(root&&!root.querySelector('[data-ml-status],[data-ml-price]'))root=root.parentElement;
+      if(!root||updatedRoots.indexOf(root)>=0)return;
+      updatedRoots.push(root);
+      // Bordure de l'image (toutes les img du root, au cas où)
+      root.querySelectorAll('img').forEach(function(rImg){
         var st=rImg.getAttribute('style')||'';
-        rImg.setAttribute('style',st.replace(/border:2px solid [^;]+;/,'border:2px solid '+newBc+';'));
-      }
-      // Statut texte
+        if(/border:2px solid /.test(st))rImg.setAttribute('style',st.replace(/border:2px solid [^;]+;/,'border:2px solid '+newBc+';'));
+      });
       var stEl=root.querySelector('[data-ml-status]');
       if(stEl)stEl.innerHTML=statusHtml;
-      // Prix
       var prEl=root.querySelector('[data-ml-price]');
       if(prEl){
         if(newPrice>0){prEl.setAttribute('style','color:var(--gold2)');prEl.textContent=newPrice.toFixed(2)+'€';}
         else{prEl.setAttribute('style','color:var(--tx3)');prEl.textContent='—';}
       }
     });
+    // Filet de sécurité : si aucun élément n'a été mis à jour (HTML obsolète sans markers
+    // data-ml-* ou alt non matchant), re-render complet pour appliquer les nouveaux prix/statut.
+    if(updatedRoots.length===0&&typeof renderDeck==='function'&&dViewMode==='image'){
+      setTimeout(function(){try{renderDeck();}catch(e){}},0);
+    }
   }catch(e){}
   _dPersistVersionsToDeck();
   _persistDeckCacheDebounced();
