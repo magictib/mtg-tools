@@ -3927,6 +3927,11 @@ body.mana-cursor{cursor:none}
       </div>
       <div id="ar-stats-section"><div style="color:var(--tx3);font-style:italic;font-size:.82rem">Aucune partie enregistrée</div></div>
     </div>
+    <!-- Profil joueur global -->
+    <div class="card" id="player-profile-card" style="margin-bottom:10px">
+      <div class="lbl">👤 Mon profil joueur</div>
+      <div id="player-profile-body"></div>
+    </div>
     <!-- Statistiques parties enregistrées -->
     <div class="card">
       <div class="lbl">Statistiques</div>
@@ -17732,7 +17737,118 @@ var _MTG_COLOR_CSS={W:'#f5f0c0',U:'#5a9de0',B:'#777',R:'#d44',G:'#4a9a4a'};
 var _MTG_COLOR_NAME={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
 
 var _matchupFilterDeck='';
+// ===== Profil joueur global =====
+function renderPlayerProfile(){
+  var el=document.getElementById('player-profile-body');if(!el)return;
+  var myName=(PN[0]||'').toLowerCase();
+  if(!myName){el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.78rem">Pseudo non défini.</div>';return;}
+  // Filtre les parties auxquelles je participe (matching par PN[0] case-insensitive)
+  var myGames=games.filter(function(g){
+    return (g.players||[]).some(function(p){return (p.name||'').toLowerCase()===myName;});
+  });
+  if(!myGames.length){el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.78rem">Aucune partie enregistrée.</div>';return;}
+  var totalGames=0,myWins=0,myLosses=0;
+  var deckPlayed={}; // deckId → {name, played, won}
+  var opponentFaced={}; // opponentName → {name, count, wonAgainst}
+  var streak={cur:0,type:null,best:{win:0,loss:0}};
+  // Tri parties par date asc pour streak
+  var sorted=myGames.slice().sort(function(a,b){return (a.dateTs||0)-(b.dateTs||0);});
+  sorted.forEach(function(g){
+    var isBO=g.boMode&&g.boMode!=='bo1'&&g.boScore&&g.boScore.length;
+    var totalManches=isBO?g.boScore.reduce(function(s,w){return s+w;},0):1;
+    totalGames+=totalManches;
+    var myIdx=-1;
+    g.players.forEach(function(p,pi){if((p.name||'').toLowerCase()===myName)myIdx=pi;});
+    if(myIdx<0)return;
+    var myPlayer=g.players[myIdx];
+    var myDk=myPlayer.deckId;
+    if(myDk){if(!deckPlayed[myDk])deckPlayed[myDk]={name:myPlayer.deckName||myDk,played:0,won:0};deckPlayed[myDk].played+=totalManches;}
+    // Win count
+    var didWin=false,didLose=false;
+    if(isBO){
+      var myW=g.boScore[myIdx]||0;
+      var maxW=Math.max.apply(null,g.boScore);
+      if(myW===maxW&&myW>0){didWin=true;myWins++;if(myDk)deckPlayed[myDk].won++;}
+      else if(myW<maxW){didLose=true;myLosses++;}
+    }else if(g.winner){
+      if((g.winner.name||'').toLowerCase()===myName){didWin=true;myWins++;if(myDk)deckPlayed[myDk].won++;}
+      else{didLose=true;myLosses++;}
+    }
+    // Adversaires
+    g.players.forEach(function(p,pi){
+      if(pi===myIdx)return;
+      var on=p.name||'?';var onk=on.toLowerCase();
+      if(!opponentFaced[onk])opponentFaced[onk]={name:on,count:0,wonAgainst:0};
+      opponentFaced[onk].count++;
+      if(didWin)opponentFaced[onk].wonAgainst++;
+    });
+    // Streak
+    if(didWin){
+      if(streak.type==='win')streak.cur++;else{streak.cur=1;streak.type='win';}
+      if(streak.cur>streak.best.win)streak.best.win=streak.cur;
+    }else if(didLose){
+      if(streak.type==='loss')streak.cur++;else{streak.cur=1;streak.type='loss';}
+      if(streak.cur>streak.best.loss)streak.best.loss=streak.cur;
+    }
+  });
+  var winRate=totalGames>0?(myWins/totalGames*100):0;
+  // Top deck (most played)
+  var deckEntries=Object.entries(deckPlayed).map(function(e){return Object.assign({id:e[0]},e[1]);});
+  var topDeck=deckEntries.sort(function(a,b){return b.played-a.played;})[0];
+  // Best deck (min 3 games, highest win rate)
+  var rankedDecks=deckEntries.filter(function(d){return d.played>=3;}).map(function(d){d.wr=d.won/d.played*100;return d;}).sort(function(a,b){return b.wr-a.wr;});
+  var bestDeck=rankedDecks[0];
+  var worstDeck=rankedDecks[rankedDecks.length-1];
+  // Most faced opponent
+  var oppArr=Object.values(opponentFaced).sort(function(a,b){return b.count-a.count;});
+  var topOpp=oppArr[0];
+  // Achievements
+  var achievements=[];
+  if(totalGames>=10)achievements.push({ico:'🎯',label:'10 parties'});
+  if(totalGames>=50)achievements.push({ico:'🏆',label:'50 parties'});
+  if(totalGames>=100)achievements.push({ico:'💯',label:'100 parties'});
+  if(myWins>=10)achievements.push({ico:'⚡',label:'10 victoires'});
+  if(myWins>=25)achievements.push({ico:'🌟',label:'25 victoires'});
+  if(myWins>=50)achievements.push({ico:'👑',label:'50 victoires'});
+  if(winRate>=60&&totalGames>=10)achievements.push({ico:'📈',label:'WR ≥60% sur 10+'});
+  if(streak.best.win>=5)achievements.push({ico:'🔥',label:'Streak '+streak.best.win+' victoires'});
+  if(Object.keys(deckPlayed).length>=5)achievements.push({ico:'🎨',label:'5+ decks joués'});
+  // Render
+  var wrCol=winRate>=55?'var(--gr2)':winRate>=45?'var(--am)':'var(--rd2)';
+  var html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-bottom:12px">';
+  html+='<div class="stat"><div class="sv">'+totalGames+'</div><div class="sl">Parties jouées</div></div>';
+  html+='<div class="stat"><div class="sv" style="color:var(--gr2)">'+myWins+'</div><div class="sl">Victoires</div></div>';
+  html+='<div class="stat"><div class="sv" style="color:var(--rd2)">'+myLosses+'</div><div class="sl">Défaites</div></div>';
+  html+='<div class="stat"><div class="sv" style="color:'+wrCol+'">'+winRate.toFixed(0)+'%</div><div class="sl">Win rate</div></div>';
+  html+='</div>';
+  if(streak.cur>0){
+    var sIco=streak.type==='win'?'🔥':'❄';
+    var sCol=streak.type==='win'?'var(--gr2)':'var(--rd2)';
+    html+='<div style="font-size:11.5px;color:var(--tx2);margin-bottom:6px"><span style="color:'+sCol+'">'+sIco+' Streak actuelle :</span> <b>'+streak.cur+' '+(streak.type==='win'?'victoire(s)':'défaite(s)')+'</b> <span style="color:var(--tx3);font-size:10px">(record : '+streak.best.win+'V / '+streak.best.loss+'D)</span></div>';
+  }
+  if(topDeck){
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;font-size:11px">';
+    html+='<div style="padding:6px 9px;background:rgba(91,140,245,.08);border-left:2px solid #5b8cf5;border-radius:0 5px 5px 0"><div style="font-size:9.5px;color:var(--tx3)">DECK LE PLUS JOUÉ</div><div style="color:var(--tx);font-weight:600">'+esc(topDeck.name)+'</div><div style="font-size:10px;color:var(--tx3)">'+topDeck.played+' parties · '+topDeck.won+' V</div></div>';
+    if(bestDeck){
+      html+='<div style="padding:6px 9px;background:rgba(100,200,120,.08);border-left:2px solid var(--gr2);border-radius:0 5px 5px 0"><div style="font-size:9.5px;color:var(--tx3)">MEILLEUR DECK (≥3 parties)</div><div style="color:var(--tx);font-weight:600">'+esc(bestDeck.name)+'</div><div style="font-size:10px;color:var(--gr2)">WR '+bestDeck.wr.toFixed(0)+'% · '+bestDeck.played+' parties</div></div>';
+    }
+    html+='</div>';
+  }
+  if(topOpp){
+    html+='<div style="font-size:11px;color:var(--tx2);margin-bottom:8px">⚔ <b>Adversaire le plus joué</b> : '+esc(topOpp.name)+' ('+topOpp.count+' parties, '+topOpp.wonAgainst+' V) — <span style="color:'+(topOpp.wonAgainst/topOpp.count>=0.5?'var(--gr2)':'var(--am)')+'">WR '+Math.round(topOpp.wonAgainst/topOpp.count*100)+'%</span></div>';
+  }
+  if(achievements.length){
+    html+='<div style="font-size:9.5px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px">🏅 Achievements ('+achievements.length+')</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+    achievements.forEach(function(a){
+      html+='<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;background:rgba(201,168,76,.12);border:.5px solid var(--gold);border-radius:11px;font-size:10.5px;color:var(--gold2)">'+a.ico+' '+esc(a.label)+'</span>';
+    });
+    html+='</div>';
+  }
+  el.innerHTML=html;
+}
 function renderGameStats(){
+  try{renderPlayerProfile();}catch(e){console.warn('renderPlayerProfile',e);}
   function wr(s){return s.played>0?s.won/s.played:0;}
   function wrColor(r){return r>=0.5?'var(--gr2)':r>=0.3?'var(--am)':'var(--tx3)';}
   function effCols(colors,deckId){return(colors&&colors.length?colors:null)||_deckColors(deckId)||[];}
