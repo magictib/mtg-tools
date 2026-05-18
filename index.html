@@ -1044,6 +1044,9 @@ body.mana-cursor{cursor:none}
 .ar-field-card.ar-blocker{border-color:#1090ff!important;animation:ar-water-pulse 1.0s ease-in-out infinite}
 .ar-combat-target{outline:3px dashed #ff5000!important;outline-offset:2px;box-shadow:0 0 18px rgba(255,80,0,.65)!important;animation:ar-combat-target-pulse .55s ease-in-out infinite}
 .ar-just-played{animation:ar-card-arrive .35s cubic-bezier(.22,.61,.36,1) both}
+/* Phase 2.2 : animation de mort en combat — fade + chute vers le cimetière */
+.ar-field-card.ar-dying{animation:ar-card-die .42s cubic-bezier(.55,.085,.68,.53) forwards;pointer-events:none;z-index:50}
+@keyframes ar-card-die{0%{opacity:1;filter:brightness(1)}30%{opacity:.85;filter:brightness(.55) saturate(.4);transform:scale(.92) rotate(8deg)}100%{opacity:0;filter:brightness(.2) blur(2px);transform:scale(.55) rotate(-25deg) translateY(35px)}}
 @keyframes ar-resolve-flash{0%{transform:scale(.7);opacity:0}25%{transform:scale(1.05);opacity:1}65%{transform:scale(1) translateY(20px);opacity:.85}100%{transform:scale(.6) translateY(120px);opacity:0}}
 @keyframes ar-trigger-slide-in{0%{transform:translateX(330px);opacity:0}100%{transform:translateX(0);opacity:1}}
 @keyframes ar-card-arrive{0%{transform:scale(.35) translateY(80px) rotate(-12deg);opacity:0;box-shadow:0 0 35px rgba(201,168,76,.9)}55%{transform:scale(1.08) translateY(-4px) rotate(2deg);opacity:1}100%{transform:scale(1) translateY(0) rotate(0);opacity:1;box-shadow:0 4px 16px rgba(0,0,0,.7)}}
@@ -3914,6 +3917,7 @@ body.mana-cursor{cursor:none}
     <span id="ar-combat-info">⚔</span>
     <button class="ar-btn ar-btn-gold" id="ar-confirm-atk-btn" onclick="arDeclareAttackers()" style="padding:3px 9px">⚔ Confirmer attaque</button>
     <button class="ar-btn" id="ar-confirm-blk-btn" onclick="arDeclareBlockers()" style="padding:3px 9px;border-color:rgba(80,160,255,.55);color:#7fc0ff">🛡 Confirmer blocage</button>
+    <button class="ar-btn" id="ar-resolve-combat-btn" onclick="arResolveCombatStep()" style="padding:3px 9px;border-color:rgba(255,180,50,.7);color:#ffcd60" title="Distribue les dégâts, détruit les créatures mortes, applique aux PV (bot)">⚔ Résoudre</button>
     <button class="ar-btn" onclick="arClearCombat()" style="padding:3px 9px;border-color:rgba(200,200,200,.35);color:var(--tx3)" title="Effacer toutes les déclarations de combat">✕</button>
   </div>
 
@@ -13975,9 +13979,12 @@ function _arUpdateCombatBar(){
   if(show){
     var atkBtn=document.getElementById('ar-confirm-atk-btn');
     var blkBtn=document.getElementById('ar-confirm-blk-btn');
+    var resBtn=document.getElementById('ar-resolve-combat-btn');
     var info=document.getElementById('ar-combat-info');
     if(atkBtn)atkBtn.style.display=(online&&hasAtk)?'inline-flex':'none';
     if(blkBtn)blkBtn.style.display=(online&&hasBlk)?'inline-flex':'none';
+    // Bouton Résoudre : visible en solo/bot dès qu'il y a des attaquants. En MP : à toi de juger.
+    if(resBtn)resBtn.style.display=(hasAtk&&!online)?'inline-flex':(hasAtk?'inline-flex':'none');
     if(info){
       var parts=[];
       if(hasAtk)parts.push('<strong style="color:#ffaa60">'+(_ar.attackers.length)+'</strong> attaquant'+(_ar.attackers.length>1?'s':''));
@@ -14002,8 +14009,113 @@ function arDeclareBlockers(){
   arLogAction('block_declared',{names:names,n:names.length});
 }
 function arClearCombat(){
-  _ar.attackers=[];_ar.blockers=[];
+  _ar.attackers=[];_ar.blockers=[];_ar.blockTargets={};_ar.atkTargets={};
+  _arDragArrow=null;
   arRenderField();_arSyncToRoom();_arUpdateCombatBar();
+}
+// Phase 2.2 — Résolution combat : applique les dégâts, marque les morts,
+// les envoie au cimetière avec animation, et affiche un récap.
+function arResolveCombatStep(){
+  if(!(_ar.attackers||[]).length){if(typeof showToast==='function')showToast('⚠ Aucun attaquant déclaré');return;}
+  var bMap={}; // attackerId → [blockerIds]
+  (_ar.blockers||[]).forEach(function(bid){
+    var aid=(_ar.blockTargets||{})[bid];if(!aid)return;
+    if(!bMap[aid])bMap[aid]=[];bMap[aid].push(bid);
+  });
+  var deaths=[]; // {id, name, side: 'mine'|'opp'}
+  var dmgToTargets={}; // pn → damage (en MP) ou 'opp' en solo/bot
+  function cardStats(card){
+    var d=_arCardDataCache[(card.name||'').toLowerCase()]||{};
+    var pwr=parseInt(d.power||card.power||0)||0;
+    var tgh=parseInt(d.toughness||card.toughness||0)||1;
+    var kw=d.keywords||[];
+    return {pwr:pwr,tgh:tgh,kw:kw,hasTramp:kw.indexOf('Trample')>=0,hasDtch:kw.indexOf('Deathtouch')>=0,hasLL:kw.indexOf('Lifelink')>=0,hasVig:kw.indexOf('Vigilance')>=0,hasIndest:kw.indexOf('Indestructible')>=0};
+  }
+  function findCard(id){
+    var c=_ar.field.find(function(x){return x.id===id;});
+    if(c)return {card:c,owner:'mine'};
+    if(_arBot){c=_arBot.field.find(function(x){return x.id===id;});if(c)return {card:c,owner:'opp'};}
+    return null;
+  }
+  var lifelinkGain=0;
+  // Phase 1 : pour chaque attaquant, distribue ses dégâts à ses bloqueurs (smallest first) puis trample
+  (_ar.attackers||[]).forEach(function(aid){
+    var atkInfo=findCard(aid);if(!atkInfo)return;
+    var atk=atkInfo.card;var as=cardStats(atk);
+    var remaining=as.pwr;
+    var blks=(bMap[aid]||[]).map(findCard).filter(Boolean);
+    // Trie bloqueurs par toughness croissante (lethal-cheap-first par défaut)
+    blks.sort(function(a,b){return cardStats(a.card).tgh-cardStats(b.card).tgh;});
+    blks.forEach(function(bInfo){
+      var blk=bInfo.card;var bs=cardStats(blk);
+      var dmg=as.hasDtch?Math.min(remaining,1):Math.min(remaining,bs.tgh);
+      blk.damage=(blk.damage||0)+dmg;remaining-=dmg;
+      // Bloqueur frappe en retour (full)
+      atk.damage=(atk.damage||0)+bs.pwr;
+      if(bs.hasDtch&&!as.hasIndest)atk.markedDead=true;
+      if(bs.hasLL&&bInfo.owner==='mine')lifelinkGain+=bs.pwr;
+      // Lifelink atk
+      if(as.hasLL)lifelinkGain+=dmg;
+    });
+    // Trample / unblocked : reste va au défenseur
+    if(!blks.length||(as.hasTramp&&remaining>0)){
+      var tgtPn=(_ar.atkTargets||{})[aid]||0;
+      dmgToTargets[tgtPn]=(dmgToTargets[tgtPn]||0)+remaining;
+      if(as.hasLL)lifelinkGain+=remaining;
+    }
+    if(!as.hasVig)atk.tapped=true;
+  });
+  // Phase 2 : marque les morts (dommage >= toughness OU markedDead)
+  function checkDead(arr,owner){
+    arr.forEach(function(c){
+      if(!_arIsCreature(c))return;
+      var s=cardStats(c);
+      var d=c.damage||0;
+      var isDead=((d>=s.tgh&&s.tgh>0)||c.markedDead)&&!s.hasIndest;
+      if(isDead)deaths.push({id:c.id,name:c.name,side:owner});
+    });
+  }
+  checkDead(_ar.field,'mine');
+  if(_arBot)checkDead(_arBot.field,'opp');
+  // Phase 3 : applique — animation puis suppression
+  deaths.forEach(function(d){
+    var el=document.querySelector('.ar-field-card[data-id="'+d.id+'"]');
+    if(el){el.classList.add('ar-dying');}
+  });
+  setTimeout(function(){
+    deaths.forEach(function(d){
+      if(d.side==='mine'){
+        var c=_ar.field.find(function(x){return x.id===d.id;});
+        if(c){_ar.field=_ar.field.filter(function(x){return x.id!==d.id;});_ar.grave.push({id:d.id,name:d.name});}
+      }else if(_arBot){
+        var c2=_arBot.field.find(function(x){return x.id===d.id;});
+        if(c2){_arBot.field=_arBot.field.filter(function(x){return x.id!==d.id;});_arBot.grave.push({id:d.id,name:d.name});}
+      }
+    });
+    // Reset damage marqueurs sur les survivants (fin de tour)
+    _ar.field.forEach(function(c){c.damage=0;c.markedDead=false;});
+    if(_arBot)_arBot.field.forEach(function(c){c.damage=0;c.markedDead=false;});
+    // Applique dégâts défenseurs : bot mode → _arBot.life ; MP → log seulement
+    if(_arBot){
+      var totalBotDmg=0;
+      Object.keys(dmgToTargets).forEach(function(pn){totalBotDmg+=dmgToTargets[pn];});
+      if(totalBotDmg>0)_arBot.life-=totalBotDmg;
+    }
+    if(lifelinkGain>0)_ar.life+=lifelinkGain;
+    // Clear combat
+    _ar.attackers=[];_ar.blockers=[];_ar.blockTargets={};_ar.atkTargets={};
+    arRender();if(typeof arBotRenderOpponent==='function')arBotRenderOpponent();
+    _arSyncToRoom();_arUpdateCombatBar();
+    // Toast récap
+    var sumDmg=0;Object.keys(dmgToTargets).forEach(function(pn){sumDmg+=dmgToTargets[pn];});
+    var deadNames=deaths.map(function(d){return d.name;}).join(', ');
+    var msg='⚔ Combat résolu';
+    if(sumDmg>0)msg+=' — '+sumDmg+' dégât(s) au défenseur';
+    if(lifelinkGain>0)msg+=' (+'+lifelinkGain+' PV lifelink)';
+    if(deadNames)msg+=' · 🗑 '+deadNames;
+    if(typeof showToast==='function')showToast(msg);
+    if(typeof arLogAction==='function')arLogAction('combat_resolved',{dmg:sumDmg,dead:deaths.map(function(d){return d.name;})});
+  },420);
 }
 
 /* ---- Scry / Surveil ---- */
