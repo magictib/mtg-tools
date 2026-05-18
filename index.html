@@ -774,6 +774,15 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .gcolor-btn.on{opacity:1;border-color:#fff;transform:scale(1.18)}
 .gimg-btn{background:none;border:.5px solid var(--bd2);border-radius:6px;padding:2px 6px;font-size:.72rem;color:var(--tx3);cursor:pointer;white-space:nowrap;flex-shrink:0}
 .collhdr{display:grid;grid-template-columns:1fr 90px 40px 46px 36px 66px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px;position:sticky;top:0;background:var(--s1);z-index:5;backdrop-filter:blur(6px)}
+/* Onglets internes Analyse — filtre les sections par .data-active-tab */
+#ana-results[data-active-tab="overview"] .ana-sec:not(.ana-sec-overview):not(.ana-sec-always){display:none}
+#ana-results[data-active-tab="composition"] .ana-sec:not(.ana-sec-composition):not(.ana-sec-always){display:none}
+#ana-results[data-active-tab="manabase"] .ana-sec:not(.ana-sec-manabase):not(.ana-sec-always){display:none}
+#ana-results[data-active-tab="simulation"] .ana-sec:not(.ana-sec-simulation):not(.ana-sec-always){display:none}
+#ana-results[data-active-tab="strategy"] .ana-sec:not(.ana-sec-strategy):not(.ana-sec-always){display:none}
+#ana-results[data-active-tab="versions"] .ana-sec:not(.ana-sec-versions):not(.ana-sec-always){display:none}
+#ana-results[data-active-tab="all"] .ana-sec{display:block}
+#ana-internal-tabs .ar-tab.disabled{opacity:.35;cursor:not-allowed}
 /* Aide raccourcis clavier overlay */
 #kbd-help-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 #kbd-help-overlay.on{display:flex}
@@ -24091,6 +24100,77 @@ function anaInit(){
   anaPopulateDeckSel();
 }
 
+// ===== Onglets internes Analyse (Aperçu / Composition / Manabase / Sim / Stratégie / Versions) =====
+// Mapping label-card → catégorie d'onglet (regex pour matcher robustement)
+var _ANA_TAB_RULES=[
+  {tab:'overview',  pats:[/répartition par type/i,/courbe de mana/i,/heatmap par tour/i]},
+  {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i]},
+  {tab:'manabase',  pats:[/analyse des terrains/i,/manabase/i]},
+  {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i]},
+  {tab:'strategy',  pats:[/combos d/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
+  {tab:'versions',  pats:[/versions sauveg/i,/snapshot/i]}
+];
+var _ANA_TAB_DEFS=[
+  {id:'overview',   ico:'📊',lbl:'Aperçu'},
+  {id:'composition',ico:'🧩',lbl:'Composition'},
+  {id:'manabase',   ico:'🏔',lbl:'Manabase'},
+  {id:'simulation', ico:'🎲',lbl:'Simulation'},
+  {id:'strategy',   ico:'⚡',lbl:'Stratégie'},
+  {id:'versions',   ico:'📜',lbl:'Versions'},
+  {id:'all',        ico:'☰', lbl:'Tout'}
+];
+var _anaActiveTab='overview';
+function _anaTagSectionsAndAddTabs(){
+  var host=document.getElementById('ana-results');if(!host)return;
+  // 1. Tagge chaque .card (sauf le score panel principal et le commandant)
+  var cards=host.querySelectorAll('.card');
+  var sectionCounts={overview:0,composition:0,manabase:0,simulation:0,strategy:0,versions:0,other:0};
+  cards.forEach(function(card){
+    // Skip les cards du header (commandant + scorepanel + format buttons) — on les laisse toujours visibles
+    if(card.closest('[style*="grid-template-columns:minmax(0,240px)"]')||card.closest('[style*="grid-template-columns:1fr 175px"]')){
+      card.classList.add('ana-sec-always');return;
+    }
+    var lbl=card.querySelector('.lbl');var txt=lbl?(lbl.textContent||'').trim():'';
+    var matched='other';
+    for(var i=0;i<_ANA_TAB_RULES.length;i++){
+      if(_ANA_TAB_RULES[i].pats.some(function(p){return p.test(txt);})){matched=_ANA_TAB_RULES[i].tab;break;}
+    }
+    card.classList.add('ana-sec','ana-sec-'+matched);
+    card.setAttribute('data-ana-sec',matched);
+    sectionCounts[matched]++;
+  });
+  // 2. Injecte les tabs au tout début si pas déjà là
+  var oldBar=document.getElementById('ana-internal-tabs');if(oldBar)oldBar.remove();
+  var bar=document.createElement('div');
+  bar.id='ana-internal-tabs';
+  bar.className='ar-tabs';
+  bar.style.cssText='position:sticky;top:48px;z-index:20;margin-bottom:14px;backdrop-filter:blur(8px)';
+  bar.innerHTML=_ANA_TAB_DEFS.map(function(t){
+    var count=t.id==='all'?Object.keys(sectionCounts).reduce(function(s,k){return s+sectionCounts[k];},0):sectionCounts[t.id]||0;
+    var disabled=t.id!=='all'&&count===0;
+    return '<button class="ar-tab '+(t.id===_anaActiveTab?'active':'')+(disabled?' disabled':'')+'" '
+      +(disabled?'disabled':'onclick="anaSetInternalTab(\''+t.id+'\')"')+'>'
+      +'<span class="ar-tab-ico">'+t.ico+'</span>'
+      +'<span class="ar-tab-lbl">'+t.lbl+(count?' <span style="opacity:.6;font-size:.85em">('+count+')</span>':'')+'</span>'
+      +'</button>';
+  }).join('');
+  host.insertBefore(bar,host.firstChild);
+  // 3. Applique le filtre initial
+  anaSetInternalTab(_anaActiveTab);
+}
+function anaSetInternalTab(tab){
+  _anaActiveTab=tab;
+  var host=document.getElementById('ana-results');if(!host)return;
+  host.setAttribute('data-active-tab',tab);
+  // Update tab buttons
+  host.querySelectorAll('#ana-internal-tabs .ar-tab').forEach(function(b){
+    b.classList.remove('active');
+    if(b.textContent.toLowerCase().indexOf((_ANA_TAB_DEFS.find(function(d){return d.id===tab;})||{}).lbl.toLowerCase())>=0)b.classList.add('active');
+  });
+  // Scroll to top du contenu
+  var firstSec=host.querySelector('.ana-sec:not([style*="display: none"])');
+  if(firstSec)setTimeout(function(){firstSec.scrollIntoView({behavior:'smooth',block:'start'});},80);
+}
 // ===== Tableau de bord global de tous les decks =====
 function anaOpenDashboard(){
   var w=document.getElementById('ana-dashboard-wrap');if(!w)return;
@@ -29205,6 +29285,8 @@ function anaRender(deckId){
 
   _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
   document.getElementById('ana-results').innerHTML=html;
+  // Post-process : tagge les sections par catégorie + injecte tabs internes
+  try{_anaTagSectionsAndAddTabs();}catch(e){console.warn('ana tabs',e);}
   document.getElementById('ana-results').style.display='block';
   var _anaResetRow=document.getElementById('ana-reset-row');if(_anaResetRow)_anaResetRow.style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
