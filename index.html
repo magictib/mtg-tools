@@ -5289,8 +5289,8 @@ function cancelFriendRequest(toUid){
 function sendFriendRequest(toUid,toName){
   if(!userId)return;
   // Vérification locale immédiate — pas de requête Firestore
-  if(_friends.some(function(f){return f.uid===toUid;})){alert(toName+' est déjà ton ami.');return;}
-  if(_isPendingOut(toUid)){alert('Demande déjà envoyée à '+toName+'.');return;}
+  if(_friends.some(function(f){return f.uid===toUid;})){toastError(toName+' est déjà ton ami.');return;}
+  if(_isPendingOut(toUid)){toastError('Demande déjà envoyée à '+toName+'.');return;}
   var myName=PN[0]||'Inconnu';
   db.collection('notifications').add({
     type:'friend_request',
@@ -5307,7 +5307,7 @@ function sendFriendRequest(toUid,toName){
     _renderPendingOutRequests();
     var res=document.getElementById('friend-search-results');
     if(res&&_allUsers)_renderUserList(_allUsers,res);
-  }).catch(function(e){alert('Erreur : '+e.message);});
+  }).catch(function(e){toastError('Erreur : '+e.message);});
 }
 
 function acceptFriendRequest(notifId,fromUid,fromName){
@@ -5338,7 +5338,7 @@ function acceptFriendRequest(notifId,fromUid,fromName){
       createdAt:firebase.firestore.FieldValue.serverTimestamp(),
       readBy:[]
     }).catch(function(e){console.warn('friend_accepted notif',e);});
-  }).catch(function(e){alert('Erreur lors de l\'acceptation : '+e.message);});
+  }).catch(function(e){toastError('Erreur lors de l\'acceptation : '+e.message);});
 }
 
 function declineFriendRequest(notifId){
@@ -5715,7 +5715,7 @@ function adminSetRole(uid,role,btn){
   btn.disabled=true;
   db.collection('users').doc(uid).update({role:role}).then(function(){
     _loadAdminUsers();
-  }).catch(function(e){btn.disabled=false;alert('Erreur: '+e.message);});
+  }).catch(function(e){btn.disabled=false;toastError('Erreur: '+e.message);});
 }
 
 // Nettoyer toutes les demandes en cours pour un utilisateur (friend requests + arena invites + arena rooms orphelines)
@@ -5766,11 +5766,11 @@ function adminCleanupPending(uid,name,btn){
       return batch.commit();
     })
     .then(function(){
-      alert('✓ '+totalDeleted+' notification(s) supprimée(s), '+totalUpdated+' arena room(s) fermée(s).');
+      toastSuccess('✓ '+totalDeleted+' notification(s) supprimée(s), '+totalUpdated+' arena room(s) fermée(s).');
       btn.disabled=false;btn.textContent=origText;
     })
     .catch(function(e){
-      console.error(e);alert('Erreur: '+e.message);
+      console.error(e);toastError('Erreur: '+e.message);
       btn.disabled=false;btn.textContent=origText;
     });
 }
@@ -6042,7 +6042,7 @@ function _bldThemeMultiSearch(){
   _bldWizardClose();
   var keys=Object.keys(_bldThemeSel);
   console.log('[synergies] click, keys=',keys);
-  if(!keys.length){alert('Sélectionnez au moins une synergie');return;}
+  if(!keys.length){toastError('Sélectionnez au moins une synergie');return;}
   var label=keys.map(function(k){return _BLD_THEME_LABELS[k]||k;}).join(' + ');
   _bldEntryCmd(label);
   // Show arch bar in cmd zone with current selection synced
@@ -6076,7 +6076,7 @@ function _bldThemeMultiSearch(){
     });
   }catch(err){
     console.error('[synergies] erreur:',err);
-    alert('Erreur synergies : '+(err&&err.message||err));
+    toastError('Erreur synergies : '+(err&&err.message||err));
   }
 }
 var _BLD_THEME_QUERIES={
@@ -8892,7 +8892,7 @@ function montageFillOwned(){
     if(canFill!==(d[c.nl]||0)){d[c.nl]=canFill;changed++;}
   });
   _montageSave();renderDeckMontage();
-  if(changed===0)alert('Aucun changement — toutes les cartes possédées sont déjà placées.');
+  if(changed===0)toastWarning('Aucun changement — toutes les cartes possédées sont déjà placées.');
 }
 function montageSearchSubmit(){
   var inp=document.getElementById('montage-quickadd');if(!inp)return;
@@ -9513,7 +9513,7 @@ function generateAchat(){
     var need=Math.max(0,c.qty-ownerHas);
     if(need>0)remaining[k]={name:c.name,nl:c.nl,need:need};
   });
-  if(Object.keys(remaining).length===0){alert(PN[dOwner]+' possède déjà toutes les cartes !');return;}
+  if(Object.keys(remaining).length===0){toastWarning(PN[dOwner]+' possède déjà toutes les cartes !');return;}
   var borrowLines={};
   var stillNeeded={};
   Object.keys(remaining).forEach(function(k){stillNeeded[k]={name:remaining[k].name,nl:remaining[k].nl,need:remaining[k].need};});
@@ -9542,7 +9542,7 @@ function renderAchatRecap(){
   var d=_achatRecap;
   var hasBorrow=Object.keys(d.borrow).length>0;
   var hasBuy=d.buy.length>0;
-  if(!hasBorrow&&!hasBuy){panel.style.display='none';alert(PN[dOwner]+' possède déjà toutes les cartes !');return;}
+  if(!hasBorrow&&!hasBuy){panel.style.display='none';toastWarning(PN[dOwner]+' possède déjà toutes les cartes !');return;}
   var html='<div style="font-size:.8rem;font-weight:600;margin-bottom:8px;color:var(--tx2)">Récapitulatif — clic pour retirer</div>';
   Object.keys(d.borrow).forEach(function(fi){
     var items=d.borrow[fi];if(!items||!items.length)return;
@@ -9806,13 +9806,13 @@ function inviteFriendToList(){
       seen[ep.uid]=1;candidates.push({uid:ep.uid,name:ep.name||ep.uid});
     });
   });
-  if(!candidates.length){alert('Aucun ami disponible à inviter (ajoute-les d\'abord dans les profils).');return;}
+  if(!candidates.length){toastError('Aucun ami disponible à inviter (ajoute-les d\'abord dans les profils).');return;}
   var msg='Inviter à la liste « '+list.name+' » :\n\n'
     +candidates.map(function(f,i){return (i+1)+'. '+f.name;}).join('\n')
     +'\n\nEntre le numéro :';
   var choice=prompt(msg);if(!choice)return;
   var idx=parseInt(choice)-1;
-  if(idx<0||idx>=candidates.length){alert('Numéro invalide.');return;}
+  if(idx<0||idx>=candidates.length){toastError('Numéro invalide.');return;}
   var f=candidates[idx];
   list.members=(list.members||[]).concat([f.uid]);
   list.memberNames=list.memberNames||{};
@@ -9823,7 +9823,7 @@ function inviteFriendToList(){
 
 function removeFriendFromList(uid){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
-  if(uid===userId){alert('Tu ne peux pas te retirer de ta propre liste.');return;}
+  if(uid===userId){toastError('Tu ne peux pas te retirer de ta propre liste.');return;}
   var list=_purchaseLists[_activePurListId];
   var memName=(list.memberNames||{})[uid]||uid;
   if(!confirm('Retirer '+memName+' de la liste ?'))return;
@@ -9957,11 +9957,11 @@ function _purFindProfIdxByUid(uid){
 function purOpenExchangeModal(cardId){
   var c=_purFindCard(cardId);if(!c)return;
   var borrowerUid=c.borrower;
-  if(!borrowerUid){alert('Carte sans demandeur identifié — impossible de chercher dans sa collection.');return;}
+  if(!borrowerUid){toastError('Carte sans demandeur identifié — impossible de chercher dans sa collection.');return;}
   // Trouve l'index du prof pour ce uid
   var profIdx=_purFindProfIdxByUid(borrowerUid);
   if(profIdx<0||!profs[profIdx]||!profs[profIdx].length){
-    alert('La collection de '+_purMemberName(borrowerUid)+' n\'est pas chargée. Va dans Decks → onglet de l\'ami pour la charger une fois.');
+    toastError('La collection de '+_purMemberName(borrowerUid)+' n\'est pas chargée. Va dans Decks → onglet de l\'ami pour la charger une fois.');
     return;
   }
   var myCardPrice=_purPriceCache[(c.nl||'').toLowerCase()]||0;
@@ -10147,8 +10147,8 @@ function _purShowZoom(idx){
 }
 
 function importAchatToPurchase(){
-  if(!_activePurListId){alert('Créez d\'abord une liste.');return;}
-  if(!_achatRecap){alert('Générez d\'abord une liste d\'achat via le panneau 🛒 Achat du deck.');return;}
+  if(!_activePurListId){toastError('Créez d\'abord une liste.');return;}
+  if(!_achatRecap){toastError('Générez d\'abord une liste d\'achat via le panneau 🛒 Achat du deck.');return;}
   var lst=_purchaseLists[_activePurListId];
   if(!lst.cards)lst.cards=[];
   var dn=_achatRecap.dn||'';
@@ -11442,7 +11442,7 @@ function _purAssignMenu(cardId,role){
   var choice=prompt('Désigner '+(role==='buyer'?'acheteur':'emprunteur')+' :\n\n'+lines.join('\n')+'\n\nEntre le numéro :');
   if(!choice)return;
   var idx=parseInt(choice)-1;
-  if(idx<0||idx>members.length){alert('Numéro invalide.');return;}
+  if(idx<0||idx>members.length){toastError('Numéro invalide.');return;}
   var newUid=idx===members.length?null:members[idx];
   purSetRole(cardId,role,newUid);
 }
@@ -11637,7 +11637,7 @@ function purImportPasted(addToCurrent){
   var ta=document.getElementById('pur-paste-area');
   var ni=document.getElementById('pur-paste-name');
   var text=(ta?ta.value:'').trim();
-  if(!text){alert('La zone de texte est vide.');return;}
+  if(!text){toastError('La zone de texte est vide.');return;}
   var name=(ni?ni.value.trim():'')||'Liste collée';
   purTogglePastePanel(false);
   if(addToCurrent&&_activePurListId&&_purchaseLists[_activePurListId]){
@@ -11660,7 +11660,7 @@ function purMergeIntoCurrentList(text,filename){
   });
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
-  alert(parsed.count+' carte(s) ajoutée(s) à "'+lst.name+'".'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
+  toastSuccess(parsed.count+' carte(s) ajoutée(s) à "'+lst.name+'".'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
 }
 function _purAutoMatchDeck(cardName,profIdx){
   if(profIdx===undefined)profIdx=0;
@@ -11694,7 +11694,7 @@ function _purNewCard(name,nl,qty,deckName,deckId,col,note){
   };
 }
 function purAddCard(name,col,deckName){
-  if(!_activePurListId){alert('Créez d\'abord une liste.');return;}
+  if(!_activePurListId){toastError('Créez d\'abord une liste.');return;}
   var lst=_purchaseLists[_activePurListId];
   var nl=stripDFC(name).toLowerCase();
   var dk=deckName||'';
@@ -12033,7 +12033,7 @@ function purParseImportedList(text,filename){
   savePurchaseList(id);
   renderPurListSel();
   renderPurchaseMgr();
-  alert('"'+parsed.listName+'" : '+parsed.count+' carte(s) importée(s).'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
+  toastSuccess('"'+parsed.listName+'" : '+parsed.count+' carte(s) importée(s).'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
 }
 
 // ===== BIBLIOTHÈQUE — RECHERCHE PAR EXTENSION =====
@@ -13223,7 +13223,7 @@ function _arSetOnlineTurnIndicator(myTurn,curPn){
 }
 
 function arDrawCard(silent){
-  if(!_ar.lib.length){alert('Bibliothèque vide !');return;}
+  if(!_ar.lib.length){toastError('Bibliothèque vide !');return;}
   _ar.hand.push(_ar.lib.pop());
   if(_ar.ss)_ar.ss.drawn++;
   arRenderHand();arRenderRight();
@@ -14855,7 +14855,7 @@ function arSendCodeNotif(toUid,toName,code,btn){
       btn.style.borderColor='var(--gr2)';
       btn.disabled=true;
     }
-  }).catch(function(e){alert('Erreur : '+e.message);});
+  }).catch(function(e){toastError('Erreur : '+e.message);});
 }
 
 function _arJoinFromNotif(code){
@@ -14878,7 +14878,7 @@ function arUpdateLobbyDefaults(){
   if(cmdEl)cmdEl.checked=(n>2);
 }
 function arCreateRoom(){
-  if(!window.db){alert('Firestore non disponible');return;}
+  if(!window.db){toastError('Firestore non disponible');return;}
   var code=_arGenCode();
   var uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||'anon';
   var name=PN[0]||'Joueur 1';
@@ -14930,8 +14930,8 @@ function arCreateRoom(){
 }
 function arJoinRoom(){
   var code=(document.getElementById('ar-room-code-in').value||'').toUpperCase().trim();
-  if(code.length!==6){alert('Entrez un code à 6 caractères');return;}
-  if(!window.db){alert('Firestore non disponible');return;}
+  if(code.length!==6){toastError('Entrez un code à 6 caractères');return;}
+  if(!window.db){toastError('Firestore non disponible');return;}
   var uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||'anon';
   var name=PN[0]||'Joueur';
   db.collection('arena_rooms').doc(code).get().then(function(doc){
@@ -15540,8 +15540,8 @@ window.addEventListener('resize',function(){_arQueueArrows();});
 // ===== SPECTATEUR & HISTORIQUE =====
 function arJoinAsSpectator(){
   var code=(document.getElementById('ar-room-code-in').value||'').toUpperCase().trim();
-  if(code.length!==6){alert('Entrez un code à 6 caractères');return;}
-  if(!window.db){alert('Firestore non disponible');return;}
+  if(code.length!==6){toastError('Entrez un code à 6 caractères');return;}
+  if(!window.db){toastError('Firestore non disponible');return;}
   db.collection('arena_rooms').doc(code).get().then(function(doc){
     if(!doc.exists){var s=document.getElementById('ar-room-status');if(s)s.textContent='Partie introuvable';return;}
     var data=doc.data();
@@ -15591,7 +15591,7 @@ function arShowHistory(){
 }
 function arCloseHistory(){var ov=document.getElementById('ar-history-ov');if(ov)ov.style.display='none';}
 function arExportHistory(){
-  if(!_arActionLog.length){alert('Rien à exporter');return;}
+  if(!_arActionLog.length){toastError('Rien à exporter');return;}
   var blob=new Blob([JSON.stringify({room:_arRoom?_arRoom.code:'?',exported:new Date().toISOString(),actions:_arActionLog},null,2)],{type:'application/json'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
@@ -16073,7 +16073,7 @@ function arViewOpGrave(){
     if(!doc.exists)return;
     var opn=_arRoom.playerNum===1?2:1;
     var grave=(doc.data()['p'+opn+'_grave'])||[];
-    if(!grave.length){alert('Cimetière adversaire vide');return;}
+    if(!grave.length){toastError('Cimetière adversaire vide');return;}
     alert('Cimetière adversaire :\n'+grave.map(function(c){return '• '+c.name;}).join('\n'));
   });
 }
@@ -16083,7 +16083,7 @@ function arViewOpExile(){
     if(!doc.exists)return;
     var opn=_arRoom.playerNum===1?2:1;
     var exile=(doc.data()['p'+opn+'_exile'])||[];
-    if(!exile.length){alert('Exile adversaire vide');return;}
+    if(!exile.length){toastError('Exile adversaire vide');return;}
     alert('Exile adversaire :\n'+exile.map(function(c){return '• '+c.name;}).join('\n'));
   });
 }
@@ -17370,9 +17370,9 @@ function htPopulateSel(){
 function htStart(){
   var sel=document.getElementById('ht-deck-sel');
   var id=sel&&sel.value;
-  if(!id){alert('Choisissez un deck');return;}
+  if(!id){toastError('Choisissez un deck');return;}
   var cards=_htExpandDeck(id);
-  if(cards.length<7){alert('Le deck doit contenir au moins 7 cartes');return;}
+  if(cards.length<7){toastError('Le deck doit contenir au moins 7 cartes');return;}
   _ht={on:true,deckId:id,lib:_htShuffle(cards),hand:[],field:[],grave:[],exile:[],turn:1,muls:0,mulPhase:false,mulSel:[]};
   // Draw opening hand of 7
   for(var i=0;i<7;i++)_ht.hand.push(_ht.lib.pop());
@@ -17396,10 +17396,10 @@ function htStart(){
 function htSimulate(){
   var sel=document.getElementById('ht-deck-sel');
   var id=sel&&sel.value;
-  if(!id){alert('Choisissez un deck');return;}
-  var deck=decks[id];if(!deck){alert('Deck introuvable');return;}
+  if(!id){toastError('Choisissez un deck');return;}
+  var deck=decks[id];if(!deck){toastError('Deck introuvable');return;}
   var cards=_htExpandDeck(id);
-  if(cards.length<7){alert('Le deck doit contenir au moins 7 cartes');return;}
+  if(cards.length<7){toastError('Le deck doit contenir au moins 7 cartes');return;}
   var N=1000;
   var resEl=document.getElementById('ht-sim-results');
   if(resEl){resEl.style.display='block';resEl.innerHTML='<div style="text-align:center;color:var(--tx3);padding:20px;font-style:italic">Chargement des métadonnées Scryfall…</div>';}
@@ -17765,7 +17765,7 @@ function startGame(){
         bg:null,extraCounters:[],menuOpen:false});
     }
   });
-  if(players.length<2){alert('Sélectionne au moins 2 joueurs.');return;}
+  if(players.length<2){toastError('Sélectionne au moins 2 joueurs.');return;}
   activeGame={fmt:gameFmt,startLife:startLife,players:players,startedAt:Date.now(),cmdDmgVisible:false,
     boMode:gameBo,boWins:players.map(function(){return 0;}),boRound:1};
   document.getElementById('game-setup').style.display='none';
@@ -18453,7 +18453,7 @@ function clearGames(){
 }
 // Récupération d'historique : refetch Firestore prefs + scan backups
 function gamesRestore(){
-  if(!userId){alert('Pas connecté à Firebase');return;}
+  if(!userId){toastError('Pas connecté à Firebase');return;}
   var diag=[];
   diag.push('🔍 Diagnostic en cours…');
   diag.push('localStorage mtg_games : '+(localStorage.getItem('mtg_games')?(JSON.parse(localStorage.getItem('mtg_games')||'[]').length+' parties'):'absent'));
@@ -18473,15 +18473,15 @@ function gamesRestore(){
         +'• prefs/games : '+prefsGames.length+' partie(s)\n'
         +'• backups/games_history : '+backupGames.length+' partie(s)\n'
         +'• localStorage actuel : '+games.length+' partie(s)\n\n';
-      if(best.length===0){msg+='⚠ Aucune sauvegarde trouvée sur Firebase.';alert(msg);return;}
-      if(best.length<=games.length){msg+='ℹ Le local actuel a déjà le plus de parties — rien à restaurer.';alert(msg);return;}
+      if(best.length===0){msg+='⚠ Aucune sauvegarde trouvée sur Firebase.';toastWarning(msg);return;}
+      if(best.length<=games.length){msg+='ℹ Le local actuel a déjà le plus de parties — rien à restaurer.';toastInfo(msg);return;}
       msg+='Restaurer depuis '+source+' ('+best.length+' parties) ?\nLe local actuel ('+games.length+') sera remplacé.';
       if(!confirm(msg))return;
       games=best;saveGames();
       renderGameStats();renderGameHistory();
-      alert('✓ Restauration terminée — '+best.length+' parties récupérées');
+      toastSuccess('✓ Restauration terminée — '+best.length+' parties récupérées');
     });
-  }).catch(function(e){alert('❌ Erreur : '+e.message);});
+  }).catch(function(e){toastError('❌ Erreur : '+e.message);});
 }
 // Backup séparé pour résistance aux corruptions de prefs
 function gamesBackup(){
@@ -18601,7 +18601,7 @@ function openEditGame(id){
 function saveManualGame(){
   var fmt=document.getElementById('mg-fmt').value;
   var checkedPIs=Array.from(document.querySelectorAll('.mg-pchk:checked')).map(function(el){return parseInt(el.value);});
-  if(!checkedPIs.length){alert('Sélectionne au moins un joueur.');return;}
+  if(!checkedPIs.length){toastError('Sélectionne au moins un joueur.');return;}
   var extraName=(document.getElementById('mg-extra-name').value||'').trim();
   var players=checkedPIs.map(function(pi){
     if(pi===3)return{name:extraName||'Joueur +',profIdx:-1,deckId:'',deckName:'',cmdName:'',colors:[],finalLife:0,poison:0};
@@ -18614,7 +18614,7 @@ function saveManualGame(){
     var colors=mgGetColors(pi);
     return{name:PN[pi],profIdx:pi,deckId:deckId==='__autre__'?'':deckId,deckName:deckName,cmdName:cmdName,colors:colors,finalLife:0,poison:0};
   });
-  if(players.length<2){alert('Il faut au moins 2 joueurs.');return;}
+  if(players.length<2){toastError('Il faut au moins 2 joueurs.');return;}
   var winVal=document.getElementById('mg-winner').value;
   var winner=null;
   if(winVal!==''){
@@ -19676,12 +19676,12 @@ function importCollCSV(input){
   var reader=new FileReader();
   reader.onload=function(e){
     var res=parseCSV(e.target.result);
-    if(!res.data.length){alert('Fichier vide ou format non reconnu.');return;}
+    if(!res.data.length){toastError('Fichier vide ou format non reconnu.');return;}
     var fmt=_detectFmt(res.hdrs);
     profs[collP]=res.data.map(function(r){return normalizeRow(r,fmt);});
     var totalCards=profs[collP].reduce(function(s,c){return s+(c.qty||1);},0);
     _saveCollP();renderColl();renderProfs();
-    alert('✓ '+res.data.length+' entrées ('+totalCards+' cartes) importées dans la collection de '+pname+'.');
+    toastSuccess('✓ '+res.data.length+' entrées ('+totalCards+' cartes) importées dans la collection de '+pname+'.');
   };
   reader.readAsText(file,'UTF-8');
   input.value='';
@@ -19692,7 +19692,7 @@ function importCollUpdate(input){
   var reader=new FileReader();
   reader.onload=function(e){
     var res=parseCSV(e.target.result);
-    if(!res.data.length){alert('Fichier vide ou format non reconnu.');return;}
+    if(!res.data.length){toastError('Fichier vide ou format non reconnu.');return;}
     var fmt=_detectFmt(res.hdrs);
     // Build lookup of existing cards by key (name+set+num+finish)
     var old=Array.isArray(profs[collP])?profs[collP].slice():[];
@@ -19722,14 +19722,14 @@ function importCollUpdate(input){
     });
     profs[collP]=old;
     _saveCollP();renderColl();renderProfs();
-    alert('✓ '+added+' carte(s) ajoutée(s), '+updated+' quantité(s) mise(s) à jour dans '+pname+'.');
+    toastSuccess('✓ '+added+' carte(s) ajoutée(s), '+updated+' quantité(s) mise(s) à jour dans '+pname+'.');
   };
   reader.readAsText(file,'UTF-8');
   input.value='';
 }
 function exportCollCSV(){
   var cards=getProfCards(collP);
-  if(!cards.length){alert('Collection vide — rien à exporter.');return;}
+  if(!cards.length){toastError('Collection vide — rien à exporter.');return;}
   var hdrs=['Name','Edition','Condition','Foil','Count','Purchase Price','Collector Number','Language'];
   var lines=[hdrs.join(',')];
   cards.forEach(function(c){
@@ -20434,7 +20434,7 @@ function executeTrade(tr){
 function acceptTrade(id){
   var tr=_firebaseTrades.find(function(t){return t.id===id;});
   if(!tr||tr.status!=='pending')return;
-  if(tr.toUid!==_currentUid){alert('Seul le destinataire peut accepter');return;}
+  if(tr.toUid!==_currentUid){toastError('Seul le destinataire peut accepter');return;}
   // Recipient: add offered cards + remove requested (exchange)
   (tr.offered||[]).forEach(function(c){
     addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});
@@ -20443,7 +20443,7 @@ function acceptTrade(id){
   saveProfs();renderColl();
   db.collection('trades').doc(id).update({
     status:'accepted',updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-  }).catch(function(e){alert('Erreur: '+e.message);});
+  }).catch(function(e){toastError('Erreur: '+e.message);});
   // Notify proposer
   db.collection('notifications').add({
     title:'Échange accepté ✓',
@@ -20456,10 +20456,10 @@ function acceptTrade(id){
 function declineTrade(id){
   var tr=_firebaseTrades.find(function(t){return t.id===id;});
   if(!tr||tr.status!=='pending')return;
-  if(tr.toUid!==_currentUid){alert('Seul le destinataire peut refuser');return;}
+  if(tr.toUid!==_currentUid){toastError('Seul le destinataire peut refuser');return;}
   db.collection('trades').doc(id).update({
     status:'declined',updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-  }).catch(function(e){alert('Erreur: '+e.message);});
+  }).catch(function(e){toastError('Erreur: '+e.message);});
   db.collection('notifications').add({
     title:'Échange refusé',
     body:PN[0]+' a refusé votre proposition',
@@ -20471,10 +20471,10 @@ function declineTrade(id){
 function cancelTrade(id){
   var tr=_firebaseTrades.find(function(t){return t.id===id;});
   if(!tr||tr.status!=='pending')return;
-  if(tr.fromUid!==_currentUid){alert('Seul le proposeur peut annuler');return;}
+  if(tr.fromUid!==_currentUid){toastError('Seul le proposeur peut annuler');return;}
   db.collection('trades').doc(id).update({
     status:'cancelled',updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-  }).catch(function(e){alert('Erreur: '+e.message);});
+  }).catch(function(e){toastError('Erreur: '+e.message);});
 }
 function deleteTrade(id){
   var tr=_firebaseTrades.find(function(t){return t.id===id;});
@@ -20698,14 +20698,14 @@ function ntfRenderPicks(){
   balEl.innerHTML=html;balEl.style.display='block';
 }
 function ntfSubmit(){
-  if(ntfFrom===ntfTo){alert('Les profils doivent être différents');return;}
-  if(ntfFrom!==0){alert('Vous ne pouvez proposer que depuis votre propre collection');return;}
-  if(!ntfOffered.length){alert('Ajoutez au moins une carte proposée');return;}
-  if(ntfType==='exchange'&&!ntfRequested.length){alert('Ajoutez les cartes demandées pour l\'échange');return;}
-  if(!_currentUid){alert('Vous devez être connecté');return;}
+  if(ntfFrom===ntfTo){toastError('Les profils doivent être différents');return;}
+  if(ntfFrom!==0){toastError('Vous ne pouvez proposer que depuis votre propre collection');return;}
+  if(!ntfOffered.length){toastError('Ajoutez au moins une carte proposée');return;}
+  if(ntfType==='exchange'&&!ntfRequested.length){toastError('Ajoutez les cartes demandées pour l\'échange');return;}
+  if(!_currentUid){toastError('Vous devez être connecté');return;}
   var epTrade=_epSlots['trade']||[];
   var toIdx=ntfTo-1;
-  if(toIdx<0||toIdx>=epTrade.length){alert('Profil destinataire introuvable — ajoutez-le dans l\'onglet Échanges');return;}
+  if(toIdx<0||toIdx>=epTrade.length){toastError('Profil destinataire introuvable — ajoutez-le dans l\'onglet Échanges');return;}
   var toUid=epTrade[toIdx].uid;
   var toName=PN[ntfTo];
   var fromName=PN[0];
@@ -20739,7 +20739,7 @@ function ntfSubmit(){
       readBy:[]
     }).catch(function(){});
   }).catch(function(e){
-    alert('Erreur lors de la proposition : '+e.message);
+    toastError('Erreur lors de la proposition : '+e.message);
     // Restore cards on error
     offered.forEach(function(c){addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});});
     saveProfs();renderColl();
@@ -21044,7 +21044,7 @@ document.addEventListener('click',function(e){
 // ===== Builder : suggestions EDHREC pour commandant =====
 function bldEdhrecSuggest(){
   if(bldFormat!=='commander'&&bldFormat!=='paupercmd'){
-    alert('Suggestions EDHREC : format Commander ou Pauper EDH requis.');return;
+    toastError('Suggestions EDHREC : format Commander ou Pauper EDH requis.');return;
   }
   var cmdName=(dCommander&&dCommander.name)||null;
   if(!cmdName){
@@ -21247,7 +21247,7 @@ function bldLoadSelectedDeck(){
   var raw=dk.rawName||'';
   var cards=parseList(raw);
   var names=cards.map(function(c){return c.name;});
-  if(!names.length){alert('Deck vide ou format non reconnu');return;}
+  if(!names.length){toastError('Deck vide ou format non reconnu');return;}
   // Fetch les infos Scryfall manquantes en batch
   var missing=names.filter(function(n){return !bldData[n.toLowerCase()];});
   function afterFetch(){
@@ -21283,7 +21283,7 @@ function bldLoadSelectedDeck(){
   _nextBatch();
 }
 function bldSaveDeck(){
-  if(!bldMain.length){alert('Deck vide');return;}
+  if(!bldMain.length){toastError('Deck vide');return;}
   var mainLines=bldMain.map(function(c){return c.qty+'x '+c.name;});
   var sideLines=bldSide.map(function(c){return c.qty+'x '+c.name;});
   var raw=mainLines.join('\n')+(sideLines.length?'\n// Sideboard\n'+sideLines.join('\n'):'');
@@ -21293,19 +21293,19 @@ function bldSaveDeck(){
     if(actDeck===bldCurDeckId){
       var _fr=parseList(raw);dCards=(_fr&&_fr.length)?_fr:bldMain.slice();
     }
-    saveDecks();alert('Deck "'+decks[bldCurDeckId].name+'" mis à jour !');bldInitDeckSel();
+    saveDecks();toastSuccess('Deck "'+decks[bldCurDeckId].name+'" mis à jour !');bldInitDeckSel();
     return;
   }
   var name=prompt('Nom du deck :','Nouveau deck');if(!name)return;
   var id=Date.now().toString();
   decks[id]={name:name,rawName:raw,cards:bldMain.slice(),owner:dOwner||0,ownerUid:_profUid(dOwner||0)||userId,format:bldFormat||null,commander:null,colors:[],updatedAt:Date.now()};
   bldCurDeckId=id;
-  saveDecks();alert('Deck "'+name+'" sauvegardé !');bldInitDeckSel();
+  saveDecks();toastSuccess('Deck "'+name+'" sauvegardé !');bldInitDeckSel();
 }
 function bldClear(){if(!confirm('Vider le deck ?'))return;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];bldCurDeckId=null;renderBldDecks();renderBldStats();}
 var _bldExpFmt='mox';
 function bldExportDeck(){
-  if(!bldMain.length){alert('Deck vide');return;}
+  if(!bldMain.length){toastError('Deck vide');return;}
   _bldExpFmt='mox';
   ['mox','myth','txt'].forEach(function(f){var b=document.getElementById('bld-exp-fmt-'+f);if(b)b.classList.toggle('active',f==='mox');});
   _bldExpRefresh();
@@ -23009,7 +23009,7 @@ var _ANA_SNAP_CAP=15;
 function anaSnapshotCurrent(deckId,note){
   var d=decks[deckId];if(!d){return;}
   if(!Array.isArray(d.snapshots))d.snapshots=[];
-  var raw=d.rawName||'';if(!raw){alert('Ce deck n\'a pas de contenu sauvegardé.');return;}
+  var raw=d.rawName||'';if(!raw){toastError('Ce deck n\'a pas de contenu sauvegardé.');return;}
   // Évite doublons : si le dernier snapshot a le même rawName, ne re-sauvegarde pas
   var last=d.snapshots[d.snapshots.length-1];
   if(last&&last.rawName===raw){
@@ -23031,7 +23031,7 @@ function anaPromptSnapshot(deckId){
 function anaRestoreSnapshot(deckId,ts){
   var d=decks[deckId];if(!d||!Array.isArray(d.snapshots))return;
   var snap=d.snapshots.find(function(s){return s.ts===ts;});
-  if(!snap){alert('Version introuvable');return;}
+  if(!snap){toastError('Version introuvable');return;}
   if(!confirm('Restaurer cette version du '+_anaFormatSnapTs(ts)+' ?\nUn snapshot du deck actuel sera créé automatiquement avant.'))return;
   // Sauve l'actuel avant de remplacer
   anaSnapshotCurrent(deckId,'Avant restauration du '+_anaFormatSnapTs(ts));
@@ -25559,9 +25559,9 @@ function anaAnalyzeGeneric(){
 /* ----- Main entry — analyse UN SEUL deck ----- */
 function anaAnalyze(){
   var deckId=document.getElementById('ana-deck-sel').value;
-  if(!deckId){alert('Sélectionne un deck à analyser');return;}
+  if(!deckId){toastError('Sélectionne un deck à analyser');return;}
   var deck=_anaGetDeck(deckId);
-  if(!deck||!deck.cards||!deck.cards.length){alert('Ce deck est vide');return;}
+  if(!deck||!deck.cards||!deck.cards.length){toastError('Ce deck est vide');return;}
   var st=document.getElementById('ana-status');
   document.getElementById('ana-results').style.display='none';
   var _anaCS2=document.getElementById('ana-card-search-sec');if(_anaCS2)_anaCS2.style.display='none';
@@ -26351,9 +26351,9 @@ function _anaQRefreshUI(deckId){
 /* ----- Pré-éditeur de thèmes (avant l'analyse) ----- */
 function anaShowPreEditor(noToggle){
   var deckId=document.getElementById('ana-deck-sel').value;
-  if(!deckId){alert('Sélectionne un deck d\'abord');return;}
+  if(!deckId){toastError('Sélectionne un deck d\'abord');return;}
   var deck=_anaGetDeck(deckId);
-  if(!deck){alert('Deck introuvable');return;}
+  if(!deck){toastError('Deck introuvable');return;}
   var panel=document.getElementById('ana-pretheme');
   if(!noToggle&&panel.dataset.deck===deckId&&panel.style.display!=='none'){panel.style.display='none';panel.dataset.deck='';return;}
 
@@ -29724,7 +29724,7 @@ function arPoolImport(){
   var name=(nameEl||{value:''}).value.trim();
   var raw=(rawEl||{value:''}).value.trim();
   var fmt=(fmtEl||{value:''}).value;
-  if(!raw){alert('Collez une liste de cartes');return;}
+  if(!raw){toastError('Collez une liste de cartes');return;}
   // Multi-deck: detect === Nom === separators
   if(/^===\s*.+\s*===/m.test(raw)){
     var parts=raw.split(/\n?===\s*(.+?)\s*===\n?/);
@@ -29737,7 +29737,7 @@ function arPoolImport(){
       _arPool.push({id:'pool_'+Date.now()+'_'+i,name:dName,raw:dRaw,fmt:fmt,addedAt:Date.now(),cardCount:dcards.length,commander:dCmdr,colors:[]});
       added++;
     }
-    if(!added){alert('Aucun deck reconnu. Format attendu :\n=== Nom du deck ===\n1 Nom carte\n...');return;}
+    if(!added){toastError('Aucun deck reconnu. Format attendu :\n=== Nom du deck ===\n1 Nom carte\n...');return;}
     arPoolSave();arPoolRender();
     var botSel=document.getElementById('ar-bot-deck');var botVal=botSel&&botSel.value;
     arBotPopulateSel(null);if(botSel&&botVal)botSel.value=botVal;
@@ -29746,9 +29746,9 @@ function arPoolImport(){
     return;
   }
   // Single deck
-  if(!name){alert('Donnez un nom au deck');return;}
+  if(!name){toastError('Donnez un nom au deck');return;}
   var cards=parseList(raw);
-  if(!cards.length){alert('Aucune carte reconnue dans la liste');return;}
+  if(!cards.length){toastError('Aucune carte reconnue dans la liste');return;}
   var commander=((cmdrEl&&cmdrEl.value)||'').trim()||_extractCommander(raw);
   _arPool.push({id:'pool_'+Date.now(),name:name,raw:raw,fmt:fmt,addedAt:Date.now(),cardCount:cards.length,commander:commander,colors:_arPoolColors.slice()});
   arPoolSave();arPoolRender();
