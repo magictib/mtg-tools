@@ -21875,6 +21875,94 @@ var _anaSimMode='duel'; // 'multi' = 40 PV / 20 tours | 'duel' = 20 PV / 14 tour
 var _anaOptMode='all'; // 'all' = toutes suggestions | 'collection' = cartes des decks uniquement
 var _anaBudgetMax=null; // null = pas de limite, sinon nombre EUR max par carte
 var _anaFormatOverride={}; // deckId → format string surchargé par l'utilisateur
+// ===== Snapshots de deck =====
+// Stockés dans decks[id].snapshots = [{ts, rawName, note}], capés à 15
+var _ANA_SNAP_CAP=15;
+function anaSnapshotCurrent(deckId,note){
+  var d=decks[deckId];if(!d){return;}
+  if(!Array.isArray(d.snapshots))d.snapshots=[];
+  var raw=d.rawName||'';if(!raw){alert('Ce deck n\'a pas de contenu sauvegardé.');return;}
+  // Évite doublons : si le dernier snapshot a le même rawName, ne re-sauvegarde pas
+  var last=d.snapshots[d.snapshots.length-1];
+  if(last&&last.rawName===raw){
+    if(note&&last.note!==note){last.note=note;saveDecks();showToast&&showToast('📝 Note mise à jour');}
+    else if(typeof showToast==='function')showToast('ℹ Aucun changement depuis la dernière version');
+    return;
+  }
+  d.snapshots.push({ts:Date.now(),rawName:raw,note:note||''});
+  if(d.snapshots.length>_ANA_SNAP_CAP)d.snapshots=d.snapshots.slice(-_ANA_SNAP_CAP);
+  saveDecks();
+  if(typeof showToast==='function')showToast('📸 Version sauvegardée ('+d.snapshots.length+'/'+_ANA_SNAP_CAP+')');
+  if(_anaState)try{anaRender(deckId);}catch(e){}
+}
+function anaPromptSnapshot(deckId){
+  var note=prompt('Note pour cette version (optionnel, ex: "Avant le swap d\'Élixir") :','');
+  if(note===null)return; // cancel
+  anaSnapshotCurrent(deckId,note.trim());
+}
+function anaRestoreSnapshot(deckId,ts){
+  var d=decks[deckId];if(!d||!Array.isArray(d.snapshots))return;
+  var snap=d.snapshots.find(function(s){return s.ts===ts;});
+  if(!snap){alert('Version introuvable');return;}
+  if(!confirm('Restaurer cette version du '+_anaFormatSnapTs(ts)+' ?\nUn snapshot du deck actuel sera créé automatiquement avant.'))return;
+  // Sauve l'actuel avant de remplacer
+  anaSnapshotCurrent(deckId,'Avant restauration du '+_anaFormatSnapTs(ts));
+  d.rawName=snap.rawName;
+  d.cards=typeof parseList==='function'?parseList(snap.rawName):d.cards;
+  d.updatedAt=Date.now();
+  saveDecks();
+  if(typeof showToast==='function')showToast('✓ Version restaurée');
+  if(_anaState)try{anaRender(deckId);}catch(e){}
+}
+function anaDeleteSnapshot(deckId,ts){
+  var d=decks[deckId];if(!d||!Array.isArray(d.snapshots))return;
+  if(!confirm('Supprimer cette version ?'))return;
+  d.snapshots=d.snapshots.filter(function(s){return s.ts!==ts;});
+  saveDecks();
+  if(_anaState)try{anaRender(deckId);}catch(e){}
+}
+function _anaFormatSnapTs(ts){
+  var d=new Date(ts);
+  return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+}
+// Diff entre deux rawNames : retourne {added:[{name,qty}], removed:[{name,qty}]}
+function _anaDiffRaw(rawOld,rawNew){
+  var oldCards=typeof parseList==='function'?parseList(rawOld||''):[];
+  var newCards=typeof parseList==='function'?parseList(rawNew||''):[];
+  var oldMap={},newMap={};
+  oldCards.forEach(function(c){oldMap[c.nl]=(oldMap[c.nl]||0)+(c.qty||1);});
+  newCards.forEach(function(c){newMap[c.nl]=(newMap[c.nl]||0)+(c.qty||1);});
+  var added=[],removed=[];
+  Object.keys(newMap).forEach(function(nl){
+    var diff=newMap[nl]-(oldMap[nl]||0);
+    if(diff>0){var nm=(newCards.find(function(c){return c.nl===nl;})||{}).name||nl;added.push({name:nm,qty:diff,nl:nl});}
+  });
+  Object.keys(oldMap).forEach(function(nl){
+    var diff=(oldMap[nl]||0)-(newMap[nl]||0);
+    if(diff>0){var nm=(oldCards.find(function(c){return c.nl===nl;})||{}).name||nl;removed.push({name:nm,qty:diff,nl:nl});}
+  });
+  return {added:added,removed:removed};
+}
+function anaShowDiff(deckId,ts){
+  var d=decks[deckId];if(!d||!Array.isArray(d.snapshots))return;
+  var snap=d.snapshots.find(function(s){return s.ts===ts;});if(!snap)return;
+  var diff=_anaDiffRaw(snap.rawName,d.rawName);
+  var html='<div style="font-size:11px;color:var(--tx2);margin-bottom:6px"><b>Diff actuel vs '+_anaFormatSnapTs(ts)+'</b>'+(snap.note?' — '+esc(snap.note):'')+'</div>';
+  if(!diff.added.length&&!diff.removed.length){
+    html+='<div style="color:var(--tx3);font-style:italic">Aucune différence — les decks sont identiques.</div>';
+  }else{
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+    html+='<div><div style="font-size:11px;color:var(--gr2);margin-bottom:4px;font-weight:600">+ Ajouts ('+diff.added.length+')</div>';
+    html+=diff.added.length?diff.added.map(function(a){return '<div style="font-size:11px;color:var(--gr2);padding:2px 0">+'+a.qty+' '+esc(a.name)+'</div>';}).join(''):'<div style="font-size:11px;color:var(--tx3);font-style:italic">Aucun</div>';
+    html+='</div>';
+    html+='<div><div style="font-size:11px;color:var(--rd2);margin-bottom:4px;font-weight:600">− Retraits ('+diff.removed.length+')</div>';
+    html+=diff.removed.length?diff.removed.map(function(r){return '<div style="font-size:11px;color:var(--rd2);padding:2px 0">−'+r.qty+' '+esc(r.name)+'</div>';}).join(''):'<div style="font-size:11px;color:var(--tx3);font-style:italic">Aucun</div>';
+    html+='</div>';
+    html+='</div>';
+  }
+  var diffEl=document.getElementById('ana-snap-diff-'+ts);
+  if(diffEl){diffEl.innerHTML=html;diffEl.style.display=diffEl.style.display==='none'?'block':'none';}
+}
 function anaSetOptMode(mode){
   _anaOptMode=mode;
   var deckId=document.getElementById('ana-deck-sel').value;
@@ -26623,6 +26711,33 @@ function anaRender(deckId){
     _mbHtml+='</div>';
   }
 
+  // === Snapshots / Versions du deck ===
+  var _snapHtml='<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between">';
+  _snapHtml+='<span>📜 Versions sauvegardées</span>';
+  _snapHtml+='<button onclick="anaPromptSnapshot(\''+deckId+'\')" style="padding:4px 9px;background:rgba(100,200,120,.15);border:.5px solid var(--gr2);border-radius:6px;color:var(--gr2);font-size:10.5px;cursor:pointer;font-family:inherit">📸 Sauvegarder version actuelle</button>';
+  _snapHtml+='</div>';
+  var snaps=Array.isArray(deck.snapshots)?deck.snapshots.slice().reverse():[];
+  if(!snaps.length){
+    _snapHtml+='<div style="font-size:11px;color:var(--tx3);font-style:italic;padding:6px 0">Aucune version sauvegardée. Clique sur 📸 pour figer l\'état actuel — utile avant un gros refactor.</div>';
+  }else{
+    _snapHtml+='<div style="font-size:10px;color:var(--tx3);margin-bottom:4px;font-style:italic">'+snaps.length+'/'+_ANA_SNAP_CAP+' versions stockées. Plus ancienne supprimée automatiquement au-delà.</div>';
+    snaps.forEach(function(s){
+      var nCards=(typeof parseList==='function'?parseList(s.rawName||''):[]).reduce(function(t,c){return t+(c.qty||1);},0);
+      _snapHtml+='<div style="padding:7px 9px;background:rgba(0,0,0,.25);border:.5px solid var(--bd2);border-radius:7px;margin-bottom:5px">';
+      _snapHtml+='<div style="display:flex;align-items:center;gap:8px;font-size:11px">';
+      _snapHtml+='<span style="font-family:monospace;color:var(--tx2);min-width:120px">'+_anaFormatSnapTs(s.ts)+'</span>';
+      _snapHtml+='<span style="color:var(--tx3);font-size:10.5px">'+nCards+' cartes</span>';
+      _snapHtml+='<span style="flex:1;color:var(--tx2);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(s.note?esc(s.note):'<span style="color:var(--tx3)">(sans note)</span>')+'</span>';
+      _snapHtml+='<button onclick="anaShowDiff(\''+deckId+'\','+s.ts+')" style="padding:3px 7px;background:rgba(91,140,245,.15);border:.5px solid #5b8cf5;border-radius:5px;color:#8ab0ff;font-size:10px;cursor:pointer;font-family:inherit">🔍 Diff</button>';
+      _snapHtml+='<button onclick="anaRestoreSnapshot(\''+deckId+'\','+s.ts+')" style="padding:3px 7px;background:rgba(201,168,76,.18);border:.5px solid var(--gold2);border-radius:5px;color:var(--gold2);font-size:10px;cursor:pointer;font-family:inherit">↺ Restaurer</button>';
+      _snapHtml+='<button onclick="anaDeleteSnapshot(\''+deckId+'\','+s.ts+')" style="padding:3px 6px;background:rgba(200,80,80,.12);border:.5px solid var(--rd2);border-radius:5px;color:var(--rd2);font-size:10px;cursor:pointer;font-family:inherit" title="Supprimer cette version">✕</button>';
+      _snapHtml+='</div>';
+      _snapHtml+='<div id="ana-snap-diff-'+s.ts+'" style="display:none;margin-top:8px;padding-top:8px;border-top:.5px dashed var(--bd2)"></div>';
+      _snapHtml+='</div>';
+    });
+  }
+  _snapHtml+='</div>';
+
   // === Header HTML : info deck (sans badges de score, déplacés dans _scorePanel) ===
   var _hdr='<div class="card">';
   _hdr+='<div class="ana-deck-name">'+esc(deck.name||'Sans nom')+'</div>';
@@ -26823,7 +26938,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -26832,7 +26947,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_mbHtml+_probHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
