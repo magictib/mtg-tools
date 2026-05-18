@@ -24092,17 +24092,103 @@ function anaOpenDashboard(){
 function anaCloseDashboard(){var w=document.getElementById('ana-dashboard-wrap');if(w)w.style.display='none';}
 function anaRenderDashboard(){
   var host=document.getElementById('ana-dashboard-body');if(!host)return;
-  // Filtre : uniquement les decks du profil courant (PN[0]) — comme "Mes decks"
-  // Évite d'inclure des decks d'amis ou d'admin qui pollueraient la vue
-  var ids=Object.keys(decks||{}).filter(function(id){
-    return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):((decks[id].owner||0)===0);
+  // Groupe les decks par profil — mirroir exact de "Mes decks" (renderDBar)
+  // pi=0 → decks locaux filtrés par _deckBelongsTo
+  // pi>0 → _epDecks[friendUid] (déjà restreint à cet ami)
+  var profileBuckets=[]; // [{pi, name, deckSrc, ids}]
+  profs.forEach(function(_,pi){
+    var ep=pi>0?(_epSlots.deck||[])[pi-1]:null;
+    var deckSrc=pi===0?decks:(_epDecks[ep&&ep.uid]||{});
+    var ids=pi===0
+      ?Object.keys(deckSrc).filter(function(id){return typeof _deckBelongsTo==='function'?_deckBelongsTo(deckSrc[id],0):((deckSrc[id].owner||0)===0);})
+      :Object.keys(deckSrc);
+    if(ids.length)profileBuckets.push({pi:pi,name:PN[pi]||('Profil '+pi),deckSrc:deckSrc,ids:ids});
   });
-  if(!ids.length){host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">Aucun deck sauvegardé pour ce profil.</div>';return;}
-  host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">⏳ Chargement des métadonnées Scryfall pour tous tes decks…</div>';
-  // Pré-charge metadata pour toutes les cartes (peut être lent)
+  if(!profileBuckets.length){host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">Aucun deck sauvegardé.</div>';return;}
+  host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:10px 0">⏳ Chargement des métadonnées Scryfall…</div>';
+  // Pré-charge metadata
   var allNls=[];
-  ids.forEach(function(id){(decks[id].cards||[]).forEach(function(c){if(!_anaData[c.nl])allNls.push(c.nl);});});
+  profileBuckets.forEach(function(b){b.ids.forEach(function(id){(b.deckSrc[id].cards||[]).forEach(function(c){if(!_anaData[c.nl])allNls.push(c.nl);});});});
   var fb=allNls.map(function(nl){return {nl:nl,name:nl};});
+  function _doDash(){
+    // Concat rows from all profile buckets (with bucket marker)
+    var allRows=[];
+    profileBuckets.forEach(function(b){
+      b.ids.forEach(function(id){
+        var d=b.deckSrc[id];if(!d)return;
+        var r=_dashRow(d,id,b.pi);
+        if(r){r._bucket=b.name;allRows.push(r);}
+      });
+    });
+    if(!allRows.length){host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px">Aucun deck analysable.</div>';return;}
+    // Tri par score décroissant DANS chaque bucket
+    var byBucket={};
+    allRows.forEach(function(r){if(!byBucket[r._bucket])byBucket[r._bucket]=[];byBucket[r._bucket].push(r);});
+    var html='';
+    Object.keys(byBucket).forEach(function(bucketName){
+      var rows=byBucket[bucketName].sort(function(a,b){return b.score-a.score;});
+      html+='<div style="font-size:11px;color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.06em;margin:14px 0 6px;padding-bottom:4px;border-bottom:.5px solid var(--bd2)">📋 '+esc(bucketName)+' <span style="color:var(--tx3);font-size:10px">('+rows.length+' deck'+(rows.length>1?'s':'')+')</span></div>';
+      html+=_dashTable(rows);
+      var avgScore=rows.reduce(function(s,r){return s+r.score;},0)/rows.length;
+      var topDeck=rows[0];
+      html+='<div style="padding:6px 10px;background:rgba(201,168,76,.05);border:.5px solid var(--bd2);border-radius:6px;font-size:11px;color:var(--tx2);display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">';
+      html+='<span>Score moy : <b style="color:var(--gold2)">'+avgScore.toFixed(0)+'%</b></span>';
+      html+='<span>🏆 Meilleur : <b style="color:#78c890">'+esc(topDeck.name)+'</b> ('+topDeck.score+'%)</span>';
+      html+='</div>';
+    });
+    host.innerHTML=html;
+  }
+  if(allNls.length&&typeof anaFetchMissing==='function')anaFetchMissing(allNls,fb,_doDash);
+  else _doDash();
+}
+// Helper : calcule les métriques d'un deck pour le dashboard
+function _dashRow(d,id,pi){
+  var m=_anaCompareMetrics(d);
+  if(!m)return null;
+  var c=m.counts;
+  var total=m.totalCards||1;
+  var nonLand=total-c.land;
+  var actNorm=nonLand>0?((c.ramp+c.draw+c.removal+c.interaction+c.wincon)/nonLand):0;
+  var score=Math.min(100,Math.round(actNorm*100));
+  var ci=_anaDeckCi(d)||[];
+  var fmt=_anaGetFmt(id,d);
+  return {id:id,deck:d,name:d.name||'Sans nom',ci:ci,fmt:fmt,totalCards:total,avgCmc:m.avgCmc,landCount:c.land,score:score,sim:m.sim,counts:c,pi:pi};
+}
+// Helper : génère le HTML du tableau pour un set de rows
+function _dashTable(rows){
+  var html='<div style="display:grid;grid-template-columns:1.7fr 70px 70px 80px 90px 90px;gap:0;background:rgba(0,0,0,.3);border-radius:7px;overflow:hidden;font-size:11px">';
+  html+='<div style="background:rgba(201,168,76,.1);padding:7px 9px;font-size:10px;color:var(--gold2)">Deck · couleurs · format</div>';
+  html+='<div style="background:rgba(201,168,76,.1);padding:7px 4px;font-size:10px;color:var(--gold2);text-align:center">Cartes</div>';
+  html+='<div style="background:rgba(201,168,76,.1);padding:7px 4px;font-size:10px;color:var(--gold2);text-align:center">CMC moy</div>';
+  html+='<div style="background:rgba(201,168,76,.1);padding:7px 4px;font-size:10px;color:var(--gold2);text-align:center">Terrains</div>';
+  html+='<div style="background:rgba(201,168,76,.1);padding:7px 4px;font-size:10px;color:var(--gold2);text-align:center">Activité</div>';
+  html+='<div style="background:rgba(201,168,76,.1);padding:7px 4px;font-size:10px;color:var(--gold2);text-align:center">Sim wincon</div>';
+  rows.forEach(function(r,i){
+    var bg=i%2===0?'rgba(0,0,0,.18)':'rgba(0,0,0,.06)';
+    var scoreCol=r.score>=70?'#78c890':r.score>=50?'#f5b95b':'#e07070';
+    var wincon=r.sim&&r.sim.winconReached!=null?Math.round(r.sim.winconReached*100):null;
+    var winconCol=wincon>=70?'#78c890':wincon>=40?'#f5b95b':'#e07070';
+    var pips=r.ci.map(function(c){return '<span class="pip pip-'+c+'" style="font-size:9px;padding:1px 5px">'+c+'</span>';}).join('');
+    var clickAttr=r.pi===0?' onclick="anaJumpToDeck(\''+r.id+'\')" style="cursor:pointer"':'';
+    html+='<div style="padding:7px 9px;background:'+bg+';display:flex;align-items:center;gap:6px"'+clickAttr+(r.pi===0?' title="Cliquer pour analyser"':'')+'>';
+    html+='<span style="color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">'+esc(r.name)+'</span>';
+    html+='<span style="display:flex;gap:2px;flex-shrink:0">'+pips+'</span>';
+    if(r.fmt)html+='<span style="font-size:9px;color:var(--tx3);text-transform:uppercase;flex-shrink:0">'+esc(r.fmt)+'</span>';
+    html+='</div>';
+    html+='<div style="padding:7px 4px;background:'+bg+';text-align:center;color:var(--tx2);font-family:monospace">'+r.totalCards+'</div>';
+    html+='<div style="padding:7px 4px;background:'+bg+';text-align:center;color:var(--tx2);font-family:monospace">'+r.avgCmc.toFixed(2)+'</div>';
+    html+='<div style="padding:7px 4px;background:'+bg+';text-align:center;color:var(--tx2);font-family:monospace">'+r.landCount+'</div>';
+    html+='<div style="padding:7px 4px;background:'+bg+';text-align:center;font-family:monospace;color:'+scoreCol+';font-weight:600">'+r.score+'%</div>';
+    html+='<div style="padding:7px 4px;background:'+bg+';text-align:center;font-family:monospace;color:'+(wincon!=null?winconCol:'var(--tx3)')+';font-weight:600">'+(wincon!=null?wincon+'%':'—')+'</div>';
+  });
+  html+='</div>';
+  return html;
+}
+// ==== OLD body of anaRenderDashboard, conservé pour compat — non utilisé ====
+function _anaRenderDashboardOldUnused(){
+  var host=document.getElementById('ana-dashboard-body');if(!host)return;
+  var ids=[];
+  if(!ids.length){host.innerHTML='';return;}
   function _doDash(){
     var rows=ids.map(function(id){
       var d=decks[id];if(!d)return null;
