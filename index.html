@@ -23623,6 +23623,65 @@ function anaFormatRules(fmt){
 
 /* ----- Format-aware targets ----- */
 function anaIsCommanderFormat(fmt){return ['commander','paupercmd','brawl','oathbreaker'].indexOf(fmt)>=0;}
+// ===== Détecteur de combos infinis =====
+// Base de combos classiques EDH/Modern : chaque entrée liste les noms requis
+// pour activer le combo. Si TOUS les noms sont dans le deck → détecté.
+var _ANA_COMBOS=[
+  // Mort instantanée
+  {names:['Thassa\'s Oracle','Demonic Consultation'],type:'Win',desc:'Cherche une carte inexistante → exile la bibliothèque → Thassa\'s Oracle gagne avec 0 carte'},
+  {names:['Thassa\'s Oracle','Tainted Pact'],type:'Win',desc:'Exile la bibliothèque (avec singletons) → Thassa gagne'},
+  {names:['Laboratory Maniac','Demonic Consultation'],type:'Win',desc:'Vide ta bibliothèque → pioche → Lab Maniac gagne'},
+  {names:['Jace, Wielder of Mysteries','Demonic Consultation'],type:'Win',desc:'Vide bibliothèque → Jace gagne'},
+  {names:['Doomsday','Thassa\'s Oracle'],type:'Win',desc:'Doomsday set → Thassa\'s Oracle gagne immédiatement'},
+  // Dégâts infinis
+  {names:['Heliod, Sun-Crowned','Walking Ballista'],type:'Dégâts ∞',desc:'Ballista X=1+, Heliod donne lifelink → -1 sur Heliod → +1/+1 → ping infini'},
+  {names:['Kiki-Jiki, Mirror Breaker','Felidar Guardian'],type:'Créatures ∞',desc:'Kiki tap pour token Felidar → blink Kiki → détape, recommence'},
+  {names:['Kiki-Jiki, Mirror Breaker','Zealous Conscripts'],type:'Créatures ∞',desc:'Kiki copie Zealous → détape Kiki → recommence'},
+  {names:['Splinter Twin','Deceiver Exarch'],type:'Créatures ∞',desc:'Twin sur Exarch → tap pour token qui détape Twin → boucle'},
+  {names:['Splinter Twin','Pestermite'],type:'Créatures ∞',desc:'Idem Deceiver Exarch'},
+  // Mana infini
+  {names:['Dramatic Reversal','Isochron Scepter'],type:'Mana ∞',desc:'Scepter Dramatic Reversal → tape rocks pour 4+ → cast → détape → boucle si production ≥ coût'},
+  {names:['Basalt Monolith','Rings of Brighthearth'],type:'Mana ∞',desc:'Tap pour {3} → détape pour {3} → copie via Rings → +1 mana chaque cycle'},
+  {names:['Grim Monolith','Power Artifact'],type:'Mana ∞',desc:'Power Artifact réduit coût détape de {3} → {1} → mana ∞'},
+  {names:['Deadeye Navigator','Peregrine Drake'],type:'Mana ∞',desc:'Soulbond + blink Drake → détape 5 terrains → paie blink coût 1U → reste 4 mana'},
+  {names:['Palinchron','High Tide'],type:'Mana ∞',desc:'Palinchron bounce détape 7 terrains → re-cast pour 5 → reste 2 mana net'},
+  // Pioche infinie
+  {names:['Niv-Mizzet, Parun','Curiosity'],type:'Pioche ∞',desc:'Curiosity sur Niv → pioche déclenche 1 dégât → cible adverse → boucle'},
+  {names:['Niv-Mizzet, the Firemind','Curiosity'],type:'Pioche ∞',desc:'Idem Niv-Mizzet Parun'},
+  {names:['Niv-Mizzet, Parun','Tandem Lookout'],type:'Pioche ∞',desc:'Soulbond + déclencheurs → boucle'},
+  // Sacrifice / drain
+  {names:['Karmic Guide','Reveillark'],type:'Boucle ETB',desc:'Karmic ressuscite Reveillark + autre 2-mana → blink ETBs'},
+  {names:['Mikaeus, the Unhallowed','Triskelion'],type:'Dégâts ∞',desc:'Triskelion ping → meurt → revient avec +1/+1 → ping infini'},
+  {names:['Mikaeus, the Unhallowed','Walking Ballista'],type:'Dégâts ∞',desc:'Ballista X=0 puis +1/+1 → meurt → revient → boucle'},
+  // Mill
+  {names:['Painter\'s Servant','Grindstone'],type:'Mill ∞',desc:'Painter rend tout d\'une couleur → Grindstone mill 2 même couleur → mill tout'},
+  // Tokens
+  {names:['Doubling Season','Anointed Procession'],type:'Token x4',desc:'Multiplicateur de tokens (pas infini mais très fort)'},
+  // Aristocrats
+  {names:['Persist','Melira, Sylvok Outcast','Murderous Redcap'],type:'Dégâts ∞',desc:'Melira empêche -1/-1 → Redcap revient à 2/2 → ping infini'},
+  // Storm
+  {names:['Ad Nauseam','Angel\'s Grace'],type:'Win',desc:'Ad Nauseam jusqu\'à vider biblio sans mourir → enchaîne ton plan'}
+];
+function _anaDetectCombos(deck){
+  var nameSet={};
+  (deck.cards||[]).forEach(function(c){
+    nameSet[(c.name||'').toLowerCase().trim()]=1;
+    // Aussi sans accents pour matchs internationaux
+    var stripped=stripDFC(c.name||'').toLowerCase().trim();
+    if(stripped)nameSet[stripped]=1;
+  });
+  var detected=[];
+  _ANA_COMBOS.forEach(function(combo){
+    var hits=combo.names.filter(function(n){return nameSet[n.toLowerCase()];});
+    if(hits.length===combo.names.length){
+      detected.push({names:combo.names,type:combo.type,desc:combo.desc,partial:false});
+    }else if(hits.length>=combo.names.length-1&&combo.names.length>=2){
+      // 'Partial' : il manque une seule pièce → suggère
+      detected.push({names:combo.names,type:combo.type,desc:combo.desc,partial:true,have:hits,missing:combo.names.filter(function(n){return !nameSet[n.toLowerCase()];})});
+    }
+  });
+  return detected;
+}
 // Détecteur de faiblesses : scan oracle texts pour réponses critiques manquantes
 function _anaWeaknessScan(deck,fmt){
   var isComm=anaIsCommanderFormat(fmt);
@@ -26937,6 +26996,37 @@ function anaRender(deckId){
 
   // Retiré : "Probabilités de partie" → doublon avec la "Simulation 100 parties" plus précise
   var _probHtml="";
+  // === Détecteur de combos infinis ===
+  var _comboHtml=(function(){
+    var combos=_anaDetectCombos(deck);
+    var active=combos.filter(function(c){return !c.partial;});
+    var partial=combos.filter(function(c){return c.partial;});
+    if(!active.length&&!partial.length)return '';
+    var typeCol={'Win':'#c95bf5','Dégâts ∞':'#f55b5b','Créatures ∞':'#5bf590','Mana ∞':'#cdb87a','Pioche ∞':'#5b8cf5','Boucle ETB':'#5bf590','Mill ∞':'#9060c0','Token x4':'#f5b95b'};
+    var html='<div class="card"><div class="lbl">⚡ Combos détectés</div>';
+    if(active.length){
+      html+='<div style="font-size:11px;color:var(--gr2);margin-bottom:4px;font-weight:600">✓ Actifs ('+active.length+')</div>';
+      active.forEach(function(c){
+        var tc=typeCol[c.type]||'var(--gold2)';
+        html+='<div style="padding:7px 9px;background:rgba(100,200,120,.06);border-left:2px solid '+tc+';border-radius:0 5px 5px 0;margin-bottom:5px">';
+        html+='<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:3px"><span style="background:'+tc+';color:#0a0a0a;padding:1px 7px;border-radius:8px;font-size:9.5px;font-weight:700">'+c.type+'</span><span style="color:var(--tx)">'+c.names.map(esc).join(' + ')+'</span></div>';
+        html+='<div style="font-size:10px;color:var(--tx3);font-style:italic;line-height:1.5">'+esc(c.desc)+'</div>';
+        html+='</div>';
+      });
+    }
+    if(partial.length){
+      html+='<div style="font-size:11px;color:var(--am);margin:8px 0 4px;font-weight:600">⚠ Quasi-complets ('+partial.length+') — il te manque 1 pièce</div>';
+      partial.forEach(function(c){
+        var tc=typeCol[c.type]||'var(--gold2)';
+        html+='<div style="padding:5px 9px;background:rgba(255,140,40,.05);border-left:2px solid var(--am);border-radius:0 5px 5px 0;margin-bottom:3px">';
+        html+='<div style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="background:'+tc+';color:#0a0a0a;padding:1px 7px;border-radius:8px;font-size:9.5px;font-weight:700">'+c.type+'</span><span style="color:var(--tx3);text-decoration:line-through">'+c.names.map(esc).join(' + ')+'</span></div>';
+        html+='<div style="font-size:10.5px;color:var(--am);margin-top:2px">Manque : <b>'+c.missing.map(esc).join(', ')+'</b></div>';
+        html+='</div>';
+      });
+    }
+    html+='</div>';
+    return html;
+  })();
   // === Détecteur de faiblesses : scan des réponses critiques manquantes ===
   var _weakHtml=(function(){
     var w=_anaWeaknessScan(deck,fmt);
@@ -27261,7 +27351,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -27270,7 +27360,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_weakHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
