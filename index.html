@@ -1221,6 +1221,22 @@ body.mana-cursor{cursor:none}
 .ar-action-toast.mine{border-color:rgba(100,200,120,.65);box-shadow:0 6px 22px rgba(0,0,0,.7),0 0 16px rgba(80,200,120,.32)}
 .ar-action-toast.opp{border-color:rgba(255,120,120,.7);box-shadow:0 6px 22px rgba(0,0,0,.7),0 0 16px rgba(255,80,80,.4);background:linear-gradient(135deg,rgba(40,12,16,.96),rgba(20,5,8,.96))}
 .ar-action-toast.chat{border-color:rgba(120,180,255,.6);background:linear-gradient(135deg,rgba(12,18,40,.94),rgba(6,8,20,.94))}
+/* Bannière de priorité / fenêtre d'instants (multijoueur) */
+#ar-priority-banner{position:absolute;top:54px;left:50%;transform:translateX(-50%) translateY(-20px);z-index:165;pointer-events:auto;display:none;flex-direction:column;align-items:center;gap:4px;padding:10px 22px;border-radius:10px;font-family:'Cinzel','Goudy Mediaeval',serif;opacity:0;transition:opacity .2s,transform .3s cubic-bezier(.34,1.4,.64,1);max-width:80vw;text-align:center}
+#ar-priority-banner.on{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+#ar-priority-banner.resp{background:linear-gradient(135deg,rgba(48,16,20,.97),rgba(24,6,10,.97));border:2px solid #e07070;box-shadow:0 8px 30px rgba(0,0,0,.8),0 0 26px rgba(224,80,80,.5)}
+#ar-priority-banner.mine{background:linear-gradient(135deg,rgba(16,40,24,.97),rgba(6,20,12,.97));border:2px solid #78c890;box-shadow:0 8px 30px rgba(0,0,0,.8),0 0 22px rgba(100,200,120,.4)}
+#ar-priority-banner .apb-title{font-size:1.05rem;font-weight:800;letter-spacing:.04em}
+#ar-priority-banner.resp .apb-title{color:#ff9090}
+#ar-priority-banner.mine .apb-title{color:#90e8a8}
+#ar-priority-banner .apb-sub{font-size:.78rem;color:rgba(255,255,255,.85);font-family:'Crimson Pro',serif;letter-spacing:.01em}
+#ar-priority-banner .apb-actions{display:flex;gap:8px;margin-top:4px}
+#ar-priority-banner .apb-btn{pointer-events:auto;background:rgba(255,255,255,.1);border:1px solid currentColor;border-radius:14px;padding:3px 14px;font-size:.74rem;cursor:pointer;color:inherit;font-family:'Crimson Pro',serif;letter-spacing:.04em}
+#ar-priority-banner .apb-btn:hover{background:rgba(255,255,255,.22)}
+#ar-priority-banner.resp .apb-btn{color:#ff9090}
+#ar-priority-banner.mine .apb-btn{color:#90e8a8}
+@keyframes apb-pulse{0%,100%{box-shadow:0 8px 30px rgba(0,0,0,.8),0 0 20px rgba(224,80,80,.35)}50%{box-shadow:0 8px 30px rgba(0,0,0,.8),0 0 34px rgba(224,80,80,.7)}}
+#ar-priority-banner.resp.on{animation:apb-pulse 1.5s ease-in-out infinite}
 .ar-toast-by{color:var(--gold2);font-weight:700;margin-right:6px}
 .ar-action-toast.opp .ar-toast-by{color:#ffb0b0}
 .ar-action-toast.mine .ar-toast-by{color:#a0ffb0}
@@ -14255,10 +14271,15 @@ function arShowFullCard(name){
 }
 
 function arSetPhase(n){
+  var prevPhase=_ar.phase;
   _ar.phase=n;arRenderTopbar();
   var names=['Pioche','Main 1','Combat','Main 2','Fin'];
   arLogAction('phase',{idx:n,name:names[n]||('phase '+n)});
   _arUpdateCombatBar();
+  // En multijoueur : rappel de priorité quand j'entre en combat
+  if(n===2&&n!==prevPhase&&_arRoom&&_arRoom.opps&&Object.keys(_arRoom.opps).length){
+    try{_arShowPriorityBanner(2,null,true);}catch(_){}
+  }
 }
 
 // Calcule la taille max de main effective en scannant les permanents que je contrôle.
@@ -17097,6 +17118,11 @@ function _arShowActionToast(entry){
   if(entry.type==='play'&&entry.by!==myPn&&entry.payload&&entry.payload.name){
     _arShowOpponentPlayPreview(entry.payload.name,entry.by);
   }
+  // Changement de phase d'un adversaire vers le COMBAT → bannière de priorité prominente
+  if(entry.type==='phase'&&entry.by!==myPn&&entry.payload&&entry.payload.idx===2){
+    var oppName=(_arRoom&&_arRoom.opps&&_arRoom.opps[entry.by]&&_arRoom.opps[entry.by].slot.name)||('J'+entry.by);
+    _arShowPriorityBanner(2,oppName,false);
+  }
   var t=_arActionToText(entry);
   if(!t||(!t.text&&!t.by))return;
   // Construit ou récupère l'élément toast
@@ -17114,6 +17140,58 @@ function _arShowActionToast(entry){
     return;
   }
   _arRenderToastEntry(entry,t);
+}
+// Bannière de priorité : clarifie les fenêtres d'instants en multijoueur.
+// isMine=false → un adversaire vient de changer de phase, tu peux répondre.
+// isMine=true → tu viens de changer de phase, laisse les adversaires répondre.
+var _arPriorityTimer=null;
+function _arShowPriorityBanner(phaseIdx,actorName,isMine){
+  // Solo / pas de room → inutile
+  if(!_arRoom||!_arRoom.opps||!Object.keys(_arRoom.opps).length)return;
+  var el=document.getElementById('ar-priority-banner');
+  if(!el){
+    el=document.createElement('div');
+    el.id='ar-priority-banner';
+    var field=document.getElementById('ar-field');
+    (field||document.body).appendChild(el);
+  }
+  var phNames=['Pioche','Première phase principale','Combat','Seconde phase principale','Fin du tour'];
+  var phName=phNames[phaseIdx]||('phase '+phaseIdx);
+  var isCombat=(phaseIdx===2);
+  var title,sub;
+  if(isMine){
+    el.className='mine';
+    if(isCombat){
+      title='⚔ Tu entres en COMBAT';
+      sub='Laisse les adversaires jouer leurs instants avant de déclarer tes attaquants.';
+    }else{
+      title='⚡ Tu passes en '+phName;
+      sub='Les adversaires peuvent répondre avec des instants.';
+    }
+  }else{
+    el.className='resp';
+    if(isCombat){
+      title='⚔ '+actorName+' entre en COMBAT';
+      sub='Fenêtre d\'instants — joue MAINTENANT avant la déclaration des attaquants.';
+    }else{
+      title='⚡ '+actorName+' → '+phName;
+      sub='Fenêtre de réponse : tu peux jouer un instant.';
+    }
+  }
+  el.innerHTML='<div class="apb-title">'+title+'</div>'
+    +'<div class="apb-sub">'+sub+'</div>'
+    +'<div class="apb-actions"><button class="apb-btn" onclick="_arHidePriorityBanner()">'+(isMine?'Compris':'OK / Je passe')+'</button></div>';
+  el.classList.add('on');
+  // Son distinct (si activé)
+  try{if(typeof arPlaySfx==='function')arPlaySfx(isCombat?'turn':'phase');}catch(_){}
+  clearTimeout(_arPriorityTimer);
+  // Combat reste plus longtemps (décision importante), autres phases plus court
+  _arPriorityTimer=setTimeout(_arHidePriorityBanner,isCombat?9000:5000);
+}
+function _arHidePriorityBanner(){
+  var el=document.getElementById('ar-priority-banner');
+  if(el)el.classList.remove('on');
+  clearTimeout(_arPriorityTimer);
 }
 // Phase 1D : aperçu plein de la carte que l'adversaire vient de jouer.
 // Vol stylisé depuis sa pastille en haut vers le centre du plateau, puis fade out.
@@ -30573,11 +30651,13 @@ function anaRender(deckId){
     var sv=Math.round(subScores[sc.k]||0);
     var col=sv>=80?'#78c890':sv>=60?'#f5b95b':'#e07070';
     var _cnt=_sc[sc.k]||0;var _tlo=targets[sc.k][0];var _thi=targets[sc.k][1];
-    var _tip=sc.l+' : '+_cnt+' cartes (cible '+_tlo+'–'+_thi+')';
-    _scorePanel+='<div style="display:flex;align-items:center;gap:3px;margin-bottom:4px" title="'+_tip+'">';
+    // État vs fourchette cible
+    var _state=_cnt<_tlo?'sous la cible':_cnt>_thi?'au-dessus de la cible':'dans la cible';
+    var _tip=sc.l+' : '+_cnt+' cartes — cible '+_tlo+'–'+_thi+' ('+_state+'). Score qualité : '+sv+'/100';
+    _scorePanel+='<div style="display:flex;align-items:center;gap:3px;margin-bottom:4px" title="'+esc(_tip)+'">';
     _scorePanel+='<span style="font-size:7.5px;color:var(--tx3);width:46px;text-align:right;flex-shrink:0">'+sc.l+'</span>';
     _scorePanel+='<div style="flex:1;height:5px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden"><div style="width:'+sv+'%;height:100%;background:'+col+'"></div></div>';
-    _scorePanel+='<span style="font-size:7.5px;color:'+col+';width:28px;flex-shrink:0;text-align:right" title="'+_tip+'">'+_cnt+'/'+_tlo+'</span>';
+    _scorePanel+='<span style="font-size:7.5px;color:'+col+';width:52px;flex-shrink:0;text-align:right" title="'+esc(_tip)+'"><b>'+_cnt+'</b><span style="color:var(--tx3);font-size:6.5px"> /'+_tlo+'-'+_thi+'</span></span>';
     _scorePanel+='</div>';
   });
   _scorePanel+='</div>';
@@ -30594,18 +30674,6 @@ function anaRender(deckId){
   _scorePanel+='<div id="ana-sim-bar" style="width:0%;height:100%;background:var(--tx3);border-radius:3px;transition:width .8s ease"></div></div>';
   _scorePanel+='<div id="ana-sim-score-text" style="font-size:9px;color:var(--tx3);font-style:italic">en cours de calcul…</div>';
   _scorePanel+='</div>';
-  // ── Synergie plan de jeu ──
-  if((_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length)||(_anaQState[deckId]&&(_anaQState[deckId].role||(_anaQState[deckId].synergies&&_anaQState[deckId].synergies.length)))){
-    var _covCol=_thCovPct>=60?'#78c890':_thCovPct>=35?'#f5b95b':'#e07070';
-    _scorePanel+='<div style="height:.5px;background:var(--bd2);margin:8px 0"></div>';
-    _scorePanel+='<div style="text-align:center">';
-    _scorePanel+='<div style="font-size:8px;color:var(--tx3);letter-spacing:.1em;font-family:Goudy Mediaeval,serif;margin-bottom:4px" title="Proportion de cartes (hors terrains) qui synergisent avec le plan de jeu actif">SYNERGIE PLAN</div>';
-    _scorePanel+='<div style="font-size:26px;line-height:1;font-weight:bold;color:'+_covCol+'">'+_thCovPct+'%</div>';
-    _scorePanel+='<div style="height:4px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin:4px 0">';
-    _scorePanel+='<div style="width:'+_thCovPct+'%;height:100%;background:'+_covCol+';border-radius:3px;transition:width .6s ease"></div></div>';
-    _scorePanel+='<div style="font-size:8.5px;color:var(--tx3)">'+_synCardN+'/'+_nonLandN+' cartes synergiques</div>';
-    _scorePanel+='</div>';
-  }
   _scorePanel+='</div>';
 
   // === Mise en page finale : avec ou sans commandant ===
