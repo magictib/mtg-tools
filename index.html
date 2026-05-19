@@ -2243,6 +2243,7 @@ body.mana-cursor{cursor:none}
                 <div style="font-size:.66rem;color:var(--tx3);margin-top:6px;line-height:1.4">Préférences synchronisées entre vos appareils.</div>
               </div>
             </div>
+            <button class="um-btn" onclick="openLocalBackupPanel();closeHub()" style="margin-top:8px">💾 Sauvegardes locales</button>
             <button class="um-btn danger" onclick="openDeleteProfileOv()" style="margin-top:6px">🗑 Supprimer le profil</button>
             <button class="um-btn danger" onclick="authSignOut();closeHub()">⏻ Déconnexion</button>
           </div>
@@ -18132,17 +18133,65 @@ function renderPlayerProfile(){
   // Most faced opponent
   var oppArr=Object.values(opponentFaced).sort(function(a,b){return b.count-a.count;});
   var topOpp=oppArr[0];
-  // Achievements
+  // Format favori : analyse des decks joués (clé deck.fmt)
+  var fmtCount={};
+  Object.keys(deckPlayed).forEach(function(did){
+    var dk=decks[did];if(!dk)return;
+    var f=(dk.fmt||'libre').toLowerCase();
+    fmtCount[f]=(fmtCount[f]||0)+deckPlayed[did].played;
+  });
+  var topFmt=Object.entries(fmtCount).sort(function(a,b){return b[1]-a[1];})[0];
+  // Valeur estimée de la collection (profs[0] × allPriceMap)
+  var collValue=0,collQty=0;
+  try{
+    var myColl=Array.isArray(profs[0])?profs[0]:[];
+    myColl.forEach(function(c){
+      var pr=(typeof allPriceMap==='object'&&allPriceMap[(c.nl||stripDFC(c.name||'').toLowerCase())])||0;
+      collValue+=pr*(c.qty||1);
+      collQty+=c.qty||1;
+    });
+  }catch(_){}
+  // Évolution win-rate sur les 20 dernières parties (sparkline)
+  var last20=sorted.slice(-20);
+  var sparkData=[];
+  if(last20.length>=3){
+    var roll=[];
+    last20.forEach(function(g){
+      var myIdx=-1;g.players.forEach(function(p,pi){if((p.name||'').toLowerCase()===myName)myIdx=pi;});
+      if(myIdx<0)return;
+      var didW=false;
+      if(g.boMode&&g.boMode!=='bo1'&&g.boScore){var maxW=Math.max.apply(null,g.boScore);didW=(g.boScore[myIdx]||0)===maxW&&maxW>0;}
+      else if(g.winner)didW=(g.winner.name||'').toLowerCase()===myName;
+      roll.push(didW?1:0);
+    });
+    // rolling 5
+    for(var i=0;i<roll.length;i++){
+      var s=Math.max(0,i-4),sl=roll.slice(s,i+1);
+      sparkData.push(sl.reduce(function(a,b){return a+b;},0)/sl.length);
+    }
+  }
+  // Achievements (étendus)
   var achievements=[];
   if(totalGames>=10)achievements.push({ico:'🎯',label:'10 parties'});
   if(totalGames>=50)achievements.push({ico:'🏆',label:'50 parties'});
   if(totalGames>=100)achievements.push({ico:'💯',label:'100 parties'});
+  if(totalGames>=250)achievements.push({ico:'🎖',label:'250 parties'});
+  if(totalGames>=500)achievements.push({ico:'🏅',label:'500 parties — Vétéran'});
   if(myWins>=10)achievements.push({ico:'⚡',label:'10 victoires'});
   if(myWins>=25)achievements.push({ico:'🌟',label:'25 victoires'});
   if(myWins>=50)achievements.push({ico:'👑',label:'50 victoires'});
+  if(myWins>=100)achievements.push({ico:'💎',label:'100 victoires'});
   if(winRate>=60&&totalGames>=10)achievements.push({ico:'📈',label:'WR ≥60% sur 10+'});
+  if(winRate>=70&&totalGames>=30)achievements.push({ico:'🚀',label:'WR ≥70% sur 30+'});
   if(streak.best.win>=5)achievements.push({ico:'🔥',label:'Streak '+streak.best.win+' victoires'});
+  if(streak.best.win>=10)achievements.push({ico:'🌋',label:'Streak ≥10 V'});
   if(Object.keys(deckPlayed).length>=5)achievements.push({ico:'🎨',label:'5+ decks joués'});
+  if(Object.keys(deckPlayed).length>=10)achievements.push({ico:'🃏',label:'10+ decks joués'});
+  if(Object.keys(decks||{}).length>=20)achievements.push({ico:'📚',label:'20+ decks créés'});
+  if(collQty>=500)achievements.push({ico:'💰',label:'Collection 500+'});
+  if(collQty>=1000)achievements.push({ico:'💎',label:'Collection 1000+'});
+  if(collValue>=500)achievements.push({ico:'🪙',label:'Collection ≥500€'});
+  if(Object.keys(fmtCount).length>=3)achievements.push({ico:'🎭',label:'3+ formats joués'});
   // Render
   var wrCol=winRate>=55?'var(--gr2)':winRate>=45?'var(--am)':'var(--rd2)';
   var html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-bottom:12px">';
@@ -18150,7 +18199,26 @@ function renderPlayerProfile(){
   html+='<div class="stat"><div class="sv" style="color:var(--gr2)">'+myWins+'</div><div class="sl">Victoires</div></div>';
   html+='<div class="stat"><div class="sv" style="color:var(--rd2)">'+myLosses+'</div><div class="sl">Défaites</div></div>';
   html+='<div class="stat"><div class="sv" style="color:'+wrCol+'">'+winRate.toFixed(0)+'%</div><div class="sl">Win rate</div></div>';
+  if(topFmt)html+='<div class="stat"><div class="sv" style="font-size:1rem;color:var(--c-info)">'+esc(topFmt[0])+'</div><div class="sl">Format favori</div></div>';
+  if(collQty)html+='<div class="stat"><div class="sv" style="font-size:1rem">'+collQty+'</div><div class="sl">Cartes possédées</div></div>';
+  if(collValue>0)html+='<div class="stat"><div class="sv" style="font-size:1rem;color:var(--gold2)">'+collValue.toFixed(0)+'€</div><div class="sl">Valeur estimée</div></div>';
   html+='</div>';
+  // Sparkline win-rate récente (20 dernières parties)
+  if(sparkData.length>=3){
+    var w=180,h=32,n=sparkData.length;
+    var pts=sparkData.map(function(v,i){return [Math.round(i/(n-1)*w),Math.round(h-(v*h))];});
+    var path='M'+pts.map(function(p){return p[0]+','+p[1];}).join(' L');
+    var lastWr=Math.round((sparkData[sparkData.length-1]||0)*100);
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:6px 9px;background:rgba(0,0,0,.2);border-radius:6px">'
+      +'<div style="font-size:10px;color:var(--tx3);flex:1">Évolution WR (20 dernières)</div>'
+      +'<svg width="'+w+'" height="'+h+'" style="overflow:visible">'
+      +'<line x1="0" y1="'+(h/2)+'" x2="'+w+'" y2="'+(h/2)+'" stroke="rgba(255,255,255,.08)" stroke-dasharray="2,3"/>'
+      +'<path d="'+path+'" fill="none" stroke="var(--gold2)" stroke-width="1.8" stroke-linejoin="round"/>'
+      +'<circle cx="'+pts[pts.length-1][0]+'" cy="'+pts[pts.length-1][1]+'" r="3" fill="var(--gold2)"/>'
+      +'</svg>'
+      +'<div style="font-size:12px;color:var(--gold2);font-weight:600;min-width:38px;text-align:right">'+lastWr+'%</div>'
+      +'</div>';
+  }
   if(streak.cur>0){
     var sIco=streak.type==='win'?'🔥':'❄';
     var sCol=streak.type==='win'?'var(--gr2)':'var(--rd2)';
@@ -18515,6 +18583,179 @@ function gamesBackup(){
   db.collection('users').doc(userId).collection('backups').doc('games_history')
     .set({games:games,ts:Date.now(),count:games.length},{merge:false})
     .catch(function(e){console.warn('[backup games]',e);});
+}
+// ============================================================
+// BACKUP LOCAL IndexedDB — résilient en cas de Firebase down
+// ============================================================
+var _IDB_BK_NAME='manalab-backup';
+function _bkOpen(){
+  return new Promise(function(res,rej){
+    var req=indexedDB.open(_IDB_BK_NAME,1);
+    req.onupgradeneeded=function(e){
+      var d=e.target.result;
+      if(!d.objectStoreNames.contains('snapshots'))d.createObjectStore('snapshots',{keyPath:'id',autoIncrement:true});
+    };
+    req.onsuccess=function(e){res(e.target.result);};
+    req.onerror=function(){rej(req.error);};
+  });
+}
+function _bkBuildSnapshot(reason){
+  return {
+    ts:Date.now(),
+    reason:reason||'auto',
+    userId:(typeof userId!=='undefined')?userId:null,
+    decks:(typeof decks==='object'?decks:{}),
+    profs:(typeof profs!=='undefined'?profs:[]),
+    PN:(typeof PN!=='undefined'?PN:[]),
+    games:(typeof games!=='undefined'?games:[]),
+    wishlist:(typeof _wishlist!=='undefined'?_wishlist:[]),
+    pending:(typeof pending!=='undefined'?pending:[]),
+    loans:(typeof loans!=='undefined'?loans:[]),
+    deckOrders:(typeof _deckOrders!=='undefined'?_deckOrders:{}),
+    arPool:(typeof _arPool!=='undefined'?_arPool:[])
+  };
+}
+function localBackupSave(reason){
+  return _bkOpen().then(function(d){
+    return new Promise(function(res,rej){
+      var tx=d.transaction('snapshots','readwrite');
+      var st=tx.objectStore('snapshots');
+      var snap=_bkBuildSnapshot(reason);
+      var r=st.add(snap);
+      r.onsuccess=function(){res(r.result);};
+      r.onerror=function(){rej(r.error);};
+    }).then(function(id){
+      // Garde les 10 derniers seulement
+      return _bkOpen().then(function(d2){
+        return new Promise(function(res2){
+          var tx=d2.transaction('snapshots','readwrite');
+          var st=tx.objectStore('snapshots');
+          var req=st.getAll();
+          req.onsuccess=function(){
+            var all=(req.result||[]).sort(function(a,b){return b.ts-a.ts;});
+            if(all.length>10){
+              all.slice(10).forEach(function(s){st.delete(s.id);});
+            }
+            tx.oncomplete=function(){res2(id);};
+          };
+          req.onerror=function(){res2(id);};
+        });
+      });
+    });
+  });
+}
+function localBackupList(){
+  return _bkOpen().then(function(d){
+    return new Promise(function(res,rej){
+      var tx=d.transaction('snapshots','readonly');
+      var r=tx.objectStore('snapshots').getAll();
+      r.onsuccess=function(){res((r.result||[]).sort(function(a,b){return b.ts-a.ts;}));};
+      r.onerror=function(){rej(r.error);};
+    });
+  });
+}
+function localBackupRestore(id){
+  return _bkOpen().then(function(d){
+    return new Promise(function(res,rej){
+      var tx=d.transaction('snapshots','readonly');
+      var r=tx.objectStore('snapshots').get(id);
+      r.onsuccess=function(){
+        var s=r.result;if(!s){rej(new Error('Snapshot introuvable'));return;}
+        try{
+          if(s.decks&&typeof decks==='object'){decks=s.decks;try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(_){}saveDecks();}
+          if(s.games&&typeof games!=='undefined'){games=s.games;saveGames();}
+          if(s.wishlist&&typeof _wishlist!=='undefined'){_wishlist=s.wishlist;_fsPrefs.wishlist=_wishlist;_saveFsPrefs();}
+          if(s.pending){pending=s.pending;savePending();}
+          if(s.loans){loans=s.loans;saveLoans();}
+          if(s.arPool&&typeof _arPool!=='undefined'){_arPool=s.arPool;arPoolSave();}
+          res(s);
+        }catch(e){rej(e);}
+      };
+      r.onerror=function(){rej(r.error);};
+    });
+  });
+}
+function localBackupDelete(id){
+  return _bkOpen().then(function(d){
+    return new Promise(function(res,rej){
+      var tx=d.transaction('snapshots','readwrite');
+      var r=tx.objectStore('snapshots').delete(id);
+      tx.oncomplete=function(){res();};
+      tx.onerror=function(){rej(tx.error);};
+    });
+  });
+}
+// Auto-snapshot une fois par 24h après chargement complet
+function _autoLocalBackup(){
+  try{
+    var last=parseInt(localStorage.getItem('mtg_bk_last')||'0',10);
+    if(Date.now()-last<24*3600*1000)return;
+    localBackupSave('auto-24h').then(function(){
+      try{localStorage.setItem('mtg_bk_last',String(Date.now()));}catch(_){}
+      console.log('[backup] auto-snapshot OK');
+    }).catch(function(e){console.warn('[backup] auto fail',e);});
+  }catch(_){}
+}
+// Lance 30s après le chargement
+setTimeout(_autoLocalBackup,30000);
+// UI : panneau backup dans Paramètres
+function openLocalBackupPanel(){
+  var ov=document.getElementById('local-bk-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='local-bk-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
+    ov.innerHTML='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;max-width:560px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">'
+      +'<div style="padding:14px 18px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+      +'<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.05rem">💾 Sauvegardes locales</div>'
+      +'<button class="btn btnsm" onclick="closeLocalBackupPanel()">✕</button></div>'
+      +'<div style="padding:10px 18px;display:flex;gap:8px;border-bottom:.5px solid var(--bd)">'
+      +'<button class="btn btnp btnsm" style="flex:1" onclick="localBackupSave(\'manual\').then(function(){toastSuccess(\'✓ Sauvegarde créée\');renderLocalBackupList();}).catch(function(e){toastError(\'Erreur: \'+e.message);})">📸 Nouvelle sauvegarde</button>'
+      +'</div>'
+      +'<div id="local-bk-list" style="overflow-y:auto;flex:1;padding:10px 14px"></div>'
+      +'<div style="padding:8px 14px;font-size:.7rem;color:var(--tx3);border-top:.5px solid var(--bd)">Les sauvegardes sont stockées localement dans votre navigateur (10 max). Utiles en cas de panne Firebase ou de corruption.</div>'
+      +'</div>';
+    ov.onclick=function(e){if(e.target===ov)closeLocalBackupPanel();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  renderLocalBackupList();
+}
+function closeLocalBackupPanel(){var ov=document.getElementById('local-bk-ov');if(ov)ov.style.display='none';}
+function renderLocalBackupList(){
+  var host=document.getElementById('local-bk-list');if(!host)return;
+  host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.78rem">Chargement…</div>';
+  localBackupList().then(function(list){
+    if(!list.length){host.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.78rem;text-align:center;padding:30px 10px">Aucune sauvegarde locale.</div>';return;}
+    host.innerHTML=list.map(function(s){
+      var d=new Date(s.ts);
+      var date=d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      var nDecks=Object.keys(s.decks||{}).length;
+      var nGames=(s.games||[]).length;
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:.5px solid var(--bd)">'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="color:var(--tx);font-size:.85rem">'+date+' <span style="color:var(--tx3);font-size:.7rem">· '+(s.reason==='auto-24h'?'auto':'manuel')+'</span></div>'
+        +'<div style="color:var(--tx3);font-size:.7rem">'+nDecks+' decks · '+nGames+' parties</div>'
+        +'</div>'
+        +'<button class="btn btnsm" style="font-size:.7rem" onclick="confirmLocalBackupRestore('+s.id+')">↺ Restaurer</button>'
+        +'<button class="btn btnsm" style="font-size:.7rem;color:var(--rd2);border-color:rgba(220,80,80,.4)" onclick="confirmLocalBackupDelete('+s.id+')">🗑</button>'
+        +'</div>';
+    }).join('');
+  }).catch(function(e){host.innerHTML='<div style="color:var(--rd2);font-size:.78rem">Erreur: '+e.message+'</div>';});
+}
+function confirmLocalBackupRestore(id){
+  if(!confirm('Restaurer cette sauvegarde ? Vos données actuelles seront écrasées.'))return;
+  localBackupRestore(id).then(function(s){
+    toastSuccess('✓ Sauvegarde restaurée — rechargez la page si nécessaire');
+    closeLocalBackupPanel();
+    if(typeof renderDBar==='function')renderDBar();
+    if(typeof renderGameHistory==='function')renderGameHistory();
+  }).catch(function(e){toastError('Erreur restauration : '+e.message);});
+}
+function confirmLocalBackupDelete(id){
+  if(!confirm('Supprimer définitivement cette sauvegarde ?'))return;
+  localBackupDelete(id).then(function(){toastSuccess('Sauvegarde supprimée');renderLocalBackupList();})
+    .catch(function(e){toastError('Erreur : '+e.message);});
 }
 
 function mgColorBtns(pi,activeColors){
@@ -23673,6 +23914,7 @@ function _cmdPalBuild(){
   items.push({key:'act:friends',ico:'👥',lbl:'Mes amis',cat:'Action',act:function(){if(typeof openFriendModal==='function')openFriendModal();}});
   items.push({key:'act:notifs',ico:'🔔',lbl:'Voir notifications',cat:'Action',act:function(){if(typeof openHub==='function'){openHub();if(typeof openHubTab==='function')openHubTab('notifs');}}});
   items.push({key:'act:newdeck',ico:'➕',lbl:'Nouveau deck',cat:'Action',act:function(){if(typeof goTab==='function')goTab('build');if(typeof newDeck==='function')newDeck();}});
+  items.push({key:'act:localBackup',ico:'💾',lbl:'Sauvegardes locales',cat:'Action',act:function(){if(typeof openLocalBackupPanel==='function')openLocalBackupPanel();}});
   items.push({key:'act:fsBig',ico:'🔤',lbl:'Texte plus grand',cat:'Confort',act:function(){if(typeof uxSetFs==='function')uxSetFs('lg');}});
   items.push({key:'act:fsNorm',ico:'🔤',lbl:'Texte normal',cat:'Confort',act:function(){if(typeof uxSetFs==='function')uxSetFs('md');}});
   items.push({key:'act:densCompact',ico:'📐',lbl:'Densité compacte',cat:'Confort',act:function(){if(typeof uxSetDensity==='function')uxSetDensity('compact');}});
