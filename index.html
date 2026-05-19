@@ -4799,6 +4799,15 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 var db = firebase.firestore();
+// Persistance offline IndexedDB : les écritures en attente survivent au refresh
+// et sont retentées automatiquement. Multi-onglets : synchronisation automatique.
+try{
+  db.enablePersistence({synchronizeTabs:true}).catch(function(err){
+    if(err&&err.code==='failed-precondition')console.warn('[firestore] multi-onglets ouverts, persistence sur 1 seul');
+    else if(err&&err.code==='unimplemented')console.warn('[firestore] navigateur ne supporte pas la persistence');
+    else console.warn('[firestore] persistence:',err);
+  });
+}catch(e){console.warn('[firestore] enablePersistence non disponible:',e);}
 var userId = 'default_user';
 
 // ===== AUTH =====
@@ -9842,13 +9851,29 @@ function subscribeSharedLists(){
   if(_sharedListsUnsub)_sharedListsUnsub();
   _sharedListsUnsub=db.collection('shared_lists')
     .where('members','array-contains',userId)
-    .onSnapshot(function(snap){
+    .onSnapshot({includeMetadataChanges:true},function(snap){
       // Mutate _purchaseLists en place pour préserver les références
       var seen={};
-      snap.forEach(function(doc){seen[doc.id]=1;_purchaseLists[doc.id]=doc.data();});
-      Object.keys(_purchaseLists).forEach(function(k){if(!seen[k])delete _purchaseLists[k];});
+      snap.forEach(function(doc){
+        seen[doc.id]=1;
+        var data=doc.data();
+        // Préserve les champs locaux non-persistés (ex: _pendingWrite si encore en attente)
+        var prev=_purchaseLists[doc.id];
+        if(prev&&prev._pendingWrite&&doc.metadata.hasPendingWrites){
+          // Notre write n'est pas encore commit — garde le flag
+          data._pendingWrite=prev._pendingWrite;
+        }
+        _purchaseLists[doc.id]=data;
+      });
+      // Ne supprime locale QUE si elle n'est pas en attente d'écriture (évite la perte sur create)
+      Object.keys(_purchaseLists).forEach(function(k){
+        if(seen[k])return;
+        var ent=_purchaseLists[k];
+        // Garde les entrées créées localement il y a moins de 60s (pending write pas encore propagé)
+        if(ent&&ent._pendingWrite&&(Date.now()-ent._pendingWrite)<60000)return;
+        delete _purchaseLists[k];
+      });
       _sharedListsLoaded=true;
-      // Restaure la liste active depuis localStorage si disponible et valide
       if(_activePurListId&&!_purchaseLists[_activePurListId]){
         var ids=Object.keys(_purchaseLists);
         _activePurListId=ids.length?ids[0]:null;
@@ -9857,9 +9882,13 @@ function subscribeSharedLists(){
       renderPurListSel();
       var pm=document.getElementById('purchase-mgr');
       if(pm&&pm.style.display!=='none')renderPurchaseMgr();
-    },function(err){console.warn('subscribeSharedLists',err);_sharedListsLoaded=true;
+    },function(err){
+      console.warn('subscribeSharedLists',err);
+      if(typeof toastError==='function')toastError('Erreur de chargement des listes partagées : '+err.message);
+      _sharedListsLoaded=true;
       var pm=document.getElementById('purchase-mgr');
-      if(pm&&pm.style.display!=='none')renderPurchaseMgr();});
+      if(pm&&pm.style.display!=='none')renderPurchaseMgr();
+    });
 }
 function _purPersistActiveListId(){
   try{if(_activePurListId)localStorage.setItem('mtg_pur_active',_activePurListId);else localStorage.removeItem('mtg_pur_active');}catch(e){}
@@ -9867,14 +9896,25 @@ function _purPersistActiveListId(){
 
 function savePurchaseList(id){
   if(!userId||!id||!_purchaseLists[id])return;
-  var data=Object.assign({},_purchaseLists[id],{updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+  // Retire les flags locaux non-persistables avant l'envoi
+  var localCopy=Object.assign({},_purchaseLists[id]);
+  delete localCopy._pendingWrite;
+  var data=Object.assign({},localCopy,{updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
   if(!data.members)data.members=[userId];
   if(data.members.indexOf(userId)<0)data.members.push(userId);
   if(!data.createdBy)data.createdBy=userId;
   try{fsSaveStart();}catch(_){}
   db.collection('shared_lists').doc(id)
-    .set(data).then(function(){try{fsSaveEnd(true);}catch(_){}})
-    .catch(function(e){console.warn('savePurchaseList',e);try{fsSaveEnd(false);}catch(_){}});
+    .set(data).then(function(){
+      try{fsSaveEnd(true);}catch(_){}
+      // Confirmé côté Firestore : retire le flag pending
+      if(_purchaseLists[id])delete _purchaseLists[id]._pendingWrite;
+    })
+    .catch(function(e){
+      console.warn('savePurchaseList',e);
+      try{fsSaveEnd(false);}catch(_){}
+      if(typeof toastError==='function')toastError('Sauvegarde liste échouée : '+e.message);
+    });
 }
 
 function newPurchaseList(){
@@ -9884,7 +9924,7 @@ function newPurchaseList(){
   if(!name)return;
   var ref=db.collection('shared_lists').doc();
   var id=ref.id;
-  _purchaseLists[id]={name:name,createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:[]};
+  _purchaseLists[id]={name:name,createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:[],_pendingWrite:Date.now()};
   _activePurListId=id;_purPersistActiveListId();
   savePurchaseList(id);
   renderPurListSel();
