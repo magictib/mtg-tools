@@ -27057,25 +27057,32 @@ function _anaWeaknessScan(deck,fmt){
   var th=isComm
     ? {boardwipe:[1,3],enchRem:[1,2],artRem:[1,2],graveHate:[0,1],spotRem:[3,6],ramp:[6,10],cmdProtection:[1,3],massDraw:[6,10],counterMagic:[0,3],recursion:[0,2]}
     : {boardwipe:[0,2],enchRem:[0,2],artRem:[0,2],graveHate:[0,1],spotRem:[2,4],ramp:[0,2],cmdProtection:[0,0],massDraw:[2,4],counterMagic:[0,2],recursion:[0,1]};
+  // Suggestions standard + variante Pauper (uniquement des communes, car
+  // Pauper / Pauper Commander n'autorise que les cartes de rareté commune)
   var defs=[
-    {k:'boardwipe',lbl:'Anti-board (wipe)',ico:'🌊',rec:'Wrath of God / Damnation / Toxic Deluge / Blasphemous Act'},
-    {k:'enchRem',lbl:'Removal enchantement',ico:'🌿',rec:'Krosan Grip / Disenchant / Generous Gift / Naturalize'},
-    {k:'artRem',lbl:'Removal artefact',ico:'⚙',rec:'Krosan Grip / Vandalblast / Reclamation Sage'},
-    {k:'graveHate',lbl:'Hate cimetière',ico:'🪦',rec:'Bojuka Bog / Tormod\'s Crypt / Soul-Guide Lantern / Rest in Peace'},
-    {k:'spotRem',lbl:'Spot removal créature',ico:'⚔',rec:'Swords to Plowshares / Path to Exile / Beast Within'},
-    {k:'ramp',lbl:'Ramp',ico:'🌱',rec:'Sol Ring / Arcane Signet / Cultivate / Three Visits'},
-    {k:'cmdProtection',lbl:'Protection',ico:'🛡',rec:'Lightning Greaves / Swiftfoot Boots / Heroic Intervention'},
-    {k:'massDraw',lbl:'Pioche / card advantage',ico:'📚',rec:'Rhystic Study / Sylvan Library / Phyrexian Arena / Esper Sentinel'},
-    {k:'counterMagic',lbl:'Contresorts',ico:'🪶',rec:'Counterspell / Swan Song / Negate (si profil contrôle)'},
-    {k:'recursion',lbl:'Recursion cimetière',ico:'♻',rec:'Eternal Witness / Sun Titan / Regrowth / Animate Dead'}
+    {k:'boardwipe',lbl:'Anti-board (wipe)',ico:'🌊',rec:'Wrath of God / Damnation / Toxic Deluge / Blasphemous Act',recPauper:'Pestilence / Crypt Rats / Evincar\'s Justice / Drown in Sorrow'},
+    {k:'enchRem',lbl:'Removal enchantement',ico:'🌿',rec:'Krosan Grip / Disenchant / Generous Gift / Naturalize',recPauper:'Naturalize / Disenchant / Demystify / Suffocating Fumes'},
+    {k:'artRem',lbl:'Removal artefact',ico:'⚙',rec:'Krosan Grip / Vandalblast / Reclamation Sage',recPauper:'Naturalize / Smash to Smithereens / Gorilla Shaman / Reclaim'},
+    {k:'graveHate',lbl:'Hate cimetière',ico:'🪦',rec:'Bojuka Bog / Tormod\'s Crypt / Soul-Guide Lantern / Rest in Peace',recPauper:'Bojuka Bog / Tormod\'s Crypt / Relic of Progenitus / Soul-Guide Lantern'},
+    {k:'spotRem',lbl:'Spot removal créature',ico:'⚔',rec:'Swords to Plowshares / Path to Exile / Beast Within',recPauper:'Doom Blade / Cast Down / Lightning Bolt / Snuff Out'},
+    {k:'ramp',lbl:'Ramp',ico:'🌱',rec:'Sol Ring / Arcane Signet / Cultivate / Three Visits',recPauper:'Llanowar Elves / Rampant Growth / Wild Growth / Search for Tomorrow'},
+    {k:'cmdProtection',lbl:'Protection',ico:'🛡',rec:'Lightning Greaves / Swiftfoot Boots / Heroic Intervention',recPauper:'Apostle\'s Blessing / Gods Willing / Mizzium Skin / Crystalline Sliver'},
+    {k:'massDraw',lbl:'Pioche / card advantage',ico:'📚',rec:'Rhystic Study / Sylvan Library / Phyrexian Arena / Esper Sentinel',recPauper:'Divination / Sign in Blood / Ponder / Deep Analysis'},
+    {k:'counterMagic',lbl:'Contresorts',ico:'🪶',rec:'Counterspell / Swan Song / Negate (si profil contrôle)',recPauper:'Counterspell / Negate / Exclude / Deprive'},
+    {k:'recursion',lbl:'Recursion cimetière',ico:'♻',rec:'Eternal Witness / Sun Titan / Regrowth / Animate Dead',recPauper:'Gravedigger / Raise Dead / Unearth / Grim Discovery'}
   ];
+  // Pour Pauper / Pauper Commander : remplace les suggestions par les variantes communes
+  var isPauper=(fmt==='pauper'||fmt==='paupercmd'||fmt==='paupercommander');
+  if(isPauper){
+    defs.forEach(function(d){if(d.recPauper)d.rec=d.recPauper;});
+  }
   var critical=[],minor=[];
   defs.forEach(function(d){
     var n=hits[d.k],seuil=th[d.k];
     if(n<=seuil[0])critical.push({def:d,count:n,target:seuil[1]});
     else if(n<seuil[1])minor.push({def:d,count:n,target:seuil[1]});
   });
-  return {critical:critical,minor:minor,hits:hits,isComm:isComm};
+  return {critical:critical,minor:minor,hits:hits,isComm:isComm,isPauper:isPauper};
 }
 function anaTargets(fmt,totalCards,themes){
   var th=themes||{};
@@ -27629,7 +27636,9 @@ var _COMMANDER_THEME_RULES=[
   {p:/treasure token|create.*treasure/i,                        m:{ramp:1.5},              label:'Treasures'},
   {p:/extra mana|adds.*additional mana|untap.*land/i,           m:{ramp:1.4},              label:'Mana boost'},
   // Gain de vie
-  {p:/whenever you gain life|lifegain matters/i,                m:{draw:1.4,lifegain:1.4}, label:'Lifegain-trigger'},
+  // Queza-type : la pioche déclenche un gain de vie → lifegain devient un axe central
+  {p:/whenever you draw a card[^.]*gain \d+ life|draw a card[^.]*you gain \d+ life/i, m:{draw:2.2,lifegain:2.2}, label:'Pioche→Vie'},
+  {p:/whenever you gain life|lifegain matters/i,                m:{draw:1.4,lifegain:2.0}, label:'Lifegain-trigger'},
   {p:/lifelink|gain.*life equal/i,                              m:{lifegain:1.2},          label:'Lifegain'},
   // Contrespells
   {p:/counter target spell|whenever a spell.*countered/i,       m:{interaction:1.3},       label:'Counterspells'},
@@ -28836,6 +28845,20 @@ function _anaSimBox(label,value,hint,col){
 function _anaPct(v){return Math.round(v*100)+'%';}
 function _anaTStr(v){return v?'T'+v.toFixed(1):'—';}
 
+/* Carte image autonome (utilisable hors de anaRender) */
+function _anaOptImgCard(name,meta,scoreStr,scoreCol){
+  var img=anaImageUrl(name,meta||{});
+  var safeName=esc(name);
+  if(img){
+    var safeImg=img.replace(/"/g,'&quot;');
+    return '<div class="ana-img-card" data-img="'+safeImg+'" onclick="anaZoom(this.dataset.img)" title="'+safeName+'">'
+      +'<img src="'+img+'" loading="lazy" alt="'+safeName+'" onerror="_anaImgFallback(this)">'
+      +(scoreStr?'<div class="ana-img-badge" style="color:'+scoreCol+'">'+scoreStr+'</div>':'')
+      +'</div>';
+  }
+  return '<div class="ana-img-card ana-img-noimg" title="'+safeName+'"><div style="padding:8px;font-size:10px;color:var(--tx2);text-align:center">'+safeName+'</div>'
+    +(scoreStr?'<div class="ana-img-badge" style="color:'+scoreCol+'">'+scoreStr+'</div>':'')+'</div>';
+}
 /* ----- Rendu du panel "Proposition 100%" avec les swaps validés par simulation ----- */
 function _anaRenderOptPanel(validatedSwaps){
   var el=document.getElementById('ana-opt-validated-body');
@@ -28876,17 +28899,31 @@ function _anaRenderOptPanel(validatedSwaps){
   h+='<div style="margin-left:auto;text-align:right"><div style="font-size:9px;color:var(--tx3)">SWAPS VALIDÉS</div><div style="font-size:24px;color:var(--gold2);font-weight:bold;line-height:1">'+validatedSwaps.length+'</div>';
   if(rawCount>validatedSwaps.length)h+='<div style="font-size:9px;color:var(--tx3)">/'+rawCount+' candidats scoring</div>';
   h+='</div></div>';
-  h+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">Voir les '+validatedSwaps.length+' swaps validés ▾</summary>';
-  validatedSwaps.forEach(function(sw,i){
-    h+='<div class="ana-swap-row"><div style="font-size:11px;line-height:1.5">';
-    h+='<span style="color:var(--tx3);font-size:10px">#'+(i+1)+'</span> ';
-    h+='<span style="color:#e07070">– '+esc(sw.cut.name)+'</span>';
-    if(sw.cutScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
-    h+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span>';
-    if(sw.addScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
-    if(sw.gain!=null)h+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(1)+' pts</span>';
-    h+='</div></div>';
-  });
+  var _optImg=(_anaViewMode.opt==='image');
+  h+='<details style="margin-top:8px" open><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">Voir les '+validatedSwaps.length+' swaps validés ▾</summary>';
+  if(_optImg){
+    validatedSwaps.forEach(function(sw,i){
+      var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
+      h+='<div style="padding:8px 0;border-bottom:.5px solid var(--bd2)">';
+      h+='<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">#'+(i+1)+(sw.gain!=null?' · gain +'+sw.gain.toFixed(1)+' pts':'')+'</div>';
+      h+='<div class="ana-swap-img">';
+      h+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+_anaOptImgCard(sw.cut.name,cutMeta,sw.cutScore!=null?sw.cutScore.toFixed(1):'','#e07070')+'</div>';
+      h+='<div class="ana-swap-arrow">→</div>';
+      h+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+_anaOptImgCard(sw.add.name,addMeta,sw.addScore!=null?sw.addScore.toFixed(1):'','var(--gold2)')+'</div>';
+      h+='</div></div>';
+    });
+  }else{
+    validatedSwaps.forEach(function(sw,i){
+      h+='<div class="ana-swap-row"><div style="font-size:11px;line-height:1.5">';
+      h+='<span style="color:var(--tx3);font-size:10px">#'+(i+1)+'</span> ';
+      h+='<span style="color:#e07070">– '+esc(sw.cut.name)+'</span>';
+      if(sw.cutScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
+      h+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span>';
+      if(sw.addScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
+      if(sw.gain!=null)h+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(1)+' pts</span>';
+      h+='</div></div>';
+    });
+  }
   h+='</details>';
   // Simulation de main du deck validé
   var _simOptDeck={cards:deck.cards.filter(function(c){return !validatedSwaps.some(function(sw){return sw.cut.nl===c.nl;});}).concat(validatedSwaps.map(function(sw){return {name:sw.add.name,nl:sw.add.nl,qty:1,sec:''};}))} ;
@@ -29310,12 +29347,25 @@ function _anaThemeSynergyScore(cardMeta,themes){
   }
   // Gain de vie
   if((th.lifegain||1)>1){
-    if(/whenever.*gain.*life/.test(o))s+=3;
-    if(/gain.*life|lifelink/.test(o))s+=2;
+    var lgStrong=(th.lifegain||1)>=1.8;
+    // Payoffs "whenever you gain life → effet" : ce sont les wincons d'un deck lifegain
+    // (Celestial Unicorn = +1/+1, Marauding Blight-Priest / Epicure of Blood = drain)
+    if(/whenever you gain life/.test(o))s+=(lgStrong?12:6);
+    else if(/whenever.*gain.*life/.test(o))s+=(lgStrong?8:4);
+    // Sources de gain de vie : alimentent les payoffs
+    if(/lifelink/.test(o))s+=(lgStrong?4:2);
+    else if(/gain \d+ life|gain that much life|gain life equal|whenever.*you gain/.test(o))s+=(lgStrong?3:1.5);
+    // Drain : double effet (gain + perte adverse), souvent un wincon en deck lifegain
+    if(/each opponent loses \d+ life|drain/.test(o))s+=(lgStrong?5:2.5);
   }
   // Draw-as-wincon (Queza, Nekusar…)
   if((th.draw||1)>1.5){
     if(/draw (?:two|three|[2-9])|draw that many/.test(o))s+=2;
+    // Cartes faisant piocher en plus = plus de triggers du commandant "pioche-matters"
+    if(/draw a card/.test(o))s+=1;
+    // Perdre de la vie pour piocher n'est PAS un défaut si le commandant rend de la vie
+    // sur chaque pioche (Queza). Neutralise la lecture "downside" de Dusk Legion Zealot etc.
+    if((th.lifegain||1)>=1.8&&/you (?:lose|pay) \d+ life/.test(o)&&/draw/.test(o))s+=2;
   }
   // Landfall
   if((th.ramp||1)>1.5){
@@ -31127,7 +31177,7 @@ function anaRender(deckId){
   // === Proposition deck 100% (mode Composition uniquement — en mode Simulation c'est dans la section ci-dessus) ===
   if(_dMode!=='perf'){
     html+='<div class="card">';
-    html+='<div class="lbl">🏆 Proposition de deck à 100% (simulation)</div>';
+    html+='<div class="ana-section-head"><div class="lbl">🏆 Proposition de deck à 100% (simulation)</div>'+viewToggle('opt')+'</div>';
     html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Swaps validés par simulation — seuls les changements qui n\'empirent pas le win rate réel sont proposés.'+(_anaOptMode==='collection'?' · Pool limité à ta collection ('+_optPool.length+' cartes disponibles).':'')+'</div>';
     if(!fullOpt.swaps.length){
       html+='<div style="color:var(--tx3);font-size:11px;font-style:italic">Le deck est déjà optimal vis-à-vis du pool de suggestions disponible.</div>';
