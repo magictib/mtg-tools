@@ -2992,15 +2992,18 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
       <div style="font-size:.75rem;color:var(--tx3);margin-bottom:5px">Collez une liste de cartes (format : <code>1x Nom</code> ou <code>1 Nom (SET) num</code>) :</div>
       <textarea id="pur-paste-area" rows="5" placeholder="1x Sol Ring&#10;2x Lightning Bolt&#10;..." style="width:100%;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:6px 8px;font-size:.78rem;resize:vertical;box-sizing:border-box;font-family:monospace"></textarea>
       <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
-        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--tx3)">🎯 Profil cible :
-          <select id="pur-paste-target-prof" style="font-size:.78rem;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:5px;padding:3px 6px" title="Détection auto des decks via les decks de ce profil"></select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--tx3)">🎯 Profil :
+          <select id="pur-paste-target-prof" style="font-size:.78rem;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:5px;padding:3px 6px" onchange="_purPopulatePasteTargetDeck()" title="Détection auto des decks via les decks de ce profil"></select>
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--tx3)">📖 Deck :
+          <select id="pur-paste-target-deck" style="font-size:.78rem;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:5px;padding:3px 6px" title="Forcer toutes les cartes vers un deck. Auto = détection par carte."></select>
         </label>
         <input type="text" id="pur-paste-name" placeholder="Nom de la liste…" style="flex:1;min-width:120px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.78rem">
-        <button class="btn btnsm btnp" onclick="purImportPasted(true)" title="Ajouter ces cartes à la liste active">✚ Ajouter à la liste</button>
-        <button class="btn btnsm" onclick="purImportPasted(false)" title="Créer une nouvelle liste avec ces cartes">⬇ Nouvelle liste</button>
+        <button class="btn btnsm btnp" onclick="purImportPasted(true)" title="Ajouter ces cartes à la liste active (avec prévisualisation)">✚ Ajouter</button>
+        <button class="btn btnsm" onclick="purImportPasted(false)" title="Créer une nouvelle liste (avec prévisualisation)">⬇ Nouvelle liste</button>
         <button class="btn btnsm" onclick="purTogglePastePanel(false)">✕</button>
       </div>
-      <div style="font-size:.66rem;color:var(--tx3);margin-top:4px">Le profil cible sert à associer automatiquement chaque carte à un de ses decks.</div>
+      <div style="font-size:.66rem;color:var(--tx3);margin-top:4px">Profil = pour la détection auto. Deck = force toutes les cartes vers un deck précis (sinon "Auto"). Tu pourras réviser avant validation.</div>
     </div>
   </div>
   <!-- Corps : tableau à gauche + recherche à droite -->
@@ -12398,11 +12401,9 @@ function _purBuildDeckCardMapForFriend(friendIdx){
 function _purPopulatePasteTargetProf(){
   var sel=document.getElementById('pur-paste-target-prof');if(!sel)return;
   var current=sel.value||'0';
-  // Sync avec les slots 'build' (là où les decks amis sont chargés)
   try{if(typeof _syncProfsForCtx==='function')_syncProfsForCtx('build');}catch(_){}
-  var nb0=Object.keys(decks||{}).filter(function(id){return !decks[id].prof||decks[id].prof===0;}).length;
-  var opts=['<option value="0">'+esc(PN[0]||'Moi')+' — '+nb0+' decks</option>'];
-  // Profils amis (build) qui ont des decks chargés
+  var ownDecks=Object.keys(decks||{}).filter(function(id){return _deckBelongsTo(decks[id],0);}).length;
+  var opts=['<option value="0">'+esc(PN[0]||'Moi')+' — '+ownDecks+' decks</option>'];
   var extras=(_epSlots&&_epSlots.build)||[];
   extras.forEach(function(ep,i){
     var uid=ep&&ep.uid;if(!uid)return;
@@ -12412,6 +12413,35 @@ function _purPopulatePasteTargetProf(){
   sel.innerHTML=opts.join('');
   if(sel.querySelector('option[value="'+current+'"]'))sel.value=current;
   else sel.value='0';
+  _purPopulatePasteTargetDeck();
+}
+// Retourne [{id, name}] des decks du profil cible donné
+function _purDecksForProf(profIdx){
+  profIdx=parseInt(profIdx,10)||0;
+  if(profIdx===0){
+    return Object.keys(decks||{})
+      .filter(function(id){return _deckBelongsTo(decks[id],0);})
+      .map(function(id){return {id:id,name:decks[id].name||'(sans nom)'};})
+      .sort(function(a,b){return a.name.localeCompare(b.name);});
+  }
+  var ep=(_epSlots&&_epSlots.build||[])[profIdx-1];
+  if(!ep||!ep.uid)return [];
+  var fDecks=(_epDecks||{})[ep.uid]||{};
+  return Object.keys(fDecks).map(function(id){return {id:id,name:fDecks[id].name||'(sans nom)'};})
+    .sort(function(a,b){return a.name.localeCompare(b.name);});
+}
+function _purPopulatePasteTargetDeck(){
+  var profSel=document.getElementById('pur-paste-target-prof');
+  var deckSel=document.getElementById('pur-paste-target-deck');
+  if(!profSel||!deckSel)return;
+  var profIdx=parseInt(profSel.value,10)||0;
+  var current=deckSel.value||'';
+  var dks=_purDecksForProf(profIdx);
+  var opts=['<option value="">— Auto-détection —</option>'];
+  dks.forEach(function(d){opts.push('<option value="'+esc(d.id)+'">📖 '+esc(d.name)+'</option>');});
+  deckSel.innerHTML=opts.join('');
+  if(deckSel.querySelector('option[value="'+current+'"]'))deckSel.value=current;
+  else deckSel.value='';
 }
 function purTogglePastePanel(show){
   var p=document.getElementById('pur-paste-panel');if(!p)return;
@@ -12425,18 +12455,217 @@ function purTogglePastePanel(show){
 function purImportPasted(addToCurrent){
   var ta=document.getElementById('pur-paste-area');
   var ni=document.getElementById('pur-paste-name');
-  var sel=document.getElementById('pur-paste-target-prof');
+  var profSel=document.getElementById('pur-paste-target-prof');
+  var deckSel=document.getElementById('pur-paste-target-deck');
   var text=(ta?ta.value:'').trim();
   if(!text){toastError('La zone de texte est vide.');return;}
   var name=(ni?ni.value.trim():'')||'Liste collée';
-  var targetProf=sel?parseInt(sel.value,10):0;if(isNaN(targetProf))targetProf=0;
+  var targetProf=profSel?parseInt(profSel.value,10):0;if(isNaN(targetProf))targetProf=0;
+  var forcedDeckId=deckSel?deckSel.value:'';
   purTogglePastePanel(false);
-  if(addToCurrent&&_activePurListId&&_purchaseLists[_activePurListId]){
-    purMergeIntoCurrentList(text,name+'.txt',targetProf);
-  }else{
-    purParseImportedList(text,name+'.txt',targetProf);
-  }
+  // Ouvre la modal de prévisualisation au lieu d'importer directement
+  purShowImportPreview(text,name,addToCurrent,targetProf,forcedDeckId);
   if(ta)ta.value='';if(ni)ni.value='';
+}
+// Modal de prévisualisation : édite chaque ligne avant validation
+function purShowImportPreview(text,listName,addToCurrent,targetProf,forcedDeckId){
+  var parsed=purBuildCardArray(text,listName+'.txt',targetProf);
+  if(!parsed||!parsed.cards||!parsed.cards.length){toastError('Aucune carte parsée');return;}
+  // Si deck forcé, on l'applique à toutes les cartes (override de l'auto-détection)
+  var decksList=_purDecksForProf(targetProf);
+  var forcedDeck=forcedDeckId?decksList.find(function(d){return d.id===forcedDeckId;}):null;
+  if(forcedDeck){
+    parsed.cards.forEach(function(c){c.deckId=forcedDeck.id;c.deckName=forcedDeck.name;});
+  }
+  // Ouvre l'overlay
+  var ov=document.getElementById('pur-import-preview-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='pur-import-preview-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9992;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML='';
+  // Sauvegarde dans une closure pour le bouton confirmer
+  ov._state={parsed:parsed,listName:listName,addToCurrent:addToCurrent,targetProf:targetProf,decksList:decksList};
+  var rows=parsed.cards.map(function(c,idx){
+    var opts='<option value="">— sans deck —</option>'+decksList.map(function(d){
+      return '<option value="'+esc(d.id)+'"'+(c.deckId===d.id?' selected':'')+'>'+esc(d.name)+'</option>';
+    }).join('');
+    var statusIco=c.deckId?'<span style="color:var(--gr2)" title="Assignée">✓</span>':'<span style="color:var(--am)" title="À vérifier">⚠</span>';
+    return '<tr data-idx="'+idx+'">'
+      +'<td style="padding:3px 6px">'+statusIco+'</td>'
+      +'<td style="padding:3px 6px"><input type="number" min="1" value="'+(c.qty||1)+'" style="width:42px;text-align:right;font-size:.78rem;padding:2px 4px;background:var(--s2);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px" onchange="_purPreviewSetField('+idx+',\'qty\',this.value)"></td>'
+      +'<td style="padding:3px 6px;color:var(--tx)">'+esc(c.name)+'</td>'
+      +'<td style="padding:3px 6px"><select style="font-size:.74rem;padding:2px 4px;background:var(--s2);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px;max-width:200px" onchange="_purPreviewSetField('+idx+',\'deckId\',this.value)">'+opts+'</select></td>'
+      +'<td style="padding:3px 6px"><button class="btn btnsm" style="font-size:.66rem;padding:1px 6px;color:var(--rd2)" onclick="_purPreviewRemove('+idx+')" title="Retirer cette ligne">✕</button></td>'
+      +'</tr>';
+  }).join('');
+  var nbAuto=parsed.cards.filter(function(c){return c.deckId;}).length;
+  var nbManual=parsed.cards.length-nbAuto;
+  var profLbl=targetProf===0?(PN[0]||'Moi'):(PN[targetProf]||'profil '+targetProf);
+  ov.innerHTML='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">'
+    +'<div style="padding:12px 18px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">'
+    +'<div><div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.05rem">📋 Aperçu avant import</div>'
+    +'<div style="font-size:.72rem;color:var(--tx3)">Profil <b style="color:var(--tx2)">'+esc(profLbl)+'</b> · '+parsed.cards.length+' carte(s) · '+'<span style="color:var(--gr2)">'+nbAuto+' assignée(s)</span>'+(nbManual?' · <span style="color:var(--am)">'+nbManual+' à vérifier</span>':'')+'</div></div>'
+    +'<button class="btn btnsm" onclick="_purPreviewClose()">✕</button>'
+    +'</div>'
+    +'<div style="padding:8px 16px;background:rgba(0,0,0,.2);font-size:.72rem;color:var(--tx2);display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>Tout assigner à :</span>'
+    +'<select id="pur-preview-bulk-deck" style="font-size:.74rem;padding:2px 6px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px">'
+    +'<option value="">— choisir —</option>'+decksList.map(function(d){return '<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>';}).join('')
+    +'</select>'
+    +'<button class="btn btnsm" onclick="_purPreviewBulkAssign()" style="font-size:.7rem">Appliquer</button>'
+    +'<button class="btn btnsm" onclick="_purPreviewBulkAssign(\'\')" style="font-size:.7rem;color:var(--rd2)">Effacer toutes les assignations</button>'
+    +'</div>'
+    +'<div style="overflow-y:auto;flex:1;padding:0 6px">'
+    +'<table style="width:100%;border-collapse:collapse;font-size:.78rem">'
+    +'<thead style="position:sticky;top:0;background:var(--s2)"><tr style="color:var(--tx3);font-size:.7rem;text-align:left;border-bottom:.5px solid var(--bd)"><th style="padding:5px 6px;width:24px"></th><th style="padding:5px 6px;width:50px">Qty</th><th style="padding:5px 6px">Carte</th><th style="padding:5px 6px">Deck</th><th style="padding:5px 6px;width:30px"></th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +'</div>'
+    +'<div style="padding:10px 16px;border-top:.5px solid var(--bd);display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn" onclick="_purPreviewClose()">Annuler</button>'
+    +'<button class="btn btnp" onclick="_purPreviewConfirm()">✓ Valider l\'import</button>'
+    +'</div>'
+    +'</div>';
+}
+function _purPreviewClose(){var ov=document.getElementById('pur-import-preview-ov');if(ov)ov.remove();}
+function _purPreviewSetField(idx,field,value){
+  var ov=document.getElementById('pur-import-preview-ov');if(!ov||!ov._state)return;
+  var c=ov._state.parsed.cards[idx];if(!c)return;
+  if(field==='qty'){var q=parseInt(value,10);if(!isNaN(q)&&q>0)c.qty=q;}
+  else if(field==='deckId'){
+    c.deckId=value||'';
+    var d=ov._state.decksList.find(function(x){return x.id===value;});
+    c.deckName=d?d.name:'';
+  }
+}
+function _purPreviewRemove(idx){
+  var ov=document.getElementById('pur-import-preview-ov');if(!ov||!ov._state)return;
+  ov._state.parsed.cards.splice(idx,1);
+  // Re-render via la même fonction
+  var s=ov._state;
+  purShowImportPreviewFromState(s);
+}
+function _purPreviewBulkAssign(forcedVal){
+  var ov=document.getElementById('pur-import-preview-ov');if(!ov||!ov._state)return;
+  var deckId=arguments.length?forcedVal:(document.getElementById('pur-preview-bulk-deck')||{}).value;
+  if(deckId===undefined)deckId='';
+  var d=ov._state.decksList.find(function(x){return x.id===deckId;});
+  ov._state.parsed.cards.forEach(function(c){
+    c.deckId=deckId||'';
+    c.deckName=d?d.name:'';
+  });
+  purShowImportPreviewFromState(ov._state);
+}
+function purShowImportPreviewFromState(s){
+  // Re-rend le modal avec l'état courant
+  var ov=document.getElementById('pur-import-preview-ov');if(!ov)return;
+  // Reconstruit le texte source - on a déjà les cards, on bypass le parse
+  var stateCopy=s; // ref directe
+  // Workflow : on rappelle purShowImportPreview avec un texte vide ne marcherait pas
+  // → on duplique le rendu inline
+  var p=s.parsed;
+  // Simplement re-call purShowImportPreview avec un texte fictif n'est pas idéal car re-parse
+  // → solution : on lance directement le rendu inline via cards déjà parsées
+  // Pour simplifier : on retire l'overlay et rappelle avec un parsed déjà existant
+  // → en réutilisant un cache via window
+  window._purPreviewStateCache=s;
+  ov.remove();
+  setTimeout(function(){
+    var s2=window._purPreviewStateCache;
+    // Re-rendre via une variante qui prend le parsed déjà fait
+    _purRenderImportPreviewFromParsed(s2.parsed,s2.listName,s2.addToCurrent,s2.targetProf,s2.decksList);
+  },10);
+}
+function _purRenderImportPreviewFromParsed(parsed,listName,addToCurrent,targetProf,decksList){
+  // Recréée la même UI que purShowImportPreview, sans re-parser
+  var ov=document.createElement('div');
+  ov.id='pur-import-preview-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:9992;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px';
+  document.body.appendChild(ov);
+  ov._state={parsed:parsed,listName:listName,addToCurrent:addToCurrent,targetProf:targetProf,decksList:decksList};
+  var rows=parsed.cards.map(function(c,idx){
+    var opts='<option value="">— sans deck —</option>'+decksList.map(function(d){
+      return '<option value="'+esc(d.id)+'"'+(c.deckId===d.id?' selected':'')+'>'+esc(d.name)+'</option>';
+    }).join('');
+    var statusIco=c.deckId?'<span style="color:var(--gr2)" title="Assignée">✓</span>':'<span style="color:var(--am)" title="À vérifier">⚠</span>';
+    return '<tr data-idx="'+idx+'">'
+      +'<td style="padding:3px 6px">'+statusIco+'</td>'
+      +'<td style="padding:3px 6px"><input type="number" min="1" value="'+(c.qty||1)+'" style="width:42px;text-align:right;font-size:.78rem;padding:2px 4px;background:var(--s2);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px" onchange="_purPreviewSetField('+idx+',\'qty\',this.value)"></td>'
+      +'<td style="padding:3px 6px;color:var(--tx)">'+esc(c.name)+'</td>'
+      +'<td style="padding:3px 6px"><select style="font-size:.74rem;padding:2px 4px;background:var(--s2);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px;max-width:200px" onchange="_purPreviewSetField('+idx+',\'deckId\',this.value)">'+opts+'</select></td>'
+      +'<td style="padding:3px 6px"><button class="btn btnsm" style="font-size:.66rem;padding:1px 6px;color:var(--rd2)" onclick="_purPreviewRemove('+idx+')" title="Retirer cette ligne">✕</button></td>'
+      +'</tr>';
+  }).join('');
+  var nbAuto=parsed.cards.filter(function(c){return c.deckId;}).length;
+  var nbManual=parsed.cards.length-nbAuto;
+  var profLbl=targetProf===0?(PN[0]||'Moi'):(PN[targetProf]||'profil '+targetProf);
+  ov.innerHTML='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">'
+    +'<div style="padding:12px 18px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">'
+    +'<div><div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.05rem">📋 Aperçu avant import</div>'
+    +'<div style="font-size:.72rem;color:var(--tx3)">Profil <b style="color:var(--tx2)">'+esc(profLbl)+'</b> · '+parsed.cards.length+' carte(s) · '+'<span style="color:var(--gr2)">'+nbAuto+' assignée(s)</span>'+(nbManual?' · <span style="color:var(--am)">'+nbManual+' à vérifier</span>':'')+'</div></div>'
+    +'<button class="btn btnsm" onclick="_purPreviewClose()">✕</button>'
+    +'</div>'
+    +'<div style="padding:8px 16px;background:rgba(0,0,0,.2);font-size:.72rem;color:var(--tx2);display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>Tout assigner à :</span>'
+    +'<select id="pur-preview-bulk-deck" style="font-size:.74rem;padding:2px 6px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px">'
+    +'<option value="">— choisir —</option>'+decksList.map(function(d){return '<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>';}).join('')
+    +'</select>'
+    +'<button class="btn btnsm" onclick="_purPreviewBulkAssign()" style="font-size:.7rem">Appliquer</button>'
+    +'<button class="btn btnsm" onclick="_purPreviewBulkAssign(\'\')" style="font-size:.7rem;color:var(--rd2)">Effacer toutes les assignations</button>'
+    +'</div>'
+    +'<div style="overflow-y:auto;flex:1;padding:0 6px">'
+    +'<table style="width:100%;border-collapse:collapse;font-size:.78rem">'
+    +'<thead style="position:sticky;top:0;background:var(--s2)"><tr style="color:var(--tx3);font-size:.7rem;text-align:left;border-bottom:.5px solid var(--bd)"><th style="padding:5px 6px;width:24px"></th><th style="padding:5px 6px;width:50px">Qty</th><th style="padding:5px 6px">Carte</th><th style="padding:5px 6px">Deck</th><th style="padding:5px 6px;width:30px"></th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +'</div>'
+    +'<div style="padding:10px 16px;border-top:.5px solid var(--bd);display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn" onclick="_purPreviewClose()">Annuler</button>'
+    +'<button class="btn btnp" onclick="_purPreviewConfirm()">✓ Valider l\'import</button>'
+    +'</div>'
+    +'</div>';
+}
+function _purPreviewConfirm(){
+  var ov=document.getElementById('pur-import-preview-ov');if(!ov||!ov._state)return;
+  var s=ov._state;
+  // Filtre les cartes valides
+  var validCards=s.parsed.cards.filter(function(c){return c.qty>0&&c.name;});
+  if(!validCards.length){toastError('Aucune carte à importer');return;}
+  s.parsed.cards=validCards;
+  s.parsed.count=validCards.length;
+  s.parsed.autoCount=validCards.filter(function(c){return c.deckId;}).length;
+  ov.remove();
+  // Branche dans le flux existant
+  if(s.addToCurrent&&_activePurListId&&_purchaseLists[_activePurListId]){
+    _purMergeParsedIntoCurrent(s.parsed);
+  }else{
+    _purCreateListFromParsed(s.parsed,s.listName);
+  }
+}
+// Variantes qui prennent un parsed déjà fini
+function _purMergeParsedIntoCurrent(parsed){
+  var lst=_purchaseLists[_activePurListId];if(!lst)return;
+  lst.cards=lst.cards||[];
+  var added=0;
+  parsed.cards.forEach(function(c){
+    var existing=lst.cards.find(function(e){return e.nl===c.nl&&e.column===c.column&&(e.deckName||'')===(c.deckName||'');});
+    if(existing){existing.qty=(existing.qty||1)+(c.qty||1);}
+    else{lst.cards.push(c);added++;}
+  });
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+  toastSuccess(parsed.count+' carte(s) ajoutée(s) à "'+lst.name+'".'+(parsed.autoCount?' '+parsed.autoCount+' avec deck.':''));
+}
+function _purCreateListFromParsed(parsed,listName){
+  var ref=db.collection('shared_lists').doc();
+  var id=ref.id;
+  _purchaseLists[id]={name:listName,createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:parsed.cards,_pendingWrite:Date.now()};
+  _activePurListId=id;_purPersistActiveListId();
+  savePurchaseList(id);
+  renderPurListSel();
+  renderPurchaseMgr();
+  toastSuccess('"'+listName+'" : '+parsed.count+' carte(s) importée(s).'+(parsed.autoCount?' '+parsed.autoCount+' avec deck.':''));
 }
 function purMergeIntoCurrentList(text,filename,targetProf){
   var parsed=purBuildCardArray(text,filename,targetProf);
