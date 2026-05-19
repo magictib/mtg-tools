@@ -2992,11 +2992,15 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
       <div style="font-size:.75rem;color:var(--tx3);margin-bottom:5px">Collez une liste de cartes (format : <code>1x Nom</code> ou <code>1 Nom (SET) num</code>) :</div>
       <textarea id="pur-paste-area" rows="5" placeholder="1x Sol Ring&#10;2x Lightning Bolt&#10;..." style="width:100%;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:6px 8px;font-size:.78rem;resize:vertical;box-sizing:border-box;font-family:monospace"></textarea>
       <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--tx3)">🎯 Profil cible :
+          <select id="pur-paste-target-prof" style="font-size:.78rem;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:5px;padding:3px 6px" title="Détection auto des decks via les decks de ce profil"></select>
+        </label>
         <input type="text" id="pur-paste-name" placeholder="Nom de la liste…" style="flex:1;min-width:120px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:4px 8px;font-size:.78rem">
         <button class="btn btnsm btnp" onclick="purImportPasted(true)" title="Ajouter ces cartes à la liste active">✚ Ajouter à la liste</button>
         <button class="btn btnsm" onclick="purImportPasted(false)" title="Créer une nouvelle liste avec ces cartes">⬇ Nouvelle liste</button>
         <button class="btn btnsm" onclick="purTogglePastePanel(false)">✕</button>
       </div>
+      <div style="font-size:.66rem;color:var(--tx3);margin-top:4px">Le profil cible sert à associer automatiquement chaque carte à un de ses decks.</div>
     </div>
   </div>
   <!-- Corps : tableau à gauche + recherche à droite -->
@@ -12391,28 +12395,51 @@ function _purBuildDeckCardMapForFriend(friendIdx){
   });
   return map;
 }
+function _purPopulatePasteTargetProf(){
+  var sel=document.getElementById('pur-paste-target-prof');if(!sel)return;
+  var current=sel.value||'0';
+  // Sync avec les slots 'build' (là où les decks amis sont chargés)
+  try{if(typeof _syncProfsForCtx==='function')_syncProfsForCtx('build');}catch(_){}
+  var nb0=Object.keys(decks||{}).filter(function(id){return !decks[id].prof||decks[id].prof===0;}).length;
+  var opts=['<option value="0">'+esc(PN[0]||'Moi')+' — '+nb0+' decks</option>'];
+  // Profils amis (build) qui ont des decks chargés
+  var extras=(_epSlots&&_epSlots.build)||[];
+  extras.forEach(function(ep,i){
+    var uid=ep&&ep.uid;if(!uid)return;
+    var nDecks=Object.keys((_epDecks||{})[uid]||{}).length;
+    opts.push('<option value="'+(i+1)+'">'+esc(ep.name||'?')+' — '+nDecks+' decks'+(nDecks===0?' (non chargés)':'')+'</option>');
+  });
+  sel.innerHTML=opts.join('');
+  if(sel.querySelector('option[value="'+current+'"]'))sel.value=current;
+  else sel.value='0';
+}
 function purTogglePastePanel(show){
   var p=document.getElementById('pur-paste-panel');if(!p)return;
   if(show===undefined)show=p.style.display==='none';
   p.style.display=show?'block':'none';
-  if(show){var ta=document.getElementById('pur-paste-area');if(ta)setTimeout(function(){ta.focus();},50);}
+  if(show){
+    _purPopulatePasteTargetProf();
+    var ta=document.getElementById('pur-paste-area');if(ta)setTimeout(function(){ta.focus();},50);
+  }
 }
 function purImportPasted(addToCurrent){
   var ta=document.getElementById('pur-paste-area');
   var ni=document.getElementById('pur-paste-name');
+  var sel=document.getElementById('pur-paste-target-prof');
   var text=(ta?ta.value:'').trim();
   if(!text){toastError('La zone de texte est vide.');return;}
   var name=(ni?ni.value.trim():'')||'Liste collée';
+  var targetProf=sel?parseInt(sel.value,10):0;if(isNaN(targetProf))targetProf=0;
   purTogglePastePanel(false);
   if(addToCurrent&&_activePurListId&&_purchaseLists[_activePurListId]){
-    purMergeIntoCurrentList(text,name+'.txt');
+    purMergeIntoCurrentList(text,name+'.txt',targetProf);
   }else{
-    purParseImportedList(text,name+'.txt');
+    purParseImportedList(text,name+'.txt',targetProf);
   }
   if(ta)ta.value='';if(ni)ni.value='';
 }
-function purMergeIntoCurrentList(text,filename){
-  var parsed=purBuildCardArray(text,filename);
+function purMergeIntoCurrentList(text,filename,targetProf){
+  var parsed=purBuildCardArray(text,filename,targetProf);
   if(!parsed)return;
   var lst=_purchaseLists[_activePurListId];
   lst.cards=lst.cards||[];
@@ -12424,7 +12451,8 @@ function purMergeIntoCurrentList(text,filename){
   });
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
-  toastSuccess(parsed.count+' carte(s) ajoutée(s) à "'+lst.name+'".'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
+  var profLbl=parsed.targetProf===0?(PN[0]||'Moi'):(PN[parsed.targetProf]||'profil '+parsed.targetProf);
+  toastSuccess(parsed.count+' carte(s) ajoutée(s) à "'+lst.name+'".'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) (decks de '+profLbl+').':''));
 }
 function _purAutoMatchDeck(cardName,profIdx){
   if(profIdx===undefined)profIdx=0;
@@ -12695,12 +12723,15 @@ function purHandleFileImport(e){
   reader.readAsText(file,'UTF-8');
   e.target.value='';
 }
-function purBuildCardArray(text,filename){
+function purBuildCardArray(text,filename,targetProf){
+  if(typeof targetProf!=='number'||isNaN(targetProf))targetProf=0;
   var lines=text.split('\n').map(function(l){return l.replace(/\r$/,'');});
   var cards=[];
   var listName=filename.replace(/\.txt$/i,'').replace(/_/g,' ');
   var p0lc=(PN[0]||'').toLowerCase();
   var p1lc=(PN[_purFriendIdx]||'').toLowerCase();
+  // Si profil cible non-0, le nom du profil cible sert pour le matching "current"
+  var pTargetLc=(PN[targetProf]||'').toLowerCase();
   var firstNonEmpty=lines.find(function(l){return l.trim().length>0;})||'';
   // Extrait set/num d'un nom au format "Name (SET) num" — retourne {name, set, num}
   var _extractSetNum=function(rawName){
@@ -12769,14 +12800,16 @@ function purBuildCardArray(text,filename){
       if(mCard2){var name=mCard2[1].trim(),recv=!!mCard2[2];if(name&&name.length>1)cards.push(_mkCard(name,1,currentCol,currentDeck,recv));}
     });
   }
-  var _amMap0=_purBuildDeckCardMap(0);
-  var _amMapF=_purBuildDeckCardMapForFriend(_purFriendIdx);
+  // Map de matching pour le profil cible choisi (par défaut : profil 0)
+  var _amMapTarget=targetProf===0?_purBuildDeckCardMap(0):_purBuildDeckCardMapForFriend(targetProf);
+  // Fallback : profil 0 (au cas où la carte ne matche pas le profil cible)
+  var _amMap0=targetProf===0?_amMapTarget:_purBuildDeckCardMap(0);
   var autoCount=0,finalCards=[];
   cards.forEach(function(card){
     if(!card.deckName){
-      var matchMap=card.column===0?_amMap0:_amMapF;
-      var matches=matchMap[card.nl]||[];
-      if(!matches.length&&card.column!==0)matches=_amMap0[card.nl]||[];
+      var matches=_amMapTarget[card.nl]||[];
+      // Fallback sur profil 0 si rien trouvé (sauf si déjà sur profil 0)
+      if(!matches.length&&targetProf!==0)matches=_amMap0[card.nl]||[];
       if(matches.length===1){card.deckName=matches[0].name;card.deckId=matches[0].id;autoCount++;finalCards.push(card);}
       else if(matches.length>1){
         var matchSet=card.column===-2?matches.slice(0,1):matches;
@@ -12785,10 +12818,10 @@ function purBuildCardArray(text,filename){
       }else{finalCards.push(card);}
     }else{finalCards.push(card);}
   });
-  return {listName:listName,cards:finalCards,count:finalCards.length,autoCount:autoCount};
+  return {listName:listName,cards:finalCards,count:finalCards.length,autoCount:autoCount,targetProf:targetProf};
 }
-function purParseImportedList(text,filename){
-  var parsed=purBuildCardArray(text,filename);
+function purParseImportedList(text,filename,targetProf){
+  var parsed=purBuildCardArray(text,filename,targetProf);
   if(!parsed)return;
   var ref=db.collection('shared_lists').doc();
   var id=ref.id;
@@ -12797,7 +12830,8 @@ function purParseImportedList(text,filename){
   savePurchaseList(id);
   renderPurListSel();
   renderPurchaseMgr();
-  toastSuccess('"'+parsed.listName+'" : '+parsed.count+' carte(s) importée(s).'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) à un deck.':''));
+  var profLbl=parsed.targetProf===0?(PN[0]||'Moi'):(PN[parsed.targetProf]||'profil '+parsed.targetProf);
+  toastSuccess('"'+parsed.listName+'" : '+parsed.count+' carte(s) importée(s).'+(parsed.autoCount?' '+parsed.autoCount+' auto-associée(s) (decks de '+profLbl+').':''));
 }
 
 // ===== BIBLIOTHÈQUE — RECHERCHE PAR EXTENSION =====
