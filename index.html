@@ -935,6 +935,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .um-rename-wrap input{width:100%;margin-bottom:6px;padding:5px 8px;font-size:.82rem}
 /* ===== TOAST ===== */
 #app-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--s3);border:.5px solid var(--gold2);color:var(--gold2);border-radius:20px;padding:7px 18px;font-size:.8rem;font-family:'Goudy Mediaeval',serif;letter-spacing:.04em;pointer-events:none;opacity:0;transition:opacity .25s,transform .25s;z-index:9999;white-space:nowrap;max-width:min(92vw,520px);text-align:center}
+#app-toast.has-action{pointer-events:auto;display:inline-flex;align-items:center;gap:12px}
+#app-toast .toast-undo{background:rgba(255,255,255,.08);border:.5px solid currentColor;border-radius:14px;padding:3px 10px;font-size:.72rem;cursor:pointer;color:inherit;font-family:inherit;letter-spacing:.06em;text-transform:uppercase}
+#app-toast .toast-undo:hover{background:rgba(255,255,255,.18)}
 #app-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #app-toast.t-success{border-color:var(--c-success-bd);color:var(--c-success);background:linear-gradient(180deg,var(--s3),var(--c-success-bg))}
 #app-toast.t-error{border-color:var(--c-danger-bd);color:var(--c-danger);background:linear-gradient(180deg,var(--s3),var(--c-danger-bg))}
@@ -2149,6 +2152,7 @@ body.mana-cursor{cursor:none}
   <button class="tab-btn" id="tb-trade" onclick="goTab('trade');renderTradePage()">⚖ Échanges</button>
   <button class="tab-btn" id="tb-conv" onclick="goTab('conv')">⇄ Conv.</button>
   <button class="tab-btn" id="tb-rules" onclick="goTab('rules');initRulesTab()">📜 Règles</button>
+  <button class="tab-btn" id="tb-cmdpal" onclick="cmdPalOpen()" title="Palette de commandes (Ctrl+K)" aria-label="Palette de commandes" style="padding-left:10px;padding-right:10px">🔍<span style="font-size:.62rem;margin-left:5px;opacity:.7">Ctrl+K</span></button>
   <div id="hub-wrap">
     <button id="hub-btn" onclick="toggleHub()" title="Notifications · Amis · Paramètres" style="display:none">⚙<span id="hub-badge"></span></button>
     <div id="hub-panel">
@@ -6988,10 +6992,13 @@ function _refreshAllDeckSelects(){
 function saveDecks(){
   _refreshAllDeckSelects();
   try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
+  if(!userId)return;
   var batch=db.batch();
   var ref=db.collection('users').doc(userId).collection('decks');
   Object.keys(decks).forEach(function(id){batch.set(ref.doc(id),decks[id]);});
-  batch.commit().catch(function(e){console.warn('Firestore saveDecks',e);});
+  try{fsSaveStart();}catch(_){}
+  batch.commit().then(function(){try{fsSaveEnd(true);}catch(_){}})
+    .catch(function(e){console.warn('Firestore saveDecks',e);try{fsSaveEnd(false);}catch(_){}});
 }
 // ===== PENDING / LOANS / TRADES — PERSISTANCE =====
 function loadPending(){if(_fsPrefsDone)return;try{var s=localStorage.getItem('mtg_pending');if(s)pending=JSON.parse(s);}catch(e){pending=[];}}
@@ -7308,9 +7315,13 @@ function saveDeck(){
 }
 function deleteDeck(){
   if(!actDeck)return;
-  if(!confirm('Supprimer ce deck ?'))return;
   var id=actDeck;
-  if(_adminEditUid){
+  var isAdmin=!!_adminEditUid;
+  var snap=isAdmin?(_epDecks[_adminEditUid]&&_epDecks[_adminEditUid][id]):decks[id];
+  if(!snap){toastError('Deck introuvable');return;}
+  var snapClone=JSON.parse(JSON.stringify(snap));
+  // Suppression
+  if(isAdmin){
     db.collection('users').doc(_adminEditUid).collection('decks').doc(id).delete().catch(function(){});
     if(_epDecks[_adminEditUid])delete _epDecks[_adminEditUid][id];
   }else{
@@ -7318,6 +7329,19 @@ function deleteDeck(){
     db.collection('users').doc(userId).collection('decks').doc(id).delete().catch(function(){});
   }
   newDeck();renderDBar();
+  // Toast undo
+  toastUndo('🗑 Deck "'+(snapClone.name||'sans nom')+'" supprimé',function(){
+    if(isAdmin){
+      if(!_epDecks[_adminEditUid])_epDecks[_adminEditUid]={};
+      _epDecks[_adminEditUid][id]=snapClone;
+      db.collection('users').doc(_adminEditUid).collection('decks').doc(id).set(snapClone).catch(function(){});
+    }else{
+      decks[id]=snapClone;saveDecks();
+      db.collection('users').doc(userId).collection('decks').doc(id).set(snapClone).catch(function(){});
+    }
+    renderDBar();
+    toastSuccess('Deck restauré');
+  });
 }
 function clearDeckEditor(){
   document.getElementById('ta-name').value='';
@@ -9753,8 +9777,10 @@ function savePurchaseList(id){
   if(!data.members)data.members=[userId];
   if(data.members.indexOf(userId)<0)data.members.push(userId);
   if(!data.createdBy)data.createdBy=userId;
+  try{fsSaveStart();}catch(_){}
   db.collection('shared_lists').doc(id)
-    .set(data).catch(function(e){console.warn('savePurchaseList',e);});
+    .set(data).then(function(){try{fsSaveEnd(true);}catch(_){}})
+    .catch(function(e){console.warn('savePurchaseList',e);try{fsSaveEnd(false);}catch(_){}});
 }
 
 function newPurchaseList(){
@@ -23514,15 +23540,29 @@ var _localizeTextTimer=null;
 // Système toast typé avec file. type: 'default'|'success'|'error'|'warning'|'info'
 var _toastQueue=[];
 var _toastBusy=false;
+var _toastHistory=[]; // {msg, type, ts, undo:fn|null}
 function _toastNext(){
   if(_toastBusy||!_toastQueue.length)return;
   var item=_toastQueue.shift();
   var el=document.getElementById('app-toast');
   if(!el){_toastBusy=false;return;}
   _toastBusy=true;
-  el.classList.remove('t-success','t-error','t-warning','t-info');
+  el.classList.remove('t-success','t-error','t-warning','t-info','has-action');
   if(item.type&&item.type!=='default')el.classList.add('t-'+item.type);
-  el.textContent=item.msg;
+  if(item.undo){
+    el.classList.add('has-action');
+    el.innerHTML='<span></span><button class="toast-undo" type="button">Annuler</button>';
+    el.firstChild.textContent=item.msg;
+    var btn=el.querySelector('.toast-undo');
+    btn.onclick=function(ev){
+      ev.stopPropagation();
+      try{item.undo();}catch(e){console.warn('undo',e);}
+      el.classList.remove('show');
+      setTimeout(function(){_toastBusy=false;_toastNext();},200);
+    };
+  }else{
+    el.textContent=item.msg;
+  }
   el.classList.add('show');
   setTimeout(function(){
     el.classList.remove('show');
@@ -23530,12 +23570,19 @@ function _toastNext(){
   },item.dur);
 }
 function showToast(msg,arg2,arg3){
-  // Compat : showToast(msg, duration) ou showToast(msg, type, duration)
-  var type='default',dur=2200;
+  // Compat : showToast(msg, duration) ou showToast(msg, type, duration) ou showToast(msg, opts)
+  var type='default',dur=2200,undo=null;
   if(typeof arg2==='number'){dur=arg2;}
-  else if(typeof arg2==='string'){type=arg2;if(typeof arg3==='number')dur=arg3;}
-  _toastQueue.push({msg:msg,type:type,dur:dur});
+  else if(typeof arg2==='string'){type=arg2;if(typeof arg3==='number')dur=arg3;else if(arg3&&typeof arg3==='object'){if(arg3.dur)dur=arg3.dur;if(arg3.undo)undo=arg3.undo;}}
+  else if(arg2&&typeof arg2==='object'){if(arg2.type)type=arg2.type;if(arg2.dur)dur=arg2.dur;if(arg2.undo)undo=arg2.undo;}
+  if(undo&&dur<3500)dur=5000; // laisser le temps de cliquer
+  _toastQueue.push({msg:msg,type:type,dur:dur,undo:undo});
+  _toastHistory.unshift({msg:msg,type:type,ts:Date.now()});
+  if(_toastHistory.length>30)_toastHistory.length=30;
   _toastNext();
+}
+function toastUndo(msg,undoFn,type){
+  showToast(msg,{type:type||'warning',dur:5000,undo:undoFn});
 }
 function toastSuccess(msg,dur){showToast(msg,'success',dur||2400);}
 function toastError(msg,dur){showToast(msg,'error',dur||3600);}
@@ -23575,17 +23622,25 @@ function uxSetContrast(v){_uxSet('contrast',v);toastInfo('Contraste : '+(v==='hi
 // ===== Palette de commandes (Ctrl+K) =====
 var _cmdPalItems=[];
 var _cmdPalIdx=0;
+var _cmdPalRecent=[]; // [{key,lbl,ts}] persistant
+try{var _rR=localStorage.getItem('mtg_cmdpal_recent');if(_rR)_cmdPalRecent=JSON.parse(_rR)||[];}catch(_){}
+function _cmdPalRemember(key,lbl){
+  _cmdPalRecent=_cmdPalRecent.filter(function(r){return r.key!==key;});
+  _cmdPalRecent.unshift({key:key,lbl:lbl,ts:Date.now()});
+  if(_cmdPalRecent.length>8)_cmdPalRecent.length=8;
+  try{localStorage.setItem('mtg_cmdpal_recent',JSON.stringify(_cmdPalRecent));}catch(_){}
+}
 function _cmdPalBuild(){
   var items=[];
   var pages=[
-    {ico:'♠',lbl:'Mes decks',cat:'Page',act:function(){if(typeof goTab==='function')goTab('build');}},
-    {ico:'📊',lbl:'Analyse',cat:'Page',act:function(){if(typeof goTab==='function')goTab('analyse');if(typeof anaInit==='function')anaInit();}},
-    {ico:'⚡',lbl:'Arène',cat:'Page',act:function(){if(typeof goTab==='function')goTab('arena');}},
-    {ico:'🌐',lbl:'Méta',cat:'Page',act:function(){if(typeof goTab==='function')goTab('meta');if(typeof metaInit==='function')metaInit();}},
-    {ico:'🔮',lbl:'Bibliothèque (Scryfall)',cat:'Page',act:function(){if(typeof goTab==='function')goTab('scry');if(typeof loadScryfallSets==='function')loadScryfallSets();}},
-    {ico:'⚖',lbl:'Échanges',cat:'Page',act:function(){if(typeof goTab==='function')goTab('trade');if(typeof renderTradePage==='function')renderTradePage();}},
-    {ico:'⇄',lbl:'Convertisseur',cat:'Page',act:function(){if(typeof goTab==='function')goTab('conv');}},
-    {ico:'📜',lbl:'Règles',cat:'Page',act:function(){if(typeof goTab==='function')goTab('rules');if(typeof initRulesTab==='function')initRulesTab();}}
+    {key:'pg:build',ico:'♠',lbl:'Mes decks',cat:'Page',act:function(){if(typeof goTab==='function')goTab('build');}},
+    {key:'pg:analyse',ico:'📊',lbl:'Analyse',cat:'Page',act:function(){if(typeof goTab==='function')goTab('analyse');if(typeof anaInit==='function')anaInit();}},
+    {key:'pg:arena',ico:'⚡',lbl:'Arène',cat:'Page',act:function(){if(typeof goTab==='function')goTab('arena');}},
+    {key:'pg:meta',ico:'🌐',lbl:'Méta',cat:'Page',act:function(){if(typeof goTab==='function')goTab('meta');if(typeof metaInit==='function')metaInit();}},
+    {key:'pg:scry',ico:'🔮',lbl:'Bibliothèque (Scryfall)',cat:'Page',act:function(){if(typeof goTab==='function')goTab('scry');if(typeof loadScryfallSets==='function')loadScryfallSets();}},
+    {key:'pg:trade',ico:'⚖',lbl:'Échanges',cat:'Page',act:function(){if(typeof goTab==='function')goTab('trade');if(typeof renderTradePage==='function')renderTradePage();}},
+    {key:'pg:conv',ico:'⇄',lbl:'Convertisseur',cat:'Page',act:function(){if(typeof goTab==='function')goTab('conv');}},
+    {key:'pg:rules',ico:'📜',lbl:'Règles',cat:'Page',act:function(){if(typeof goTab==='function')goTab('rules');if(typeof initRulesTab==='function')initRulesTab();}}
   ];
   pages.forEach(function(p){items.push(p);});
   // Decks du user
@@ -23593,19 +23648,42 @@ function _cmdPalBuild(){
     if(typeof decks==='object'&&decks){
       Object.keys(decks).forEach(function(id){
         var d=decks[id];if(!d||!d.name)return;
-        items.push({ico:'📖',lbl:d.name,cat:'Deck',act:function(){if(typeof goTab==='function')goTab('deck');if(typeof loadDeck==='function')loadDeck(id);}});
+        items.push({key:'deck:'+id,ico:'📖',lbl:d.name,cat:'Deck',act:function(){if(typeof goTab==='function')goTab('deck');if(typeof loadDeck==='function')loadDeck(id);}});
       });
     }
   }catch(_){}
+  // Decks du pool arène
+  try{
+    if(typeof _arPool!=='undefined'&&Array.isArray(_arPool)){
+      _arPool.forEach(function(d){items.push({key:'pool:'+d.id,ico:'🛡',lbl:d.name+' (pool)',cat:'Pool',act:function(){if(typeof goTab==='function')goTab('arena');}});});
+    }
+  }catch(_){}
+  // Profils amis
+  try{
+    if(typeof PN!=='undefined'&&Array.isArray(PN)){
+      for(var i=1;i<PN.length;i++){
+        (function(idx,name){
+          items.push({key:'prof:'+idx,ico:'👤',lbl:'Voir collection : '+name,cat:'Profil',act:function(){if(typeof setProf==='function')setProf(idx);}});
+        })(i,PN[i]);
+      }
+    }
+  }catch(_){}
   // Actions UX
-  items.push({ico:'⚙',lbl:'Ouvrir Paramètres',cat:'Action',act:function(){if(typeof openHub==='function'){openHub();if(typeof openHubTab==='function')openHubTab('settings');}}});
-  items.push({ico:'👥',lbl:'Mes amis',cat:'Action',act:function(){if(typeof openFriendModal==='function')openFriendModal();}});
-  items.push({ico:'🎨',lbl:'Thème Médiéval',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('default');}});
-  items.push({ico:'🎨',lbl:'Thème Futuriste',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('futuriste');}});
-  items.push({ico:'🎨',lbl:'Thème Horreur',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('horreur');}});
-  items.push({ico:'🎨',lbl:'Thème Steampunk',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('steampunk');}});
-  items.push({ico:'🎨',lbl:'Thème Clair',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('clair');}});
-  items.push({ico:'🎨',lbl:'Thème Sépia',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('sepia');}});
+  items.push({key:'act:settings',ico:'⚙',lbl:'Ouvrir Paramètres',cat:'Action',act:function(){if(typeof openHub==='function'){openHub();if(typeof openHubTab==='function')openHubTab('settings');}}});
+  items.push({key:'act:friends',ico:'👥',lbl:'Mes amis',cat:'Action',act:function(){if(typeof openFriendModal==='function')openFriendModal();}});
+  items.push({key:'act:notifs',ico:'🔔',lbl:'Voir notifications',cat:'Action',act:function(){if(typeof openHub==='function'){openHub();if(typeof openHubTab==='function')openHubTab('notifs');}}});
+  items.push({key:'act:newdeck',ico:'➕',lbl:'Nouveau deck',cat:'Action',act:function(){if(typeof goTab==='function')goTab('build');if(typeof newDeck==='function')newDeck();}});
+  items.push({key:'act:fsBig',ico:'🔤',lbl:'Texte plus grand',cat:'Confort',act:function(){if(typeof uxSetFs==='function')uxSetFs('lg');}});
+  items.push({key:'act:fsNorm',ico:'🔤',lbl:'Texte normal',cat:'Confort',act:function(){if(typeof uxSetFs==='function')uxSetFs('md');}});
+  items.push({key:'act:densCompact',ico:'📐',lbl:'Densité compacte',cat:'Confort',act:function(){if(typeof uxSetDensity==='function')uxSetDensity('compact');}});
+  items.push({key:'act:contrastHi',ico:'🔍',lbl:'Contraste élevé',cat:'Confort',act:function(){if(typeof uxSetContrast==='function')uxSetContrast('high');}});
+  items.push({key:'act:contrastNo',ico:'🔍',lbl:'Contraste normal',cat:'Confort',act:function(){if(typeof uxSetContrast==='function')uxSetContrast('normal');}});
+  items.push({key:'theme:default',ico:'🎨',lbl:'Thème Médiéval',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('default');}});
+  items.push({key:'theme:futuriste',ico:'🎨',lbl:'Thème Futuriste',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('futuriste');}});
+  items.push({key:'theme:horreur',ico:'🎨',lbl:'Thème Horreur',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('horreur');}});
+  items.push({key:'theme:steampunk',ico:'🎨',lbl:'Thème Steampunk',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('steampunk');}});
+  items.push({key:'theme:clair',ico:'🎨',lbl:'Thème Clair',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('clair');}});
+  items.push({key:'theme:sepia',ico:'🎨',lbl:'Thème Sépia',cat:'Thème',act:function(){if(typeof setTheme==='function')setTheme('sepia');}});
   return items;
 }
 function cmdPalOpen(){
@@ -23630,15 +23708,31 @@ function cmdPalFilter(){
   var inp=document.getElementById('cmd-pal-input');var list=document.getElementById('cmd-pal-list');
   if(!inp||!list)return;
   var q=inp.value.trim().toLowerCase();
-  var scored=_cmdPalItems.map(function(it){return {it:it,sc:_cmdPalScore(it,q)};}).filter(function(x){return x.sc>0;});
-  scored.sort(function(a,b){return b.sc-a.sc;});
+  var scored;
+  if(!q){
+    // Pas de requête : récents en tête, puis pages
+    var seen={};
+    scored=[];
+    _cmdPalRecent.forEach(function(r){
+      var it=_cmdPalItems.find(function(x){return x.key===r.key;});
+      if(it&&!seen[it.key]){scored.push({it:it,sc:1,recent:true});seen[it.key]=true;}
+    });
+    _cmdPalItems.forEach(function(it){
+      if(seen[it.key])return;
+      if(it.cat==='Page')scored.push({it:it,sc:1});
+    });
+  }else{
+    scored=_cmdPalItems.map(function(it){return {it:it,sc:_cmdPalScore(it,q)};}).filter(function(x){return x.sc>0;});
+    scored.sort(function(a,b){return b.sc-a.sc;});
+  }
   scored=scored.slice(0,40);
   if(!scored.length){list.innerHTML='<div class="cmdp-empty">Aucun résultat</div>';return;}
   _cmdPalIdx=0;
   var html='';
   scored.forEach(function(x,i){
     var it=x.it;
-    html+='<div class="cmdp-item'+(i===0?' active':'')+'" data-idx="'+i+'" onclick="cmdPalRun('+i+')"><span class="cmdp-ico">'+it.ico+'</span><span class="cmdp-lbl">'+(it.lbl.replace(/</g,'&lt;'))+'</span><span class="cmdp-cat">'+it.cat+'</span></div>';
+    var catTxt=x.recent?'Récent':it.cat;
+    html+='<div class="cmdp-item'+(i===0?' active':'')+'" data-idx="'+i+'" onclick="cmdPalRun('+i+')"><span class="cmdp-ico">'+it.ico+'</span><span class="cmdp-lbl">'+(it.lbl.replace(/</g,'&lt;'))+'</span><span class="cmdp-cat">'+catTxt+'</span></div>';
   });
   list.innerHTML=html;
   list._scored=scored;
@@ -23647,7 +23741,10 @@ function cmdPalRun(i){
   var list=document.getElementById('cmd-pal-list');if(!list||!list._scored)return;
   var x=list._scored[i];if(!x)return;
   cmdPalClose();
-  try{x.it.act();}catch(e){console.warn('[cmd]',e);toastError('Action impossible');}
+  try{
+    _cmdPalRemember(x.it.key,x.it.lbl);
+    x.it.act();
+  }catch(e){console.warn('[cmd]',e);toastError('Action impossible');}
 }
 function cmdPalKey(e){
   var list=document.getElementById('cmd-pal-list');if(!list)return;
@@ -24413,6 +24510,22 @@ var _ANA_TAB_DEFS=[
   {id:'all',        ico:'☰', lbl:'Tout'}
 ];
 var _anaActiveTab='overview';
+var _anaCurDeckId=null;
+function _anaRememberTab(deckId,tab){
+  if(!deckId)return;
+  try{
+    var m=JSON.parse(localStorage.getItem('mtg_ana_lastTab')||'{}');
+    m[deckId]=tab;
+    localStorage.setItem('mtg_ana_lastTab',JSON.stringify(m));
+  }catch(_){}
+}
+function _anaRecallTab(deckId){
+  if(!deckId)return 'overview';
+  try{
+    var m=JSON.parse(localStorage.getItem('mtg_ana_lastTab')||'{}');
+    return m[deckId]||'overview';
+  }catch(_){return 'overview';}
+}
 function _anaTagSectionsAndAddTabs(){
   var host=document.getElementById('ana-results');if(!host)return;
   // 1. Tagge chaque .card (sauf le score panel principal et le commandant)
@@ -24448,11 +24561,14 @@ function _anaTagSectionsAndAddTabs(){
       +'</button>';
   }).join('');
   host.insertBefore(bar,host.firstChild);
-  // 3. Applique le filtre initial
-  anaSetInternalTab(_anaActiveTab);
+  // 3. Applique le dernier onglet ouvert pour ce deck (si dispo + section non vide)
+  var recalled=_anaRecallTab(_anaCurDeckId);
+  if(recalled!=='all'&&!sectionCounts[recalled])recalled='overview';
+  anaSetInternalTab(recalled);
 }
 function anaSetInternalTab(tab){
   _anaActiveTab=tab;
+  _anaRememberTab(_anaCurDeckId,tab);
   var host=document.getElementById('ana-results');if(!host)return;
   host.setAttribute('data-active-tab',tab);
   // Update tab buttons
@@ -24460,9 +24576,12 @@ function anaSetInternalTab(tab){
     b.classList.remove('active');
     if(b.textContent.toLowerCase().indexOf((_ANA_TAB_DEFS.find(function(d){return d.id===tab;})||{}).lbl.toLowerCase())>=0)b.classList.add('active');
   });
-  // Scroll to top du contenu
-  var firstSec=host.querySelector('.ana-sec:not([style*="display: none"])');
-  if(firstSec)setTimeout(function(){firstSec.scrollIntoView({behavior:'smooth',block:'start'});},80);
+  // Scroll au top de la barre d'onglets (pas chaque section)
+  var bar=document.getElementById('ana-internal-tabs');
+  if(bar)setTimeout(function(){
+    var top=bar.getBoundingClientRect().top+window.scrollY-60;
+    window.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+  },50);
 }
 // ===== Tableau de bord global de tous les decks =====
 function anaOpenDashboard(){
@@ -28384,6 +28503,7 @@ function _anaFormatWarnings(deck,fmt,totalCards){
 
 function anaRender(deckId){
   var deck=_anaGetDeck(deckId);if(!deck)return;
+  _anaCurDeckId=deckId;
   // Themes du commandant : auto-détection puis application des overrides utilisateur
   var fmt=_anaGetFmt(deckId,deck);
   var _autoDetectedThemes=_anaCommanderThemes(deck);
@@ -29762,10 +29882,19 @@ function arPoolImport(){
 }
 
 function arPoolDelete(id){
-  if(!confirm('Supprimer ce deck du pool ?'))return;
-  _arPool=_arPool.filter(function(d){return d.id!==id;});
+  var d=_arPool.find(function(x){return x.id===id;});
+  if(!d){toastError('Deck introuvable');return;}
+  var snap=JSON.parse(JSON.stringify(d));
+  var prevIdx=_arPool.indexOf(d);
+  _arPool=_arPool.filter(function(x){return x.id!==id;});
   arPoolSave();arPoolRender();
   arBotPopulateSel(null);
+  toastUndo('🗑 "'+snap.name+'" retiré du pool',function(){
+    _arPool.splice(prevIdx,0,snap);
+    arPoolSave();arPoolRender();
+    arBotPopulateSel(null);
+    toastSuccess('Deck restauré');
+  });
 }
 
 function arPoolImportFromUrl(){
