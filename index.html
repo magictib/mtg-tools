@@ -1666,6 +1666,14 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
 .pur-card-row:hover{background:rgba(255,255,255,.03)}
 .pur-card-row.pur-card-sel{background:rgba(91,140,245,.12);border-left:2px solid var(--c-info)}
 .pur-card-row.pur-card-sel:hover{background:rgba(91,140,245,.18)}
+/* Contrôle de quantité (liste partagée) */
+.pur-qty-ctl{display:inline-flex;align-items:center;gap:0;margin-right:6px;vertical-align:middle;border:.5px solid var(--bd2);border-radius:6px;overflow:hidden;background:var(--s2)}
+.pur-qty-ctl button{width:20px;height:20px;border:none;background:var(--s3);color:var(--gold2);cursor:pointer;font-size:.9rem;line-height:1;padding:0;display:flex;align-items:center;justify-content:center;font-family:monospace}
+.pur-qty-ctl button:hover{background:var(--c-primary-bg);color:var(--c-primary)}
+.pur-qty-ctl input{width:34px;height:20px;border:none;border-left:.5px solid var(--bd2);border-right:.5px solid var(--bd2);background:transparent;color:var(--tx);text-align:center;font-size:.74rem;padding:0;-moz-appearance:textfield}
+.pur-qty-ctl input::-webkit-outer-spin-button,.pur-qty-ctl input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pur-qty-ctl-sm button{width:17px;height:17px;font-size:.8rem}
+.pur-qty-ctl-sm input{width:26px;height:17px;font-size:.68rem}
 .pur-card-row:active{cursor:grabbing;opacity:.6}
 .pur-col-td{min-width:180px}
 .pur-col-td.pur-drag-over{background:rgba(201,168,76,.11);outline:2px dashed rgba(201,168,76,.55)}
@@ -10114,6 +10122,45 @@ function purAdvanceStatus(cardId){
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
 }
+// Modifie la quantité d'une carte (+/- ou valeur directe). 0 → retire la carte.
+function purChangeCardQty(cardId,delta){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var card=(list.cards||[]).find(function(c){return c.id===cardId;});
+  if(!card)return;
+  var nv=(card.qty||1)+delta;
+  _purApplyCardQty(card,nv);
+}
+function purSetCardQty(cardId,rawVal){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var card=(list.cards||[]).find(function(c){return c.id===cardId;});
+  if(!card)return;
+  var nv=parseInt(String(rawVal||'').trim(),10);
+  if(isNaN(nv)){renderPurchaseMgr();return;}
+  _purApplyCardQty(card,nv);
+}
+function _purApplyCardQty(card,nv){
+  var list=_purchaseLists[_activePurListId];
+  if(nv<=0){
+    // Retire la carte avec possibilité d'annuler
+    var snap=Object.assign({},card);
+    list.cards=(list.cards||[]).filter(function(c){return c.id!==card.id;});
+    savePurchaseList(_activePurListId);renderPurchaseMgr();
+    toastUndo('🗑 "'+snap.name+'" retirée',function(){
+      var l=_purchaseLists[_activePurListId];if(!l)return;
+      l.cards=l.cards||[];
+      if(!l.cards.some(function(c){return c.id===snap.id;}))l.cards.push(snap);
+      savePurchaseList(_activePurListId);renderPurchaseMgr();
+      toastSuccess('Carte restaurée');
+    });
+    return;
+  }
+  var old=card.qty||1;
+  card.qty=nv;
+  card.lastChangeBy=userId;card.lastChangeAt=Date.now();
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
 
 function purToggleRole(cardId,role){
   if(!_activePurListId)return;
@@ -12136,9 +12183,14 @@ function _purRenderCompactCardRow(c,lst){
   }else{
     priceCell=priceVal?'<span style="color:var(--gold2);font-size:.7rem">'+priceVal+'€</span>':'<span style="color:var(--tx3);font-size:.66rem">—</span>';
   }
+  var qtyWidget='<span class="pur-qty-ctl pur-qty-ctl-sm" onclick="event.stopPropagation()">'
+    +'<button onclick="purChangeCardQty(\''+sid+'\',-1)" title="−1">−</button>'
+    +'<input type="number" min="0" value="'+qty+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetCardQty(\''+sid+'\',this.value);}" onblur="if(this.value!==this.defaultValue)purSetCardQty(\''+sid+'\',this.value)">'
+    +'<button onclick="purChangeCardQty(\''+sid+'\',1)" title="+1">+</button>'
+    +'</span>';
   return '<div style="display:flex;align-items:center;gap:5px;padding:3px 4px;border-radius:4px;font-size:.74rem'+(isSel?';background:rgba(91,140,245,.12);border-left:2px solid var(--c-info)':'')+'">'
     +'<input type="checkbox" '+(isSel?'checked':'')+' onclick="event.stopPropagation()" onchange="purToggleCardSelect(\''+sid+'\',this.checked)" style="margin:0">'
-    +'<span style="color:var(--tx3);min-width:18px;text-align:right">'+qty+'×</span>'
+    +qtyWidget
     +'<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.name)+'">'+esc(c.name)+groupChip+'</span>'
     +'<span style="font-size:.7rem;color:'+statusCol+';padding:0 5px;border:.5px solid '+statusCol+';border-radius:7px;cursor:pointer;line-height:1.4" onclick="purAdvanceStatus(\''+sid+'\')" title="'+esc(statusLbl)+'">'+esc(statusLbl.slice(0,2))+'</span>'
     +priceCell
@@ -12291,9 +12343,13 @@ function _purRenderRow(c,zIdx){
   var status=c.status||'proposed';
   var statusLbl=_STATUS_LBL[status]||status;
   var statusCol=_STATUS_COLOR[status]||'var(--tx3)';
-  var qtyTxt=(c.qty>1?c.qty+'× ':'');
   var zoomAttr=(typeof zIdx==='number')?' class="cz-clickable" onclick="openCardZoomAt('+zIdx+')" title="Zoomer"':'';
-  var nameHtml='<span'+zoomAttr+(status==='delivered'?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+qtyTxt+esc(c.name)+'</span>';
+  var qtyWidget='<span class="pur-qty-ctl" onclick="event.stopPropagation()">'
+    +'<button onclick="purChangeCardQty(\''+sid+'\',-1)" title="−1">−</button>'
+    +'<input type="number" min="0" value="'+(c.qty||1)+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetCardQty(\''+sid+'\',this.value);}" onblur="if(this.value!==this.defaultValue)purSetCardQty(\''+sid+'\',this.value)">'
+    +'<button onclick="purChangeCardQty(\''+sid+'\',1)" title="+1">+</button>'
+    +'</span>';
+  var nameHtml=qtyWidget+'<span'+zoomAttr+(status==='delivered'?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+esc(c.name)+'</span>';
   var noteHtml=c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'';
   var statusChip='<span style="display:inline-block;background:rgba(255,255,255,.05);border:.5px solid '+statusCol+';color:'+statusCol+';border-radius:10px;padding:1px 7px;font-size:.7rem;cursor:pointer" title="Avancer le statut" onclick="purAdvanceStatus(\''+sid+'\')">'+statusLbl+'</span>';
   var buyerChip=_purRenderRoleChip(c,'buyer');
