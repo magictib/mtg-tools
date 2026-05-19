@@ -2972,6 +2972,7 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
         <button class="dm pur-viewmode" data-mode="table" onclick="purSetViewMode('table')" title="Vue tableau classique par deck">📋 Tableau</button>
         <button class="dm" id="pur-toggle-groups" onclick="purToggleGroupsPanel()" title="Gérer les groupes d'achat (multi-vendeurs + frais de port)">🧺 Groupes</button>
         <button class="dm" id="pur-toggle-viewgroup" onclick="purToggleViewByGroup()" title="Regrouper le tableau par groupe d'achat (au lieu de par deck)">⇋ Vue par groupe</button>
+        <button class="dm" id="pur-toggle-viewprofile" onclick="purToggleViewByProfile()" title="Vue en colonnes : une colonne par acheteur, decks regroupés">👥 Vue par profil</button>
         <span style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Filtre :</span>
         <button class="dm pur-rolefilt active" data-mode="all" onclick="purSetRoleFilter('all')">Tous</button>
         <button class="dm pur-rolefilt" data-mode="mybuys" onclick="purSetRoleFilter('mybuys')">🛒 Mes achats</button>
@@ -10212,9 +10213,11 @@ function purBulkAssign(cardIds,field,value){
 // Toggle d'affichage du panneau groupes / sélection
 var _purShowGroupsPanel=false;
 var _purViewByGroup=false; // false = group by deck, true = group by orderGroup
+var _purViewByProfile=false; // true = colonnes par acheteur (mutuellement exclusif avec viewByGroup)
 var _purSelectedIds={};
 function purToggleGroupsPanel(){_purShowGroupsPanel=!_purShowGroupsPanel;renderPurchaseMgr();}
-function purToggleViewByGroup(){_purViewByGroup=!_purViewByGroup;renderPurchaseMgr();}
+function purToggleViewByGroup(){_purViewByGroup=!_purViewByGroup;if(_purViewByGroup)_purViewByProfile=false;renderPurchaseMgr();}
+function purToggleViewByProfile(){_purViewByProfile=!_purViewByProfile;if(_purViewByProfile)_purViewByGroup=false;renderPurchaseMgr();}
 function purToggleCardSelect(id,checked){
   if(checked)_purSelectedIds[id]=1;
   else delete _purSelectedIds[id];
@@ -11984,6 +11987,15 @@ function renderPurchaseMgr(){
   if(_purShowGroupsPanel){
     html+=_purRenderGroupsPanel(lst);
   }
+  // Vue par profil : colonnes côte à côte
+  if(_purViewByProfile){
+    wrap.innerHTML=html+_purRenderViewByProfile(cards,lst);
+    var tg=document.getElementById('pur-toggle-groups');if(tg)tg.classList.toggle('active',_purShowGroupsPanel);
+    var tv=document.getElementById('pur-toggle-viewgroup');if(tv)tv.classList.toggle('active',_purViewByGroup);
+    var tp=document.getElementById('pur-toggle-viewprofile');if(tp)tp.classList.toggle('active',_purViewByProfile);
+    _purRefreshBulkBar();purFilterDecks();
+    return;
+  }
   html+='<table class="pur-table"><thead><tr>'
     +'<th style="width:28px;text-align:center"><input type="checkbox" '+(allSelected?'checked':'')+' onchange="purSelectAll(this.checked)" title="Tout sélectionner"></th>'
     +'<th style="width:23%">Deck / Carte</th>'
@@ -12038,8 +12050,99 @@ function renderPurchaseMgr(){
   // Sync toggle états
   var tg=document.getElementById('pur-toggle-groups');if(tg)tg.classList.toggle('active',_purShowGroupsPanel);
   var tv=document.getElementById('pur-toggle-viewgroup');if(tv)tv.classList.toggle('active',_purViewByGroup);
+  var tp=document.getElementById('pur-toggle-viewprofile');if(tp)tp.classList.toggle('active',_purViewByProfile);
   _purRefreshBulkBar();
   purFilterDecks();
+}
+// Rendu en colonnes : 1 colonne par acheteur (membre de la liste)
+function _purRenderViewByProfile(cards,lst){
+  var members=(lst.members||[]).slice();
+  // Calcule les totaux par membre pour ordonner et afficher
+  var byUid={}; // uid → {cards:[], total, count}
+  var unassigned=[];
+  cards.forEach(function(c){
+    if(!c.buyer){unassigned.push(c);return;}
+    if(!byUid[c.buyer])byUid[c.buyer]={cards:[],total:0,count:0};
+    byUid[c.buyer].cards.push(c);
+    byUid[c.buyer].count+=(c.qty||1);
+    if(typeof c.actualPrice==='number')byUid[c.buyer].total+=c.actualPrice*(c.qty||1);
+  });
+  // S'assure que tous les membres ont une colonne, même vide
+  members.forEach(function(uid){if(!byUid[uid])byUid[uid]={cards:[],total:0,count:0};});
+  // Ordre des colonnes : userId d'abord, puis autres membres
+  var orderedUids=members.slice().sort(function(a,b){
+    if(a===userId)return -1;if(b===userId)return 1;
+    return (_purMemberName(a)||'').localeCompare(_purMemberName(b)||'');
+  });
+  var cols=[];
+  orderedUids.forEach(function(uid){cols.push({uid:uid,data:byUid[uid]});});
+  if(unassigned.length)cols.push({uid:null,data:{cards:unassigned,total:0,count:unassigned.reduce(function(s,c){return s+(c.qty||1);},0)}});
+  var nbCols=cols.length;
+  var minColW=240,gap=10;
+  var html='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax('+minColW+'px,1fr));gap:'+gap+'px">';
+  cols.forEach(function(col){
+    var isMe=col.uid===userId;
+    var isNone=col.uid===null;
+    var name=isNone?'❓ Non assigné':_purMemberName(col.uid);
+    var headColor=isNone?'var(--am)':(isMe?'var(--gold2)':'var(--ac2)');
+    var headBg=isNone?'rgba(240,180,40,.1)':(isMe?'rgba(201,168,76,.12)':'rgba(148,103,189,.12)');
+    var headBd=isNone?'rgba(240,180,40,.4)':(isMe?'rgba(201,168,76,.45)':'rgba(148,103,189,.45)');
+    html+='<div style="background:var(--s1);border:1px solid '+headBd+';border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-height:200px">';
+    // En-tête de colonne
+    html+='<div style="padding:8px 10px;background:'+headBg+';border-bottom:.5px solid '+headBd+';display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">';
+    html+='<div><div style="color:'+headColor+';font-weight:700;font-size:.86rem">'+esc(name)+(isMe?' (moi)':'')+'</div>';
+    html+='<div style="font-size:.68rem;color:var(--tx3)">'+col.data.count+' carte(s)'+(col.data.total>0?' · '+col.data.total.toFixed(2)+'€':'')+'</div></div>';
+    html+='</div>';
+    // Corps : cartes groupées par deck
+    if(!col.data.cards.length){
+      html+='<div style="padding:14px;color:var(--tx3);font-style:italic;font-size:.78rem;text-align:center">Aucune carte</div>';
+    }else{
+      var byDeck={},deckOrder=[];
+      col.data.cards.forEach(function(c){
+        var dk=c.deckName||'(sans deck)';
+        if(!byDeck[dk]){byDeck[dk]=[];deckOrder.push(dk);}
+        byDeck[dk].push(c);
+      });
+      html+='<div style="padding:6px 8px;flex:1;overflow-y:auto;max-height:60vh">';
+      deckOrder.forEach(function(dk){
+        var deckCards=byDeck[dk];
+        var deckTotal=deckCards.reduce(function(s,c){return s+(typeof c.actualPrice==='number'?c.actualPrice*(c.qty||1):0);},0);
+        html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.72rem;letter-spacing:.04em;margin:6px 0 3px;padding-bottom:2px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between">📖 '+esc(dk)+(deckTotal>0?'<span style="font-family:var(--ff-body);color:var(--tx3);font-weight:400">'+deckTotal.toFixed(2)+'€</span>':'')+'</div>';
+        deckCards.forEach(function(c){html+=_purRenderCompactCardRow(c,lst);});
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+// Ligne compacte (vue par profil)
+function _purRenderCompactCardRow(c,lst){
+  var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var status=c.status||'proposed';
+  var statusCol=_STATUS_COLOR[status]||'var(--tx3)';
+  var statusLbl=_STATUS_LBL[status]||status;
+  var isSel=!!_purSelectedIds[c.id];
+  var qty=c.qty||1;
+  var priceVal=(typeof c.actualPrice==='number')?c.actualPrice.toFixed(2):'';
+  var canEditPrice=(lst.createdBy===userId)||(c.buyer===userId)||(c.addedBy===userId);
+  var groups=(lst.orderGroups||[]);
+  var curGroup=c.orderGroupId?groups.find(function(g){return g.id===c.orderGroupId;}):null;
+  var groupChip=curGroup?'<span style="display:inline-block;background:rgba(168,200,255,.16);border:.5px solid rgba(168,200,255,.4);color:#a8c8ff;border-radius:8px;padding:0 5px;font-size:.62rem;margin-left:4px" title="'+esc(curGroup.name)+'">🧺</span>':'';
+  var priceCell;
+  if(canEditPrice){
+    priceCell='<input type="number" step="0.01" min="0" value="'+priceVal+'" placeholder="—€" style="width:54px;padding:1px 3px;font-size:.7rem;border-radius:4px;border:.5px solid var(--bd2);background:var(--s2);color:var(--gold2);text-align:right" onclick="event.stopPropagation()" onblur="if(this.value!==this.defaultValue)purSetActualPrice(\''+sid+'\',this.value)">';
+  }else{
+    priceCell=priceVal?'<span style="color:var(--gold2);font-size:.7rem">'+priceVal+'€</span>':'<span style="color:var(--tx3);font-size:.66rem">—</span>';
+  }
+  return '<div style="display:flex;align-items:center;gap:5px;padding:3px 4px;border-radius:4px;font-size:.74rem'+(isSel?';background:rgba(91,140,245,.12);border-left:2px solid var(--c-info)':'')+'">'
+    +'<input type="checkbox" '+(isSel?'checked':'')+' onclick="event.stopPropagation()" onchange="purToggleCardSelect(\''+sid+'\',this.checked)" style="margin:0">'
+    +'<span style="color:var(--tx3);min-width:18px;text-align:right">'+qty+'×</span>'
+    +'<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.name)+'">'+esc(c.name)+groupChip+'</span>'
+    +'<span style="font-size:.7rem;color:'+statusCol+';padding:0 5px;border:.5px solid '+statusCol+';border-radius:7px;cursor:pointer;line-height:1.4" onclick="purAdvanceStatus(\''+sid+'\')" title="'+esc(statusLbl)+'">'+esc(statusLbl.slice(0,2))+'</span>'
+    +priceCell
+    +'</div>';
 }
 // Panneau de gestion des groupes d'achat
 function _purRenderGroupsPanel(lst){
