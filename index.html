@@ -1403,6 +1403,34 @@ body.mana-cursor{cursor:none}
 /* Full card overlay */
 #ar-fullcard-ov{display:none;position:absolute;inset:0;background:rgba(0,0,0,.88);z-index:97;align-items:center;justify-content:center}
 #ar-fullcard-ov img{max-height:88vh;max-width:88vw;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.95)}
+/* ====== Arena Pro : event feed, fullscreen, shortcuts, phase pulse ====== */
+#ar-event-feed{position:fixed;top:64px;right:14px;z-index:160;display:flex;flex-direction:column;gap:6px;pointer-events:none;max-width:300px}
+.ar-event{background:rgba(8,4,2,.92);border:.5px solid var(--bd2);border-left:3px solid var(--c-info);border-radius:6px;padding:6px 10px;font-size:.78rem;color:var(--tx2);font-family:var(--ff-body);box-shadow:0 4px 14px rgba(0,0,0,.6);backdrop-filter:blur(4px);animation:ar-event-in .25s ease-out,ar-event-out .4s ease-in 4.5s forwards;max-width:300px}
+.ar-event.kind-damage{border-left-color:var(--rd2);color:var(--rd2)}
+.ar-event.kind-heal{border-left-color:var(--gr2);color:var(--gr2)}
+.ar-event.kind-phase{border-left-color:var(--gold2);color:var(--gold2)}
+.ar-event.kind-turn{border-left-color:#c8a8ff;color:#c8a8ff;font-weight:600}
+@keyframes ar-event-in{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes ar-event-out{to{opacity:0;transform:translateX(20px)}}
+/* Phase bar pulse sur active */
+.ar-ph-btn.on{animation:ar-phase-pulse 2s ease-in-out infinite}
+@keyframes ar-phase-pulse{0%,100%{box-shadow:0 0 0 0 rgba(201,168,76,0)}50%{box-shadow:0 0 0 4px rgba(201,168,76,.25)}}
+/* Cheat sheet */
+#ar-cheat-ov{position:fixed;inset:0;z-index:9994;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;padding:20px}
+#ar-cheat-ov.show{display:flex}
+.ar-cheat-box{background:var(--s2);border:1px solid var(--bd2);border-radius:14px;max-width:520px;width:100%;padding:18px 22px;max-height:88vh;overflow-y:auto}
+.ar-cheat-box h3{font-family:var(--ff-head);color:var(--gold2);margin:0 0 12px;font-size:1.1rem;text-align:center;letter-spacing:.06em}
+.ar-cheat-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--bd);font-size:.85rem}
+.ar-cheat-row:last-child{border-bottom:none}
+.ar-cheat-row kbd{background:var(--s3);border:.5px solid var(--bd2);border-radius:4px;padding:2px 7px;font-family:monospace;font-size:.78rem;color:var(--gold2)}
+.ar-cheat-row .lbl{color:var(--tx2)}
+/* Bouton plein écran arène */
+#ar-fs-btn{position:fixed;top:54px;right:14px;z-index:140;width:34px;height:34px;border-radius:50%;background:rgba(8,4,2,.85);border:.5px solid var(--bd2);color:var(--tx2);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:1rem;backdrop-filter:blur(4px);transition:all .15s}
+#ar-fs-btn:hover{border-color:var(--gold2);color:var(--gold2);transform:scale(1.08)}
+#ar-fs-btn.show{display:flex}
+body.ar-fullscreen{overflow:hidden}
+body.ar-fullscreen #top-tabs,body.ar-fullscreen #user-menu-wrap{display:none!important}
+body.ar-fullscreen #pg-arena{padding-top:8px}
 /* Dice / Coin */
 #ar-dice-ov{display:none;position:absolute;inset:0;background:rgba(0,0,0,.87);z-index:96;align-items:center;justify-content:center}
 .ar-dice-inner{background:var(--s2);border:1px solid var(--bd2);border-radius:16px;padding:22px 28px;text-align:center;min-width:270px}
@@ -31639,6 +31667,170 @@ function metaCreateDeck(){
 
 // Apply background texture based on theme (inline style, highest priority)
 _applyThemeBg(_userTheme);
+
+// =====================================================================
+// ARENA PRO — sons, plein écran, raccourcis, event feed, cheat sheet
+// =====================================================================
+// Sons générés via Web Audio (pas de fichiers à charger)
+var _arSoundOn=(function(){try{var v=localStorage.getItem('mtg_ar_sound');return v==='1';}catch(_){return false;}})();
+var _arAudio=null;
+function _arGetAudio(){if(!_arAudio){try{_arAudio=new (window.AudioContext||window.webkitAudioContext)();}catch(_){}}return _arAudio;}
+function arPlaySfx(kind){
+  if(!_arSoundOn)return;
+  var ctx=_arGetAudio();if(!ctx)return;
+  try{
+    var now=ctx.currentTime;
+    var presets={
+      draw:{freq:[440,660],type:'sine',dur:.18,gain:.18},
+      tap:{freq:[880],type:'triangle',dur:.06,gain:.12},
+      life:{freq:[660,330],type:'sawtooth',dur:.22,gain:.18},
+      heal:{freq:[330,660],type:'sine',dur:.22,gain:.18},
+      phase:{freq:[520],type:'sine',dur:.08,gain:.1},
+      turn:{freq:[440,550,660],type:'triangle',dur:.3,gain:.2},
+      win:{freq:[440,660,880,1100],type:'sine',dur:.5,gain:.22},
+      lose:{freq:[440,330,220,110],type:'sawtooth',dur:.5,gain:.22}
+    };
+    var p=presets[kind]||presets.tap;
+    p.freq.forEach(function(f,i){
+      var o=ctx.createOscillator(),g=ctx.createGain();
+      o.type=p.type;o.frequency.value=f;
+      var t0=now+i*(p.dur/p.freq.length);
+      g.gain.setValueAtTime(0,t0);g.gain.linearRampToValueAtTime(p.gain,t0+.01);g.gain.exponentialRampToValueAtTime(.001,t0+p.dur/p.freq.length);
+      o.connect(g);g.connect(ctx.destination);
+      o.start(t0);o.stop(t0+p.dur/p.freq.length);
+    });
+  }catch(e){console.warn('sfx',e);}
+}
+function arToggleSound(){
+  _arSoundOn=!_arSoundOn;
+  try{localStorage.setItem('mtg_ar_sound',_arSoundOn?'1':'0');}catch(_){}
+  arEventFeed((_arSoundOn?'🔊 Sons activés':'🔇 Sons coupés'),'phase');
+  if(_arSoundOn)arPlaySfx('phase');
+}
+
+// Event feed flottant
+function arEventFeed(msg,kind){
+  var host=document.getElementById('ar-event-feed');if(!host)return;
+  var div=document.createElement('div');
+  div.className='ar-event kind-'+(kind||'info');
+  div.textContent=msg;
+  host.appendChild(div);
+  setTimeout(function(){if(div.parentNode)div.parentNode.removeChild(div);},5200);
+  if(host.children.length>5)host.removeChild(host.firstChild);
+}
+
+// Plein écran
+function arToggleFullscreen(){
+  if(document.fullscreenElement){
+    document.exitFullscreen().catch(function(){});
+    document.body.classList.remove('ar-fullscreen');
+  }else{
+    var el=document.documentElement;
+    if(el.requestFullscreen)el.requestFullscreen().catch(function(){});
+    document.body.classList.add('ar-fullscreen');
+  }
+}
+document.addEventListener('fullscreenchange',function(){
+  if(!document.fullscreenElement)document.body.classList.remove('ar-fullscreen');
+});
+
+// Cheat sheet
+function arCheatOpen(){var ov=document.getElementById('ar-cheat-ov');if(ov)ov.classList.add('show');}
+function arCheatClose(){var ov=document.getElementById('ar-cheat-ov');if(ov)ov.classList.remove('show');}
+
+// Raccourcis Arène — actifs seulement quand on est sur la page arena ET pas dans un input
+function _arShortcutsActive(){
+  var pg=document.getElementById('pg-arena');
+  if(!pg||pg.style.display==='none'||!pg.offsetParent)return false;
+  var t=document.activeElement;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return false;
+  // Aussi : pas si un overlay modal est ouvert
+  var pal=document.getElementById('cmd-pal-ov');if(pal&&pal.classList.contains('show'))return false;
+  return true;
+}
+document.addEventListener('keydown',function(e){
+  if(!_arShortcutsActive())return;
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  var k=e.key;
+  // Cheat sheet
+  if(k==='?'){e.preventDefault();arCheatOpen();return;}
+  if(k==='Escape'){var ov=document.getElementById('ar-cheat-ov');if(ov&&ov.classList.contains('show')){arCheatClose();e.preventDefault();return;}}
+  // Sons
+  if(k==='s'||k==='S'){e.preventDefault();arToggleSound();return;}
+  // Plein écran
+  if(k==='f'||k==='F'){e.preventDefault();arToggleFullscreen();return;}
+  // Concession
+  if(e.shiftKey&&(k==='c'||k==='C')){if(typeof arConcede==='function'&&confirm('Concéder la partie ?')){arConcede();}return;}
+  // Phase suivante / précédente (N / Shift+N)
+  if(k==='n'||k==='N'){
+    e.preventDefault();
+    if(typeof arSetPhase==='function'&&typeof _ar!=='undefined'&&_ar){
+      var cur=_ar.phase||0;
+      var next=e.shiftKey?Math.max(0,cur-1):Math.min(4,cur+1);
+      arSetPhase(next);arPlaySfx('phase');
+      arEventFeed('Phase : '+(['Pioche','Main 1','Combat','Main 2','Fin'][next]||next),'phase');
+    }
+    return;
+  }
+  // Tour suivant (T)
+  if(k==='t'||k==='T'){
+    e.preventDefault();
+    if(typeof arNextTurn==='function'){arNextTurn();arPlaySfx('turn');arEventFeed('↺ Tour suivant','turn');}
+    return;
+  }
+  // Pioche (D)
+  if(k==='d'||k==='D'){
+    e.preventDefault();
+    if(typeof arDrawCard==='function'){arDrawCard();arPlaySfx('draw');}
+    return;
+  }
+  // Mulligan (M)
+  if(k==='m'||k==='M'){
+    e.preventDefault();
+    if(typeof arMulligan==='function')arMulligan();
+    return;
+  }
+});
+
+// Affiche le bouton plein écran + branche les events arène
+function _arProUpdateVisibility(){
+  var pg=document.getElementById('pg-arena');
+  var visible=pg&&pg.style.display!=='none'&&pg.offsetParent;
+  var btn=document.getElementById('ar-fs-btn');
+  if(btn)btn.classList.toggle('show',!!visible);
+}
+// Observe changements d'affichage de la page arena
+setInterval(_arProUpdateVisibility,800);
+
+// Hook sons et events sur les fonctions arène existantes (non-destructif)
+(function(){
+  if(typeof window.arSetPhase==='function'){
+    var _orig=window.arSetPhase;
+    window.arSetPhase=function(n){var r=_orig.apply(this,arguments);try{arPlaySfx('phase');}catch(_){}return r;};
+  }
+  if(typeof window.arNextTurn==='function'){
+    var _origT=window.arNextTurn;
+    window.arNextTurn=function(){var r=_origT.apply(this,arguments);try{arPlaySfx('turn');arEventFeed('↺ Nouveau tour','turn');}catch(_){}return r;};
+  }
+  if(typeof window.arDrawCard==='function'){
+    var _origD=window.arDrawCard;
+    window.arDrawCard=function(silent){var r=_origD.apply(this,arguments);try{if(!silent)arPlaySfx('draw');}catch(_){}return r;};
+  }
+})();
+
+// Ajout dans la palette Ctrl+K
+try{
+  if(typeof _cmdPalBuild==='function'){
+    var _origBuild=_cmdPalBuild;
+    _cmdPalBuild=function(){
+      var items=_origBuild();
+      items.push({key:'ar:fs',ico:'⛶',lbl:'Arène : plein écran',cat:'Arène',act:function(){arToggleFullscreen();}});
+      items.push({key:'ar:sound',ico:'🔊',lbl:'Arène : activer/couper sons',cat:'Arène',act:function(){arToggleSound();}});
+      items.push({key:'ar:cheat',ico:'⚡',lbl:'Arène : raccourcis clavier',cat:'Arène',act:function(){arCheatOpen();}});
+      return items;
+    };
+  }
+}catch(_){}
 </script>
 <div id="edh-zoom"><img src="" alt=""></div>
 
@@ -31769,6 +31961,24 @@ setTimeout(_updateOnlineStatus,1000);
   </div>
 </div>
 <button id="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Retour en haut">↑</button>
+<button id="ar-fs-btn" onclick="arToggleFullscreen()" title="Plein écran arène (F)" aria-label="Plein écran">⛶</button>
+<div id="ar-event-feed" aria-live="polite"></div>
+<div id="ar-cheat-ov" onclick="if(event.target===this)arCheatClose()">
+  <div class="ar-cheat-box">
+    <h3>⚡ Raccourcis Arène</h3>
+    <div class="ar-cheat-row"><span class="lbl">Phase suivante</span><kbd>N</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Phase précédente</span><kbd>Shift+N</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Tour suivant (détap + pioche)</span><kbd>T</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Piocher une carte</span><kbd>D</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Lancer mulligan</span><kbd>M</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Plein écran</span><kbd>F</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Activer / couper sons</span><kbd>S</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Concéder la partie</span><kbd>Shift+C</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Afficher cette aide</span><kbd>?</kbd></div>
+    <div class="ar-cheat-row"><span class="lbl">Fermer cette aide</span><kbd>Esc</kbd></div>
+    <div style="text-align:center;margin-top:14px"><button class="btn btnsm" onclick="arCheatClose()">Fermer</button></div>
+  </div>
+</div>
 
 <!-- Bannière mise à jour Electron (invisible par défaut) -->
 <div id="electron-update-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(12,10,7,.96);border-top:.5px solid rgba(201,168,76,.35);padding:10px 16px;display:none;align-items:center;gap:10px;font-size:.82rem">
