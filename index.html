@@ -6833,8 +6833,51 @@ function loadProfs(){
 
 function saveProfs(){
   try{localStorage.setItem('mtg_profs',JSON.stringify([profs[0]]));}catch(e){}
+  if(!userId)return;
+  try{fsSaveStart();}catch(_){}
   db.collection('users').doc(userId).collection('profs').doc('0').set({cards:profs[0]||null})
-    .catch(function(e){console.warn('Firestore saveProfs',e);});
+    .then(function(){try{fsSaveEnd(true);}catch(_){}})
+    .catch(function(e){console.warn('Firestore saveProfs',e);try{fsSaveEnd(false);}catch(_){}});
+}
+// Édition rapide quantité d'une carte de la collection (profil 0 uniquement)
+function collSetQty(name,newQty){
+  if(collP!==0){toastError('Édition possible uniquement sur ta propre collection');return;}
+  newQty=parseInt(newQty,10);if(isNaN(newQty)||newQty<0)return;
+  var cards=Array.isArray(profs[0])?profs[0]:[];
+  var idx=cards.findIndex(function(c){return c.name.toLowerCase()===name.toLowerCase();});
+  if(idx<0){
+    if(newQty<=0)return;
+    cards.push({name:name,qty:newQty,set:'',cond:'',finish:'',price:0});
+    profs[0]=cards;
+    saveProfs();renderColl();
+    toastSuccess('"'+name+'" ajoutée (×'+newQty+')');
+    return;
+  }
+  if(newQty<=0){
+    var snap=Object.assign({},cards[idx]);
+    cards.splice(idx,1);
+    profs[0]=cards;
+    saveProfs();renderColl();
+    toastUndo('🗑 "'+snap.name+'" retirée',function(){
+      var cur=Array.isArray(profs[0])?profs[0]:[];
+      var ex=cur.findIndex(function(c){return c.name.toLowerCase()===snap.name.toLowerCase();});
+      if(ex>=0)cur[ex].qty=(cur[ex].qty||0)+snap.qty;else cur.push(snap);
+      profs[0]=cur;
+      saveProfs();renderColl();
+      toastSuccess('Carte restaurée');
+    });
+    return;
+  }
+  var old=cards[idx].qty||0;
+  cards[idx].qty=newQty;
+  saveProfs();renderColl();
+  if(old!==newQty)toastSuccess(name+' : '+old+' → '+newQty);
+}
+function collChangeQty(name,delta){
+  var cards=Array.isArray(profs[0])?profs[0]:[];
+  var ex=cards.find(function(c){return c.name.toLowerCase()===name.toLowerCase();});
+  var cur=ex?(ex.qty||0):0;
+  collSetQty(name,cur+delta);
 }
 
 function selProf(i){actP=(actP===i)?-1:i;updPStat();}
@@ -10955,10 +10998,11 @@ function qkBuildItems(){
   // Navigation
   var tabs=[['coll','◈ Collection'],['build','♠ Deck'],['analyse','📊 Analyse'],['arena','⚡ Arène'],['meta','🌐 Méta'],['scry','🔮 Biblio'],['trade','⚖ Échanges'],['conv','⇄ Convertisseur'],['rules','📜 Règles']];
   tabs.forEach(function(t){items.push({kind:'tab',label:t[1],sub:'Onglet',action:function(){if(typeof goTab==='function')goTab(t[0]);}});});
-  // Decks
+  // Decks — UNIQUEMENT ceux du profil 0 (source de vérité : _deckBelongsTo)
   if(typeof decks==='object'){
     Object.keys(decks).forEach(function(id){
       var d=decks[id];if(!d)return;
+      if(typeof _deckBelongsTo==='function'&&!_deckBelongsTo(d,0))return;
       items.push({kind:'deck',label:d.name||'(sans nom)',sub:'Deck'+(d.format?' · '+d.format:''),action:function(){if(typeof goTab==='function')goTab('build');if(typeof bldLoadDeck==='function')bldLoadDeck(id);}});
     });
   }
@@ -20686,6 +20730,11 @@ function toggleScryfallOffline(){
 // ===== COLLECTION DETAIL =====
 function _buildDetailHTML(displayName,dat,loanOpts,nl){
   var _onl=nl||stripDFC(displayName||'').toLowerCase();
+  // Quantité actuelle dans la collection (par nom, profil affiché)
+  var _curCards=getProfCards(collP);
+  var _curEntry=_curCards.find(function(c){return c.name.toLowerCase()===displayName.toLowerCase();});
+  var _curQty=_curEntry?(_curEntry.qty||0):0;
+  var _canEdit=(collP===0);
   // Decks contenant cette carte
   var _deckList=Object.values(decks||{}).filter(function(dk){
     return (dk.cards||[]).some(function(c){return stripDFC(c.name||'').toLowerCase()===_onl;});
@@ -20706,6 +20755,12 @@ function _buildDetailHTML(displayName,dat,loanOpts,nl){
     +'</div></div>'
     +'<div class="det-action">'
     +'<div style="font-size:.7rem;color:var(--tx2);font-weight:600;margin-bottom:6px">Actions</div>'
+    +(_canEdit?'<div class="det-action-row" style="background:rgba(201,168,76,.08);border:.5px solid rgba(201,168,76,.25);border-radius:6px;padding:4px 6px;margin-bottom:6px"><span style="font-size:.7rem;color:var(--gold2);min-width:75px;font-weight:600">📦 Quantité</span>'
+      +'<button class="btn btnsm" onclick="collChangeQty(\''+escJs(displayName)+'\',-1)" style="font-size:.78rem;padding:2px 9px;min-width:28px" title="−1">−</button>'
+      +'<input type="number" id="det-qty-input" value="'+_curQty+'" min="0" style="width:55px;text-align:center" onkeydown="if(event.key===\'Enter\'){event.preventDefault();collSetQty(\''+escJs(displayName)+'\',this.value);}">'
+      +'<button class="btn btnsm" onclick="collChangeQty(\''+escJs(displayName)+'\',+1)" style="font-size:.78rem;padding:2px 9px;min-width:28px" title="+1">+</button>'
+      +'<button class="btn btnsm btnp" onclick="collSetQty(\''+escJs(displayName)+'\',document.getElementById(\'det-qty-input\').value)" style="font-size:.7rem;padding:2px 8px" title="Valider la quantité saisie">✓</button>'
+      +'</div>':'')
     +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">⏳ Commander</span>'
     +'<input type="number" id="det-pend-qty" value="1" min="1"><button class="btn btnsm" onclick="openDetailPend()" style="font-size:.7rem;padding:2px 8px">+</button></div>'
     +'<div class="det-action-row"><span style="font-size:.7rem;color:var(--tx3);min-width:75px">🔄 Prêter à</span>'
@@ -24221,11 +24276,12 @@ function _cmdPalBuild(){
     {key:'pg:rules',ico:'📜',lbl:'Règles',cat:'Page',act:function(){if(typeof goTab==='function')goTab('rules');if(typeof initRulesTab==='function')initRulesTab();}}
   ];
   pages.forEach(function(p){items.push(p);});
-  // Decks du user
+  // Decks du user — UNIQUEMENT les decks du profil 0 (source de vérité : _deckBelongsTo)
   try{
     if(typeof decks==='object'&&decks){
       Object.keys(decks).forEach(function(id){
         var d=decks[id];if(!d||!d.name)return;
+        if(typeof _deckBelongsTo==='function'&&!_deckBelongsTo(d,0))return;
         items.push({key:'deck:'+id,ico:'📖',lbl:d.name,cat:'Deck',act:function(){if(typeof goTab==='function')goTab('deck');if(typeof loadDeck==='function')loadDeck(id);}});
       });
     }
@@ -24257,6 +24313,7 @@ function _cmdPalBuild(){
     if(typeof decks==='object'&&decks){
       Object.keys(decks).forEach(function(id){
         var d=decks[id];if(!d||!d.name)return;
+        if(typeof _deckBelongsTo==='function'&&!_deckBelongsTo(d,0))return;
         items.push({key:'pres:'+id,ico:'🎲',lbl:'Mode table : '+d.name,cat:'Action',act:function(){if(typeof openPresentationMode==='function')openPresentationMode(id);}});
       });
     }
@@ -31016,7 +31073,9 @@ function _filterExistingDecks(results){
   var existing={};
   if(typeof decks==='object'&&decks){
     Object.keys(decks).forEach(function(id){
-      var n=((decks[id]||{}).name||'').toLowerCase().trim();
+      var d=decks[id]||{};
+      if(typeof _deckBelongsTo==='function'&&!_deckBelongsTo(d,0))return;
+      var n=(d.name||'').toLowerCase().trim();
       if(n)existing[n]=1;
     });
   }
