@@ -10006,6 +10006,33 @@ function purSetRoleFilter(mode){
   renderPurchaseMgr();
 }
 
+// Édition du prix réel d'achat (ce qui a été effectivement payé)
+function purSetActualPrice(cardId,rawVal){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var card=(list.cards||[]).find(function(c){return c.id===cardId;});
+  if(!card)return;
+  // Permissions : créateur de la liste OU buyer désigné OU celui qui a ajouté la carte
+  var canEdit=(list.createdBy===userId)||(card.buyer===userId)||(card.addedBy===userId);
+  if(!canEdit){toastError('Seuls le créateur, l\'acheteur ou l\'auteur peuvent fixer le prix réel');return;}
+  var v=String(rawVal||'').replace(',','.').trim();
+  if(v===''){
+    delete card.actualPrice;
+    delete card.actualPriceAt;
+  }else{
+    var n=parseFloat(v);
+    if(isNaN(n)||n<0){toastError('Prix invalide');return;}
+    card.actualPrice=Math.round(n*100)/100;
+    card.actualPriceAt=Date.now();
+  }
+  card.lastChangeBy=userId;
+  card.lastChangeAt=Date.now();
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+  if(card.actualPrice!=null)toastSuccess('Prix réel : '+card.actualPrice.toFixed(2)+'€');
+  else toastInfo('Prix réel effacé');
+}
+
 // ===== ACTION CENTER : actions sur cartes =====
 function _purFindCard(cardId){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return null;
@@ -11674,16 +11701,18 @@ function renderPurchaseMgr(){
     });
     return;
   }
-  // Mode tableau : Deck / Carte / Statut / Acheteur / Emprunteur / Actions
-  var html='<table class="pur-table"><thead><tr>'
-    +'<th style="width:32%">Deck / Carte</th>'
-    +'<th style="width:15%">Statut</th>'
-    +'<th style="width:18%;color:var(--gold2)">Acheteur</th>'
-    +'<th style="width:18%;color:var(--ac2)">Emprunteur</th>'
-    +'<th style="width:15%">Actions</th>'
+  // Mode tableau : Deck / Carte / Statut / Acheteur / Emprunteur / Prix réel / Actions
+  var html=_purRenderPaidSummary(lst.cards||[])
+    +'<table class="pur-table"><thead><tr>'
+    +'<th style="width:26%">Deck / Carte</th>'
+    +'<th style="width:13%">Statut</th>'
+    +'<th style="width:16%;color:var(--gold2)">Acheteur</th>'
+    +'<th style="width:16%;color:var(--ac2)">Emprunteur</th>'
+    +'<th style="width:17%;color:var(--gold2)">Prix réel</th>'
+    +'<th style="width:12%">Actions</th>'
     +'</tr></thead><tbody>';
   if(!cards.length){
-    html+='<tr><td colspan="5" style="text-align:center;padding:2rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">'
+    html+='<tr><td colspan="6" style="text-align:center;padding:2rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">'
       +(_sharedListsRoleFilter!=='all'?'Aucune carte ne correspond à ce filtre.':'Liste vide — utilisez le panneau de droite pour ajouter des cartes.')
       +'</td></tr>';
   }else{
@@ -11696,13 +11725,54 @@ function renderPurchaseMgr(){
     });
     _zoomList=[];
     deckOrder.forEach(function(dk){
-      if(dk!=='(sans deck)')html+='<tr class="pur-dk-hdr"><td colspan="5">📖 '+esc(dk)+'</td></tr>';
+      if(dk!=='(sans deck)')html+='<tr class="pur-dk-hdr"><td colspan="6">📖 '+esc(dk)+'</td></tr>';
       groups[dk].forEach(function(c){_zoomList.push({nl:c.nl,name:c.name});html+=_purRenderRow(c,_zoomList.length-1);});
     });
   }
   html+='</tbody></table>';
   wrap.innerHTML=html;
   purFilterDecks();
+}
+// Bandeau résumé : total payé par acheteur (et reste à payer)
+function _purRenderPaidSummary(cards){
+  if(!cards||!cards.length)return '';
+  var byBuyer={};        // uid → {paid, missing}
+  var totalPaid=0,totalMissing=0,assignedCount=0,unassignedCount=0;
+  cards.forEach(function(c){
+    var qty=c.qty||1;
+    if(!c.buyer){unassignedCount+=qty;return;}
+    assignedCount+=qty;
+    if(!byBuyer[c.buyer])byBuyer[c.buyer]={paid:0,missing:0,cardsPaid:0,cardsMissing:0};
+    if(typeof c.actualPrice==='number'){
+      var amt=c.actualPrice*qty;
+      byBuyer[c.buyer].paid+=amt;
+      byBuyer[c.buyer].cardsPaid+=qty;
+      totalPaid+=amt;
+    }else{
+      byBuyer[c.buyer].missing+=qty;
+      byBuyer[c.buyer].cardsMissing+=qty;
+      totalMissing+=qty;
+    }
+  });
+  var buyers=Object.keys(byBuyer);
+  if(!buyers.length&&!unassignedCount)return '';
+  var html='<div style="background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:.5px solid var(--bd2);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:.78rem">';
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.85rem;flex-shrink:0">💰 Récap achats</div>';
+  if(unassignedCount){
+    html+='<div style="color:var(--am)" title="Cartes sans acheteur désigné">⚠ '+unassignedCount+' carte(s) non assignée(s)</div>';
+  }
+  buyers.sort(function(a,b){return byBuyer[b].paid-byBuyer[a].paid;}).forEach(function(uid){
+    var b=byBuyer[uid];var nm=_purMemberName(uid);var isMe=uid===userId;
+    var col=isMe?'var(--gold2)':'var(--ac2)';
+    html+='<div style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;background:rgba(0,0,0,.25);border:.5px solid '+col+';border-radius:11px">';
+    html+='<span style="color:'+col+';font-weight:600">'+esc(nm)+(isMe?' (moi)':'')+'</span>';
+    html+='<span style="color:var(--gold2)">'+b.paid.toFixed(2)+'€</span>';
+    if(b.cardsMissing)html+='<span style="color:var(--tx3);font-size:.7rem">(+'+b.cardsMissing+' sans prix)</span>';
+    html+='</div>';
+  });
+  html+='<div style="margin-left:auto;color:var(--gold2);font-weight:700">Total payé : '+totalPaid.toFixed(2)+'€</div>';
+  html+='</div>';
+  return html;
 }
 
 function _purRenderRoleChip(card,role){
@@ -11748,6 +11818,24 @@ function _purRenderRow(c,zIdx){
   var statusChip='<span style="display:inline-block;background:rgba(255,255,255,.05);border:.5px solid '+statusCol+';color:'+statusCol+';border-radius:10px;padding:1px 7px;font-size:.7rem;cursor:pointer" title="Avancer le statut" onclick="purAdvanceStatus(\''+sid+'\')">'+statusLbl+'</span>';
   var buyerChip=_purRenderRoleChip(c,'buyer');
   var borrowerChip=_purRenderRoleChip(c,'borrower');
+  // Prix réel
+  var list=_purchaseLists[_activePurListId]||{};
+  var canEditPrice=(list.createdBy===userId)||(c.buyer===userId)||(c.addedBy===userId);
+  var priceVal=(typeof c.actualPrice==='number')?c.actualPrice.toFixed(2):'';
+  var priceCell;
+  if(canEditPrice){
+    priceCell='<div style="display:flex;align-items:center;gap:3px">'
+      +'<input type="number" step="0.01" min="0" value="'+priceVal+'" placeholder="—" '
+      +'style="width:62px;padding:2px 4px;font-size:.74rem;border-radius:4px;border:.5px solid var(--bd2);background:var(--s2);color:var(--gold2);text-align:right" '
+      +'onclick="event.stopPropagation()" '
+      +'onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetActualPrice(\''+sid+'\',this.value);}" '
+      +'onblur="if(this.value!==this.defaultValue)purSetActualPrice(\''+sid+'\',this.value)">'
+      +'<span style="font-size:.66rem;color:var(--tx3)">€</span>';
+    if(c.qty>1&&typeof c.actualPrice==='number')priceCell+='<span style="font-size:.62rem;color:var(--tx3)" title="Total pour '+c.qty+'× '+(c.actualPrice*c.qty).toFixed(2)+'€">×'+c.qty+'</span>';
+    priceCell+='</div>';
+  }else{
+    priceCell=priceVal?'<span style="color:var(--gold2);font-size:.78rem">'+priceVal+'€</span>':'<span style="color:var(--tx3);font-size:.7rem">—</span>';
+  }
   var delBtn='<button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;font-size:.72rem;color:var(--rd2);opacity:.6;padding:0 4px" title="Retirer">✕</button>';
   var modTxt='';
   if(c.lastChangeBy&&c.lastChangeBy!==c.addedBy){
@@ -11758,6 +11846,7 @@ function _purRenderRow(c,zIdx){
     +'<td>'+statusChip+'</td>'
     +'<td>'+buyerChip+'</td>'
     +'<td>'+borrowerChip+'</td>'
+    +'<td>'+priceCell+'</td>'
     +'<td>'+delBtn+'</td>'
     +'</tr>';
 }
