@@ -2100,9 +2100,18 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
       </div>
       <div id="admin-scryfall-body" style="padding:10px">
         <div id="admin-scryfall-status" style="font-size:.74rem;color:var(--tx3);margin-bottom:8px">Chargement…</div>
-        <button class="btn btnsm" id="admin-scryfall-btn" onclick="adminSyncScryfall()" style="font-size:.76rem">⟳ Synchroniser depuis Scryfall</button>
+        <div style="font-size:.68rem;color:var(--tx3);margin-bottom:3px;font-family:var(--ff-head);letter-spacing:.06em">TYPE DE BULK</div>
+        <div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap" id="admin-bulk-grp">
+          <button class="btn btnsm" data-bulk="oracle_cards" onclick="adminSetBulkType('oracle_cards')" style="font-size:.7rem">Oracle (~85 Mo)</button>
+          <button class="btn btnsm" data-bulk="default_cards" onclick="adminSetBulkType('default_cards')" style="font-size:.7rem">Default (~330 Mo)</button>
+          <button class="btn btnsm" data-bulk="all_cards" onclick="adminSetBulkType('all_cards')" style="font-size:.7rem">All (~2 Go)</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btnsm" id="admin-scryfall-btn" onclick="adminSyncScryfall()" style="font-size:.76rem">⟳ Sync direct Scryfall</button>
+          <button class="btn btnsm" id="admin-scryfall-diff-btn" onclick="adminSyncScryfallDiff()" style="font-size:.76rem;color:var(--c-info);border-color:var(--c-info-bd)">⚡ Sync via diff proxy</button>
+        </div>
         <div id="admin-scryfall-prog" style="font-size:.72rem;color:var(--tx2);margin-top:6px;min-height:.9rem"></div>
-        <div style="font-size:.68rem;color:var(--tx3);margin-top:5px">Télécharge all_cards.json (~900 Mo) depuis Scryfall via un parser streaming, le met en cache IndexedDB local et notifie les autres utilisateurs. Opération longue (~5-15 min selon la connexion).</div>
+        <div style="font-size:.68rem;color:var(--tx3);margin-top:5px">Oracle = données suffisantes pour l'app (recommandé). Default = toutes versions imprimées. All = + toutes les langues. Le bouton "diff proxy" télécharge uniquement les changements depuis la dernière sync (~1-5 Mo).</div>
       </div>
     </div>
     <!-- Import collection section -->
@@ -22898,6 +22907,14 @@ function importPrelistToBld(){
 
 // ===== INDEXEDDB SCRYFALL CACHE =====
 var _idb=null;
+// Type de bulk Scryfall : 'oracle_cards' (~85 Mo) recommandé, 'default_cards' (~330 Mo), 'all_cards' (~2 Go)
+// Stocké en localStorage pour permettre l'override admin
+var _SCRY_BULK_TYPE=(function(){try{var v=localStorage.getItem('mtg_scry_bulk_type');return v||'oracle_cards';}catch(_){return 'oracle_cards';}})();
+function _setScryBulkType(t){
+  if(['oracle_cards','default_cards','all_cards','unique_artwork'].indexOf(t)<0)return;
+  _SCRY_BULK_TYPE=t;
+  try{localStorage.setItem('mtg_scry_bulk_type',t);}catch(_){}
+}
 function _openIDB(){
   return new Promise(function(res,rej){
     // Vérifie que la connexion cachée n'est pas en train de se fermer
@@ -23014,13 +23031,18 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
       var cardStart=-1; // byte offset in current chunk where card started
       var cardParts=[];  // Uint8Array parts when a card spans multiple chunks
       var batch=[],writeChain=Promise.resolve();
+      // Hash léger pour détecter les changements (skip-if-unchanged)
+      function _recHash(r){
+        var p=r.prices||{};
+        return (r.oracle_id||'')+'|'+(r.image_uri||'').length+'|'+(p.usd||'')+'|'+(p.eur||'')+'|'+(r.oracle_text||'').length+'|'+(r.cmc||0);
+      }
       function _idbWriteBatch(cards){
-        // Réouvre la connexion à chaque batch pour gérer les fermetures (idle, tab switch, etc.)
         return _idbRetry(function(){
           return _openIDB().then(function(idb){
             return new Promise(function(res,rej){
               try{
                 var tx=idb.transaction('cards','readwrite'),store=tx.objectStore('cards');
+                var skipped=0;
                 cards.forEach(function(c){
                   var img='',faces=null;
                   if(c.image_uris)img=c.image_uris.normal||c.image_uris.large||'';
@@ -23028,16 +23050,24 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
                     img=c.card_faces[0].image_uris.normal||'';
                     faces=c.card_faces.map(function(f){return{name:f.name||'',oracle_text:f.oracle_text||''};});
                   }
-                  store.put({name:(c.name||'').toLowerCase(),display_name:c.name||'',oracle_id:c.oracle_id||'',
+                  var rec={name:(c.name||'').toLowerCase(),display_name:c.name||'',oracle_id:c.oracle_id||'',
                     colors:c.colors||[],color_identity:c.color_identity||[],mana_cost:c.mana_cost||'',
                     cmc:c.cmc||0,type_line:c.type_line||'',rarity:c.rarity||'',oracle_text:c.oracle_text||'',
                     power:c.power||null,toughness:c.toughness||null,loyalty:c.loyalty||null,
                     image_uri:img,faces:faces,
                     prices:{usd:(c.prices&&c.prices.usd)||null,eur:(c.prices&&c.prices.eur)||null,
                       usd_foil:(c.prices&&c.prices.usd_foil)||null,eur_foil:(c.prices&&c.prices.eur_foil)||null},
-                    scryfall_uri:c.scryfall_uri||'',updated_at:c.updated_at||''});
+                    scryfall_uri:c.scryfall_uri||'',updated_at:c.updated_at||''};
+                  rec._h=_recHash(rec);
+                  // Skip-if-unchanged : on lit la version existante, on compare le hash
+                  var req=store.get(rec.name);
+                  req.onsuccess=function(){
+                    var prev=req.result;
+                    if(prev&&prev._h===rec._h){skipped++;return;}
+                    store.put(rec);
+                  };
                 });
-                tx.oncomplete=function(){res();};
+                tx.oncomplete=function(){if(skipped)console.log('[scry-sync] skipped',skipped,'unchanged');res();};
                 tx.onerror=function(){rej(tx.error);};
                 tx.onabort=function(){rej(tx.error||new Error('tx aborted'));};
               }catch(e){rej(e);}
@@ -23113,18 +23143,111 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
       return read();
     });
 }
+function adminSetBulkType(t){
+  _setScryBulkType(t);
+  _refreshAdminBulkButtons();
+  _loadAdminScryfallStatus();
+  toastInfo('Bulk Scryfall : '+t);
+}
+// Sync via le proxy diff Vercel : ne télécharge que les changements
+function adminSyncScryfallDiff(){
+  var btn=document.getElementById('admin-scryfall-diff-btn');
+  var prog=document.getElementById('admin-scryfall-prog');
+  if(btn)btn.disabled=true;
+  prog.textContent='Interrogation du proxy diff…';
+  // Lit l'updated_at local
+  _idbGetMeta('updated_at').then(function(localUpd){
+    var since=localUpd?encodeURIComponent(localUpd):'';
+    return fetch('/api/scryfall-diff'+(since?'?since='+since:''),{cache:'no-store'})
+      .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+      .then(function(o){
+        if(!o.ok){throw new Error(o.j&&o.j.error||'proxy error');}
+        var diffs=o.j.diffs||[];
+        if(!diffs.length){
+          prog.textContent='✓ Déjà à jour (proxy)';
+          if(btn)btn.disabled=false;
+          _loadAdminScryfallStatus();
+          return;
+        }
+        prog.textContent='Application de '+diffs.length+' diff(s)…';
+        // Applique chaque diff séquentiellement
+        var i=0,totalAdds=0,totalUpdates=0,totalDeletes=0;
+        function nextDiff(){
+          if(i>=diffs.length){
+            // Met à jour le meta local
+            return Promise.all([
+              _idbSetMeta('updated_at',o.j.current.updated_at),
+              _idbCount().then(function(c){return _idbSetMeta('card_count',c);})
+            ]).then(function(){
+              prog.textContent='✓ '+totalAdds+' ajouts, '+totalUpdates+' MAJ, '+totalDeletes+' suppr.';
+              if(btn)btn.disabled=false;
+              _loadAdminScryfallStatus();
+              toastSuccess('Sync diff terminée : '+(totalAdds+totalUpdates+totalDeletes)+' changement(s)');
+            });
+          }
+          var d=diffs[i++];
+          prog.textContent='Téléchargement diff '+i+'/'+diffs.length+'…';
+          return fetch(d.url).then(function(r){return r.json();}).then(function(diff){
+            totalAdds+=(diff.adds||[]).length;
+            totalUpdates+=(diff.updates||[]).length;
+            totalDeletes+=(diff.deletes||[]).length;
+            return _applyDiffToIDB(diff);
+          }).then(nextDiff);
+        }
+        return nextDiff();
+      });
+  }).catch(function(e){
+    prog.textContent='Erreur : '+e.message;
+    if(btn)btn.disabled=false;
+    toastError('Sync diff impossible : '+e.message);
+  });
+}
+function _applyDiffToIDB(diff){
+  return _openIDB().then(function(idb){
+    return new Promise(function(res,rej){
+      var tx=idb.transaction('cards','readwrite');
+      var store=tx.objectStore('cards');
+      // Adds + updates : on persist en remplaçant
+      (diff.adds||[]).concat(diff.updates||[]).forEach(function(c){
+        var nameLow=(c.name||'').toLowerCase();
+        var rec={name:nameLow,display_name:c.name||'',oracle_id:c.oracle_id||'',
+          colors:c.colors||[],color_identity:c.color_identity||[],mana_cost:c.mana_cost||'',
+          cmc:c.cmc||0,type_line:c.type_line||'',rarity:c.rarity||'',oracle_text:c.oracle_text||'',
+          power:c.power||null,toughness:c.toughness||null,loyalty:c.loyalty||null,
+          image_uri:c.image_uri||'',faces:c.faces||null,
+          prices:c.prices||{usd:null,eur:null,usd_foil:null,eur_foil:null},
+          scryfall_uri:c.scryfall_uri||''};
+        // Hash léger pour cohérence avec _idbWriteBatch
+        var p=rec.prices||{};
+        rec._h=(rec.oracle_id||'')+'|'+(rec.image_uri||'').length+'|'+(p.usd||'')+'|'+(p.eur||'')+'|'+(rec.oracle_text||'').length+'|'+(rec.cmc||0);
+        store.put(rec);
+      });
+      // Deletes
+      (diff.deletes||[]).forEach(function(nameLow){store.delete(nameLow);});
+      tx.oncomplete=function(){res();};
+      tx.onerror=function(){rej(tx.error);};
+      tx.onabort=function(){rej(tx.error||new Error('tx aborted'));};
+    });
+  });
+}
+function _refreshAdminBulkButtons(){
+  document.querySelectorAll('#admin-bulk-grp button').forEach(function(b){
+    b.classList.toggle('btnp',b.dataset.bulk===_SCRY_BULK_TYPE);
+  });
+}
+setTimeout(_refreshAdminBulkButtons,800);
 // Admin: synchronize metadata + local download
 function adminSyncScryfall(){
   var btn=document.getElementById('admin-scryfall-btn');
   var prog=document.getElementById('admin-scryfall-prog');
   btn.disabled=true;prog.textContent='Interrogation Scryfall…';
   fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
-    var oracle=(data.data||[]).find(function(d){return d.type==='all_cards';});
-    if(!oracle)throw new Error('all_cards introuvable dans la réponse Scryfall');
+    var oracle=(data.data||[]).find(function(d){return d.type===_SCRY_BULK_TYPE;});
+    if(!oracle)throw new Error(_SCRY_BULK_TYPE+' introuvable dans la réponse Scryfall');
     var upd=oracle.updated_at,uri=oracle.download_uri,sizeBytes=oracle.size||0;
     prog.textContent='Enregistrement des métadonnées…';
-    return db.collection('meta').doc('scryfall').set({updated_at:upd,download_uri:uri,size_bytes:sizeBytes,synced_at:new Date().toISOString()},{merge:true}).then(function(){
-      prog.textContent='Téléchargement all_cards.json (~'+Math.round(sizeBytes/1024/1024)+' Mo, patientez…)';
+    return db.collection('meta').doc('scryfall').set({updated_at:upd,download_uri:uri,size_bytes:sizeBytes,bulk_type:_SCRY_BULK_TYPE,synced_at:new Date().toISOString()},{merge:true}).then(function(){
+      prog.textContent='Téléchargement '+_SCRY_BULK_TYPE+'.json (~'+Math.round(sizeBytes/1024/1024)+' Mo, patientez…)';
       return _downloadAndPopulateIDB(uri,upd,function(phase,a,b){
         if(phase==='dl')prog.textContent='Téléchargement… '+Math.round(a/1024/1024)+'/'+(b?Math.round(b/1024/1024):'?')+' Mo';
         else if(phase==='parse')prog.textContent='Analyse JSON…';
@@ -23151,7 +23274,7 @@ function _loadAdminScryfallStatus(){
     _idbGetMeta('updated_at')
   ]).then(function(r){
     var live=r[0],meta=r[1]&&r[1].data&&r[1].data(),cnt=r[2],localUpd=r[3];
-    var liveBulk=live&&(live.data||[]).find(function(d){return d.type==='all_cards';});
+    var liveBulk=live&&(live.data||[]).find(function(d){return d.type===_SCRY_BULK_TYPE;});
     var lines=[];
     if(liveBulk){
       var ld=new Date(liveBulk.updated_at);
@@ -23177,7 +23300,7 @@ function _checkScryfallIDB(){
   // cache:no-store + ts cache-buster pour s'assurer d'avoir la TRUE dernière version
   // (le bulk-data est re-généré toutes les ~6 heures côté Scryfall)
   fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
-    var bulk=(data.data||[]).find(function(d){return d.type==='all_cards';});
+    var bulk=(data.data||[]).find(function(d){return d.type===_SCRY_BULK_TYPE;});
     if(!bulk||!bulk.download_uri||!bulk.updated_at)return;
     return _idbGetMeta('updated_at').then(function(local){
       if(local===bulk.updated_at)return;
@@ -23194,7 +23317,8 @@ function _checkScryfallIDB(){
   }).catch(function(){});
 }
 function _startClientSync(uri,updatedAt,banner){
-  banner.innerHTML='<span id="_sync-prog">Téléchargement (~900 Mo)…</span>';
+  var sizeHint={oracle_cards:'~85 Mo',default_cards:'~330 Mo',all_cards:'~2 Go',unique_artwork:'~135 Mo'}[_SCRY_BULK_TYPE]||'';
+  banner.innerHTML='<span id="_sync-prog">Téléchargement '+sizeHint+'…</span>';
   _downloadAndPopulateIDB(uri,updatedAt,function(phase,a,b){
     var el=document.getElementById('_sync-prog');if(!el)return;
     if(phase==='dl')el.textContent='Téléchargement… '+Math.round(a/1024/1024)+'Mo';
