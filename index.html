@@ -1664,6 +1664,8 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
 .pur-dk-hdr td{background:var(--s2);color:var(--gold2);font-weight:600;font-size:.77rem;padding:5px 10px;border-top:.5px solid var(--bd2)}
 .pur-card-row{cursor:grab;transition:background .1s}
 .pur-card-row:hover{background:rgba(255,255,255,.03)}
+.pur-card-row.pur-card-sel{background:rgba(91,140,245,.12);border-left:2px solid var(--c-info)}
+.pur-card-row.pur-card-sel:hover{background:rgba(91,140,245,.18)}
 .pur-card-row:active{cursor:grabbing;opacity:.6}
 .pur-col-td{min-width:180px}
 .pur-col-td.pur-drag-over{background:rgba(201,168,76,.11);outline:2px dashed rgba(201,168,76,.55)}
@@ -2968,12 +2970,22 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
         <span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Vue :</span>
         <button class="dm pur-viewmode active" data-mode="action" onclick="purSetViewMode('action')" title="Vue par actions : à toi de décider, à acheter, à emprunter, à prêter">🎯 Actions</button>
         <button class="dm pur-viewmode" data-mode="table" onclick="purSetViewMode('table')" title="Vue tableau classique par deck">📋 Tableau</button>
+        <button class="dm" id="pur-toggle-groups" onclick="purToggleGroupsPanel()" title="Gérer les groupes d'achat (multi-vendeurs + frais de port)">🧺 Groupes</button>
+        <button class="dm" id="pur-toggle-viewgroup" onclick="purToggleViewByGroup()" title="Regrouper le tableau par groupe d'achat (au lieu de par deck)">⇋ Vue par groupe</button>
         <span style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Filtre :</span>
         <button class="dm pur-rolefilt active" data-mode="all" onclick="purSetRoleFilter('all')">Tous</button>
         <button class="dm pur-rolefilt" data-mode="mybuys" onclick="purSetRoleFilter('mybuys')">🛒 Mes achats</button>
         <button class="dm pur-rolefilt" data-mode="myborrows" onclick="purSetRoleFilter('myborrows')">📥 Mes emprunts</button>
         <button class="dm pur-rolefilt" data-mode="unassigned" onclick="purSetRoleFilter('unassigned')">❓ À répartir</button>
       </div>
+    </div>
+    <!-- Bandeau action multi-sélection -->
+    <div id="pur-bulk-bar" style="display:none;margin-top:8px;padding:6px 10px;background:rgba(91,140,245,.15);border:.5px solid rgba(91,140,245,.4);border-radius:8px;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="color:var(--c-info);font-weight:600"><span id="pur-bulk-count">0</span> sélectionnée(s)</span>
+      <button class="btn btnsm" onclick="purBulkAssignBuyer()">Acheteur…</button>
+      <button class="btn btnsm" onclick="purBulkAssignBorrower()">Emprunteur…</button>
+      <button class="btn btnsm" onclick="purBulkAssignGroup()">Groupe d'achat…</button>
+      <button class="btn btnsm" onclick="_purSelectedIds={};renderPurchaseMgr();" style="margin-left:auto">✕ Tout désélectionner</button>
     </div>
     <!-- Panneau coller liste -->
     <div id="pur-paste-panel" style="display:none;margin-top:10px;border-top:.5px solid var(--bd);padding-top:10px">
@@ -10006,6 +10018,140 @@ function purSetRoleFilter(mode){
   renderPurchaseMgr();
 }
 
+// ===== Sous-groupes d'achat (Cardmarket multi-vendeurs) =====
+// list.orderGroups = [{id, name, sellerName, shippingCost, addedBy, addedAt}, ...]
+// card.orderGroupId → référence l'id du groupe
+function _purGenGroupId(){return 'g_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6);}
+function purAddOrderGroup(){
+  if(!_activePurListId)return;
+  var name=prompt('Nom du groupe d\'achat (ex : "Cardmarket — vendeur SolRing33") :','Cardmarket #'+((_purchaseLists[_activePurListId].orderGroups||[]).length+1));
+  if(!name)return;
+  var shipRaw=prompt('Frais de port (€, optionnel) :','0');
+  var ship=parseFloat((shipRaw||'').replace(',','.'));if(isNaN(ship)||ship<0)ship=0;
+  var list=_purchaseLists[_activePurListId];
+  if(!list.orderGroups)list.orderGroups=[];
+  list.orderGroups.push({id:_purGenGroupId(),name:name,sellerName:'',shippingCost:Math.round(ship*100)/100,addedBy:userId,addedAt:Date.now()});
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+  toastSuccess('Groupe créé : '+name);
+}
+function purEditOrderGroup(groupId,field,rawVal){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];if(!list||!list.orderGroups)return;
+  var g=list.orderGroups.find(function(x){return x.id===groupId;});if(!g)return;
+  if(field==='name'){g.name=String(rawVal||'').trim()||g.name;}
+  else if(field==='sellerName'){g.sellerName=String(rawVal||'').trim();}
+  else if(field==='shippingCost'){
+    var n=parseFloat(String(rawVal||'').replace(',','.'));
+    if(isNaN(n)||n<0)n=0;
+    g.shippingCost=Math.round(n*100)/100;
+  }
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+}
+function purDeleteOrderGroup(groupId){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];if(!list||!list.orderGroups)return;
+  var g=list.orderGroups.find(function(x){return x.id===groupId;});if(!g)return;
+  if(!confirm('Supprimer le groupe "'+g.name+'" ? Les cartes ne seront pas supprimées mais désassociées.'))return;
+  list.orderGroups=list.orderGroups.filter(function(x){return x.id!==groupId;});
+  (list.cards||[]).forEach(function(c){if(c.orderGroupId===groupId)delete c.orderGroupId;});
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+  toastSuccess('Groupe supprimé');
+}
+// Bulk : assigner buyer/borrower/groupe pour plusieurs cartes
+function purBulkAssign(cardIds,field,value){
+  if(!_activePurListId||!cardIds||!cardIds.length)return;
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var changed=0;
+  (list.cards||[]).forEach(function(c){
+    if(cardIds.indexOf(c.id)<0)return;
+    if(field==='orderGroupId'){
+      if(value===null||value===undefined)delete c.orderGroupId;
+      else c.orderGroupId=value;
+    }else if(field==='buyer'||field==='borrower'){
+      c[field]=value||null;
+    }
+    c.lastChangeBy=userId;c.lastChangeAt=Date.now();
+    changed++;
+  });
+  savePurchaseList(_activePurListId);
+  _purSelectedIds={};
+  renderPurchaseMgr();
+  toastSuccess(changed+' carte(s) mise(s) à jour');
+}
+// Toggle d'affichage du panneau groupes / sélection
+var _purShowGroupsPanel=false;
+var _purViewByGroup=false; // false = group by deck, true = group by orderGroup
+var _purSelectedIds={};
+function purToggleGroupsPanel(){_purShowGroupsPanel=!_purShowGroupsPanel;renderPurchaseMgr();}
+function purToggleViewByGroup(){_purViewByGroup=!_purViewByGroup;renderPurchaseMgr();}
+function purToggleCardSelect(id,checked){
+  if(checked)_purSelectedIds[id]=1;
+  else delete _purSelectedIds[id];
+  _purRefreshBulkBar();
+}
+function purSelectAll(checked){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  _purSelectedIds={};
+  if(checked){
+    (list.cards||[]).forEach(function(c){_purSelectedIds[c.id]=1;});
+  }
+  renderPurchaseMgr();
+}
+function _purRefreshBulkBar(){
+  var bar=document.getElementById('pur-bulk-bar');
+  if(!bar)return;
+  var n=Object.keys(_purSelectedIds).length;
+  bar.style.display=n>0?'flex':'none';
+  var cnt=document.getElementById('pur-bulk-count');
+  if(cnt)cnt.textContent=n+' carte(s)';
+}
+function purBulkAssignBuyer(){
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var ids=Object.keys(_purSelectedIds);if(!ids.length)return;
+  var members=list.members||[];
+  if(!members.length){toastError('Aucun membre dans la liste');return;}
+  var lines=members.map(function(uid,i){return (i+1)+'. '+_purMemberName(uid)+(uid===userId?' (moi)':'');});
+  lines.push((members.length+1)+'. — (désassigner)');
+  var choice=prompt('Désigner l\'acheteur pour '+ids.length+' carte(s) :\n\n'+lines.join('\n')+'\n\nEntre le numéro :');
+  if(!choice)return;
+  var idx=parseInt(choice)-1;
+  if(idx<0||idx>members.length){toastError('Numéro invalide');return;}
+  var uid=idx===members.length?null:members[idx];
+  purBulkAssign(ids,'buyer',uid);
+}
+function purBulkAssignBorrower(){
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var ids=Object.keys(_purSelectedIds);if(!ids.length)return;
+  var members=list.members||[];
+  if(!members.length){toastError('Aucun membre');return;}
+  var lines=members.map(function(uid,i){return (i+1)+'. '+_purMemberName(uid)+(uid===userId?' (moi)':'');});
+  lines.push((members.length+1)+'. — (désassigner)');
+  var choice=prompt('Désigner l\'emprunteur pour '+ids.length+' carte(s) :\n\n'+lines.join('\n')+'\n\nEntre le numéro :');
+  if(!choice)return;
+  var idx=parseInt(choice)-1;
+  if(idx<0||idx>members.length){toastError('Numéro invalide');return;}
+  var uid=idx===members.length?null:members[idx];
+  purBulkAssign(ids,'borrower',uid);
+}
+function purBulkAssignGroup(){
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var ids=Object.keys(_purSelectedIds);if(!ids.length)return;
+  var groups=list.orderGroups||[];
+  var lines=groups.map(function(g,i){return (i+1)+'. '+g.name+(g.shippingCost?' (port '+g.shippingCost.toFixed(2)+'€)':'');});
+  lines.push((groups.length+1)+'. — (aucun groupe)');
+  if(!groups.length)lines.unshift('0. (Crée d\'abord un groupe via "+ Nouveau groupe")');
+  var choice=prompt('Assigner '+ids.length+' carte(s) à un groupe :\n\n'+lines.join('\n')+'\n\nEntre le numéro :');
+  if(!choice)return;
+  var idx=parseInt(choice)-1;
+  if(idx<0||idx>groups.length){toastError('Numéro invalide');return;}
+  var gid=idx===groups.length?null:groups[idx].id;
+  purBulkAssign(ids,'orderGroupId',gid);
+}
+
 // Édition du prix réel d'achat (ce qui a été effectivement payé)
 function purSetActualPrice(cardId,rawVal){
   if(!_activePurListId)return;
@@ -11701,76 +11847,179 @@ function renderPurchaseMgr(){
     });
     return;
   }
-  // Mode tableau : Deck / Carte / Statut / Acheteur / Emprunteur / Prix réel / Actions
-  var html=_purRenderPaidSummary(lst.cards||[])
-    +'<table class="pur-table"><thead><tr>'
-    +'<th style="width:26%">Deck / Carte</th>'
-    +'<th style="width:13%">Statut</th>'
-    +'<th style="width:16%;color:var(--gold2)">Acheteur</th>'
-    +'<th style="width:16%;color:var(--ac2)">Emprunteur</th>'
-    +'<th style="width:17%;color:var(--gold2)">Prix réel</th>'
-    +'<th style="width:12%">Actions</th>'
+  // Mode tableau : ☐ / Deck / Carte / Statut / Acheteur / Emprunteur / Prix réel / Groupe / Actions
+  var allCards=lst.cards||[];
+  var allIds=allCards.map(function(c){return c.id;});
+  var allSelected=allIds.length>0&&allIds.every(function(id){return _purSelectedIds[id];});
+  var html=_purRenderPaidSummary(allCards,lst.orderGroups||[]);
+  // Panneau groupes (collapsible)
+  if(_purShowGroupsPanel){
+    html+=_purRenderGroupsPanel(lst);
+  }
+  html+='<table class="pur-table"><thead><tr>'
+    +'<th style="width:28px;text-align:center"><input type="checkbox" '+(allSelected?'checked':'')+' onchange="purSelectAll(this.checked)" title="Tout sélectionner"></th>'
+    +'<th style="width:23%">Deck / Carte</th>'
+    +'<th style="width:12%">Statut</th>'
+    +'<th style="width:14%;color:var(--gold2)">Acheteur</th>'
+    +'<th style="width:14%;color:var(--ac2)">Emprunteur</th>'
+    +'<th style="width:14%;color:var(--gold2)">Prix réel</th>'
+    +'<th style="width:13%;color:#a8c8ff">Groupe</th>'
+    +'<th style="width:9%">Actions</th>'
     +'</tr></thead><tbody>';
   if(!cards.length){
-    html+='<tr><td colspan="6" style="text-align:center;padding:2rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">'
+    html+='<tr><td colspan="8" style="text-align:center;padding:2rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">'
       +(_sharedListsRoleFilter!=='all'?'Aucune carte ne correspond à ce filtre.':'Liste vide — utilisez le panneau de droite pour ajouter des cartes.')
       +'</td></tr>';
   }else{
-    // Regroupement par deck (préservé)
-    var groups={},deckOrder=[];
-    cards.forEach(function(c){
-      var dk=c.deckName||'(sans deck)';
-      if(!groups[dk]){groups[dk]=[];deckOrder.push(dk);}
-      groups[dk].push(c);
-    });
     _zoomList=[];
-    deckOrder.forEach(function(dk){
-      if(dk!=='(sans deck)')html+='<tr class="pur-dk-hdr"><td colspan="6">📖 '+esc(dk)+'</td></tr>';
-      groups[dk].forEach(function(c){_zoomList.push({nl:c.nl,name:c.name});html+=_purRenderRow(c,_zoomList.length-1);});
-    });
+    if(_purViewByGroup){
+      // Regroupement par groupe d'achat
+      var byGroup={};var groupOrder=[];
+      cards.forEach(function(c){
+        var gid=c.orderGroupId||'(sans groupe)';
+        if(!byGroup[gid]){byGroup[gid]=[];groupOrder.push(gid);}
+        byGroup[gid].push(c);
+      });
+      // Order : groups définis d'abord (dans leur ordre), puis "sans groupe" à la fin
+      var defOrder=(lst.orderGroups||[]).map(function(g){return g.id;});
+      var ordered=defOrder.filter(function(gid){return byGroup[gid];})
+        .concat(groupOrder.filter(function(gid){return defOrder.indexOf(gid)<0&&gid!=='(sans groupe)';}))
+        .concat(byGroup['(sans groupe)']?['(sans groupe)']:[]);
+      ordered.forEach(function(gid){
+        var grp=(lst.orderGroups||[]).find(function(g){return g.id===gid;});
+        var hdrLbl=grp?('🧺 '+esc(grp.name)+(grp.shippingCost?' <span style="color:var(--tx3);font-size:.7rem">(port '+grp.shippingCost.toFixed(2)+'€)</span>':'')):'❓ Sans groupe d\'achat';
+        html+='<tr class="pur-dk-hdr"><td colspan="8" style="background:rgba(168,200,255,.08)">'+hdrLbl+'</td></tr>';
+        byGroup[gid].forEach(function(c){_zoomList.push({nl:c.nl,name:c.name});html+=_purRenderRow(c,_zoomList.length-1);});
+      });
+    }else{
+      // Regroupement par deck (vue classique)
+      var groups={},deckOrder=[];
+      cards.forEach(function(c){
+        var dk=c.deckName||'(sans deck)';
+        if(!groups[dk]){groups[dk]=[];deckOrder.push(dk);}
+        groups[dk].push(c);
+      });
+      deckOrder.forEach(function(dk){
+        if(dk!=='(sans deck)')html+='<tr class="pur-dk-hdr"><td colspan="8">📖 '+esc(dk)+'</td></tr>';
+        groups[dk].forEach(function(c){_zoomList.push({nl:c.nl,name:c.name});html+=_purRenderRow(c,_zoomList.length-1);});
+      });
+    }
   }
   html+='</tbody></table>';
   wrap.innerHTML=html;
+  // Sync toggle états
+  var tg=document.getElementById('pur-toggle-groups');if(tg)tg.classList.toggle('active',_purShowGroupsPanel);
+  var tv=document.getElementById('pur-toggle-viewgroup');if(tv)tv.classList.toggle('active',_purViewByGroup);
+  _purRefreshBulkBar();
   purFilterDecks();
 }
-// Bandeau résumé : total payé par acheteur (et reste à payer)
-function _purRenderPaidSummary(cards){
+// Panneau de gestion des groupes d'achat
+function _purRenderGroupsPanel(lst){
+  var groups=lst.orderGroups||[];
+  var canEdit=lst.createdBy===userId;
+  var html='<div style="background:rgba(91,140,245,.06);border:.5px solid var(--bd2);border-radius:8px;padding:10px 12px;margin-bottom:10px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+    +'<div style="font-family:var(--ff-head);color:#a8c8ff;font-size:.85rem">🧺 Groupes d\'achat ('+groups.length+')</div>'
+    +'<button class="btn btnsm btnp" onclick="purAddOrderGroup()">+ Nouveau groupe</button>'
+    +'</div>'
+    +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:8px">Un groupe = un envoi (un vendeur Cardmarket par exemple). Les frais de port seront répartis proportionnellement entre les acheteurs du groupe.</div>';
+  if(!groups.length){
+    html+='<div style="text-align:center;padding:10px;color:var(--tx3);font-style:italic;font-size:.78rem">Aucun groupe. Crée-en un, puis assigne des cartes via la multi-sélection.</div>';
+  }else{
+    html+='<div style="display:flex;flex-direction:column;gap:4px">';
+    groups.forEach(function(g){
+      var sid=g.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      var nbCards=(lst.cards||[]).filter(function(c){return c.orderGroupId===g.id;}).length;
+      var totalCards=(lst.cards||[]).filter(function(c){return c.orderGroupId===g.id;}).reduce(function(s,c){return s+(c.qty||1);},0);
+      html+='<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(0,0,0,.2);border-radius:5px;flex-wrap:wrap">';
+      html+='<input type="text" value="'+esc(g.name)+'" '+(canEdit?'':'readonly')+' onblur="purEditOrderGroup(\''+sid+'\',\'name\',this.value)" style="flex:1;min-width:120px;background:var(--s2);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px;padding:3px 6px;font-size:.78rem">';
+      html+='<span style="color:var(--tx3);font-size:.7rem">Port</span><input type="number" step="0.01" min="0" value="'+(g.shippingCost||0).toFixed(2)+'" '+(canEdit?'':'readonly')+' onblur="purEditOrderGroup(\''+sid+'\',\'shippingCost\',this.value)" style="width:60px;background:var(--s2);border:.5px solid var(--bd2);color:var(--gold2);border-radius:4px;padding:3px 5px;font-size:.78rem;text-align:right">';
+      html+='<span style="color:var(--tx3);font-size:.7rem">€ ·</span><span style="color:var(--tx2);font-size:.72rem">'+nbCards+' lignes · '+totalCards+' cartes</span>';
+      if(canEdit)html+='<button class="btn btnsm" onclick="purDeleteOrderGroup(\''+sid+'\')" style="color:var(--rd2);font-size:.7rem;padding:2px 6px">🗑</button>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  return html;
+}
+// Bandeau résumé : total payé par acheteur + parts de frais de port (split proportionnel)
+function _purRenderPaidSummary(cards,orderGroups){
   if(!cards||!cards.length)return '';
-  var byBuyer={};        // uid → {paid, missing}
-  var totalPaid=0,totalMissing=0,assignedCount=0,unassignedCount=0;
+  orderGroups=orderGroups||[];
+  var groupById={};orderGroups.forEach(function(g){groupById[g.id]=g;});
+  // 1) Cartes : total cartes par buyer
+  var byBuyer={};        // uid → {cards, ship, cardsPaid, cardsMissing}
+  var totalCardsPaid=0,unassignedCount=0,unpricedCount=0;
   cards.forEach(function(c){
     var qty=c.qty||1;
     if(!c.buyer){unassignedCount+=qty;return;}
-    assignedCount+=qty;
-    if(!byBuyer[c.buyer])byBuyer[c.buyer]={paid:0,missing:0,cardsPaid:0,cardsMissing:0};
+    if(!byBuyer[c.buyer])byBuyer[c.buyer]={cards:0,ship:0,cardsPaid:0,cardsMissing:0};
     if(typeof c.actualPrice==='number'){
       var amt=c.actualPrice*qty;
-      byBuyer[c.buyer].paid+=amt;
+      byBuyer[c.buyer].cards+=amt;
       byBuyer[c.buyer].cardsPaid+=qty;
-      totalPaid+=amt;
+      totalCardsPaid+=amt;
     }else{
-      byBuyer[c.buyer].missing+=qty;
       byBuyer[c.buyer].cardsMissing+=qty;
-      totalMissing+=qty;
+      unpricedCount+=qty;
+    }
+  });
+  // 2) Frais de port : pour chaque groupe, split proportionnel selon le sous-total payé par buyer dans CE groupe
+  var totalShip=0;
+  orderGroups.forEach(function(g){
+    var s=g.shippingCost||0;if(!s)return;
+    totalShip+=s;
+    // sous-totaux du groupe par buyer
+    var groupBuyers={};
+    var groupSubTotal=0;
+    cards.forEach(function(c){
+      if(c.orderGroupId!==g.id||!c.buyer||typeof c.actualPrice!=='number')return;
+      var amt=c.actualPrice*(c.qty||1);
+      groupBuyers[c.buyer]=(groupBuyers[c.buyer]||0)+amt;
+      groupSubTotal+=amt;
+    });
+    if(groupSubTotal>0){
+      Object.keys(groupBuyers).forEach(function(uid){
+        var share=s*(groupBuyers[uid]/groupSubTotal);
+        if(!byBuyer[uid])byBuyer[uid]={cards:0,ship:0,cardsPaid:0,cardsMissing:0};
+        byBuyer[uid].ship+=share;
+      });
+    }else{
+      // Fallback : pas de prix saisi → split équitable entre buyers présents dans le groupe
+      var present={};
+      cards.forEach(function(c){if(c.orderGroupId===g.id&&c.buyer)present[c.buyer]=1;});
+      var keys=Object.keys(present);
+      if(keys.length){
+        var perPerson=s/keys.length;
+        keys.forEach(function(uid){
+          if(!byBuyer[uid])byBuyer[uid]={cards:0,ship:0,cardsPaid:0,cardsMissing:0};
+          byBuyer[uid].ship+=perPerson;
+        });
+      }
     }
   });
   var buyers=Object.keys(byBuyer);
   if(!buyers.length&&!unassignedCount)return '';
-  var html='<div style="background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:.5px solid var(--bd2);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:.78rem">';
+  var grandTotal=totalCardsPaid+totalShip;
+  var html='<div style="background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:.5px solid var(--bd2);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:.78rem">';
   html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.85rem;flex-shrink:0">💰 Récap achats</div>';
   if(unassignedCount){
-    html+='<div style="color:var(--am)" title="Cartes sans acheteur désigné">⚠ '+unassignedCount+' carte(s) non assignée(s)</div>';
+    html+='<div style="color:var(--am)" title="Cartes sans acheteur désigné">⚠ '+unassignedCount+' non assignée(s)</div>';
   }
-  buyers.sort(function(a,b){return byBuyer[b].paid-byBuyer[a].paid;}).forEach(function(uid){
+  buyers.sort(function(a,b){return (byBuyer[b].cards+byBuyer[b].ship)-(byBuyer[a].cards+byBuyer[a].ship);}).forEach(function(uid){
     var b=byBuyer[uid];var nm=_purMemberName(uid);var isMe=uid===userId;
     var col=isMe?'var(--gold2)':'var(--ac2)';
-    html+='<div style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;background:rgba(0,0,0,.25);border:.5px solid '+col+';border-radius:11px">';
+    var total=b.cards+b.ship;
+    var tip='Cartes : '+b.cards.toFixed(2)+'€'+(b.ship?' · Port : '+b.ship.toFixed(2)+'€':'');
+    html+='<div style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;background:rgba(0,0,0,.25);border:.5px solid '+col+';border-radius:11px" title="'+esc(tip)+'">';
     html+='<span style="color:'+col+';font-weight:600">'+esc(nm)+(isMe?' (moi)':'')+'</span>';
-    html+='<span style="color:var(--gold2)">'+b.paid.toFixed(2)+'€</span>';
-    if(b.cardsMissing)html+='<span style="color:var(--tx3);font-size:.7rem">(+'+b.cardsMissing+' sans prix)</span>';
+    html+='<span style="color:var(--gold2);font-weight:600">'+total.toFixed(2)+'€</span>';
+    if(b.ship)html+='<span style="color:#a8c8ff;font-size:.66rem">(+'+b.ship.toFixed(2)+' port)</span>';
+    if(b.cardsMissing)html+='<span style="color:var(--tx3);font-size:.66rem">+'+b.cardsMissing+'⌀</span>';
     html+='</div>';
   });
-  html+='<div style="margin-left:auto;color:var(--gold2);font-weight:700">Total payé : '+totalPaid.toFixed(2)+'€</div>';
+  html+='<div style="margin-left:auto;color:var(--gold2);font-weight:700">Total : '+grandTotal.toFixed(2)+'€'+(totalShip?' <span style="color:#a8c8ff;font-size:.7rem">('+totalCardsPaid.toFixed(2)+' + '+totalShip.toFixed(2)+' port)</span>':'')+'</div>';
   html+='</div>';
   return html;
 }
@@ -11841,12 +12090,28 @@ function _purRenderRow(c,zIdx){
   if(c.lastChangeBy&&c.lastChangeBy!==c.addedBy){
     modTxt=' <span style="font-size:.6rem;color:var(--tx3);font-style:italic" title="Dernière modif">par '+esc(_purMemberName(c.lastChangeBy))+'</span>';
   }
-  return '<tr class="pur-card-row">'
+  // Cellule groupe d'achat
+  var groups=(list.orderGroups||[]);
+  var curGroup=c.orderGroupId?groups.find(function(g){return g.id===c.orderGroupId;}):null;
+  var groupCell;
+  if(curGroup){
+    var sgid=curGroup.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    groupCell='<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(168,200,255,.16);border:.5px solid rgba(168,200,255,.4);color:#a8c8ff;border-radius:9px;padding:1px 7px;font-size:.7rem" title="'+esc(curGroup.name)+(curGroup.shippingCost?' · port '+curGroup.shippingCost.toFixed(2)+'€':'')+'">🧺 '+esc(curGroup.name.length>14?curGroup.name.slice(0,13)+'…':curGroup.name)+'</span>';
+  }else if(groups.length){
+    groupCell='<span style="color:var(--tx3);font-size:.7rem;font-style:italic">—</span>';
+  }else{
+    groupCell='<span style="color:var(--tx3);font-size:.7rem">—</span>';
+  }
+  var isSel=!!_purSelectedIds[c.id];
+  var cbCell='<input type="checkbox" '+(isSel?'checked':'')+' onclick="event.stopPropagation()" onchange="purToggleCardSelect(\''+sid+'\',this.checked)">';
+  return '<tr class="pur-card-row'+(isSel?' pur-card-sel':'')+'">'
+    +'<td style="text-align:center">'+cbCell+'</td>'
     +'<td>'+nameHtml+noteHtml+modTxt+'</td>'
     +'<td>'+statusChip+'</td>'
     +'<td>'+buyerChip+'</td>'
     +'<td>'+borrowerChip+'</td>'
     +'<td>'+priceCell+'</td>'
+    +'<td>'+groupCell+'</td>'
     +'<td>'+delBtn+'</td>'
     +'</tr>';
 }
