@@ -10554,6 +10554,12 @@ function _purCmConfirm(){
   renderPurchaseMgr();
   toastSuccess(nGroups+' groupe(s) · '+nMatched+' carte(s) associée(s)'+(nAdded?' · '+nAdded+' ajoutée(s)':'')+' depuis Cardmarket');
 }
+// Clé de correspondance robuste : ignore accents, ponctuation, casse, faces DFC
+function _purMatchKey(name){
+  var s=(typeof stripDFC==='function'?stripDFC(name||''):(name||'')).toLowerCase();
+  try{s=s.normalize('NFD').replace(/[̀-ͯ]/g,'');}catch(e){}
+  return s.replace(/[^a-z0-9]/g,'');
+}
 // Réconcilie un import : relie les cartes importées (prix + groupe, sans acheteur)
 // aux cartes déjà assignées à un profil (acheteur, sans groupe ni prix).
 function purReconcileImports(){
@@ -10565,16 +10571,16 @@ function purReconcileImports(){
     if(hasOrder&&!c.buyer){
       orphans.push(c);
     }else if(c.buyer&&!c.orderGroupId){
-      var k=c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase();
+      var k=_purMatchKey(c.name);
       (assignedPool[k]=assignedPool[k]||[]).push(c);
     }
   });
   if(!orphans.length){toastInfo('Aucune carte importée à réconcilier');return;}
-  var merged=0,unmatched=0;var toRemove={};
+  var merged=0;var toRemove={};var unmatchedCards=[];
   orphans.forEach(function(orphan){
-    var k=orphan.nl||(typeof stripDFC==='function'?stripDFC(orphan.name||''):orphan.name||'').toLowerCase();
+    var k=_purMatchKey(orphan.name);
     var pool=assignedPool[k];
-    if(!pool||!pool.length){unmatched++;return;}
+    if(!pool||!pool.length){unmatchedCards.push(orphan);return;}
     var remaining=orphan.qty||1,consumed=0;
     while(remaining>0&&pool.length){
       var target=pool.shift();
@@ -10594,7 +10600,63 @@ function purReconcileImports(){
   list.cards=list.cards.filter(function(c){return !toRemove[c.id];});
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
-  toastSuccess(merged+' carte(s) réconciliée(s)'+(unmatched?' · '+unmatched+' import(s) sans correspondance':''));
+  toastSuccess(merged+' carte(s) réconciliée(s)'+(unmatchedCards.length?' · '+unmatchedCards.length+' à assigner manuellement':''));
+  if(unmatchedCards.length)_purShowUnmatchedModal(unmatchedCards);
+}
+// Fenêtre : cartes importées sans correspondance → assignation manuelle directe
+function _purShowUnmatchedModal(orphans){
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var members=(list.members||[]);
+  var ov=document.getElementById('pur-unmatched-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='pur-unmatched-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9992;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px';
+    ov.onclick=function(e){if(e.target===ov){ov.style.display='none';renderPurchaseMgr();}};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  var rows=orphans.map(function(c){
+    var sid=c.id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var opts='<option value="">— acheteur —</option>'+members.map(function(uid){
+      return '<option value="'+esc(uid)+'">'+esc(_purMemberName(uid))+(uid===userId?' (moi)':'')+'</option>';
+    }).join('');
+    var pr=(typeof c.actualPrice==='number')?c.actualPrice.toFixed(2)+'€':'';
+    return '<tr style="border-bottom:.5px solid var(--bd)">'
+      +'<td style="padding:4px 6px;color:var(--tx)">'+(c.qty>1?c.qty+'× ':'')+esc(c.name)+(c.set?' <span style="color:var(--c-info);font-size:.7rem">['+esc(c.set)+']</span>':'')+'</td>'
+      +'<td style="padding:4px 6px;color:var(--gold2);font-size:.74rem">'+pr+'</td>'
+      +'<td style="padding:4px 6px"><select onchange="_purUnmatchedSetBuyer(\''+sid+'\',this.value)" style="font-size:.74rem;background:var(--s2);border:.5px solid var(--bd2);color:var(--tx);border-radius:4px;padding:2px 5px">'+opts+'</select></td>'
+      +'</tr>';
+  }).join('');
+  ov.innerHTML='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;max-width:560px;width:100%;max-height:84vh;display:flex;flex-direction:column;overflow:hidden">'
+    +'<div style="padding:12px 18px;border-bottom:.5px solid var(--bd)">'
+    +'<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.02rem">🔗 '+orphans.length+' carte(s) à assigner</div>'
+    +'<div style="font-size:.72rem;color:var(--tx3);margin-top:3px">Ces cartes importées n\'ont pas trouvé d\'équivalent parmi les cartes déjà assignées (nom différent, ou pas encore pré-renseignées). Choisis leur acheteur ci-dessous.</div></div>'
+    +'<div style="padding:6px 14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-bottom:.5px solid var(--bd);font-size:.72rem;color:var(--tx3)">'
+    +'<span>Tout assigner à :</span>'+members.map(function(uid){
+      return '<button class="btn btnsm" style="font-size:.68rem;padding:2px 7px" onclick="_purUnmatchedSetAll(\''+esc(uid)+'\')">'+esc(_purMemberName(uid))+(uid===userId?' (moi)':'')+'</button>';
+    }).join('')+'</div>'
+    +'<div style="overflow-y:auto;flex:1;padding:6px 14px"><table style="width:100%;border-collapse:collapse;font-size:.8rem"><tbody>'+rows+'</tbody></table></div>'
+    +'<div style="padding:10px 16px;border-top:.5px solid var(--bd);text-align:right">'
+    +'<button class="btn btnp" onclick="document.getElementById(\'pur-unmatched-ov\').style.display=\'none\';savePurchaseList(_activePurListId);renderPurchaseMgr()">✓ Terminé</button>'
+    +'</div></div>';
+}
+function _purUnmatchedSetBuyer(cardId,uid){
+  var list=_purchaseLists[_activePurListId];if(!list)return;
+  var c=(list.cards||[]).find(function(x){return x.id===cardId;});
+  if(!c)return;
+  c.buyer=uid||null;
+  c.lastChangeBy=userId;c.lastChangeAt=Date.now();
+}
+function _purUnmatchedSetAll(uid){
+  var ov=document.getElementById('pur-unmatched-ov');if(!ov)return;
+  ov.querySelectorAll('select').forEach(function(sel){
+    sel.value=uid;
+    var oc=sel.getAttribute('onchange');
+    // déclenche l'assignation
+    sel.dispatchEvent(new Event('change'));
+  });
+  toastInfo('Toutes assignées à '+_purMemberName(uid));
 }
 function purAddOrderGroup(){
   if(!_activePurListId)return;
