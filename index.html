@@ -10217,9 +10217,48 @@ function purSetRoleFilter(mode){
 // list.orderGroups = [{id, name, sellerName, shippingCost, addedBy, addedAt}, ...]
 // card.orderGroupId → référence l'id du groupe
 function _purGenGroupId(){return 'g_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6);}
-// ===== Import des commandes Cardmarket (copier-coller de la page panier/commandes) =====
-// Parse le texte brut : un bloc par vendeur (détecté par "<nom>\nSommaire").
+// ===== Import des commandes Cardmarket =====
+// Détecte le format : e-mail "Détails des commandes" (le meilleur, set complet)
+// ou copier-coller de la page panier (numéro de collector seulement).
 function _purParseCardmarket(text){
+  var t=String(text||'');
+  if(/^\s*Commande\s+\d+/m.test(t)&&/Vendeur\s*:/.test(t))return _purParseCardmarketEmail(t);
+  return _purParseCardmarketCart(t);
+}
+// Format e-mail : "Commande N / Vendeur: X / ... / <qty>x Nom (Set complet) - ... PRIX EUR"
+function _purParseCardmarketEmail(text){
+  var lines=String(text||'').split('\n').map(function(l){return l.replace(/\r$/,'');});
+  var orders=[];
+  var cur=null;
+  // Regex carte : "1x Nom (Set) - ... 2,00 EUR"  (le set peut contenir : et -)
+  var cardRe=/^\s*(\d+)x\s+(.+?)\s+\(([^)]+)\)\s*-.*?(\d+[.,]\d+)\s*EUR\s*$/;
+  lines.forEach(function(raw){
+    var line=raw.trim();
+    if(!line)return;
+    var mC=line.match(/^Commande\s+(\S+)/i);
+    if(mC){cur={orderId:mC[1],seller:'',shipping:0,trustee:0,cards:[]};orders.push(cur);return;}
+    if(!cur)return;
+    var mV=line.match(/^Vendeur\s*:\s*(.+)$/i);
+    if(mV){cur.seller=mV[1].trim();return;}
+    var mS=line.match(/Frais de port\s+(\d+[.,]\d+)\s*EUR/i);
+    if(mS){cur.shipping=parseFloat(mS[1].replace(',','.'))||0;return;}
+    var mCard=line.match(cardRe);
+    if(mCard){
+      var qty=parseInt(mCard[1],10)||1;
+      var name=mCard[2].trim();
+      var setName=mCard[3].trim();
+      var price=parseFloat(mCard[4].replace(',','.'))||0;
+      // Condition éventuelle ("- NM ", "- EX ") avant le prix
+      var cond='';var mCond=line.match(/-\s*(MT|NM|EX|GD|LP|PL|PO)\s+\d/i);
+      if(mCond)cond=mCond[1].toUpperCase();
+      cur.cards.push({qty:qty,name:name,frName:name,setName:setName,price:price,num:'',cond:cond});
+      return;
+    }
+  });
+  return orders.filter(function(o){return o.cards.length;});
+}
+// Format page panier : un bloc par vendeur (détecté par "<nom>\nSommaire").
+function _purParseCardmarketCart(text){
   var lines=String(text||'').split('\n').map(function(l){return l.replace(/\r$/,'').trim();});
   // Indices des en-têtes vendeur : ligne suivie de "Sommaire"
   var heads=[];
@@ -10278,42 +10317,63 @@ function _purParseCardmarket(text){
   return orders;
 }
 var _purCmParsed=null;
-// Résout l'édition exacte de chaque carte via Scryfall (nom + n° de collector)
+// Résout l'édition exacte via Scryfall : par nom de set (e-mail) ou n° collector (panier)
 function _purCmResolveVersions(orders,onProgress,onDone){
-  var uniq={};
+  // Une requête par nom de carte unique (récupère toutes les impressions)
+  var byName={};
   orders.forEach(function(o){o.cards.forEach(function(c){
-    var num=(c.num||'').replace(/^#/,'').trim();
-    var key=c.name.toLowerCase()+'|'+num;
-    if(!uniq[key])uniq[key]={name:c.name,num:num,refs:[]};
-    uniq[key].refs.push(c);
+    var k=(c.name||'').toLowerCase();
+    (byName[k]=byName[k]||[]).push(c);
   });});
-  var keys=Object.keys(uniq);
-  var total=keys.length,done=0;
+  var keys=Object.keys(byName);
+  var total=keys.length,done=0,i=0;
   if(!total){onDone();return;}
-  var i=0;
+  function _norm(s){return String(s||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
+  function _setScore(emailSet,scrySet){
+    var et=_norm(emailSet).split(' ').filter(Boolean);
+    if(!et.length)return 0;
+    var st=_norm(scrySet).split(' ').filter(Boolean);
+    var hit=0;et.forEach(function(tok){if(st.indexOf(tok)>=0)hit++;});
+    return hit/et.length;
+  }
   function next(){
-    // Stop si la modale a été fermée
     var ov=document.getElementById('pur-cm-import-ov');
     if(!ov||ov.style.display==='none')return;
     if(i>=keys.length){onDone();return;}
-    var u=uniq[keys[i++]];
-    var q='!"'+u.name.replace(/"/g,'')+'"'+(u.num?(' cn:'+u.num):'');
-    fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&unique=prints')
+    var cards=byName[keys[i++]];
+    var name=cards[0].name;
+    fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent('!"'+name.replace(/"/g,'')+'"')+'&unique=prints')
       .then(function(r){return r.ok?r.json():null;})
       .then(function(d){
-        var list=(d&&d.data)||[];
-        var resolved=null,status='notfound';
-        if(list.length===1){resolved=list[0];status=u.num?'exact':'fallback';}
-        else if(list.length>1){
-          // Plusieurs impressions : prend la moins chère comme défaut
-          list.sort(function(a,b){return (parseFloat((a.prices||{}).eur)||999)-(parseFloat((b.prices||{}).eur)||999);});
-          resolved=list[0];status=u.num?'ambiguous':'fallback';
-        }
-        u.refs.forEach(function(c){
-          if(resolved){
-            c.set=(resolved.set||'').toUpperCase();
-            c.setName=resolved.set_name||'';
-            c.scrImg=(resolved.image_uris&&(resolved.image_uris.small||resolved.image_uris.normal))||'';
+        var prints=(d&&d.data)||[];
+        cards.forEach(function(c){
+          var best=null,bestScore=-1,status='notfound';
+          if(c.setName&&prints.length){
+            // Format e-mail : match par nom de set (token overlap)
+            prints.forEach(function(p){
+              var sc=_setScore(c.setName,p.set_name||'');
+              if(sc>bestScore){bestScore=sc;best=p;}
+            });
+            status=bestScore>=0.6?'exact':(best?'ambiguous':'notfound');
+          }else if(c.num&&prints.length){
+            // Format panier : match par numéro de collector
+            var num=String(c.num).replace(/^#/,'');
+            var ms=prints.filter(function(p){return (p.collector_number||'')===num;});
+            if(ms.length===1){best=ms[0];status='exact';}
+            else if(ms.length>1){
+              ms.sort(function(a,b){return (parseFloat((a.prices||{}).eur)||999)-(parseFloat((b.prices||{}).eur)||999);});
+              best=ms[0];status='ambiguous';
+            }
+          }else if(prints.length){
+            // Aucune info : prend la moins chère
+            var sorted=prints.slice().sort(function(a,b){return (parseFloat((a.prices||{}).eur)||999)-(parseFloat((b.prices||{}).eur)||999);});
+            best=sorted[0];status='fallback';
+          }
+          if(best){
+            c.set=(best.set||'').toUpperCase();
+            c.setNameResolved=best.set_name||'';
+            c.num=best.collector_number||c.num||'';
+            c.scrImg=(best.image_uris&&(best.image_uris.small||best.image_uris.normal))||'';
           }
           c.versionStatus=status;
         });
@@ -10321,7 +10381,7 @@ function _purCmResolveVersions(orders,onProgress,onDone){
         setTimeout(next,110);
       })
       .catch(function(){
-        u.refs.forEach(function(c){c.versionStatus='notfound';});
+        cards.forEach(function(c){c.versionStatus='notfound';});
         done++;if(onProgress)onProgress(done,total);
         setTimeout(next,110);
       });
@@ -10343,7 +10403,7 @@ function purOpenCardmarketImport(){
     +'<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.05rem">📥 Import commandes Cardmarket</div>'
     +'<button class="btn btnsm" onclick="_purCmClose()">✕</button></div>'
     +'<div style="padding:12px 18px;overflow-y:auto;flex:1">'
-    +'<div style="font-size:.76rem;color:var(--tx3);margin-bottom:8px;line-height:1.5">Sur Cardmarket, ouvre la page de ton panier (ou de tes commandes), sélectionne tout le texte (Ctrl+A) et copie-le ici. Le site crée un sous-groupe d\'achat par vendeur avec les frais de port. Par défaut, les prix sont <b>fusionnés sur les cartes déjà présentes</b> dans la liste active (les profils gardent leurs cartes, seuls le groupe vendeur et le prix réel sont mis à jour).</div>'
+    +'<div style="font-size:.76rem;color:var(--tx3);margin-bottom:8px;line-height:1.5">Colle ici soit l\'<b>e-mail "Détails des commandes"</b> de Cardmarket (recommandé : contient les éditions exactes), soit le texte de la page panier. Le site crée un sous-groupe d\'achat par vendeur avec les frais de port. Par défaut, les prix sont <b>fusionnés sur les cartes déjà présentes</b> dans la liste active (les profils gardent leurs cartes, seuls le groupe vendeur et le prix réel sont mis à jour).</div>'
     +'<textarea id="pur-cm-text" rows="9" placeholder="Colle ici toute la page Cardmarket…" style="width:100%;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:8px;font-size:.76rem;resize:vertical;box-sizing:border-box;font-family:monospace"></textarea>'
     +'<div style="display:flex;gap:6px;margin-top:8px;align-items:center">'
     +'<button class="btn btnsm btnp" onclick="_purCmAnalyze()">🔍 Analyser</button>'
