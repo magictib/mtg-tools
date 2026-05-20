@@ -12622,83 +12622,103 @@ function _purRenderGroupsPanel(lst){
   html+='</div>';
   return html;
 }
-// Bandeau résumé : total payé par acheteur + parts de frais de port (split proportionnel)
+// Récap des achats : tableau cartes + frais de port par profil.
+// Règle frais de port : pour chaque commande (groupe), le port est réparti
+// proportionnellement à la valeur des cartes de chaque profil dans cette commande.
+// → commande mono-profil = ce profil paye 100 % du port.
+// → commande multi-profils = port partagé au prorata.
 function _purRenderPaidSummary(cards,orderGroups){
   if(!cards||!cards.length)return '';
   orderGroups=orderGroups||[];
-  var groupById={};orderGroups.forEach(function(g){groupById[g.id]=g;});
-  // 1) Cartes : total cartes par buyer
-  var byBuyer={};        // uid → {cards, ship, cardsPaid, cardsMissing}
-  var totalCardsPaid=0,unassignedCount=0,unpricedCount=0;
+  var NONE='__none__';
+  var bk={}; // uid → {cards, ship, nCards}
+  function B(uid){return bk[uid]||(bk[uid]={cards:0,ship:0,nCards:0});}
+  function cVal(c){return (typeof c.actualPrice==='number'?c.actualPrice:0)*(c.qty||1);}
+  // 1) Valeur des cartes par profil
   cards.forEach(function(c){
-    var qty=c.qty||1;
-    if(!c.buyer){unassignedCount+=qty;return;}
-    if(!byBuyer[c.buyer])byBuyer[c.buyer]={cards:0,ship:0,cardsPaid:0,cardsMissing:0};
-    if(typeof c.actualPrice==='number'){
-      var amt=c.actualPrice*qty;
-      byBuyer[c.buyer].cards+=amt;
-      byBuyer[c.buyer].cardsPaid+=qty;
-      totalCardsPaid+=amt;
-    }else{
-      byBuyer[c.buyer].cardsMissing+=qty;
-      unpricedCount+=qty;
-    }
+    var b=B(c.buyer||NONE);
+    b.cards+=cVal(c);
+    b.nCards+=(c.qty||1);
   });
-  // 2) Frais de port : pour chaque groupe, split proportionnel selon le sous-total payé par buyer dans CE groupe
-  var totalShip=0;
+  // 2) Frais de port : répartition par commande
+  var orderDetails=[];
   orderGroups.forEach(function(g){
-    var s=g.shippingCost||0;if(!s)return;
-    totalShip+=s;
-    // sous-totaux du groupe par buyer
-    var groupBuyers={};
-    var groupSubTotal=0;
-    cards.forEach(function(c){
-      if(c.orderGroupId!==g.id||!c.buyer||typeof c.actualPrice!=='number')return;
-      var amt=c.actualPrice*(c.qty||1);
-      groupBuyers[c.buyer]=(groupBuyers[c.buyer]||0)+amt;
-      groupSubTotal+=amt;
+    var S=g.shippingCost||0;
+    var gCards=cards.filter(function(c){return c.orderGroupId===g.id;});
+    if(!gCards.length)return;
+    var V=gCards.reduce(function(s,c){return s+cVal(c);},0);
+    var totQty=gCards.reduce(function(s,c){return s+(c.qty||1);},0);
+    var perBuyer={};
+    gCards.forEach(function(c){
+      var share=S>0?(V>0?S*cVal(c)/V:S*(c.qty||1)/totQty):0;
+      var uid=c.buyer||NONE;
+      B(uid).ship+=share;
+      perBuyer[uid]=(perBuyer[uid]||0)+share;
     });
-    if(groupSubTotal>0){
-      Object.keys(groupBuyers).forEach(function(uid){
-        var share=s*(groupBuyers[uid]/groupSubTotal);
-        if(!byBuyer[uid])byBuyer[uid]={cards:0,ship:0,cardsPaid:0,cardsMissing:0};
-        byBuyer[uid].ship+=share;
-      });
-    }else{
-      // Fallback : pas de prix saisi → split équitable entre buyers présents dans le groupe
-      var present={};
-      cards.forEach(function(c){if(c.orderGroupId===g.id&&c.buyer)present[c.buyer]=1;});
-      var keys=Object.keys(present);
-      if(keys.length){
-        var perPerson=s/keys.length;
-        keys.forEach(function(uid){
-          if(!byBuyer[uid])byBuyer[uid]={cards:0,ship:0,cardsPaid:0,cardsMissing:0};
-          byBuyer[uid].ship+=perPerson;
+    var distinct=Object.keys(perBuyer).filter(function(u){return u!==NONE;});
+    orderDetails.push({g:g,ship:S,value:V,perBuyer:perBuyer,solo:distinct.length<=1});
+  });
+  var uids=Object.keys(bk);
+  if(!uids.length)return '';
+  // Ordre : moi, autres membres, puis non assigné
+  uids.sort(function(a,b){
+    if(a===NONE)return 1;if(b===NONE)return -1;
+    if(a===userId)return -1;if(b===userId)return 1;
+    return (bk[b].cards+bk[b].ship)-(bk[a].cards+bk[a].ship);
+  });
+  var totCards=0,totShip=0;
+  uids.forEach(function(u){totCards+=bk[u].cards;totShip+=bk[u].ship;});
+  var grand=totCards+totShip;
+  // ── Tableau ──
+  var html='<div style="background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:.5px solid var(--bd2);border-radius:8px;padding:9px 12px;margin-bottom:10px">';
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.85rem;margin-bottom:6px">💰 Récap achats — qui paye combien</div>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem">';
+  html+='<thead><tr style="color:var(--tx3);font-size:.68rem;text-align:right;border-bottom:.5px solid var(--bd)">'
+    +'<th style="text-align:left;padding:3px 6px">Profil</th>'
+    +'<th style="padding:3px 6px">Cartes</th>'
+    +'<th style="padding:3px 6px">Frais de port</th>'
+    +'<th style="padding:3px 6px">À payer</th></tr></thead><tbody>';
+  uids.forEach(function(u){
+    var b=bk[u];var isNone=(u===NONE);var isMe=(u===userId);
+    var nm=isNone?'⚠ Non assigné':(_purMemberName(u)+(isMe?' (moi)':''));
+    var col=isNone?'var(--am)':(isMe?'var(--gold2)':'var(--ac2)');
+    var tot=b.cards+b.ship;
+    html+='<tr style="text-align:right;border-bottom:.5px solid rgba(255,255,255,.05)">'
+      +'<td style="text-align:left;padding:4px 6px;color:'+col+';font-weight:600">'+esc(nm)+'<span style="color:var(--tx3);font-weight:400;font-size:.68rem"> · '+b.nCards+' c.</span></td>'
+      +'<td style="padding:4px 6px;color:var(--tx2)">'+b.cards.toFixed(2)+'€</td>'
+      +'<td style="padding:4px 6px;color:#a8c8ff">'+b.ship.toFixed(2)+'€</td>'
+      +'<td style="padding:4px 6px;color:'+col+';font-weight:700">'+tot.toFixed(2)+'€</td></tr>';
+  });
+  html+='<tr style="text-align:right;border-top:1.5px solid var(--bd2)">'
+    +'<td style="text-align:left;padding:5px 6px;color:var(--gold2);font-weight:700;font-family:var(--ff-head)">TOTAL</td>'
+    +'<td style="padding:5px 6px;color:var(--tx)">'+totCards.toFixed(2)+'€</td>'
+    +'<td style="padding:5px 6px;color:#a8c8ff">'+totShip.toFixed(2)+'€</td>'
+    +'<td style="padding:5px 6px;color:var(--gold2);font-weight:800">'+grand.toFixed(2)+'€</td></tr>';
+  html+='</tbody></table>';
+  // ── Détail par commande ──
+  if(orderDetails.length){
+    html+='<details style="margin-top:6px"><summary style="cursor:pointer;font-size:.72rem;color:var(--tx3);padding:3px 0">▾ Détail par commande ('+orderDetails.length+')</summary>';
+    html+='<div style="margin-top:4px;display:flex;flex-direction:column;gap:2px">';
+    orderDetails.forEach(function(d){
+      var parts=Object.keys(d.perBuyer).filter(function(u){return d.perBuyer[u]>0.0001;})
+        .sort(function(a,b){return d.perBuyer[b]-d.perBuyer[a];})
+        .map(function(u){
+          var nm=u===NONE?'non assigné':_purMemberName(u);
+          return esc(nm)+' '+d.perBuyer[u].toFixed(2)+'€';
         });
-      }
-    }
-  });
-  var buyers=Object.keys(byBuyer);
-  if(!buyers.length&&!unassignedCount)return '';
-  var grandTotal=totalCardsPaid+totalShip;
-  var html='<div style="background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:.5px solid var(--bd2);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:.78rem">';
-  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.85rem;flex-shrink:0">💰 Récap achats</div>';
-  if(unassignedCount){
-    html+='<div style="color:var(--am)" title="Cartes sans acheteur désigné">⚠ '+unassignedCount+' non assignée(s)</div>';
+      var tag=d.solo
+        ?'<span style="color:var(--gr2);font-size:.66rem">commande mono-profil · port non partagé</span>'
+        :'<span style="color:#a8c8ff;font-size:.66rem">port partagé au prorata</span>';
+      html+='<div style="font-size:.72rem;color:var(--tx3);padding:2px 4px">'
+        +'<b style="color:var(--tx2)">'+esc(d.g.name||d.g.sellerName||'?')+'</b> — port '+d.ship.toFixed(2)+'€ '+tag
+        +(parts.length?'<br><span style="padding-left:10px">'+parts.join(' · ')+'</span>':'')
+        +'</div>';
+    });
+    html+='</div></details>';
   }
-  buyers.sort(function(a,b){return (byBuyer[b].cards+byBuyer[b].ship)-(byBuyer[a].cards+byBuyer[a].ship);}).forEach(function(uid){
-    var b=byBuyer[uid];var nm=_purMemberName(uid);var isMe=uid===userId;
-    var col=isMe?'var(--gold2)':'var(--ac2)';
-    var total=b.cards+b.ship;
-    var tip='Cartes : '+b.cards.toFixed(2)+'€'+(b.ship?' · Port : '+b.ship.toFixed(2)+'€':'');
-    html+='<div style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;background:rgba(0,0,0,.25);border:.5px solid '+col+';border-radius:11px" title="'+esc(tip)+'">';
-    html+='<span style="color:'+col+';font-weight:600">'+esc(nm)+(isMe?' (moi)':'')+'</span>';
-    html+='<span style="color:var(--gold2);font-weight:600">'+total.toFixed(2)+'€</span>';
-    if(b.ship)html+='<span style="color:#a8c8ff;font-size:.66rem">(+'+b.ship.toFixed(2)+' port)</span>';
-    if(b.cardsMissing)html+='<span style="color:var(--tx3);font-size:.66rem">+'+b.cardsMissing+'⌀</span>';
-    html+='</div>';
-  });
-  html+='<div style="margin-left:auto;color:var(--gold2);font-weight:700">Total : '+grandTotal.toFixed(2)+'€'+(totalShip?' <span style="color:#a8c8ff;font-size:.7rem">('+totalCardsPaid.toFixed(2)+' + '+totalShip.toFixed(2)+' port)</span>':'')+'</div>';
+  if(bk[NONE]){
+    html+='<div style="font-size:.68rem;color:var(--am);margin-top:5px">⚠ '+bk[NONE].nCards+' carte(s) sans acheteur — assigne-les (multi-sélection → Acheteur…) pour finaliser le calcul.</div>';
+  }
   html+='</div>';
   return html;
 }
