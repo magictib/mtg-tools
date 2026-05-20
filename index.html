@@ -10554,6 +10554,48 @@ function _purCmConfirm(){
   renderPurchaseMgr();
   toastSuccess(nGroups+' groupe(s) · '+nMatched+' carte(s) associée(s)'+(nAdded?' · '+nAdded+' ajoutée(s)':'')+' depuis Cardmarket');
 }
+// Réconcilie un import : relie les cartes importées (prix + groupe, sans acheteur)
+// aux cartes déjà assignées à un profil (acheteur, sans groupe ni prix).
+function purReconcileImports(){
+  if(!_activePurListId)return;
+  var list=_purchaseLists[_activePurListId];if(!list||!list.cards)return;
+  var orphans=[],assignedPool={};
+  list.cards.forEach(function(c){
+    var hasOrder=!!(c.orderGroupId&&typeof c.actualPrice==='number');
+    if(hasOrder&&!c.buyer){
+      orphans.push(c);
+    }else if(c.buyer&&!c.orderGroupId){
+      var k=c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase();
+      (assignedPool[k]=assignedPool[k]||[]).push(c);
+    }
+  });
+  if(!orphans.length){toastInfo('Aucune carte importée à réconcilier');return;}
+  var merged=0,unmatched=0;var toRemove={};
+  orphans.forEach(function(orphan){
+    var k=orphan.nl||(typeof stripDFC==='function'?stripDFC(orphan.name||''):orphan.name||'').toLowerCase();
+    var pool=assignedPool[k];
+    if(!pool||!pool.length){unmatched++;return;}
+    var remaining=orphan.qty||1,consumed=0;
+    while(remaining>0&&pool.length){
+      var target=pool.shift();
+      target.orderGroupId=orphan.orderGroupId;
+      target.actualPrice=orphan.actualPrice;
+      target.actualPriceAt=Date.now();
+      if(orphan.set)target.set=orphan.set;
+      if(orphan.num)target.num=orphan.num;
+      if(orphan.status&&(!target.status||target.status==='proposed'))target.status=orphan.status;
+      if(orphan.note)target.note=target.note?(target.note+' · '+orphan.note):orphan.note;
+      target.lastChangeBy=userId;target.lastChangeAt=Date.now();
+      remaining-=(target.qty||1);
+      consumed++;merged++;
+    }
+    if(consumed>0)toRemove[orphan.id]=1;
+  });
+  list.cards=list.cards.filter(function(c){return !toRemove[c.id];});
+  savePurchaseList(_activePurListId);
+  renderPurchaseMgr();
+  toastSuccess(merged+' carte(s) réconciliée(s)'+(unmatched?' · '+unmatched+' import(s) sans correspondance':''));
+}
 function purAddOrderGroup(){
   if(!_activePurListId)return;
   var name=prompt('Nom du groupe d\'achat (ex : "Cardmarket — vendeur SolRing33") :','Cardmarket #'+((_purchaseLists[_activePurListId].orderGroups||[]).length+1));
@@ -12386,6 +12428,7 @@ function renderPurchaseMgr(){
   var allIds=allCards.map(function(c){return c.id;});
   var allSelected=allIds.length>0&&allIds.every(function(id){return _purSelectedIds[id];});
   var html=_purRenderPaidSummary(allCards,lst.orderGroups||[]);
+  html+=_purReconcileBanner(allCards);
   // Panneau groupes (collapsible)
   if(_purShowGroupsPanel){
     html+=_purRenderGroupsPanel(lst);
@@ -12621,6 +12664,23 @@ function _purRenderGroupsPanel(lst){
   }
   html+='</div>';
   return html;
+}
+// Bannière : propose de réconcilier les cartes importées avec les cartes assignées
+function _purReconcileBanner(cards){
+  if(!cards||!cards.length)return '';
+  var orphans=0,assignableNames={};
+  cards.forEach(function(c){
+    if(c.orderGroupId&&typeof c.actualPrice==='number'&&!c.buyer)orphans++;
+    else if(c.buyer&&!c.orderGroupId){
+      var k=c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase();
+      assignableNames[k]=1;
+    }
+  });
+  if(!orphans||!Object.keys(assignableNames).length)return '';
+  return '<div style="background:rgba(255,140,40,.1);border:.5px solid var(--am);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.78rem">'
+    +'<span style="color:var(--am)">🔗 '+orphans+' carte(s) importée(s) (avec prix + vendeur) ne sont pas reliées aux cartes assignées aux profils.</span>'
+    +'<button class="btn btnsm btnp" onclick="purReconcileImports()" style="margin-left:auto">🔗 Réconcilier</button>'
+    +'</div>';
 }
 // Récap des achats : tableau cartes + frais de port par profil.
 // Règle frais de port : pour chaque commande (groupe), le port est réparti
