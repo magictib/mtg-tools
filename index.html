@@ -2982,6 +2982,7 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm" onclick="purTogglePastePanel()" title="Coller une liste de cartes directement">📋 Coller liste</button>
       <button class="btn btnsm" id="pur-export-btn" onclick="exportPurchaseList()" style="display:none">⬆ Exporter .txt</button>
       <button class="btn btnsm" id="pur-cm-btn" onclick="purExportCardmarket()" title="Génère ta liste d'achats prête à coller dans Cardmarket Wants Builder">🛒 Cardmarket</button>
+      <button class="btn btnsm" onclick="purOpenCardmarketImport()" title="Colle la page de tes commandes Cardmarket → crée les sous-groupes par vendeur avec prix et frais de port">📥 Import commandes CM</button>
       <button class="btn btnsm" onclick="mlScanWishlistMatching()" title="Scan toutes les listes : qui veut quoi vs. qui a quoi de libre">🎁 Match</button>
       <button class="btn btnsm" id="pur-view-btn" onclick="togglePurImgMode()" style="display:none">🖼 Images</button>
       <button class="btn btnsm btnrd" id="pur-del-btn" onclick="deletePurchaseList()" style="display:none">✕ Supprimer</button>
@@ -10216,6 +10217,169 @@ function purSetRoleFilter(mode){
 // list.orderGroups = [{id, name, sellerName, shippingCost, addedBy, addedAt}, ...]
 // card.orderGroupId → référence l'id du groupe
 function _purGenGroupId(){return 'g_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6);}
+// ===== Import des commandes Cardmarket (copier-coller de la page panier/commandes) =====
+// Parse le texte brut : un bloc par vendeur (détecté par "<nom>\nSommaire").
+function _purParseCardmarket(text){
+  var lines=String(text||'').split('\n').map(function(l){return l.replace(/\r$/,'').trim();});
+  // Indices des en-têtes vendeur : ligne suivie de "Sommaire"
+  var heads=[];
+  for(var i=0;i<lines.length-1;i++){
+    if(lines[i+1]==='Sommaire'&&lines[i]&&lines[i]!=='Sommaire')heads.push(i);
+  }
+  var orders=[];
+  for(var h=0;h<heads.length;h++){
+    var start=heads[h],end=(h+1<heads.length)?heads[h+1]:lines.length;
+    var block=lines.slice(start,end);
+    var seller=block[0];
+    var shipping=0,trustee=0;
+    for(var k=0;k<block.length;k++){
+      if(block[k]==='Frais de port'){
+        var pm=(block[k+1]||'').match(/(\d+[.,]\d+)/);
+        if(pm)shipping=parseFloat(pm[1].replace(',','.'));
+      }
+      // 1re occurrence "Trustee Service" suivie d'un prix = coût (la 2e est le toggle Oui/Non)
+      if(block[k]==='Trustee Service'&&block[k+1]&&/^\d+[.,]\d+\s*€?$/.test(block[k+1])){
+        trustee=parseFloat(block[k+1].replace(',','.'));
+      }
+    }
+    // Section cartes : après "Magic the Gathering Cartes"
+    var cardStart=-1;
+    for(var k=0;k<block.length;k++){
+      if(/^Magic the Gathering Cartes/i.test(block[k])){cardStart=k;break;}
+    }
+    var cards=[];
+    if(cardStart>=0){
+      for(var k=cardStart+1;k<block.length;k++){
+        // Ligne quantité : "1x<TAB>Nom FR" (ou espace si les tabs sont perdus)
+        var qm=block[k].match(/^(\d+)x[\t ]+(.+)$/);
+        if(!qm)continue;
+        var qty=parseInt(qm[1],10)||1;
+        var frName=qm[2].trim();
+        // Nom EN = prochaine ligne non vide
+        var enName='',j=k+1;
+        while(j<block.length&&!block[j])j++;
+        if(j<block.length){enName=block[j];j++;}
+        // Cherche le prix : 1re ligne "X,XX €" avant la prochaine ligne quantité
+        var price=0,num='',cond='';
+        while(j<block.length){
+          if(/^(\d+)x[\t ]+/.test(block[j]))break;
+          var pm2=block[j].match(/^(\d+[.,]\d+)\s*€?$/);
+          if(pm2){price=parseFloat(pm2[1].replace(',','.'));j++;break;}
+          if(/^#\S+/.test(block[j]))num=block[j];
+          else if(/^(MT|NM|EX|GD|LP|PL|PO)$/i.test(block[j]))cond=block[j];
+          j++;
+        }
+        cards.push({qty:qty,name:enName||frName,frName:frName,price:price,num:num,cond:cond});
+        k=j-1;
+      }
+    }
+    if(cards.length)orders.push({seller:seller,shipping:shipping,trustee:trustee,cards:cards});
+  }
+  return orders;
+}
+var _purCmParsed=null;
+function purOpenCardmarketImport(){
+  var ov=document.getElementById('pur-cm-import-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='pur-cm-import-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9992;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px';
+    ov.onclick=function(e){if(e.target===ov)_purCmClose();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  ov.innerHTML='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;max-width:720px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">'
+    +'<div style="padding:12px 18px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+    +'<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.05rem">📥 Import commandes Cardmarket</div>'
+    +'<button class="btn btnsm" onclick="_purCmClose()">✕</button></div>'
+    +'<div style="padding:12px 18px;overflow-y:auto;flex:1">'
+    +'<div style="font-size:.76rem;color:var(--tx3);margin-bottom:8px;line-height:1.5">Sur Cardmarket, ouvre la page de ton panier (ou de tes commandes), sélectionne tout le texte (Ctrl+A) et copie-le ici. Le site crée un sous-groupe d\'achat par vendeur avec les frais de port et les prix réels.</div>'
+    +'<textarea id="pur-cm-text" rows="9" placeholder="Colle ici toute la page Cardmarket…" style="width:100%;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:8px;font-size:.76rem;resize:vertical;box-sizing:border-box;font-family:monospace"></textarea>'
+    +'<div style="display:flex;gap:6px;margin-top:8px;align-items:center">'
+    +'<button class="btn btnsm btnp" onclick="_purCmAnalyze()">🔍 Analyser</button>'
+    +'<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3)"><input type="checkbox" id="pur-cm-newlist"> Créer une nouvelle liste</label>'
+    +'</div>'
+    +'<div id="pur-cm-preview" style="margin-top:12px"></div>'
+    +'</div>'
+    +'<div style="padding:10px 18px;border-top:.5px solid var(--bd);display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn" onclick="_purCmClose()">Annuler</button>'
+    +'<button class="btn btnp" id="pur-cm-confirm" onclick="_purCmConfirm()" style="display:none">✓ Importer</button>'
+    +'</div>'
+    +'</div>';
+  setTimeout(function(){var t=document.getElementById('pur-cm-text');if(t)t.focus();},40);
+}
+function _purCmClose(){var ov=document.getElementById('pur-cm-import-ov');if(ov)ov.style.display='none';_purCmParsed=null;}
+function _purCmAnalyze(){
+  var t=document.getElementById('pur-cm-text');
+  var prev=document.getElementById('pur-cm-preview');
+  if(!t||!prev)return;
+  var orders=_purParseCardmarket(t.value);
+  _purCmParsed=orders;
+  if(!orders.length){
+    prev.innerHTML='<div style="color:var(--rd2);font-size:.8rem">Aucune commande détectée. Vérifie que tu as bien copié toute la page (chaque vendeur doit avoir sa ligne "Sommaire").</div>';
+    document.getElementById('pur-cm-confirm').style.display='none';
+    return;
+  }
+  var totCards=0,totShip=0,totVal=0;
+  orders.forEach(function(o){
+    totShip+=o.shipping+o.trustee;
+    o.cards.forEach(function(c){totCards+=c.qty;totVal+=c.price*c.qty;});
+  });
+  var html='<div style="font-size:.8rem;color:var(--gr2);margin-bottom:8px">✓ '+orders.length+' vendeur(s) · '+totCards+' carte(s) · articles '+totVal.toFixed(2)+'€ + port '+totShip.toFixed(2)+'€ = <b>'+(totVal+totShip).toFixed(2)+'€</b></div>';
+  html+='<div style="max-height:38vh;overflow-y:auto;border:.5px solid var(--bd);border-radius:6px">';
+  orders.forEach(function(o){
+    var oVal=o.cards.reduce(function(s,c){return s+c.price*c.qty;},0);
+    html+='<div style="padding:6px 9px;border-bottom:.5px solid var(--bd)">';
+    html+='<div style="display:flex;justify-content:space-between;font-size:.78rem"><b style="color:var(--gold2)">🧺 '+esc(o.seller)+'</b>'
+      +'<span style="color:var(--tx3)">'+oVal.toFixed(2)+'€ + '+(o.shipping+o.trustee).toFixed(2)+'€ port</span></div>';
+    html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:2px">'
+      +o.cards.map(function(c){return c.qty+'× '+esc(c.name)+' ('+c.price.toFixed(2)+'€)';}).join(' · ')+'</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  prev.innerHTML=html;
+  document.getElementById('pur-cm-confirm').style.display='';
+}
+function _purCmConfirm(){
+  if(!_purCmParsed||!_purCmParsed.length){toastError('Analyse d\'abord la liste');return;}
+  var newList=document.getElementById('pur-cm-newlist');
+  var makeNew=newList&&newList.checked;
+  var listId=_activePurListId;
+  if(makeNew||!listId||!_purchaseLists[listId]){
+    var ref=db.collection('shared_lists').doc();
+    listId=ref.id;
+    var now=new Date();
+    _purchaseLists[listId]={name:'Commandes Cardmarket '+now.toLocaleDateString('fr-FR'),createdBy:userId,createdAt:Date.now(),members:[userId],memberNames:{},cards:[],orderGroups:[],_pendingWrite:Date.now()};
+    _activePurListId=listId;_purPersistActiveListId();
+  }
+  var list=_purchaseLists[listId];
+  if(!list.cards)list.cards=[];
+  if(!list.orderGroups)list.orderGroups=[];
+  var nCards=0,nGroups=0;
+  _purCmParsed.forEach(function(o){
+    var gid=_purGenGroupId();
+    list.orderGroups.push({id:gid,name:'CM — '+o.seller,sellerName:o.seller,shippingCost:Math.round((o.shipping+o.trustee)*100)/100,addedBy:userId,addedAt:Date.now()});
+    nGroups++;
+    o.cards.forEach(function(c){
+      var nl=(typeof stripDFC==='function'?stripDFC(c.name):c.name).toLowerCase();
+      var note=[c.cond,c.num].filter(Boolean).join(' ');
+      list.cards.push({
+        id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+        name:c.name,nl:nl,qty:c.qty,deckName:'',deckId:'',column:0,
+        note:note,received:false,
+        orderGroupId:gid,actualPrice:c.price,actualPriceAt:Date.now(),
+        buyer:null,borrower:null,status:'bought',
+        addedBy:userId,lastChangeBy:userId,lastChangeAt:Date.now()
+      });
+      nCards++;
+    });
+  });
+  savePurchaseList(listId);
+  _purCmClose();
+  renderPurListSel();
+  renderPurchaseMgr();
+  toastSuccess(nGroups+' groupe(s) · '+nCards+' carte(s) importé(s) depuis Cardmarket');
+}
 function purAddOrderGroup(){
   if(!_activePurListId)return;
   var name=prompt('Nom du groupe d\'achat (ex : "Cardmarket — vendeur SolRing33") :','Cardmarket #'+((_purchaseLists[_activePurListId].orderGroups||[]).length+1));
