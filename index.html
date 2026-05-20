@@ -10278,6 +10278,56 @@ function _purParseCardmarket(text){
   return orders;
 }
 var _purCmParsed=null;
+// Résout l'édition exacte de chaque carte via Scryfall (nom + n° de collector)
+function _purCmResolveVersions(orders,onProgress,onDone){
+  var uniq={};
+  orders.forEach(function(o){o.cards.forEach(function(c){
+    var num=(c.num||'').replace(/^#/,'').trim();
+    var key=c.name.toLowerCase()+'|'+num;
+    if(!uniq[key])uniq[key]={name:c.name,num:num,refs:[]};
+    uniq[key].refs.push(c);
+  });});
+  var keys=Object.keys(uniq);
+  var total=keys.length,done=0;
+  if(!total){onDone();return;}
+  var i=0;
+  function next(){
+    // Stop si la modale a été fermée
+    var ov=document.getElementById('pur-cm-import-ov');
+    if(!ov||ov.style.display==='none')return;
+    if(i>=keys.length){onDone();return;}
+    var u=uniq[keys[i++]];
+    var q='!"'+u.name.replace(/"/g,'')+'"'+(u.num?(' cn:'+u.num):'');
+    fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&unique=prints')
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(d){
+        var list=(d&&d.data)||[];
+        var resolved=null,status='notfound';
+        if(list.length===1){resolved=list[0];status=u.num?'exact':'fallback';}
+        else if(list.length>1){
+          // Plusieurs impressions : prend la moins chère comme défaut
+          list.sort(function(a,b){return (parseFloat((a.prices||{}).eur)||999)-(parseFloat((b.prices||{}).eur)||999);});
+          resolved=list[0];status=u.num?'ambiguous':'fallback';
+        }
+        u.refs.forEach(function(c){
+          if(resolved){
+            c.set=(resolved.set||'').toUpperCase();
+            c.setName=resolved.set_name||'';
+            c.scrImg=(resolved.image_uris&&(resolved.image_uris.small||resolved.image_uris.normal))||'';
+          }
+          c.versionStatus=status;
+        });
+        done++;if(onProgress)onProgress(done,total);
+        setTimeout(next,110);
+      })
+      .catch(function(){
+        u.refs.forEach(function(c){c.versionStatus='notfound';});
+        done++;if(onProgress)onProgress(done,total);
+        setTimeout(next,110);
+      });
+  }
+  next();
+}
 function purOpenCardmarketImport(){
   var ov=document.getElementById('pur-cm-import-ov');
   if(!ov){
@@ -10320,21 +10370,52 @@ function _purCmAnalyze(){
     document.getElementById('pur-cm-confirm').style.display='none';
     return;
   }
-  var totCards=0,totShip=0,totVal=0;
+  document.getElementById('pur-cm-confirm').style.display='none';
+  prev.innerHTML='<div style="font-size:.8rem;color:var(--tx2)">⏳ Résolution des éditions via Scryfall… <span id="pur-cm-prog">0</span></div>';
+  _purCmResolveVersions(orders,function(done,total){
+    var p=document.getElementById('pur-cm-prog');if(p)p.textContent=done+'/'+total;
+  },function(){
+    _purCmRenderPreview();
+  });
+}
+function _purCmRenderPreview(){
+  var prev=document.getElementById('pur-cm-preview');
+  var orders=_purCmParsed;
+  if(!prev||!orders)return;
+  var totCards=0,totShip=0,totVal=0,nAmbig=0,nNotFound=0;
   orders.forEach(function(o){
     totShip+=o.shipping+o.trustee;
-    o.cards.forEach(function(c){totCards+=c.qty;totVal+=c.price*c.qty;});
+    o.cards.forEach(function(c){
+      totCards+=c.qty;totVal+=c.price*c.qty;
+      if(c.versionStatus==='ambiguous'||c.versionStatus==='fallback')nAmbig++;
+      else if(c.versionStatus==='notfound')nNotFound++;
+    });
   });
-  var html='<div style="font-size:.8rem;color:var(--gr2);margin-bottom:8px">✓ '+orders.length+' vendeur(s) · '+totCards+' carte(s) · articles '+totVal.toFixed(2)+'€ + port '+totShip.toFixed(2)+'€ = <b>'+(totVal+totShip).toFixed(2)+'€</b></div>';
+  var html='<div style="font-size:.8rem;color:var(--gr2);margin-bottom:6px">✓ '+orders.length+' vendeur(s) · '+totCards+' carte(s) · articles '+totVal.toFixed(2)+'€ + port '+totShip.toFixed(2)+'€ = <b>'+(totVal+totShip).toFixed(2)+'€</b></div>';
+  if(nAmbig||nNotFound){
+    html+='<div style="font-size:.72rem;color:var(--am);margin-bottom:8px">⚠ '
+      +(nAmbig?nAmbig+' carte(s) à édition incertaine':'')
+      +(nAmbig&&nNotFound?' · ':'')
+      +(nNotFound?nNotFound+' non trouvée(s) sur Scryfall':'')
+      +' — vérifie-les après import.</div>';
+  }else{
+    html+='<div style="font-size:.72rem;color:var(--gr2);margin-bottom:8px">✓ Toutes les éditions ont été résolues précisément.</div>';
+  }
   html+='<div style="max-height:38vh;overflow-y:auto;border:.5px solid var(--bd);border-radius:6px">';
   orders.forEach(function(o){
     var oVal=o.cards.reduce(function(s,c){return s+c.price*c.qty;},0);
     html+='<div style="padding:6px 9px;border-bottom:.5px solid var(--bd)">';
     html+='<div style="display:flex;justify-content:space-between;font-size:.78rem"><b style="color:var(--gold2)">🧺 '+esc(o.seller)+'</b>'
       +'<span style="color:var(--tx3)">'+oVal.toFixed(2)+'€ + '+(o.shipping+o.trustee).toFixed(2)+'€ port</span></div>';
-    html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:2px">'
-      +o.cards.map(function(c){return c.qty+'× '+esc(c.name)+' ('+c.price.toFixed(2)+'€)';}).join(' · ')+'</div>';
-    html+='</div>';
+    html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:3px;display:flex;flex-direction:column;gap:1px">';
+    o.cards.forEach(function(c){
+      var vIco=c.versionStatus==='exact'?'<span style="color:var(--gr2)">✓</span>'
+        :c.versionStatus==='notfound'?'<span style="color:var(--rd2)" title="Non trouvée">✕</span>'
+        :'<span style="color:var(--am)" title="Édition par défaut — à vérifier">⚠</span>';
+      var setTxt=c.set?'<span style="color:var(--c-info)">['+esc(c.set)+']</span>':'';
+      html+='<div>'+vIco+' '+c.qty+'× '+esc(c.name)+' '+setTxt+' <span style="color:var(--tx3)">'+c.price.toFixed(2)+'€</span></div>';
+    });
+    html+='</div></div>';
   });
   html+='</div>';
   prev.innerHTML=html;
@@ -10362,10 +10443,12 @@ function _purCmConfirm(){
     nGroups++;
     o.cards.forEach(function(c){
       var nl=(typeof stripDFC==='function'?stripDFC(c.name):c.name).toLowerCase();
-      var note=[c.cond,c.num].filter(Boolean).join(' ');
+      var note=[c.cond,(c.num||'').replace(/^#/,'')&&('#'+(c.num||'').replace(/^#/,''))].filter(Boolean).join(' ');
+      if(c.versionStatus==='ambiguous'||c.versionStatus==='fallback')note+=(note?' ':'')+'⚠ édition à vérifier';
       list.cards.push({
         id:'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
         name:c.name,nl:nl,qty:c.qty,deckName:'',deckId:'',column:0,
+        set:c.set||'',num:(c.num||'').replace(/^#/,''),
         note:note,received:false,
         orderGroupId:gid,actualPrice:c.price,actualPriceAt:Date.now(),
         buyer:null,borrower:null,status:'bought',
