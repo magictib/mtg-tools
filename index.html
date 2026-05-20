@@ -1680,6 +1680,8 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
 .pur-dk-hdr td{background:var(--s2);color:var(--gold2);font-weight:600;font-size:.77rem;padding:5px 10px;border-top:.5px solid var(--bd2)}
 .pur-card-row{cursor:grab;transition:background .1s}
 .pur-card-row:hover{background:rgba(255,255,255,.03)}
+details > summary{list-style:none}
+details > summary::-webkit-details-marker{display:none}
 .pur-card-row.pur-card-sel{background:rgba(91,140,245,.12);border-left:2px solid var(--c-info)}
 .pur-card-row.pur-card-sel:hover{background:rgba(91,140,245,.18)}
 /* Contrôle de quantité (liste partagée) */
@@ -30452,24 +30454,54 @@ function anaRender(deckId){
   var _weakHtml=(function(){
     var w=_anaWeaknessScan(deck,fmt);
     if(!w.critical.length&&!w.minor.length)return '<div class="card" style="border-color:rgba(100,200,120,.3)"><div class="lbl" style="color:var(--gr2)">🛡 Détecteur de faiblesses</div><div style="font-size:11.5px;color:var(--gr2);padding:6px 0">✓ Aucune faiblesse critique détectée — toutes les catégories essentielles sont couvertes pour ce format.</div></div>';
+    // Candidats à couper : pires cartes du deck (hors terrains), réutilise bottomRows
+    var cutPool=(bottomRows||[]).filter(function(r){return r&&r.card&&!(r.meta&&r.meta.tags&&r.meta.tags.isLand);});
+    function renderCat(x,col,bg){
+      var sugg=String(x.def.rec||'').split('/').map(function(s){return s.replace(/\([^)]*\)/g,'').trim();}).filter(Boolean);
+      var need=Math.max(1,(x.target||1)-(x.count||0));
+      var h='<details style="padding:6px 9px;background:'+bg+';border-left:2px solid '+col+';border-radius:0 5px 5px 0;margin-bottom:4px">';
+      h+='<summary style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:11.5px;list-style:none">';
+      h+='<b style="color:'+col+';min-width:24px">'+x.def.ico+'</b>';
+      h+='<span style="flex:1;color:var(--tx2)">'+x.def.lbl+'</span>';
+      h+='<span style="font-family:monospace;color:'+col+';font-size:10.5px">'+x.count+'/'+x.target+'</span>';
+      h+='<span style="color:var(--tx3);font-size:11px">▾</span>';
+      h+='</summary>';
+      h+='<div style="padding:8px 0 2px 4px">';
+      // Proposition de swap cohérente
+      h+='<div style="font-size:10.5px;color:var(--tx2);margin-bottom:7px;line-height:1.5">'
+        +'Il manque <b style="color:'+col+'">'+need+' carte'+(need>1?'s':'')+'</b> dans cette catégorie. ';
+      if(cutPool.length){
+        var cuts=cutPool.slice(0,need).map(function(r){return esc(r.card.name);});
+        h+='Candidat'+(cuts.length>1?'s':'')+' à couper (cartes les moins efficaces) : <b style="color:var(--tx3)">'+cuts.join(', ')+'</b>.';
+      }else{
+        h+='Ajoute des cartes de cette catégorie.';
+      }
+      h+='</div>';
+      // Images des suggestions (chargées directement via Scryfall)
+      h+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+      sugg.forEach(function(name){
+        var imgUrl='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version=small';
+        h+='<div style="width:86px;text-align:center" title="'+esc(name)+'">'
+          +'<img src="'+imgUrl+'" loading="lazy" alt="'+esc(name)+'" '
+          +'onclick="anaZoom(this.src)" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'block\'" '
+          +'style="width:86px;border-radius:6px;cursor:zoom-in;display:block;box-shadow:0 3px 10px rgba(0,0,0,.5)">'
+          +'<div style="display:none;width:86px;height:120px;background:var(--s3);border-radius:6px;font-size:9px;color:var(--tx3);padding:6px;box-sizing:border-box;align-items:center;justify-content:center">'+esc(name)+'</div>'
+          +'<div style="font-size:8.5px;color:var(--tx3);margin-top:2px;line-height:1.2;word-break:break-word">'+esc(name)+'</div>'
+          +'</div>';
+      });
+      h+='</div>';
+      h+='</div></details>';
+      return h;
+    }
     var html='<div class="card"><div class="lbl">🛡 Détecteur de faiblesses</div>';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Catégories de cartes pivots dont le deck manque (seuils '+(w.isComm?'Commander':'standard')+'). Scan des oracles via patterns FR/EN.</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Catégories de cartes pivots dont le deck manque (seuils '+(w.isComm?'Commander':'standard')+'). Clique une catégorie pour voir les cartes suggérées'+(w.isPauper?' (communes Pauper)':'')+' et une proposition de swap.</div>';
     if(w.critical.length){
       html+='<div style="font-size:11px;color:var(--rd2);margin-bottom:4px;font-weight:600">🔴 Critique ('+w.critical.length+')</div>';
-      w.critical.forEach(function(x){
-        html+='<div style="padding:6px 9px;background:rgba(200,80,80,.1);border-left:2px solid var(--rd2);border-radius:0 5px 5px 0;margin-bottom:4px">';
-        html+='<div style="display:flex;align-items:center;gap:6px;font-size:11.5px"><b style="color:var(--rd2);min-width:24px">'+x.def.ico+'</b><span style="flex:1;color:var(--tx2)">'+x.def.lbl+'</span><span style="font-family:monospace;color:var(--rd2);font-size:10.5px">'+x.count+'/'+x.target+'</span></div>';
-        html+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;padding-left:30px;font-style:italic">Suggestions : '+x.def.rec+'</div>';
-        html+='</div>';
-      });
+      w.critical.forEach(function(x){html+=renderCat(x,'var(--rd2)','rgba(200,80,80,.1)');});
     }
     if(w.minor.length){
       html+='<div style="font-size:11px;color:var(--am);margin:8px 0 4px;font-weight:600">🟠 Léger ('+w.minor.length+')</div>';
-      w.minor.forEach(function(x){
-        html+='<div style="padding:5px 9px;background:rgba(255,140,40,.07);border-left:2px solid var(--am);border-radius:0 5px 5px 0;margin-bottom:3px">';
-        html+='<div style="display:flex;align-items:center;gap:6px;font-size:11px"><b style="color:var(--am);min-width:24px">'+x.def.ico+'</b><span style="flex:1;color:var(--tx2)">'+x.def.lbl+'</span><span style="font-family:monospace;color:var(--am);font-size:10.5px">'+x.count+'/'+x.target+'</span></div>';
-        html+='</div>';
-      });
+      w.minor.forEach(function(x){html+=renderCat(x,'var(--am)','rgba(255,140,40,.07)');});
     }
     html+='</div>';
     return html;
