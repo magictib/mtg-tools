@@ -30341,7 +30341,7 @@ function _anaCommanderThemes(deck){
   // — Thèmes inférés du deck (robuste, indépendant de l'identification du commandant) —
   _anaApplyDeckThemeSignals(deck,bump,labels);
   console.log('[Themes] '+(cmdName||'?')+' — labels:',labels,'mult:',m,'('+dbg+')');
-  return Object.assign(m,{labels:labels,_debug:dbg});
+  return Object.assign(m,{labels:labels,_debug:dbg,cmdName:cmdName||null});
 }
 
 /* ----- Override manuel d'archetype par deck (persiste localStorage) ----- */
@@ -32638,11 +32638,25 @@ function anaRender(deckId){
   _hdr+='</span></div>';
   if(_anaCurrentThemes){
     var dbg=_anaCurrentThemes._debug||'';
+    // Statut de lecture du commandant — explicite, pour ne jamais douter de l'entrée du moteur
+    var cmdChip='';
+    if(typeof anaIsCommanderFormat==='function'&&anaIsCommanderFormat(fmt)){
+      var _cn=_anaCurrentThemes.cmdName;
+      if(dbg==='ok'&&_cn){
+        cmdChip='<span title="Texte du commandant lu correctement" style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)">👑 '+esc(_cn)+' ✓</span> ';
+      } else if(_cn){
+        cmdChip='<span title="Commandant identifié mais son texte n\'est pas chargé — clique 🗑 Cache puis relance l\'analyse" style="font-size:10px;padding:1px 6px;background:rgba(245,185,91,.12);border:.5px solid #f5b95b;border-radius:8px;color:#f5b95b">⚠ '+esc(_cn)+' — texte non chargé</span> ';
+      } else {
+        cmdChip='<span title="Aucun commandant identifié — sélectionne-le dans l\'éditeur du deck" style="font-size:10px;padding:1px 6px;background:rgba(245,185,91,.12);border:.5px solid #f5b95b;border-radius:8px;color:#f5b95b">⚠ Commandant non identifié</span> ';
+      }
+    }
     var themeContent='';
     if(_anaCurrentThemes.labels&&_anaCurrentThemes.labels.length){
       themeContent=_anaCurrentThemes.labels.map(function(l){
         return '<span style="font-size:10px;padding:1px 6px;background:rgba(76,175,128,.12);border:.5px solid var(--gr);border-radius:8px;color:var(--gr2)">'+esc(l)+'</span>';
       }).join(' ');
+      if(dbg!=='ok'&&typeof anaIsCommanderFormat==='function'&&anaIsCommanderFormat(fmt))
+        themeContent+=' <span style="font-size:9px;color:var(--tx3);font-style:italic">(déduits du deck)</span>';
     } else if(dbg.indexOf('no-commander')>=0){
       themeContent='<span style="font-size:10px;color:#f5b95b;font-style:italic">⚠ Commandant non défini — sélectionne-le dans l\'éditeur du deck pour activer le scoring contextuel</span>';
     } else if(dbg.indexOf('not-cached')>=0||dbg.indexOf('no-oracle')>=0){
@@ -32652,6 +32666,7 @@ function anaRender(deckId){
     }
     _hdr+='<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">';
     _hdr+='<span style="font-size:10px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">🎴 THÈMES :</span> ';
+    _hdr+=cmdChip;
     _hdr+=themeContent;
     if(_hasThemeOverride)_hdr+=' <span style="font-size:9px;padding:1px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
     _hdr+=' <button onclick="_anaToggleThemeEditor(\''+deckId+'\')" style="font-size:10px;padding:1px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">⚙ Personnaliser</button>';
