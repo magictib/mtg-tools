@@ -6341,8 +6341,8 @@ function renderHome(){
   // ── Stats ──
   html+='<div class="home-stats">';
   html+=_homeStat('🃏',totalCards.toLocaleString('fr-FR'),'Cartes possédées');
-  html+=_homeStat('💰',collValue>0?collValue.toFixed(0)+'€':'—','Valeur collection');
-  html+=_homeStat('♠',myDeckIds.length,'Decks');
+  html+=_homeStat('💰',collValue>0?collValue.toFixed(0)+'€':'—','Valeur collection','openCollValueChart()');
+  html+=_homeStat('♠',myDeckIds.length,'Decks','openBuildable()');
   html+=_homeStat('🎲',myGames.length,'Parties jouées');
   html+='</div>';
   // ── Actions rapides ──
@@ -6401,11 +6401,128 @@ function renderHome(){
   }
   host.innerHTML=html;
   _maybeShowWelcome();
+  _recordCollValue();
 }
-function _homeStat(ico,val,lbl){
-  return '<div class="home-stat"><div class="home-stat-ico">'+ico+'</div>'
+function _homeStat(ico,val,lbl,onclick){
+  return '<div class="home-stat"'+(onclick?' onclick="'+onclick+'" style="cursor:pointer"':'')+'>'
+    +'<div class="home-stat-ico">'+ico+'</div>'
     +'<div class="home-stat-val">'+val+'</div>'
-    +'<div class="home-stat-lbl">'+lbl+'</div></div>';
+    +'<div class="home-stat-lbl">'+lbl+(onclick?' ▸':'')+'</div></div>';
+}
+// ===== Historique de valeur de la collection =====
+function _recordCollValue(){
+  try{
+    if(typeof _fsPrefs==='undefined'||typeof getProfCards!=='function')return;
+    var coll=getProfCards(0);if(!coll||!coll.length)return;
+    var val=0,cnt=0;coll.forEach(function(c){var q=c.qty||1;cnt+=q;val+=q*(c.price||0);});
+    var today=new Date().toISOString().slice(0,10);
+    var hist=_fsPrefs.collValueHist||[];
+    var last=hist[hist.length-1];
+    if(last&&last.d===today){
+      last.v=Math.round(val);last.n=cnt; // maj en mémoire, pas de sauvegarde
+    }else{
+      hist.push({d:today,v:Math.round(val),n:cnt});
+      if(hist.length>365)hist=hist.slice(-365);
+      _fsPrefs.collValueHist=hist;
+      _saveFsPrefs(); // sauvegarde uniquement au changement de jour
+    }
+  }catch(e){}
+}
+function openCollValueChart(){
+  var ov=document.getElementById('ml-cv-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ml-cv-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9993;background:rgba(4,3,1,.9);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+    ov.onclick=function(e){if(e.target===ov)ov.remove();};
+    document.body.appendChild(ov);
+  }else ov.style.display='flex';
+  var hist=((typeof _fsPrefs!=='undefined'&&_fsPrefs.collValueHist)||[]).slice();
+  var body;
+  if(hist.length<2){
+    body=mlEmpty('📈','Pas encore d\'historique','La valeur de ta collection est enregistrée une fois par jour. Reviens dans quelques jours pour voir la courbe évoluer.');
+  }else{
+    var w=460,h=160,pad=8;
+    var vals=hist.map(function(p){return p.v;});
+    var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+    if(mx===mn)mx=mn+1;
+    var n=hist.length;
+    var pts=hist.map(function(p,i){
+      return [pad+i/(n-1)*(w-2*pad),h-pad-(p.v-mn)/(mx-mn)*(h-2*pad)];
+    });
+    var path='M'+pts.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' L');
+    var area=path+' L'+pts[n-1][0].toFixed(1)+','+(h-pad)+' L'+pts[0][0].toFixed(1)+','+(h-pad)+' Z';
+    var first=hist[0],lastP=hist[n-1];
+    var delta=lastP.v-first.v;
+    var dCol=delta>=0?'var(--gr2)':'var(--rd2)';
+    body='<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;display:block">'
+      +'<path d="'+area+'" fill="rgba(201,168,76,.12)"/>'
+      +'<path d="'+path+'" fill="none" stroke="var(--gold2)" stroke-width="2" stroke-linejoin="round"/>'
+      +'<circle cx="'+pts[n-1][0].toFixed(1)+'" cy="'+pts[n-1][1].toFixed(1)+'" r="3.5" fill="var(--gold2)"/>'
+      +'</svg>'
+      +'<div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--tx3);margin-top:4px">'
+      +'<span>'+esc(first.d)+' · '+first.v+'€</span><span>'+esc(lastP.d)+' · '+lastP.v+'€</span></div>'
+      +'<div style="text-align:center;margin-top:8px;font-size:.85rem;color:var(--tx2)">'
+      +'Évolution : <b style="color:'+dCol+'">'+(delta>=0?'+':'')+delta+'€</b> sur '+n+' relevé(s)</div>';
+  }
+  ov.innerHTML='<div style="background:linear-gradient(180deg,var(--s2),var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.8)">'
+    +'<div style="padding:13px 18px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+    +'<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.1rem">📈 Valeur de la collection</div>'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'ml-cv-ov\').remove()">✕</button></div>'
+    +'<div style="padding:16px 20px">'+body+'</div></div>';
+}
+// ===== Decks réalisables avec la collection =====
+function openBuildable(){
+  var ov=document.getElementById('ml-bld-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ml-bld-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9993;background:rgba(4,3,1,.9);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+    ov.onclick=function(e){if(e.target===ov)ov.remove();};
+    document.body.appendChild(ov);
+  }else ov.style.display='flex';
+  var owned={};
+  ((typeof profs!=='undefined'&&Array.isArray(profs[0]))?profs[0]:[]).forEach(function(c){
+    var nl=stripDFC(c.name||'').toLowerCase();owned[nl]=(owned[nl]||0)+(c.qty||1);
+  });
+  var BASICS=['plains','island','swamp','mountain','forest','wastes','plaine','île','ile','marais','montagne','forêt','foret'];
+  var rows=Object.keys((typeof decks!=='undefined'&&decks)||{})
+    .filter(function(id){return _deckBelongsTo(decks[id],0);})
+    .map(function(id){
+      var dk=decks[id];var cards=parseList(dk.rawName||'');
+      var need=0,have=0,missing=0;
+      cards.forEach(function(c){
+        var nl=c.nl||stripDFC(c.name||'').toLowerCase();
+        var n=c.qty||1;
+        if(BASICS.indexOf(nl)>=0){need+=n;have+=n;return;} // terrains de base : considérés dispo
+        need+=n;
+        var ownedN=Math.min(n,owned[nl]||0);
+        have+=ownedN;missing+=(n-ownedN);
+      });
+      return {id:id,name:dk.name||'?',pct:need>0?Math.round(have/need*100):0,missing:missing,need:need};
+    }).sort(function(a,b){return b.pct-a.pct;});
+  var body;
+  if(!rows.length){
+    body=mlEmpty('🔨','Aucun deck','Crée des decks pour voir lesquels tu peux monter avec ta collection.');
+  }else{
+    body='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px">Pourcentage de cartes possédées par deck (les terrains de base sont considérés disponibles).</div>';
+    body+=rows.map(function(r){
+      var col=r.pct>=100?'var(--gr2)':r.pct>=70?'var(--am)':'var(--rd2)';
+      return '<div style="padding:7px 4px;border-bottom:.5px solid var(--bd)">'
+        +'<div style="display:flex;justify-content:space-between;font-size:.84rem;margin-bottom:3px">'
+        +'<span style="color:var(--tx)'+(r.pct>=100?';font-weight:600':'')+'">'+(r.pct>=100?'✓ ':'')+esc(r.name)+'</span>'
+        +'<span style="color:'+col+';font-weight:700">'+r.pct+'%</span></div>'
+        +'<div style="height:6px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden">'
+        +'<div style="width:'+r.pct+'%;height:100%;background:'+col+'"></div></div>'
+        +(r.missing>0?'<div style="font-size:.68rem;color:var(--tx3);margin-top:2px">'+r.missing+' carte(s) manquante(s)</div>':'')
+        +'</div>';
+    }).join('');
+    var ready=rows.filter(function(r){return r.pct>=100;}).length;
+    body='<div style="font-size:.85rem;color:var(--gr2);margin-bottom:8px">✓ '+ready+' deck(s) réalisable(s) à 100% sur '+rows.length+'</div>'+body;
+  }
+  ov.innerHTML='<div style="background:linear-gradient(180deg,var(--s2),var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:520px;width:100%;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.8)">'
+    +'<div style="padding:13px 18px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+    +'<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.1rem">🔨 Decks réalisables</div>'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'ml-bld-ov\').remove()">✕</button></div>'
+    +'<div style="padding:14px 18px;overflow-y:auto">'+body+'</div></div>';
 }
 // ===== Écran de bienvenue (1er lancement) =====
 var _welcomeChecked=false;
@@ -26450,6 +26567,8 @@ function _cmdPalBuild(){
   items.push({key:'act:localBackup',ico:'💾',lbl:'Sauvegardes locales',cat:'Action',act:function(){if(typeof openLocalBackupPanel==='function')openLocalBackupPanel();}});
   items.push({key:'act:trophies',ico:'🏆',lbl:'Trophées',cat:'Action',act:function(){if(typeof openTrophies==='function')openTrophies();}});
   items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
+  items.push({key:'act:buildable',ico:'🔨',lbl:'Decks réalisables avec ma collection',cat:'Action',act:function(){if(typeof openBuildable==='function')openBuildable();}});
+  items.push({key:'act:collvalue',ico:'📈',lbl:'Évolution valeur collection',cat:'Action',act:function(){if(typeof openCollValueChart==='function')openCollValueChart();}});
   items.push({key:'act:welcome',ico:'👋',lbl:'Guide de bienvenue',cat:'Action',act:function(){if(typeof showWelcome==='function')showWelcome();}});
   // Mode table pour chaque deck
   try{
