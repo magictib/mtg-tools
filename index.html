@@ -2109,6 +2109,7 @@ details > summary::-webkit-details-marker{display:none}
       <div class="lbl" style="margin-bottom:0">👥 Amis</div>
       <button class="btn btnsm" onclick="closeFriendModal()">✕</button>
     </div>
+    <button onclick="inviteFriendLink()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px;border-radius:9px;border:.5px solid var(--gold);background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.05));color:var(--gold2);font-size:.85rem;cursor:pointer;font-family:'Goudy Mediaeval',serif;letter-spacing:.04em;margin-bottom:.9rem">🔗 Inviter un ami par lien</button>
     <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:6px">RECHERCHER UN JOUEUR</div>
     <input type="text" id="friend-search" placeholder="Nom du joueur…" oninput="friendSearch(this.value)"
       style="width:100%;font-size:.82rem;padding:6px 10px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s1);color:var(--tx);outline:none;margin-bottom:6px">
@@ -2184,6 +2185,12 @@ details > summary::-webkit-details-marker{display:none}
         </svg>
       </div>
       <div style="font-family:'Goudy Mediaeval',serif;font-size:1.5rem;color:var(--gold2);letter-spacing:.12em">Mana<span style="font-weight:300;color:var(--tx2)">LAB</span></div>
+    </div>
+    <!-- Bannière d'invitation (lien ?invite=) -->
+    <div id="auth-invite-banner" style="display:none;background:linear-gradient(135deg,rgba(201,168,76,.16),rgba(201,168,76,.05));border:.5px solid var(--gold);border-radius:12px;padding:.85rem 1rem;margin-bottom:1rem;text-align:center">
+      <div style="font-size:1.5rem;margin-bottom:4px">🤝</div>
+      <div id="auth-invite-txt" style="font-size:.86rem;color:var(--tx);line-height:1.5"></div>
+      <div style="font-size:.72rem;color:var(--tx3);margin-top:5px">Crée ton compte ci-dessous pour le rejoindre.</div>
     </div>
     <!-- Login/Register card -->
     <div class="auth-card" id="auth-form-card">
@@ -5023,6 +5030,67 @@ var _currentUser=null;
 var _userRole=null;
 var _pendingRegName=null;
 
+// ===== Invitation par lien (?invite=<uid>&n=<nom>) =====
+var _inviteFromUid=null,_inviteFromName='';
+(function(){
+  try{
+    var p=new URLSearchParams(location.search);
+    var inv=p.get('invite');
+    if(inv&&/^[A-Za-z0-9_-]{6,128}$/.test(inv)){
+      _inviteFromUid=inv;
+      _inviteFromName=(p.get('n')||'').slice(0,40);
+    }
+  }catch(e){}
+})();
+// Affiche la bannière « X t'invite » sur l'écran d'inscription
+function _showInviteBanner(){
+  var banner=document.getElementById('auth-invite-banner');
+  var txt=document.getElementById('auth-invite-txt');
+  if(!banner||!txt||!_inviteFromUid)return;
+  authShowTab('register');
+  function paint(name){
+    txt.innerHTML='<b>'+esc(name)+'</b> t\'invite à le rejoindre sur ManaLAB';
+    banner.style.display='block';
+  }
+  paint(_inviteFromName||'Un joueur');
+  db.collection('users').doc(_inviteFromUid).get().then(function(doc){
+    if(doc.exists){var d=doc.data();paint(d.name||d.email||'Un joueur');}
+  }).catch(function(){});
+}
+// Après connexion : envoie une demande d'ami à l'inviteur (une seule fois)
+function _processPendingInvite(){
+  if(!_inviteFromUid||!userId)return;
+  var inv=_inviteFromUid;_inviteFromUid=null;
+  try{history.replaceState(null,'',location.pathname);}catch(e){} // évite de relancer au refresh
+  if(inv===userId)return;                                          // son propre lien
+  if(_friends&&_friends.some(function(f){return f.uid===inv;}))return; // déjà ami
+  if(typeof _isPendingOut==='function'&&_isPendingOut(inv))return;  // demande déjà en cours
+  db.collection('users').doc(inv).get().then(function(doc){
+    if(!doc.exists)return;
+    var d=doc.data(),nm=d.name||d.email||'un joueur';
+    if(_friends.some(function(f){return f.uid===inv;}))return;
+    sendFriendRequest(inv,nm);
+    if(typeof toastSuccess==='function')toastSuccess('🤝 Demande d\'ami envoyée à '+nm+' — il n\'a plus qu\'à accepter !');
+  }).catch(function(){});
+}
+// Génère et partage un lien d'invitation personnel
+function inviteFriendLink(){
+  if(!userId){if(typeof toastError==='function')toastError('Connecte-toi d\'abord.');return;}
+  var myName=(typeof PN!=='undefined'&&PN[0])||'';
+  var url=location.origin+location.pathname+'?invite='+encodeURIComponent(userId)
+    +(myName?'&n='+encodeURIComponent(myName.slice(0,40)):'');
+  var shareText='Rejoins-moi sur ManaLAB pour gérer nos collections Magic et jouer ensemble !';
+  if(navigator.share){
+    navigator.share({title:'ManaLAB',text:shareText,url:url}).catch(function(){});
+  }else if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(function(){
+      if(typeof toastSuccess==='function')toastSuccess('🔗 Lien d\'invitation copié — partage-le à tes amis !');
+    }).catch(function(){window.prompt('Copie ce lien d\'invitation et envoie-le :',url);});
+  }else{
+    window.prompt('Copie ce lien d\'invitation et envoie-le :',url);
+  }
+}
+
 firebase.auth().onAuthStateChanged(function(user){
   if(!user){
     _currentUser=null;_userRole=null;
@@ -5089,6 +5157,8 @@ function _onUserRole(user,role){
       if(!_metaLoaded){_metaLoaded=true;metaFetchMeta(_metaFmt);}
       loadScryfallSets();
     },3500);
+    // Invitation par lien : demande d'ami à l'inviteur (après chargement des amis)
+    if(_inviteFromUid)setTimeout(_processPendingInvite,3000);
   } else if(role==='pending'){
     _showAuthScreen('pending');
   } else {
@@ -5180,7 +5250,10 @@ function _showAuthScreen(mode){
   document.getElementById('auth-form-card').style.display='none';
   document.getElementById('auth-pending-card').style.display='none';
   document.getElementById('auth-banned-card').style.display='none';
-  if(mode==='form')document.getElementById('auth-form-card').style.display='block';
+  if(mode==='form'){
+    document.getElementById('auth-form-card').style.display='block';
+    if(_inviteFromUid)_showInviteBanner();
+  }
   else if(mode==='pending')document.getElementById('auth-pending-card').style.display='block';
   else document.getElementById('auth-banned-card').style.display='block';
 }
@@ -5515,7 +5588,7 @@ function friendSearch(q){
 
 function _renderFriendList(){
   var el=document.getElementById('friend-list');if(!el)return;
-  if(!_friends.length){el.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:6px 0;font-style:italic">Aucun ami pour l\'instant</div>';return;}
+  if(!_friends.length){el.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:6px 0;font-style:italic">Aucun ami pour l\'instant — invite tes potes avec le bouton 🔗 ci-dessus.</div>';return;}
   el.innerHTML=_friends.map(function(f){
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
       +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(f.name||'?').charAt(0).toUpperCase()+'</div>'
