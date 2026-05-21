@@ -1689,6 +1689,20 @@ body.ar-fullscreen #pg-arena{padding-top:8px}
 .pur-card-row:hover{background:rgba(255,255,255,.03)}
 details > summary{list-style:none}
 details > summary::-webkit-details-marker{display:none}
+/* ===== COMPOSANTS UNIFIÉS : états vides, chargement, skeleton ===== */
+.ml-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:30px 20px;text-align:center}
+.ml-empty-ico{font-size:2.3rem;opacity:.55;line-height:1}
+.ml-empty-title{font-family:var(--ff-head);font-size:1rem;color:var(--tx2)}
+.ml-empty-hint{font-size:.82rem;color:var(--tx3);max-width:360px;line-height:1.55}
+.ml-empty-action{margin-top:7px;display:flex;gap:7px;flex-wrap:wrap;justify-content:center}
+.ml-loading{display:flex;align-items:center;justify-content:center;gap:9px;padding:22px;color:var(--tx3);font-size:.84rem}
+.ml-loading::before{content:'';width:17px;height:17px;border:2px solid rgba(201,168,76,.18);border-top-color:var(--gold2);border-radius:50%;animation:ml-spin .8s linear infinite;flex-shrink:0}
+@keyframes ml-spin{to{transform:rotate(360deg)}}
+.ml-skeleton{background:linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.11) 37%,rgba(255,255,255,.04) 63%);background-size:400% 100%;animation:ml-shimmer 1.4s ease-in-out infinite;border-radius:6px;display:block}
+@keyframes ml-shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
+.ml-skel-card{width:100%;aspect-ratio:.716;border-radius:8px}
+.ml-skel-line{height:11px;margin:5px 0}
+.ml-skel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
 /* ===== ACCUEIL / DASHBOARD ===== */
 #home-body{max-width:1100px;margin:0 auto;padding:4px 2px 24px}
 .home-hero{display:flex;align-items:center;gap:16px;padding:18px 22px;margin-bottom:16px;border-radius:14px;background:linear-gradient(135deg,rgba(201,168,76,.16),rgba(201,168,76,.04));border:1px solid var(--bd2);box-shadow:inset 0 0 40px rgba(201,168,76,.05)}
@@ -2540,7 +2554,7 @@ details > summary::-webkit-details-marker{display:none}
     <div id="colllist"></div>
   </div>
   </div><!-- /coll-cols -->
-  <div id="collempty" style="text-align:center;color:var(--tx3);font-style:italic;padding:2rem 1rem;font-size:.9rem">Utilisez "Importer CSV" ou "Ajouter une carte" pour alimenter la collection.</div>
+  <div id="collempty"><div class="ml-empty"><div class="ml-empty-ico">🃏</div><div class="ml-empty-title">Collection vide</div><div class="ml-empty-hint">Importe un fichier CSV depuis CardNexus, Moxfield ou Manabox, ou ajoute des cartes à la main pour démarrer ta collection.</div></div></div>
 </div>
 
 <!-- SCRYFALL -->
@@ -7427,7 +7441,7 @@ function renderDBar(){
     });
     html+='</div></div>';
   });
-  if(!html)html='<div style="color:var(--tx3);font-size:.82rem;font-style:italic">Aucun deck sauvegardé</div>';
+  if(!html)html=mlEmpty('🗂','Aucun deck','Crée ton premier deck pour commencer à construire et analyser.','<button class="btn btnsm btnp" onclick="goTab(\'build\')">+ Nouveau deck</button>');
   bar.innerHTML=html;
 }
 function loadFriendDeck(uid,deckId){
@@ -12661,13 +12675,11 @@ function renderPurchaseMgr(){
     if(metaBar)metaBar.style.display='none';
     // Indicateur de chargement si la souscription Firestore n'a pas encore répondu
     if(!_sharedListsLoaded){
-      wrap.innerHTML='<div style="text-align:center;padding:2.5rem 1rem;color:var(--tx3);font-style:italic;font-size:.82rem">⌛ Chargement des listes partagées…</div>';
+      wrap.innerHTML=mlLoading('Chargement des listes partagées…');
     }else{
-      wrap.innerHTML='<div style="text-align:center;padding:2.5rem 1rem">'
-        +'<div style="color:var(--tx3);font-style:italic;font-size:.82rem;margin-bottom:14px">Aucune liste — créez-en une ou importez un fichier.</div>'
-        +'<button class="btn btnp btnsm" onclick="newPurchaseList()" style="margin-right:6px">+ Créer une liste</button>'
-        +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer fichier</button>'
-        +'</div>';
+      wrap.innerHTML=mlEmpty('🤝','Aucune liste partagée','Crée une liste d\'achat collaborative ou importe un fichier pour démarrer.',
+        '<button class="btn btnp btnsm" onclick="newPurchaseList()">+ Créer une liste</button>'
+        +'<button class="btn btnsm" onclick="purImportFile()">📂 Importer un fichier</button>');
     }
     purFilterDecks();
     return;
@@ -14166,7 +14178,7 @@ function setSearch(){
   _showLoader('Chargement de l\'extension…');
   document.getElementById('set-load').style.display='none';
   document.getElementById('set-err').style.display='none';
-  document.getElementById('set-grid').innerHTML='';
+  document.getElementById('set-grid').innerHTML=mlSkeletonGrid(12);
   document.getElementById('set-info').innerHTML='';
   document.getElementById('set-filters').style.display='none';
   document.getElementById('set-morebtn').style.display='none';
@@ -14677,7 +14689,7 @@ function _arSaveStats(rating){
 function arRenderStats(){
   var el=document.getElementById('ar-stats-section');if(!el)return;
   var all=JSON.parse(localStorage.getItem('manalab_ar_stats')||'[]');
-  if(!all.length){el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem">Aucune partie enregistrée — lancez une session pour commencer à suivre vos stats.</div>';return;}
+  if(!all.length){el.innerHTML=mlEmpty('🎲','Aucune partie enregistrée','Lance une session dans l\'Arène pour commencer à suivre tes statistiques.','<button class="btn btnsm btnp" onclick="goTab(\'arena\')">⚡ Ouvrir l\'Arène</button>');return;}
   // Aggregate par deck
   var byDeck={};
   all.forEach(function(s){
@@ -25963,6 +25975,20 @@ function toastSuccess(msg,dur){showToast(msg,'success',dur||2400);}
 function toastError(msg,dur){showToast(msg,'error',dur||3600);}
 function toastWarning(msg,dur){showToast(msg,'warning',dur||3000);}
 function toastInfo(msg,dur){showToast(msg,'info',dur||2600);}
+// Composants UI unifiés
+function mlEmpty(ico,title,hint,actionHtml){
+  return '<div class="ml-empty">'
+    +'<div class="ml-empty-ico">'+(ico||'📭')+'</div>'
+    +'<div class="ml-empty-title">'+esc(title||'Rien à afficher')+'</div>'
+    +(hint?'<div class="ml-empty-hint">'+esc(hint)+'</div>':'')
+    +(actionHtml?'<div class="ml-empty-action">'+actionHtml+'</div>':'')
+    +'</div>';
+}
+function mlLoading(txt){return '<div class="ml-loading">'+esc(txt||'Chargement…')+'</div>';}
+function mlSkeletonGrid(n){
+  var c='';for(var i=0;i<(n||8);i++)c+='<div class="ml-skeleton ml-skel-card"></div>';
+  return '<div class="ml-skel-grid">'+c+'</div>';
+}
 // ===== Préférences UX (taille texte / densité / contraste) =====
 var _UX_VALID={fs:['sm','md','lg','xl'],density:['compact','md','comfort'],contrast:['normal','high']};
 function _uxApply(){
