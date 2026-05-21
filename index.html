@@ -3915,6 +3915,40 @@ details > summary::-webkit-details-marker{display:none}
   </div>
 </div>
 
+<!-- PROXYS -->
+<style>
+.proxy-sheet{display:flex;flex-wrap:wrap;gap:0;background:#fff;border-radius:6px;padding:0;width:fit-content;max-width:100%}
+.proxy-card{width:63mm;height:88mm;box-sizing:border-box;overflow:hidden;background:#fff}
+.proxy-card img{width:100%;height:100%;object-fit:contain;display:block}
+@media print{
+  body * {visibility:hidden!important}
+  #proxy-sheet,#proxy-sheet *{visibility:visible!important}
+  #proxy-sheet{position:absolute;left:0;top:0;background:#fff}
+  .proxy-noprint{display:none!important}
+  .proxy-card{break-inside:avoid}
+  @page{size:A4;margin:7mm}
+}
+</style>
+<div class="page" id="pg-proxy">
+  <div class="card proxy-noprint">
+    <div class="lbl">🖨 Générateur de proxys</div>
+    <div style="font-size:.78rem;color:var(--tx3);line-height:1.6;margin-bottom:10px">
+      Colle une liste de cartes (1 par ligne, « 2 Lightning Bolt » accepté) ou une décklist entière. Les visuels officiels viennent de Scryfall, mis en page pour impression A4 — 9 cartes par page au format réel 63×88 mm.
+      <br><span style="color:var(--am)">Usage personnel et casual uniquement — ni tournoi, ni revente.</span>
+    </div>
+    <textarea id="proxy-input" placeholder="2 Lightning Bolt&#10;1 Sol Ring&#10;Counterspell" style="width:100%;box-sizing:border-box;height:140px;resize:vertical;background:var(--s2);color:var(--tx);border:.5px solid var(--bd2);border-radius:8px;padding:8px;font-family:monospace;font-size:.8rem;outline:none"></textarea>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      <button class="btn btnp" onclick="proxyGenerate()">🃏 Générer la feuille</button>
+      <button class="btn" id="proxy-print-btn" onclick="window.print()" style="display:none">🖨 Imprimer</button>
+      <span id="proxy-status" style="font-size:.78rem;color:var(--tx3)"></span>
+    </div>
+  </div>
+  <div class="card" id="proxy-sheet-card" style="display:none">
+    <div class="proxy-noprint" style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:8px">FEUILLE D'IMPRESSION — <span id="proxy-count"></span></div>
+    <div id="proxy-sheet" class="proxy-sheet"></div>
+  </div>
+</div>
+
 <!-- ÉCHANGES / PRÊTS / COMMANDES -->
 <div class="page" id="pg-trade">
   <!-- Wishlist -->
@@ -6378,7 +6412,7 @@ var _NAV_SPACES=[
   {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{id:'analyse',label:'📊 Analyse'}]},
   {id:'play',pages:[{id:'arena',label:'⚡ Arène'},{id:'meta',label:'🌐 Méta'}]},
   {id:'social',pages:[{id:'trade',label:'🤝 Échanges & listes'}]},
-  {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'}]}
+  {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'},{id:'proxy',label:'🖨 Proxys'}]}
 ];
 var _navPageToSpace={};
 _NAV_SPACES.forEach(function(s){s.pages.forEach(function(p){_navPageToSpace[p.id]=s.id;});});
@@ -6453,6 +6487,73 @@ window.addEventListener('popstate',function(e){
   var id=(e.state&&e.state.tab)||_tabFromHash()||'home';
   if(_isValidTab(id))goTab(id,true);
 });
+
+// ============================================================
+// GÉNÉRATEUR DE PROXYS
+// ============================================================
+function _proxyCardImg(c){
+  if(!c)return null;
+  if(c.image_uris&&(c.image_uris.png||c.image_uris.large||c.image_uris.normal))
+    return c.image_uris.png||c.image_uris.large||c.image_uris.normal;
+  if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)
+    return c.card_faces[0].image_uris.png||c.card_faces[0].image_uris.large||c.card_faces[0].image_uris.normal;
+  return null;
+}
+function _proxyFetchImages(names,cb){
+  var imgMap={},batches=[];
+  for(var i=0;i<names.length;i+=75)batches.push(names.slice(i,i+75));
+  if(!batches.length){cb(imgMap);return;}
+  var done=0;
+  batches.forEach(function(batch){
+    fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})
+    }).then(function(r){return r.json();}).then(function(d){
+      (d.data||[]).forEach(function(c){
+        var img=_proxyCardImg(c);if(!img)return;
+        imgMap[(c.name||'').toLowerCase()]=img;
+        imgMap[stripDFC(c.name||'').toLowerCase()]=img;
+        if(c.card_faces&&c.card_faces[0]&&c.card_faces[0].name)imgMap[c.card_faces[0].name.toLowerCase()]=img;
+      });
+      done++;if(done===batches.length)cb(imgMap);
+    }).catch(function(){done++;if(done===batches.length)cb(imgMap);});
+  });
+}
+function proxyGenerate(){
+  var raw=(document.getElementById('proxy-input')||{}).value||'';
+  var parsed=(typeof parseList==='function')?parseList(raw):[];
+  var status=document.getElementById('proxy-status');
+  if(!parsed.length){if(status)status.textContent='⚠ Colle au moins une carte.';return;}
+  var want=[];
+  parsed.forEach(function(c){
+    var q=Math.min(Math.max(1,c.qty||1),40);
+    for(var i=0;i<q;i++)want.push(c.name);
+  });
+  var capped=false;
+  if(want.length>189){want=want.slice(0,189);capped=true;}
+  var uniq=[],seen={};
+  want.forEach(function(n){var k=n.toLowerCase();if(!seen[k]){seen[k]=1;uniq.push(n);}});
+  if(status)status.textContent='Récupération des visuels… ('+uniq.length+' carte'+(uniq.length>1?'s':'')+')';
+  _proxyFetchImages(uniq,function(imgMap){
+    var html='',rendered=0,missing=[];
+    want.forEach(function(n){
+      var img=imgMap[n.toLowerCase()];
+      if(img){html+='<div class="proxy-card"><img src="'+esc(img)+'" alt="'+esc(n)+'" loading="lazy"></div>';rendered++;}
+      else if(missing.indexOf(n)<0)missing.push(n);
+    });
+    var sheet=document.getElementById('proxy-sheet');if(sheet)sheet.innerHTML=html;
+    var sc=document.getElementById('proxy-sheet-card');if(sc)sc.style.display=rendered?'':'none';
+    var pb=document.getElementById('proxy-print-btn');if(pb)pb.style.display=rendered?'':'none';
+    var pages=Math.ceil(rendered/9);
+    var cnt=document.getElementById('proxy-count');if(cnt)cnt.textContent=rendered+' carte'+(rendered>1?'s':'')+' · '+pages+' page'+(pages>1?'s':'');
+    if(status){
+      var msg=rendered?('✓ '+rendered+' carte'+(rendered>1?'s':'')+' prête'+(rendered>1?'s':'')+' à imprimer'):'Aucune carte trouvée — vérifie l\'orthographe.';
+      if(capped)msg+=' · liste tronquée à 189';
+      if(missing.length)msg+=' · ⚠ introuvable'+(missing.length>1?'s':'')+' : '+missing.slice(0,6).join(', ')+(missing.length>6?'…':'');
+      status.textContent=msg;
+    }
+  });
+}
 
 // ============================================================
 // ACCUEIL — tableau de bord
