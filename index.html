@@ -25293,7 +25293,7 @@ function bldOptimize(){
       scoredRows.push({card:{name:c.name,nl:nl,qty:c.qty,img:meta.imageUri||'',type:meta.typeLine||'',cmc:meta.cmc!=null?meta.cmc:null},meta:meta,score:anaCardScore(meta),inCache:true});
     });
 
-    var freqMatrix=_anaComputeFreqMatrix();
+    var freqMatrix=_anaComputeFreqMatrix(fmt);
     var edhrecFreq=_anaCurrentEDHREC;
     var detectedArch=_anaDetectArchetype(bldDeckTemp);
     var pool=[];
@@ -27851,6 +27851,10 @@ function anaClearCache(){
 
 function anaInit(){
   anaPopulateDeckSel();
+  // Charge les decks publics communautaires en arrière-plan (fréquences formats construits)
+  _anaFetchPublicDecks(function(){
+    if(_anaState&&_anaState.deck&&_anaCurDeckId){try{anaRender(_anaCurDeckId);}catch(e){}}
+  });
 }
 
 // ===== Onglets internes Analyse (Aperçu / Composition / Manabase / Sim / Stratégie / Versions) =====
@@ -30214,22 +30218,42 @@ function _anaDetectArchetype(deck){
 
 /* ----- Matrice de frequence carte x archetype (EDHREC-like) ----- */
 // freqMatrix[nl][archetype] = % de decks de cet archetype contenant cette carte (0..1)
-function _anaComputeFreqMatrix(){
-  var rawFreq={};   // rawFreq[nl][arch] = nb decks
-  var archCount={}; // archCount[arch] = nb decks total de cet archetype
-  if(!decks)return {freq:{},archCount:{}};
-  Object.keys(decks).forEach(function(deckId){
-    var deck=decks[deckId];if(!deck||!deck.cards||!deck.cards.length)return;
+// Cache des decks publics communautaires (source de fréquence pour les formats construits)
+var _anaPublicDecks=null;
+function _anaFetchPublicDecks(cb){
+  if(_anaPublicDecks){if(cb)cb();return;}
+  if(typeof db==='undefined'||!db){_anaPublicDecks=[];if(cb)cb();return;}
+  db.collection('public_decks').limit(800).get().then(function(snap){
+    _anaPublicDecks=[];
+    snap.forEach(function(d){var x=d.data();if(x&&x.cards&&x.cards.length)_anaPublicDecks.push(x);});
+    if(cb)cb();
+  }).catch(function(){_anaPublicDecks=[];if(cb)cb();});
+}
+// Matrice de fréquence carte × archétype. Segmentée par format (ne mélange pas
+// un deck EDH dans l'analyse d'un Modern) et alimentée par les decks de
+// l'utilisateur + les decks publics de la communauté.
+function _anaComputeFreqMatrix(fmt){
+  var rawFreq={},archCount={};
+  fmt=(fmt||'').toLowerCase();
+  function _ingest(deck){
+    if(!deck||!deck.cards||!deck.cards.length)return;
+    if(fmt){
+      var df=(deck.format||deck.fmt||'').toLowerCase();
+      if(df&&df!==fmt)return; // format différent → ignoré
+    }
     var arch=_anaDetectArchetype(deck);
     archCount[arch]=(archCount[arch]||0)+1;
     var seen={};
     deck.cards.forEach(function(c){
-      if(seen[c.nl])return;
-      seen[c.nl]=1;
-      if(!rawFreq[c.nl])rawFreq[c.nl]={};
-      rawFreq[c.nl][arch]=(rawFreq[c.nl][arch]||0)+1;
+      var nl=c.nl||(c.name?stripDFC(c.name).toLowerCase():'');
+      if(!nl||seen[nl])return;
+      seen[nl]=1;
+      if(!rawFreq[nl])rawFreq[nl]={};
+      rawFreq[nl][arch]=(rawFreq[nl][arch]||0)+1;
     });
-  });
+  }
+  if(decks)Object.keys(decks).forEach(function(id){_ingest(decks[id]);});
+  if(_anaPublicDecks)_anaPublicDecks.forEach(_ingest);
   var freqNorm={};
   Object.keys(rawFreq).forEach(function(nl){
     freqNorm[nl]={};
@@ -30237,7 +30261,8 @@ function _anaComputeFreqMatrix(){
       freqNorm[nl][arch]=rawFreq[nl][arch]/(archCount[arch]||1);
     });
   });
-  return {freq:freqNorm,archCount:archCount};
+  var sample=0;Object.keys(archCount).forEach(function(a){sample+=archCount[a];});
+  return {freq:freqNorm,archCount:archCount,sampleSize:sample};
 }
 
 /* ----- Score d'une carte avec bonus de synergie selon archetype ----- */
@@ -32094,7 +32119,7 @@ function anaRender(deckId){
   var detectedArch=_anaResolveArchetype(deck,deckId);
   var autoArch=_anaDetectArchetype(deck);
   var isArchOverride=!!_anaUserArchetypes[deckId];
-  var freqMatrix=_anaComputeFreqMatrix();
+  var freqMatrix=_anaComputeFreqMatrix(fmt);
   var edhrecFreq=_anaCurrentEDHREC; // null tant que la requete EDHREC n'a pas abouti
   var isPauper=_anaIsPauperFormat(fmt);
   function _passPauper(meta){
