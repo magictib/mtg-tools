@@ -10125,6 +10125,7 @@ function inviteFriendToList(){
   list.memberNames[f.uid]=f.name;
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
+  toastSuccess(esc(f.name)+' ajouté à la liste — il/elle la verra dans son onglet « Liste partagée ».');
 }
 
 function removeFriendFromList(uid){
@@ -12522,7 +12523,7 @@ function renderPurchaseMgr(){
   });
   // Image mode
   if(_purImgMode){
-    wrap.innerHTML=_purRenderImgGrid(cards);
+    wrap.innerHTML=_purRenderPaidSummary(lst.cards||[],lst.orderGroups||[])+_purRenderImgGrid(cards);
     _purSyncToolbar();
     purFilterDecks();
     return;
@@ -12530,7 +12531,7 @@ function renderPurchaseMgr(){
   // Mode Action Center : vue par rôle
   if(_purViewMode==='action'){
     _purInvalidatePossessCache();
-    wrap.innerHTML=_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
+    wrap.innerHTML=_purRenderPaidSummary(lst.cards||[],lst.orderGroups||[])+_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
     _purSyncToolbar();
     purFilterDecks();
     // Fetch des prix manquants en arrière-plan, puis re-render léger
@@ -12538,7 +12539,7 @@ function renderPurchaseMgr(){
       // Re-render uniquement si on est toujours sur l'Action Center et la même liste
       if(_purViewMode==='action'&&_purchaseLists[_activePurListId]===lst){
         var w=document.getElementById('pur-table-wrap');
-        if(w)w.innerHTML=_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
+        if(w)w.innerHTML=_purRenderPaidSummary(lst.cards||[],lst.orderGroups||[])+_purRenderSummaryBanner(lst.cards||[])+_purRenderActionCenter(lst.cards||[]);
       }
     });
     return;
@@ -12846,6 +12847,17 @@ function _purRenderPaidSummary(cards,orderGroups){
   var grand=totCards+totShip;
   // ── Tableau ──
   var html='<div style="background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:.5px solid var(--bd2);border-radius:8px;padding:9px 12px;margin-bottom:10px">';
+  // Bannière personnelle : ce que MOI je dois payer
+  var mine=bk[userId];
+  if(mine&&(mine.cards+mine.ship)>0){
+    var myTot=mine.cards+mine.ship;
+    html+='<div style="background:rgba(201,168,76,.18);border:1px solid var(--gold);border-radius:7px;padding:7px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+      +'<span style="font-size:1rem">💳</span>'
+      +'<span style="color:var(--tx2);font-size:.82rem">Toi (<b style="color:var(--gold2)">'+esc(_purMemberName(userId))+'</b>), tu dois payer :</span>'
+      +'<span style="color:var(--gold2);font-weight:800;font-size:1.05rem">'+myTot.toFixed(2)+'€</span>'
+      +'<span style="color:var(--tx3);font-size:.7rem">('+mine.cards.toFixed(2)+'€ cartes'+(mine.ship?' + '+mine.ship.toFixed(2)+'€ port':'')+')</span>'
+      +'</div>';
+  }
   html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.85rem;margin-bottom:6px">💰 Récap achats — qui paye combien</div>';
   html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem">';
   html+='<thead><tr style="color:var(--tx3);font-size:.68rem;text-align:right;border-bottom:.5px solid var(--bd)">'
