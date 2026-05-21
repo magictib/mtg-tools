@@ -10964,41 +10964,54 @@ function deletePurchaseList(){
 function inviteFriendToList(){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   var list=_purchaseLists[_activePurListId];
-  // Candidats = amis connus dans n'importe quel slot (coll/deck/trade/…)
-  var seen={},candidates=[];
-  ['coll','deck','trade','game'].forEach(function(ctx){
-    (_epSlots[ctx]||[]).forEach(function(ep){
-      if(!ep||!ep.uid||seen[ep.uid])return;
-      if((list.members||[]).indexOf(ep.uid)>=0)return;
-      seen[ep.uid]=1;candidates.push({uid:ep.uid,name:ep.name||ep.uid});
-    });
-  });
-  if(!candidates.length){toastError('Aucun ami disponible à inviter (ajoute-les d\'abord dans les profils).');return;}
-  var msg='Inviter à la liste « '+list.name+' » :\n\n'
-    +candidates.map(function(f,i){return (i+1)+'. '+f.name;}).join('\n')
-    +'\n\nEntre le numéro :';
-  var choice=prompt(msg);if(!choice)return;
-  var idx=parseInt(choice)-1;
-  if(idx<0||idx>=candidates.length){toastError('Numéro invalide.');return;}
-  var f=candidates[idx];
-  list.members=(list.members||[]).concat([f.uid]);
+  var members=list.members||[];
+  var friends=((typeof _friends!=='undefined'&&_friends)||[]);
+  if(!friends.length){
+    mlAlert('Inviter à la liste',
+      '<div style="text-align:center;color:var(--tx2);line-height:1.6">Tu n\'as pas encore d\'amis sur ManaLAB.<br>Ajoute-les pour pouvoir partager une liste d\'achat.</div>'
+      +'<div style="text-align:center;margin-top:14px"><button class="btn btnp btnsm" onclick="_mlClose(null);openFriendModal()">👥 Ouvrir mes amis</button></div>',
+      {html:true,okLabel:'Fermer'});
+    return;
+  }
+  var candidates=friends.filter(function(f){return f&&f.uid&&members.indexOf(f.uid)<0;});
+  if(!candidates.length){
+    mlAlert('Inviter à la liste','Tous tes amis sont déjà membres de cette liste 🎉',{okLabel:'Fermer'});
+    return;
+  }
+  var rows=candidates.map(function(f){
+    var nm=esc(f.name||f.uid);
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:.5px solid var(--bd)">'
+      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;flex-shrink:0">'+nm.charAt(0).toUpperCase()+'</div>'
+      +'<div style="flex:1;font-size:.85rem;color:var(--tx)">'+nm+'</div>'
+      +'<button class="btn btnsm btnp" onclick="_doInviteToList(\''+esc(f.uid)+'\')">Inviter</button>'
+      +'</div>';
+  }).join('');
+  mlAlert('🤝 Inviter à « '+(list.name||'liste')+' »','<div style="max-height:50vh;overflow-y:auto">'+rows+'</div>',{html:true,okLabel:'Fermer'});
+}
+function _doInviteToList(uid){
+  _mlClose(null);
+  if(!_activePurListId||!_purchaseLists[_activePurListId]||!uid)return;
+  var list=_purchaseLists[_activePurListId];
+  if((list.members||[]).indexOf(uid)>=0){toastError('Déjà membre.');return;}
+  var f=((typeof _friends!=='undefined'&&_friends)||[]).find(function(x){return x.uid===uid;});
+  var name=(f&&f.name)||uid;
+  list.members=(list.members||[]).concat([uid]);
   list.memberNames=list.memberNames||{};
-  list.memberNames[f.uid]=f.name;
+  list.memberNames[uid]=name;
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
-  // Notification à l'invité
-  var _myNm=PN[0]||'Inconnu';
+  var myNm=(typeof PN!=='undefined'&&PN[0])||'Inconnu';
   db.collection('notifications').add({
     type:'list_invite',
-    title:'Liste partagée — '+_myNm,
-    body:_myNm+' t\'a invité à la liste d\'achat « '+(list.name||'')+' ».',
-    fromUid:userId,fromName:_myNm,
-    targetUid:f.uid,toName:f.name,
+    title:'Liste partagée — '+myNm,
+    body:myNm+' t\'a invité à la liste d\'achat « '+(list.name||'')+' ».',
+    fromUid:userId,fromName:myNm,
+    targetUid:uid,toName:name,
     listId:_activePurListId,
     createdAt:firebase.firestore.FieldValue.serverTimestamp(),
     readBy:[]
   }).catch(function(e){console.warn('notif list_invite',e);});
-  toastSuccess(esc(f.name)+' invité — il/elle reçoit une notification.');
+  toastSuccess(esc(name)+' invité — il/elle reçoit une notification.');
 }
 
 function removeFriendFromList(uid){
