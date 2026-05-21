@@ -5000,6 +5000,9 @@ try{
 }catch(e){console.warn('[firestore] enablePersistence non disponible:',e);}
 var userId = 'default_user';
 
+// Écriture localStorage tolérante au quota plein (QuotaExceededError, mode privé…)
+function _lsSet(k,v){try{localStorage.setItem(k,v);return true;}catch(e){console.warn('[localStorage] écriture refusée pour '+k,e&&e.name);return false;}}
+
 // ===== AUTH =====
 var _ADMIN_EMAIL='thibaud.combes31@gmail.com';
 var _currentUser=null;
@@ -5051,7 +5054,7 @@ function _onUserRole(user,role){
        'mtg_ana_themes','mtg_user_lang','mtg_user_archetypes','mtg_cmd_manual_oracle','mtg_theme',
        'mtg_arena_pool','manalab_ar_matches'
       ].forEach(function(k){localStorage.removeItem(k);});
-      localStorage.setItem('mtg_last_uid',userId);
+      _lsSet('mtg_last_uid',userId);
     }
     _loadFsPrefs(function(){
       loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
@@ -5653,7 +5656,45 @@ function _loadRemovedFriendsFromCloud(){
 var _notifUnsub=null,_notifDocs=[],_currentUid=null;
 var _tradesUnsub=null,_firebaseTrades=[];
 var _decksUnsub=null;
-var _tradesProcessed=new Set(JSON.parse(localStorage.getItem('mtg_trades_processed')||'[]'));
+var _orphanDecksCleaned=false; // nettoyage decks legacy : 1 fois par session
+var _tradesProcessed=new Set((function(){try{return JSON.parse(localStorage.getItem('mtg_trades_processed')||'[]');}catch(e){return [];}})());
+var _tradeApplyInFlight=new Set();
+function _saveTradesProcessed(){_lsSet('mtg_trades_processed',JSON.stringify([..._tradesProcessed]));}
+// Crédite les cartes d'un échange UNE SEULE FOIS, même sur plusieurs appareils.
+// Le verrou « effectsApplied » vit dans le document Firestore (transaction atomique),
+// pas en localStorage — sinon chaque appareil re-créditerait les cartes.
+function _applyTradeEffectOnce(tr,uid){
+  var key=tr.id+'_done';
+  if(_tradesProcessed.has(key))return;                                      // déjà fait sur cet appareil
+  if(tr.effectsApplied){_tradesProcessed.add(key);_saveTradesProcessed();return;} // déjà fait globalement
+  if(_tradeApplyInFlight.has(tr.id))return;                                 // transaction en cours
+  var gain=null;
+  if(tr.status==='accepted'&&tr.fromUid===uid&&tr.type==='exchange')gain=tr.requested||[];
+  else if((tr.status==='declined'||tr.status==='cancelled')&&tr.fromUid===uid)gain=tr.offered||[];
+  if(!gain)return;
+  _tradeApplyInFlight.add(tr.id);
+  var ref=db.collection('trades').doc(tr.id);
+  db.runTransaction(function(t){
+    return t.get(ref).then(function(doc){
+      if(!doc.exists)return 'gone';
+      if(doc.data().effectsApplied)return 'already';
+      t.update(ref,{effectsApplied:true});
+      return 'claimed';
+    });
+  }).then(function(result){
+    _tradeApplyInFlight.delete(tr.id);
+    if(result==='claimed'){
+      gain.forEach(function(c){
+        addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});
+      });
+      saveProfs();
+    }
+    _tradesProcessed.add(key);_saveTradesProcessed();
+  }).catch(function(e){
+    _tradeApplyInFlight.delete(tr.id);
+    console.warn('[trade] application effet échouée',e);
+  });
+}
 
 function initNotifications(uid){
   _currentUid=uid;
@@ -5853,30 +5894,8 @@ function _initTradesListener(uid){
       snap.forEach(function(doc){
         _firebaseTrades.push(Object.assign({id:doc.id},doc.data()));
       });
-      // Auto-apply card effects when trade status changes
-      _firebaseTrades.forEach(function(tr){
-        var key=tr.id+'_done';
-        if(_tradesProcessed.has(key))return;
-        if(tr.status==='accepted'&&tr.fromUid===uid){
-          // Proposer gets requested cards added to their collection
-          if(tr.type==='exchange'){
-            (tr.requested||[]).forEach(function(c){
-              addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});
-            });
-            saveProfs();
-          }
-          _tradesProcessed.add(key);
-          localStorage.setItem('mtg_trades_processed',JSON.stringify([..._tradesProcessed]));
-        } else if((tr.status==='declined'||tr.status==='cancelled')&&tr.fromUid===uid){
-          // Proposer gets offered cards back
-          (tr.offered||[]).forEach(function(c){
-            addCardToProf(0,{name:c.name,qty:c.qty,set:'',num:'',cond:'NM',finish:'nonfoil',price:0});
-          });
-          saveProfs();
-          _tradesProcessed.add(key);
-          localStorage.setItem('mtg_trades_processed',JSON.stringify([..._tradesProcessed]));
-        }
-      });
+      // Crédite les cartes (verrou anti-double dans le doc Firestore)
+      _firebaseTrades.forEach(function(tr){_applyTradeEffectOnce(tr,uid);});
       renderTradePage();
     },function(err){console.warn('trades listener:',err);});
 }
@@ -5894,7 +5913,7 @@ function adminSaveTopdeckKey(){
   var key=document.getElementById('admin-topdeck-key').value.trim();
   var msg=document.getElementById('admin-topdeck-msg');
   if(!key){if(msg)msg.textContent='Clé vide.';return;}
-  localStorage.setItem('_tdKey',key);
+  _lsSet('_tdKey',key);
   document.getElementById('admin-topdeck-key').value='';
   if(msg){msg.style.color='var(--gr2)';msg.textContent='✓ Clé sauvegardée : '+key.substring(0,4)+'…';}
 }
@@ -7727,15 +7746,20 @@ function loadDecks(){
       var d={};
       snapshot.forEach(function(doc){d[doc.id]=doc.data();});
       _migrateReparseDecks(d);
-      // Supprimer les decks orphelins de l'ancien système 3-profils fixes
-      var orphanIds=Object.keys(d).filter(function(id){
-        var dk=d[id];return (dk.owner||0)>0&&!dk.ownerUid;
-      });
-      if(orphanIds.length){
-        var cleanBatch=db.batch();
-        var ref=db.collection('users').doc(userId).collection('decks');
-        orphanIds.forEach(function(id){cleanBatch.delete(ref.doc(id));delete d[id];});
-        cleanBatch.commit().catch(function(e){console.warn('cleanup orphan decks',e);});
+      // Supprimer les decks orphelins de l'ancien système 3-profils fixes.
+      // Ne tourne qu'UNE fois par session : évite tout risque de re-suppression
+      // sur des snapshots ultérieurs et le travail redondant.
+      if(!_orphanDecksCleaned){
+        _orphanDecksCleaned=true;
+        var orphanIds=Object.keys(d).filter(function(id){
+          var dk=d[id];return (dk.owner||0)>0&&!dk.ownerUid;
+        });
+        if(orphanIds.length){
+          var cleanBatch=db.batch();
+          var ref=db.collection('users').doc(userId).collection('decks');
+          orphanIds.forEach(function(id){cleanBatch.delete(ref.doc(id));delete d[id];});
+          cleanBatch.commit().catch(function(e){console.warn('cleanup orphan decks',e);});
+        }
       }
       // Si premiere sync et que Firestore est vide mais qu'on a des donnees locales, synchro
       if(snapshot.empty&&Object.keys(decks).length){saveDecks();return;}
@@ -7763,13 +7787,18 @@ function _refreshAllDeckSelects(){
 }
 function saveDecks(){
   _refreshAllDeckSelects();
-  try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
+  _lsSet('mtg_decks',JSON.stringify(decks));
   if(!userId)return;
-  var batch=db.batch();
   var ref=db.collection('users').doc(userId).collection('decks');
-  Object.keys(decks).forEach(function(id){batch.set(ref.doc(id),decks[id]);});
+  // Découpe en lots de 450 : un batch Firestore est plafonné à 500 écritures
+  var batches=[],batch=null,n=0;
+  Object.keys(decks).forEach(function(id){
+    if(!batch||n>=450){batch=db.batch();batches.push(batch);n=0;}
+    batch.set(ref.doc(id),decks[id]);n++;
+  });
   try{fsSaveStart();}catch(_){}
-  batch.commit().then(function(){try{fsSaveEnd(true);}catch(_){}})
+  Promise.all(batches.map(function(b){return b.commit();}))
+    .then(function(){try{fsSaveEnd(true);}catch(_){}})
     .catch(function(e){console.warn('Firestore saveDecks',e);try{fsSaveEnd(false);}catch(_){}});
 }
 // ===== PENDING / LOANS / TRADES — PERSISTANCE =====
@@ -8098,7 +8127,8 @@ function deleteDeck(){
     if(_epDecks[_adminEditUid])delete _epDecks[_adminEditUid][id];
   }else{
     delete decks[id];saveDecks();
-    db.collection('users').doc(userId).collection('decks').doc(id).delete().catch(function(){});
+    db.collection('users').doc(userId).collection('decks').doc(id).delete()
+      .catch(function(e){console.warn('deleteDeck',e);toastError('Suppression du deck échouée — il peut réapparaître. Réessaie.');});
   }
   newDeck();renderDBar();
   // Toast undo
@@ -10644,27 +10674,86 @@ function _purPersistActiveListId(){
   try{if(_activePurListId)localStorage.setItem('mtg_pur_active',_activePurListId);else localStorage.removeItem('mtg_pur_active');}catch(e){}
 }
 
+function _purNewCardId(){return 'pc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+// Marque une (ou plusieurs) carte(s) comme supprimée(s) : pierre tombale horodatée.
+// Permet à la fusion de distinguer « supprimée » de « ajoutée par un autre membre ».
+function _purTombstone(list,ids){
+  if(!list)return;
+  list.deletedCards=list.deletedCards||{};
+  (Array.isArray(ids)?ids:[ids]).forEach(function(cid){if(cid)list.deletedCards[cid]=Date.now();});
+}
+// Fusion 3-voies serveur/local d'une liste partagée — ne perd jamais une carte
+// ajoutée ou modifiée par un autre membre (édition concurrente).
+function _purMergeListData(server,local){
+  var out=Object.assign({},local); // champs scalaires (name, orderGroups…) : version locale
+  // members : union (ne perd pas une invitation concurrente)
+  var mem={};(server.members||[]).concat(local.members||[]).forEach(function(u){if(u)mem[u]=1;});
+  out.members=Object.keys(mem);
+  out.memberNames=Object.assign({},server.memberNames||{},local.memberNames||{});
+  // pierres tombales : union, horodatage le plus récent
+  var tomb=Object.assign({},server.deletedCards||{});
+  Object.keys(local.deletedCards||{}).forEach(function(cid){
+    tomb[cid]=Math.max(tomb[cid]||0,local.deletedCards[cid]||0);
+  });
+  // cartes : union par id, lastChangeAt le plus récent gagne
+  var byId={};
+  function _ingest(arr){
+    (arr||[]).forEach(function(c){
+      if(!c)return;
+      if(!c.id)c.id=_purNewCardId();
+      var ex=byId[c.id];
+      if(!ex||(c.lastChangeAt||0)>=(ex.lastChangeAt||0))byId[c.id]=c;
+    });
+  }
+  _ingest(server.cards);
+  _ingest(local.cards);
+  var cards=[];
+  Object.keys(byId).forEach(function(cid){
+    var c=byId[cid];
+    var del=tomb[cid]||0;
+    if(del&&del>=(c.lastChangeAt||0))return; // supprimée après sa dernière modif
+    cards.push(c);
+  });
+  out.cards=cards;
+  // purge des pierres tombales de plus de 30 jours
+  var cutoff=Date.now()-2592000000,pt={};
+  Object.keys(tomb).forEach(function(cid){if((tomb[cid]||0)>=cutoff)pt[cid]=tomb[cid];});
+  out.deletedCards=pt;
+  return out;
+}
 function savePurchaseList(id){
   if(!userId||!id||!_purchaseLists[id])return;
-  // Retire les flags locaux non-persistables avant l'envoi
-  var localCopy=Object.assign({},_purchaseLists[id]);
+  var live=_purchaseLists[id];
+  // Backfill des id manquants AVANT toute écriture (la fusion en a besoin)
+  (live.cards||[]).forEach(function(c){if(c&&!c.id)c.id=_purNewCardId();});
+  var localCopy=Object.assign({},live);
   delete localCopy._pendingWrite;
-  var data=Object.assign({},localCopy,{updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
-  if(!data.members)data.members=[userId];
-  if(data.members.indexOf(userId)<0)data.members.push(userId);
-  if(!data.createdBy)data.createdBy=userId;
+  if(!localCopy.members)localCopy.members=[userId];
+  if(localCopy.members.indexOf(userId)<0)localCopy.members.push(userId);
+  if(!localCopy.createdBy)localCopy.createdBy=userId;
+  var ref=db.collection('shared_lists').doc(id);
   try{fsSaveStart();}catch(_){}
-  db.collection('shared_lists').doc(id)
-    .set(data).then(function(){
-      try{fsSaveEnd(true);}catch(_){}
-      // Confirmé côté Firestore : retire le flag pending
-      if(_purchaseLists[id])delete _purchaseLists[id]._pendingWrite;
-    })
-    .catch(function(e){
-      console.warn('savePurchaseList',e);
-      try{fsSaveEnd(false);}catch(_){}
-      if(typeof toastError==='function')toastError('Sauvegarde liste échouée : '+e.message);
+  function _onOk(){try{fsSaveEnd(true);}catch(_){}if(_purchaseLists[id])delete _purchaseLists[id]._pendingWrite;}
+  function _onErr(e){
+    console.warn('savePurchaseList',e);
+    try{fsSaveEnd(false);}catch(_){}
+    if(typeof toastError==='function')toastError('Sauvegarde liste échouée : '+(e&&e.message||e));
+  }
+  // Transaction : fusionne avec l'état serveur pour ne JAMAIS écraser
+  // les modifications concurrentes d'un autre membre de la liste.
+  db.runTransaction(function(t){
+    return t.get(ref).then(function(doc){
+      var merged=doc.exists?_purMergeListData(doc.data(),localCopy):Object.assign({deletedCards:{}},localCopy);
+      merged.updatedAt=firebase.firestore.FieldValue.serverTimestamp();
+      t.set(ref,merged);
     });
+  }).then(_onOk).catch(function(e){
+    // Hors-ligne : les transactions Firestore échouent. Repli sur set() (mis en file).
+    if(e&&(e.code==='unavailable'||e.code==='failed-precondition')){
+      var fb=Object.assign({},localCopy,{updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      ref.set(fb).then(_onOk).catch(_onErr);
+    }else{_onErr(e);}
+  });
 }
 
 function newPurchaseList(){
@@ -10695,7 +10784,7 @@ function deletePurchaseList(){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   if(!confirm('Supprimer la liste "'+_purchaseLists[_activePurListId].name+'" ?'))return;
   db.collection('shared_lists').doc(_activePurListId)
-    .delete().catch(function(e){console.warn('deletePurchaseList',e);});
+    .delete().catch(function(e){console.warn('deletePurchaseList',e);if(typeof toastError==='function')toastError('Suppression de la liste échouée — elle peut réapparaître. Réessaie.');});
   delete _purchaseLists[_activePurListId];
   var ids=Object.keys(_purchaseLists);
   _activePurListId=ids.length?ids[0]:null;_purPersistActiveListId();
@@ -10812,10 +10901,13 @@ function _purApplyCardQty(card,nv){
     // Retire la carte avec possibilité d'annuler
     var snap=Object.assign({},card);
     list.cards=(list.cards||[]).filter(function(c){return c.id!==card.id;});
+    _purTombstone(list,card.id);
     savePurchaseList(_activePurListId);renderPurchaseMgr();
     toastUndo('🗑 "'+snap.name+'" retirée',function(){
       var l=_purchaseLists[_activePurListId];if(!l)return;
       l.cards=l.cards||[];
+      if(l.deletedCards)delete l.deletedCards[snap.id];
+      snap.lastChangeBy=userId;snap.lastChangeAt=Date.now();
       if(!l.cards.some(function(c){return c.id===snap.id;}))l.cards.push(snap);
       savePurchaseList(_activePurListId);renderPurchaseMgr();
       toastSuccess('Carte restaurée');
@@ -11245,6 +11337,7 @@ function purReconcileImports(){
     if(consumed>0)toRemove[orphan.id]=1;
   });
   list.cards=list.cards.filter(function(c){return !toRemove[c.id];});
+  _purTombstone(list,Object.keys(toRemove));
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
   toastSuccess(merged+' carte(s) réconciliée(s)'+(unmatchedCards.length?' · '+unmatchedCards.length+' à assigner manuellement':''));
@@ -11338,7 +11431,7 @@ function purDeleteOrderGroup(groupId){
   var g=list.orderGroups.find(function(x){return x.id===groupId;});if(!g)return;
   if(!confirm('Supprimer le groupe "'+g.name+'" ? Les cartes ne seront pas supprimées mais désassociées.'))return;
   list.orderGroups=list.orderGroups.filter(function(x){return x.id!==groupId;});
-  (list.cards||[]).forEach(function(c){if(c.orderGroupId===groupId)delete c.orderGroupId;});
+  (list.cards||[]).forEach(function(c){if(c.orderGroupId===groupId){delete c.orderGroupId;_purStamp(c);}});
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
   toastSuccess('Groupe supprimé');
@@ -13710,6 +13803,7 @@ function removePurCard(cardId){
   if(!_activePurListId||!_purchaseLists[_activePurListId])return;
   var lst=_purchaseLists[_activePurListId];
   lst.cards=(lst.cards||[]).filter(function(c){return c.id!==cardId;});
+  _purTombstone(lst,cardId);
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
 }
@@ -15100,9 +15194,9 @@ function _arSaveStats(rating){
     lifeHist:(_ar.lifeHist||[]).map(function(h){return{turn:h.turn,life:h.life};}),
     cmdDmgDealt:_ar.cmdDmgDealt||{},
     mode:_arRoom?'online-'+(_arRoom.numPlayers||2)+'p':(_arBot?'vs-ai':'solo')};
-  var all=JSON.parse(localStorage.getItem('manalab_ar_stats')||'[]');
+  var all=[];try{all=JSON.parse(localStorage.getItem('manalab_ar_stats')||'[]');}catch(e){}
   all.push(entry);
-  localStorage.setItem('manalab_ar_stats',JSON.stringify(all));
+  _lsSet('manalab_ar_stats',JSON.stringify(all));
   // Enregistrer dans l'historique des matchs si résultat renseigné
   if(_arEndResult){
     var winner=_arEndResult==='win'?'p1':_arEndResult==='loss'?'p2':'draw';
@@ -15849,7 +15943,7 @@ function arHkEdit(key){
   arBuildHkTable();
 }
 function arSaveHotkeys(){
-  localStorage.setItem('manalab_ar_hotkeys',JSON.stringify(_arHotkeys));
+  _lsSet('manalab_ar_hotkeys',JSON.stringify(_arHotkeys));
   document.getElementById('ar-hotkeys-ov').style.display='none';
   _arHkEditing=null;
 }
@@ -22008,7 +22102,7 @@ function initRulesTab(){
 
 function saveWorkerUrl(){
   var wu=(document.getElementById('rules-worker-url').value||'').trim();
-  localStorage.setItem('ml_worker_url',wu);
+  _lsSet('ml_worker_url',wu);
   _applyWorkerUrl(wu);
   if(_userRole==='admin'){
     db.collection('meta').doc('config').set({workerUrl:wu},{merge:true}).catch(function(){});
@@ -23002,7 +23096,7 @@ function _updateScryfallOfflineBtn(){
 }
 function toggleScryfallOffline(){
   _scryfallOffline=!_scryfallOffline;
-  localStorage.setItem('scryfall_offline',_scryfallOffline?'1':'0');
+  _lsSet('scryfall_offline',_scryfallOffline?'1':'0');
   _updateScryfallOfflineBtn();
 }
 
@@ -32905,9 +32999,9 @@ function _getDeckFmt(deckId){
 }
 
 function arPoolLoad(){if(_fsPrefsDone)return;try{_arPool=JSON.parse(localStorage.getItem('mtg_arena_pool')||'[]');}catch(e){_arPool=[];}}
-function arPoolSave(){localStorage.setItem('mtg_arena_pool',JSON.stringify(_arPool));_fsPrefs.arPool=_arPool;_saveFsPrefs();}
+function arPoolSave(){_lsSet('mtg_arena_pool',JSON.stringify(_arPool));_fsPrefs.arPool=_arPool;_saveFsPrefs();}
 function arMatchesLoad(){if(_fsPrefsDone)return;try{_arMatches=JSON.parse(localStorage.getItem('manalab_ar_matches')||'[]');}catch(e){_arMatches=[];}}
-function arMatchesSave(){localStorage.setItem('manalab_ar_matches',JSON.stringify(_arMatches));_fsPrefs.arMatches=_arMatches;_saveFsPrefs();}
+function arMatchesSave(){_lsSet('manalab_ar_matches',JSON.stringify(_arMatches));_fsPrefs.arMatches=_arMatches;_saveFsPrefs();}
 
 function arSetResult(r){
   _arEndResult=r;
