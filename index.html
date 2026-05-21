@@ -5061,7 +5061,8 @@ function _showInviteBanner(){
 function _processPendingInvite(){
   if(!_inviteFromUid||!userId)return;
   var inv=_inviteFromUid;_inviteFromUid=null;
-  try{history.replaceState(null,'',location.pathname);}catch(e){} // évite de relancer au refresh
+  // Retire ?invite= de l'URL (évite de relancer au refresh) sans toucher au #tab
+  try{history.replaceState(history.state,'',location.pathname+location.hash);}catch(e){}
   if(inv===userId)return;                                          // son propre lien
   if(_friends&&_friends.some(function(f){return f.uid===inv;}))return; // déjà ami
   if(typeof _isPendingOut==='function'&&_isPendingOut(inv))return;  // demande déjà en cours
@@ -5138,6 +5139,11 @@ function _onUserRole(user,role){
       ].forEach(function(k){localStorage.removeItem(k);});
       _lsSet('mtg_last_uid',userId);
     }
+    // Navigation : restaure l'onglet depuis l'URL (#tab) — gère refresh + liens profonds
+    var _initTab=_tabFromHash()||'home';
+    try{history.replaceState({tab:_initTab},'','#'+_initTab);}catch(e){}
+    _currentTab=_initTab;
+    if(_initTab!=='home')setTimeout(function(){goTab(_initTab,true);},80);
     _loadFsPrefs(function(){
       loadProfs();loadDecks();loadGames();loadPending();loadLoans();loadTrades();
       // Charge d'abord la liste des amis retirés (cloud) puis charge les amis (évite la
@@ -6390,7 +6396,13 @@ function _renderSubTabs(pageId){
   bar.style.display='flex';
   document.body.classList.add('has-subtabs');
 }
-function goTab(id) {
+function _isValidTab(id){return !!_navPageToSpace[id];}
+function _tabFromHash(){
+  var h=(location.hash||'').replace(/^#/,'');
+  return _isValidTab(h)?h:null;
+}
+var _currentTab=null;
+function goTab(id, fromHistory) {
   document.querySelectorAll('.page').forEach(function(el){el.classList.remove('active');});
   document.querySelectorAll('.tab-btn').forEach(function(el){el.classList.remove('active');});
   var pg=document.getElementById('pg-'+id);if(pg)pg.classList.add('active');
@@ -6426,7 +6438,21 @@ function goTab(id) {
     var _pg=document.getElementById('pg-'+id);
     if(_pg)setTimeout(function(){_pg.querySelectorAll('img').forEach(_localizeOneImg);},120);
   }
+  // Historique navigateur : permet le bouton retour + liens profonds (#tab)
+  if(!fromHistory&&id!==_currentTab){
+    try{
+      var st={tab:id};
+      if(history.state&&history.state.tab)history.pushState(st,'','#'+id);
+      else history.replaceState(st,'','#'+id);
+    }catch(e){}
+  }
+  _currentTab=id;
 }
+// Bouton retour / avant du navigateur
+window.addEventListener('popstate',function(e){
+  var id=(e.state&&e.state.tab)||_tabFromHash()||'home';
+  if(_isValidTab(id))goTab(id,true);
+});
 
 // ============================================================
 // ACCUEIL — tableau de bord
