@@ -19378,6 +19378,7 @@ function arStartVsBot(){
       cmd:bExp.cmd,cmdCasts:0,life:startLife,startLife:startLife,turn:0,attackers:[],blockers:[],mana:{W:0,U:0,B:0,R:0,G:0,C:0},
       deckName:_bName,deckId:bId};
     for(var j=0;j<7;j++)if(_arBot.lib.length)_arBot.hand.push(_arBot.lib.pop());
+    _arBotDetectPlan();
     _arBotConsiderMulligan();
     _arStack=[];_arMana={W:0,U:0,B:0,R:0,G:0,C:0};_arPriorityHolder=null;
     _arBotTurnActive=false;_arBotLandPlayed=false;_arBlockingMode=false;_arBotBlockerMap={};
@@ -19480,6 +19481,24 @@ function _arBotInitMana(){
   if(!_arBot.mana)_arBot.mana={W:0,U:0,B:0,R:0,G:0,C:0};
   else{var ks=Object.keys(_arBot.mana);ks.forEach(function(k){_arBot.mana[k]=0;});}
   _arBot.lands.forEach(function(c){if(!c.tapped){c.tapped=true;_arLandColors(c.name).forEach(function(col){if(_arBot.mana.hasOwnProperty(col))_arBot.mana[col]++;else _arBot.mana.C++;});}});
+  // Créatures productrices de mana (dorks : Llanowar Elves, etc.)
+  (_arBot.field||[]).forEach(function(c){
+    if(c.tapped||c.enteredThisTurn)return;            // capacité {T} : pas de mal d'invocation
+    if(!_arIsCreature(c))return;
+    var d=_arCardDataCache[(c.name||'').toLowerCase()];if(!d)return;
+    var o=(d.oracle_text||'').toLowerCase();
+    var m=o.match(/\{t\}:\s*add\s+([^.\n]+)/);
+    if(!m)return;
+    c.tapped=true;
+    var prod=m[1];
+    var syms=prod.match(/\{([wubrg])\}/gi)||[];
+    if(syms.length){
+      syms.forEach(function(sy){var col=sy.replace(/[{}]/g,'').toUpperCase();if(_arBot.mana.hasOwnProperty(col))_arBot.mana[col]++;});
+    }else{
+      // "mana de n'importe quelle couleur" ou {C} : approximé en incolore (couvre les coûts génériques)
+      _arBot.mana.C++;
+    }
+  });
 }
 function _arBotCanPay(mc){
   if(!_arBot||!_arBot.mana)return false;
@@ -19492,6 +19511,30 @@ function _arBotPay(mc){
   var cost=_arParseCost(mc);var p=_arBot.mana;
   p.W-=cost.W;p.U-=cost.U;p.B-=cost.B;p.R-=cost.R;p.G-=cost.G;p.C-=cost.C;
   var rem=cost.generic;['W','U','B','R','G','C'].forEach(function(c){var u=Math.min(rem,p[c]);p[c]-=u;rem-=u;});
+}
+// Détecte le plan de jeu du bot en analysant son deck (agro / contrôle / midrange)
+function _arBotDetectPlan(){
+  if(!_arBot){return;}
+  var all=(_arBot.lib||[]).concat(_arBot.hand||[]);
+  var creatures=0,nonland=0,totalCmc=0,removal=0,counters=0;
+  all.forEach(function(c){
+    var d=_arCardDataCache[(c.name||'').toLowerCase()];if(!d)return;
+    var tl=(d.type_line||'').toLowerCase();
+    if(tl.indexOf('land')>=0)return;
+    nonland++;totalCmc+=(d.cmc||0);
+    if(tl.indexOf('creature')>=0)creatures++;
+    var o=(d.oracle_text||'').toLowerCase();
+    if(/destroy target|exile target (creature|permanent|nonland)|deals? \d+ damage to (target creature|any target)/.test(o))removal++;
+    if(/counter target spell/.test(o))counters++;
+  });
+  var avgCmc=nonland?totalCmc/nonland:3;
+  var creatureRatio=nonland?creatures/nonland:0;
+  var plan='midrange';
+  if(creatureRatio>=0.55&&avgCmc<=2.9)plan='aggro';
+  else if((removal+counters)>=8&&creatureRatio<0.45)plan='control';
+  else if(avgCmc>=3.7&&creatureRatio<0.5)plan='control';
+  _arBot.plan=plan;
+  _arBotLog('Bot : plan détecté — '+({aggro:'Agressif',control:'Contrôle',midrange:'Midrange'})[plan]);
 }
 // Score d'une carte pour le bot (plus haut = plus impactant à jouer maintenant)
 function _arBotCardScore(card,data){
@@ -19528,6 +19571,16 @@ function _arBotCardScore(card,data){
   if(_ar.turn<=4&&(data.cmc||0)>=6)s-=2;
   // Bonus : carte chère = impact (équilibre)
   s+=(data.cmc||0)*0.4;
+  // Modulation selon le plan de jeu du bot
+  var plan=(_arBot&&_arBot.plan)||'midrange';
+  if(plan==='aggro'){
+    if(tl.indexOf('creature')>=0)s+=pwr*0.7+1;        // l'agro priorise la pression
+    if((data.cmc||0)<=2&&tl.indexOf('creature')>=0)s+=1; // déploiement rapide
+  }else if(plan==='control'){
+    if(/destroy target|exile target|counter target|return target.*hand/.test(txt))s+=3;
+    if(/draw \w+ cards?/.test(txt))s+=2;
+    if(tl.indexOf('creature')>=0&&pwr>tgh)s-=1;        // le contrôle préfère les blocs solides
+  }
   return s;
 }
 function _arBotMainPhase(done){
@@ -19580,11 +19633,39 @@ function _arBotMainPhase(done){
   };
   playNext(0);
 }
+// Évalue la menace réelle d'une créature adverse (pour cibler le removal)
+function _arBotThreatScore(card){
+  var d=_arCardDataCache[(card.name||'').toLowerCase()]||{};
+  var kw=d.keywords||[];var o=(d.oracle_text||'').toLowerCase();
+  var pow=parseInt(d.power||0)||0,tgh=parseInt(d.toughness||0)||0;
+  var s=pow*1.6+tgh*0.5;
+  // Évasion : dégâts difficiles à empêcher
+  if(kw.indexOf('Flying')>=0||kw.indexOf('Menace')>=0||kw.indexOf('Trample')>=0)s+=3;
+  if(kw.indexOf('Double strike')>=0)s+=pow;            // double les dégâts de combat
+  if(kw.indexOf('Deathtouch')>=0)s+=2;
+  if(kw.indexOf('Lifelink')>=0)s+=2;
+  if(kw.indexOf('Indestructible')>=0||kw.indexOf('Hexproof')>=0||kw.indexOf('Ward')>=0)s+=2;
+  // Moteur de valeur : capacités déclenchées ou activées
+  if(/whenever |at the beginning of /.test(o))s+=3;
+  if(/\{t\}:|: draw|: add \{/.test(o))s+=2;
+  // Menace létale : la force approche les PV du bot
+  if(_arBot){
+    if(pow>=_arBot.life)s+=12;
+    else if(pow*2>=_arBot.life)s+=4;
+  }
+  s+=(d.cmc||0)*0.3;                                   // grosse carte = gros investissement adverse à casser
+  return s;
+}
 function _arBotPickTarget(text){
   text=(text||'').toLowerCase();
   if(text.match(/destroy target (creature|nonland permanent)/)||text.match(/exile target (creature|nonland permanent)/)){
     var ts=_ar.field.filter(_arIsCreature);if(!ts.length)return[];
-    if(_arBotDifficulty==='expert'){ts.sort(function(a,b){var da=_arCardDataCache[(a.name||'').toLowerCase()];var db=_arCardDataCache[(b.name||'').toLowerCase()];return(parseInt((db&&db.power)||0))-(parseInt((da&&da.power)||0));});}
+    if(_arBotDifficulty==='expert'){
+      // Cible la créature la plus menaçante (pas juste la plus grosse)
+      ts.sort(function(a,b){return _arBotThreatScore(b)-_arBotThreatScore(a);});
+    }else if(_arBotDifficulty==='intermediate'){
+      ts.sort(function(a,b){var da=_arCardDataCache[(a.name||'').toLowerCase()];var db=_arCardDataCache[(b.name||'').toLowerCase()];return(parseInt((db&&db.power)||0))-(parseInt((da&&da.power)||0));});
+    }
     return[ts[0].id];
   }
   if(text.match(/return target (creature|permanent)/)&&text.includes('hand')){
@@ -19593,7 +19674,21 @@ function _arBotPickTarget(text){
     return[ts2[0].id];
   }
   if(text.includes('counter target spell')){var ps=_arStack.slice().reverse().find(function(s){return s.caster==='player';});if(ps)return[ps.id];}
-  if(text.match(/deals? \w+ damage to (any target|target player|target opponent)/))return['player'];
+  if(text.match(/deals? \w+ damage to (any target|target player|target opponent)/)){
+    // Si le sort peut tuer une créature menaçante → la cibler ; sinon viser le joueur
+    var dmgM=text.match(/deals? (\d+) damage/);var dmg=dmgM?parseInt(dmgM[1]):0;
+    if(_arBotDifficulty==='expert'&&dmg>0&&text.indexOf('any target')>=0){
+      var killable=_ar.field.filter(_arIsCreature).filter(function(c){
+        var cd=_arCardDataCache[(c.name||'').toLowerCase()]||{};
+        return (parseInt(cd.toughness||0)||0)<=dmg+(c.damage||0);
+      });
+      if(killable.length){
+        killable.sort(function(a,b){return _arBotThreatScore(b)-_arBotThreatScore(a);});
+        if(_arBotThreatScore(killable[0])>=6)return[killable[0].id];
+      }
+    }
+    return['player'];
+  }
   return[];
 }
 function _arBotCastCard(card,done){
@@ -19661,13 +19756,19 @@ function _arBotDeclareAttackers(){
       var bp=parseInt(bd.power||0)||0,bt=parseInt(bd.toughness||0)||1;
       var theirScore=_arBotCardScore(bestBlocker,bd);
       var iDie=bp>=tgh, theyDie=pow>=bt;
-      // Bonne attaque si :
-      // - Je tue sans mourir (free trade)
-      // - On meurt tous les deux mais sa valeur > la mienne (favourable trade)
-      // - Je ne meurs pas (suis trop gros, je ping juste)
+      var plan=(_arBot&&_arBot.plan)||'midrange';
+      // Échange gratuit : toujours bon
       if(theyDie&&!iDie){atks.push(c);return;}
-      if(iDie&&theyDie&&theirScore>myScore+1){atks.push(c);return;}
-      if(!iDie&&!theyDie&&_arBot.life>10){atks.push(c);return;} // chip damage si pas en danger
+      // Double échange : seuil selon le plan (l'agro accepte les échanges neutres)
+      if(iDie&&theyDie){
+        var tradeMargin=plan==='aggro'?-1:(plan==='control'?3:1);
+        if(theirScore>myScore+tradeMargin){atks.push(c);return;}
+      }
+      // Chip damage (je ne meurs pas, je ne tue pas) : seuil de vie selon le plan
+      if(!iDie&&!theyDie){
+        var lifeThreshold=plan==='aggro'?4:(plan==='control'?16:10);
+        if(_arBot.life>lifeThreshold){atks.push(c);return;}
+      }
       // Sinon : skip (mauvaise attaque)
     });
   }
