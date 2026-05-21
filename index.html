@@ -2374,9 +2374,13 @@ details > summary::-webkit-details-marker{display:none}
       </div>
       <div id="hub-sec-settings">
         <div style="padding:.75rem 1rem">
-          <div class="um-name" id="um-display-name"></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <span id="um-avatar"></span>
+            <div class="um-name" id="um-display-name" style="margin-bottom:0"></div>
+          </div>
           <div class="um-row">
             <button class="um-btn" id="um-admin-btn" onclick="openAdminPanel();closeHub()" style="display:none">⚙ Panneau admin</button>
+            <button class="um-btn" onclick="openAvatarPicker()">🎭 Choisir mon avatar</button>
             <button class="um-btn" onclick="openFriendModal();closeHub()">👥 Mes amis</button>
             <button class="um-btn" onclick="umShowRename()">✎ Modifier le nom</button>
             <div class="um-rename-wrap" id="um-rename-wrap">
@@ -3920,7 +3924,7 @@ details > summary::-webkit-details-marker{display:none}
 .proxy-sheet{display:flex;flex-wrap:wrap;gap:0;background:#fff;border-radius:6px;padding:0;width:fit-content;max-width:100%}
 .proxy-card{width:63mm;height:88mm;box-sizing:border-box;overflow:hidden;background:#fff;position:relative;cursor:pointer}
 .proxy-card img{width:100%;height:100%;object-fit:contain;display:block}
-.proxy-bord{position:absolute;inset:0;border:2.7mm solid #000;box-sizing:border-box;pointer-events:none}
+.proxy-bord{position:absolute;inset:0;border:2.7mm solid #000;border-radius:3mm;box-sizing:border-box;pointer-events:none}
 .proxy-bd-opt{width:22px;height:22px;border-radius:50%;border:2px solid var(--bd2);cursor:pointer;padding:0;flex-shrink:0}
 @media print{
   body * {visibility:hidden!important}
@@ -5161,6 +5165,8 @@ firebase.auth().onAuthStateChanged(function(user){
     }
     _pendingRegName=null;
     role=doc.data().role;
+    _myAvatar=(doc.data()||{}).avatar||null;
+    if(_myAvatar)_avatarCache[user.uid]=_myAvatar;
     _onUserRole(user,role);
   }).catch(function(){
     _pendingRegName=null;
@@ -5179,6 +5185,7 @@ function _onUserRole(user,role){
     document.getElementById('um-admin-btn').style.display=role==='admin'?'block':'none';
     userId=user.uid;
     PN[0]=user.displayName||user.email;
+    try{_refreshAvatarDisplays();}catch(_){}
     if(localStorage.getItem('mtg_last_uid')!==userId){
       ['mtg_profs','mtg_ep_slots','mtg_decks','mtg_deck_orders','mtg_pending','mtg_loans',
        'mtg_trades','mtg_trades_processed','mtg_games','mtg_player_bgs','mtg_pending_out_reqs',
@@ -5586,6 +5593,70 @@ function _applyFriendsToAllContexts(){
   _renderBuildCollBtns();
 }
 
+// ===== AVATARS DE PROFIL =====
+var _AVATAR_ICONS=['🐉','🧙','⚔️','🛡️','👑','🔥','💀','⭐','🃏','🦋','🐺','🦅','🐙','🦂','🌙','☀️','⚡','❄️','🍄','🏹','🔮','🎲','💎','🌿','🦁','🐸','🦇','🌊','🗡️','🐲'];
+var _AVATAR_COLORS=['#c0392b','#7d3cb5','#2c6fb5','#3a8a4a','#c9a84c','#d06a2c','#4a4a55','#b53c8a'];
+var _myAvatar=null;
+var _avatarCache={};
+var _avatarDraft={icon:'🐉',color:'#c0392b'};
+function _avatarHtml(av,name,size){
+  size=size||30;
+  if(av&&av.icon){
+    return '<span style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+(av.color||'#4a4a55')+';display:inline-flex;align-items:center;justify-content:center;font-size:'+Math.round(size*0.52)+'px;line-height:1;flex-shrink:0">'+esc(av.icon)+'</span>';
+  }
+  return '<span style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:var(--s3);display:inline-flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:'+Math.round(size*0.42)+'px;flex-shrink:0">'+esc((name||'?').charAt(0).toUpperCase())+'</span>';
+}
+function openAvatarPicker(){
+  _avatarDraft={icon:(_myAvatar&&_myAvatar.icon)||_AVATAR_ICONS[0],color:(_myAvatar&&_myAvatar.color)||_AVATAR_COLORS[0]};
+  var ov=document.getElementById('ml-avatar-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ml-avatar-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:6200;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:1rem';
+    ov.onclick=function(e){if(e.target===ov)ov.remove();};
+    document.body.appendChild(ov);
+  }
+  _renderAvatarPicker();
+}
+function _renderAvatarPicker(){
+  var ov=document.getElementById('ml-avatar-ov');if(!ov)return;
+  var d=_avatarDraft;
+  var html='<div style="background:var(--s2);border:.5px solid var(--bd2);border-radius:14px;padding:1.25rem;max-width:360px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.85)">';
+  html+='<div class="row" style="margin-bottom:.85rem"><div class="lbl" style="margin-bottom:0">🎭 Choisir mon avatar</div><button class="btn btnsm" onclick="document.getElementById(\'ml-avatar-ov\').remove()">✕</button></div>';
+  html+='<div style="display:flex;justify-content:center;margin-bottom:14px">'+_avatarHtml(d,'',68)+'</div>';
+  html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:6px">COULEUR</div>';
+  html+='<div style="display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin-bottom:12px">';
+  _AVATAR_COLORS.forEach(function(c){
+    html+='<button onclick="_avatarSet(\'color\',\''+c+'\')" style="width:28px;height:28px;border-radius:50%;background:'+c+';cursor:pointer;border:2px solid '+(c===d.color?'var(--gold2)':'transparent')+'"></button>';
+  });
+  html+='</div>';
+  html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:6px">SYMBOLE</div>';
+  html+='<div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;margin-bottom:14px">';
+  _AVATAR_ICONS.forEach(function(ic){
+    html+='<button onclick="_avatarSet(\'icon\',\''+ic+'\')" style="width:34px;height:34px;border-radius:8px;font-size:18px;cursor:pointer;background:'+(ic===d.icon?'rgba(201,168,76,.22)':'var(--s3)')+';border:1px solid '+(ic===d.icon?'var(--gold2)':'var(--bd2)')+'">'+ic+'</button>';
+  });
+  html+='</div>';
+  html+='<button class="btn btnp" style="width:100%" onclick="saveMyAvatar()">Enregistrer</button>';
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _avatarSet(k,v){_avatarDraft[k]=v;_renderAvatarPicker();}
+function saveMyAvatar(){
+  var ov=document.getElementById('ml-avatar-ov');
+  if(!userId){if(ov)ov.remove();return;}
+  _myAvatar={icon:_avatarDraft.icon,color:_avatarDraft.color};
+  _avatarCache[userId]=_myAvatar;
+  db.collection('users').doc(userId).set({avatar:_myAvatar},{merge:true})
+    .then(function(){if(typeof toastSuccess==='function')toastSuccess('Avatar enregistré ✓');})
+    .catch(function(e){if(typeof toastError==='function')toastError('Sauvegarde avatar échouée : '+(e&&e.message||e));});
+  if(ov)ov.remove();
+  _refreshAvatarDisplays();
+}
+function _refreshAvatarDisplays(){
+  var ua=document.getElementById('um-avatar');
+  if(ua)ua.innerHTML=_avatarHtml(_myAvatar,(typeof PN!=='undefined'&&PN[0])||'',40);
+  if(typeof _renderFriendList==='function')_renderFriendList();
+}
+
 function openFriendModal(){
   document.getElementById('friend-modal').style.display='flex';
   closeHub();
@@ -5599,8 +5670,9 @@ function openFriendModal(){
     res.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:4px 0">Chargement…</div>';
     db.collection('users').where('role','in',['approved','admin']).get().then(function(snap){
       _allUsers=[];
-      snap.forEach(function(doc){if(doc.id!==userId)_allUsers.push({uid:doc.id,name:doc.data().name||doc.data().email||doc.id});});
+      snap.forEach(function(doc){if(doc.id!==userId){var _dd=doc.data()||{};if(_dd.avatar)_avatarCache[doc.id]=_dd.avatar;_allUsers.push({uid:doc.id,name:_dd.name||_dd.email||doc.id,avatar:_dd.avatar||null});}});
       _renderUserList(_allUsers,res);
+      if(typeof _renderFriendList==='function')_renderFriendList();
     }).catch(function(){res.innerHTML='';});
   }
 }
@@ -5623,7 +5695,7 @@ function _renderUserList(users,container){
       action='<button onclick="sendFriendRequest(\''+u.uid+'\',\''+u.name.replace(/'/g,'&#39;')+'\')" style="padding:3px 10px;border-radius:6px;border:.5px solid var(--gold);background:transparent;color:var(--gold2);font-size:.72rem;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">Ajouter</button>';
     }
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
-      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:'+(isFriend?'var(--gold2)':'var(--tx3)')+';font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(u.name||'?').charAt(0).toUpperCase()+'</div>'
+      +_avatarHtml(u.avatar||_avatarCache[u.uid],u.name,30)
       +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(u.name)+'</div>'
       +action
       +'</div>';
@@ -5645,7 +5717,7 @@ function _renderFriendList(){
   if(!_friends.length){el.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:6px 0;font-style:italic">Aucun ami pour l\'instant — invite tes potes avec le bouton 🔗 ci-dessus.</div>';return;}
   el.innerHTML=_friends.map(function(f){
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
-      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(f.name||'?').charAt(0).toUpperCase()+'</div>'
+      +_avatarHtml(_avatarCache[f.uid],f.name,30)
       +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(f.name)+'</div>'
       +'<button onclick="removeFriend(\''+f.uid+'\')" style="padding:3px 8px;border-radius:5px;border:.5px solid rgba(220,80,80,.4);background:transparent;color:var(--rd2);font-size:.7rem;cursor:pointer">Retirer</button>'
       +'</div>';
@@ -5660,7 +5732,7 @@ function _renderPendingOutRequests(){
   sect.style.display='block';
   list.innerHTML=_pendingOutRequests.map(function(r){
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
-      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(r.name||'?').charAt(0).toUpperCase()+'</div>'
+      +_avatarHtml(_avatarCache[r.uid],r.name,30)
       +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(r.name)+'</div>'
       +'<span style="font-size:.68rem;color:var(--tx3);margin-right:4px">⏳ En attente</span>'
       +'<button onclick="cancelFriendRequest(\''+r.uid+'\')" style="padding:3px 8px;border-radius:5px;border:.5px solid rgba(220,80,80,.4);background:transparent;color:var(--rd2);font-size:.7rem;cursor:pointer">Annuler</button>'
@@ -7698,7 +7770,7 @@ function openProfilePicker(ctx){
   db.collection('users').where('role','in',['approved','admin']).get().then(function(snap){
     _allUsers=[];
     snap.forEach(function(doc){
-      if(doc.id!==userId)_allUsers.push({uid:doc.id,name:doc.data().name||doc.data().email||doc.id});
+      if(doc.id!==userId){var _dd=doc.data()||{};if(_dd.avatar)_avatarCache[doc.id]=_dd.avatar;_allUsers.push({uid:doc.id,name:_dd.name||_dd.email||doc.id,avatar:_dd.avatar||null});}
     });
     _renderPickerList();
   }).catch(function(){list.innerHTML='<div style="color:var(--rd2)">Erreur de chargement des utilisateurs</div>';});
@@ -7710,9 +7782,8 @@ function _renderPickerList(){
   if(!_allUsers.length){list.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.85rem">Aucun autre utilisateur</div>';return;}
   list.innerHTML=_allUsers.map(function(u){
     var already=existing.indexOf(u.uid)>=0;
-    var init=(u.name||'?').charAt(0).toUpperCase();
     return '<div class="pp-item'+(already?' pp-already':'')+'" onclick="pickProfile(\''+u.uid+'\',\''+u.name.replace(/\\/g,'\\\\').replace(/'/g,'&#39;')+'\')">'
-      +'<div class="pp-avatar">'+esc(init)+'</div>'
+      +_avatarHtml(u.avatar||_avatarCache[u.uid],u.name,36)
       +'<div><div style="font-size:.88rem;color:var(--tx)">'+esc(u.name)+'</div>'
       +(already?'<div style="font-size:.72rem;color:var(--tx3)">Déjà ajouté</div>':'')+'</div></div>';
   }).join('');
@@ -11208,7 +11279,7 @@ function inviteFriendToList(){
   var rows=candidates.map(function(f){
     var nm=esc(f.name||f.uid);
     return '<div style="display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:.5px solid var(--bd)">'
-      +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;flex-shrink:0">'+nm.charAt(0).toUpperCase()+'</div>'
+      +_avatarHtml(_avatarCache[f.uid],f.name,30)
       +'<div style="flex:1;font-size:.85rem;color:var(--tx)">'+nm+'</div>'
       +'<button class="btn btnsm btnp" onclick="_doInviteToList(\''+esc(f.uid)+'\')">Inviter</button>'
       +'</div>';
@@ -17738,7 +17809,7 @@ function arOpenInviteModal(code){
   } else {
     list.innerHTML=_friends.map(function(f){
       return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
-        +'<div style="width:30px;height:30px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;font-size:.9rem;flex-shrink:0">'+(f.name||'?').charAt(0).toUpperCase()+'</div>'
+        +_avatarHtml(_avatarCache[f.uid],f.name,30)
         +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(f.name)+'</div>'
         +'<button onclick="arSendCodeNotif(\''+f.uid+'\',\''+f.name.replace(/'/g,'&#39;')+'\',\''+code+'\',this)" style="padding:4px 12px;border-radius:6px;border:.5px solid var(--gold);background:transparent;color:var(--gold2);font-size:.72rem;cursor:pointer;font-family:\'Goudy Mediaeval\',serif">Envoyer</button>'
         +'</div>';
