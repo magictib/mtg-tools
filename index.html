@@ -30256,6 +30256,24 @@ function _anaResetPreTheme(deckId){
   if(_anaState)anaRender(deckId);
 }
 
+// Détection de thèmes par SIGNAUX — robuste aux variantes de formulation.
+// Les règles regex exactes ratent « draw your second card » vs « draw a card » ;
+// cette couche repère les concepts (pioche / drain / gain de vie) quelle que soit
+// la tournure, et complète les règles sans les remplacer.
+function _anaApplyCommanderSignals(o,bump,labels){
+  o=o||'';
+  function lbl(x){if(labels&&labels.indexOf(x)<0)labels.push(x);}
+  var sDraw=/draw/.test(o);
+  var sDrawTrig=/whenever you draw|each time you draw|if you would draw/.test(o);
+  var sGain=/gain \d+ life|gain that much life|gain life|lifelink/.test(o);
+  var sDrain=/each opponent loses|opponent loses \d+ life|each player loses \d+ life|\bdrain\b/.test(o);
+  if(sDrawTrig){bump('draw',2.2);lbl('Pioche-moteur');}      // le commandant se déclenche sur la pioche
+  else if(sDraw){bump('draw',1.6);lbl('Pioche');}
+  if(sDrain){bump('wincon',1.6);lbl('Drain');}
+  // Le gain de vie devient un axe central s'il se combine à la pioche ou au drain
+  if(sGain&&(sDraw||sDrain)){bump('lifegain',2.0);lbl('Gain de vie');}
+  else if(sGain){bump('lifegain',1.5);lbl('Gain de vie');}
+}
 function _anaCommanderThemes(deck){
   var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,sweeper:0,mill:0,labels:[],_debug:'no-deck'};
   if(!deck)return def;
@@ -30290,6 +30308,8 @@ function _anaCommanderThemes(deck){
       if(kd.label&&labels.indexOf(kd.label)<0)labels.push(kd.label);
     }
   });
+  // 3. Détection par signaux — rattrape les variantes de formulation manquées par les regex
+  _anaApplyCommanderSignals(oracle,bump,labels);
   console.log('[Themes] '+nl+' — labels:',labels,'mult:',m);
   return Object.assign(m,{labels:labels,_debug:'ok:'+labels.join(',')});
 }
