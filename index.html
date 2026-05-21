@@ -3918,7 +3918,7 @@ details > summary::-webkit-details-marker{display:none}
 <!-- PROXYS -->
 <style>
 .proxy-sheet{display:flex;flex-wrap:wrap;gap:0;background:#fff;border-radius:6px;padding:0;width:fit-content;max-width:100%}
-.proxy-card{width:63mm;height:88mm;box-sizing:border-box;overflow:hidden;background:#fff;position:relative}
+.proxy-card{width:63mm;height:88mm;box-sizing:border-box;overflow:hidden;background:#fff;position:relative;cursor:pointer}
 .proxy-card img{width:100%;height:100%;object-fit:contain;display:block}
 .proxy-bord{position:absolute;inset:0;border:2.7mm solid #000;box-sizing:border-box;pointer-events:none}
 .proxy-bd-opt{width:22px;height:22px;border-radius:50%;border:2px solid var(--bd2);cursor:pointer;padding:0;flex-shrink:0}
@@ -3958,7 +3958,7 @@ details > summary::-webkit-details-marker{display:none}
     </div>
   </div>
   <div class="card" id="proxy-sheet-card" style="display:none">
-    <div class="proxy-noprint" style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:8px">FEUILLE D'IMPRESSION — <span id="proxy-count"></span></div>
+    <div class="proxy-noprint" style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;margin-bottom:8px">FEUILLE D'IMPRESSION — <span id="proxy-count"></span> · CLIQUE UNE CARTE POUR CHANGER SA VERSION</div>
     <div id="proxy-sheet" class="proxy-sheet"></div>
   </div>
 </div>
@@ -6534,6 +6534,7 @@ function _proxyFetchImages(names,cb){
   });
 }
 var _proxyBorder=''; // '' = bordure native de la carte ; sinon couleur de superposition
+var _proxyArt={};    // {nomCarte minuscule: url image choisie} — override de version/art
 function proxySetBorder(c,btn){
   _proxyBorder=c||'';
   document.querySelectorAll('.proxy-bd-sel').forEach(function(b){b.style.outline='';});
@@ -6568,8 +6569,13 @@ function proxyGenerate(){
   _proxyFetchImages(uniq,function(imgMap){
     var html='',rendered=0,missing=[];
     want.forEach(function(n){
-      var img=imgMap[n.toLowerCase()];
-      if(img){html+='<div class="proxy-card"><img src="'+esc(img)+'" alt="'+esc(n)+'" loading="lazy"></div>';rendered++;}
+      var nlx=n.toLowerCase();
+      var img=_proxyArt[nlx]||imgMap[nlx];
+      if(img){
+        html+='<div class="proxy-card" data-card="'+esc(nlx)+'" onclick="proxyPickArt(\''+escJs(nlx)+'\',\''+escJs(n)+'\')" title="Cliquer pour choisir une autre version / un autre art">'
+          +'<img src="'+esc(img)+'" alt="'+esc(n)+'" loading="lazy"></div>';
+        rendered++;
+      }
       else if(missing.indexOf(n)<0)missing.push(n);
     });
     var sheet=document.getElementById('proxy-sheet');if(sheet)sheet.innerHTML=html;
@@ -6585,6 +6591,38 @@ function proxyGenerate(){
       status.textContent=msg;
     }
   });
+}
+
+// Choix de version / art d'une carte du proxy
+function proxyPickArt(nl,displayName){
+  if(typeof toastInfo==='function')toastInfo('Chargement des versions de '+displayName+'…');
+  fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent('!"'+displayName+'"')+'&unique=prints&order=released')
+    .then(function(r){return r.json();}).then(function(d){
+      var prints=(d.data||[]).filter(function(c){return !!_proxyCardImg(c);});
+      if(!prints.length){if(typeof toastError==='function')toastError('Aucune version trouvée pour cette carte.');return;}
+      var html='<div style="font-size:.74rem;color:var(--tx3);text-align:center;margin-bottom:8px">'+prints.length+' version(s) — clique pour choisir l\'art</div>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:8px;max-height:58vh;overflow-y:auto;justify-content:center">';
+      prints.forEach(function(c){
+        var img=_proxyCardImg(c);
+        var setLbl=((c.set||'').toUpperCase())+' · '+(c.set_name||'');
+        html+='<div onclick="_proxyApplyArt(\''+escJs(nl)+'\',\''+escJs(img)+'\')" style="width:122px;cursor:pointer;text-align:center">'
+          +'<img src="'+esc(img)+'" loading="lazy" style="width:122px;border-radius:6px;display:block">'
+          +'<div style="font-size:8.5px;color:var(--tx3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(setLbl)+'</div></div>';
+      });
+      html+='</div>';
+      if(typeof mlAlert==='function')mlAlert('Versions — '+displayName,html,{html:true,okLabel:'Fermer'});
+    }).catch(function(){
+      if(typeof toastError==='function')toastError('Erreur de chargement des versions.');
+    });
+}
+function _proxyApplyArt(nl,url){
+  if(!nl||!url)return;
+  _proxyArt[nl]=url;
+  document.querySelectorAll('#proxy-sheet .proxy-card').forEach(function(cell){
+    if(cell.dataset.card===nl){var im=cell.querySelector('img');if(im)im.src=url;}
+  });
+  if(typeof _mlClose==='function')_mlClose(null);
+  if(typeof toastSuccess==='function')toastSuccess('Version mise à jour.');
 }
 
 // ============================================================
