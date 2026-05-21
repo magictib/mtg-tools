@@ -5691,6 +5691,11 @@ function _renderNotifPanel(){
         +'<button onclick="event.stopPropagation();_arJoinFromNotif(\''+_notifEsc(n.arenaCode)+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);font-size:.72rem;cursor:pointer">⚡ Rejoindre</button>'
         +'</div>';
     }
+    if(n.type==='list_invite'&&n.targetUid===_currentUid){
+      friendBtns='<div style="margin-top:6px">'
+        +'<button onclick="event.stopPropagation();markNotifRead(\''+n.id+'\');_openSharedListFromNotif(\''+_notifEsc(n.listId||'')+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);font-size:.72rem;cursor:pointer">🤝 Ouvrir la liste</button>'
+        +'</div>';
+    }
     return '<div class="notif-item'+(unread?' unread':'')+'" style="position:relative" onclick="markNotifRead(\''+n.id+'\')">'
       +'<button onclick="event.stopPropagation();deleteNotif(\''+n.id+'\')" title="Supprimer cette notification" style="position:absolute;top:6px;right:8px;background:none;border:none;color:var(--tx3);font-size:14px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:4px;transition:.12s" onmouseover="this.style.color=\'var(--rd2)\';this.style.background=\'rgba(220,80,80,.08)\'" onmouseout="this.style.color=\'var(--tx3)\';this.style.background=\'none\'">✕</button>'
       +'<div class="notif-item-title" style="padding-right:24px">'+_notifEsc(n.title||'')+tradeLink+'</div>'
@@ -5712,6 +5717,19 @@ function _notifTimeAgo(date){
 function _notifEsc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function toggleNotifPanel(){openHubTab('notifs');}
+// Ouvre une liste partagée depuis une notification d'invitation
+function _openSharedListFromNotif(listId){
+  if(typeof closeHub==='function')closeHub();
+  goTab('build');
+  if(typeof openPurchaseMgr==='function')openPurchaseMgr();
+  if(listId&&typeof selectPurList==='function'){
+    // Laisse le temps à la souscription Firestore de récupérer la liste
+    setTimeout(function(){
+      if(_purchaseLists&&_purchaseLists[listId]){selectPurList(listId);}
+      else toastInfo('Liste en cours de chargement…');
+    },600);
+  }
+}
 
 function markNotifRead(id){
   if(!_currentUid)return;
@@ -10317,7 +10335,19 @@ function inviteFriendToList(){
   list.memberNames[f.uid]=f.name;
   savePurchaseList(_activePurListId);
   renderPurchaseMgr();
-  toastSuccess(esc(f.name)+' ajouté à la liste — il/elle la verra dans son onglet « Liste partagée ».');
+  // Notification à l'invité
+  var _myNm=PN[0]||'Inconnu';
+  db.collection('notifications').add({
+    type:'list_invite',
+    title:'Liste partagée — '+_myNm,
+    body:_myNm+' t\'a invité à la liste d\'achat « '+(list.name||'')+' ».',
+    fromUid:userId,fromName:_myNm,
+    targetUid:f.uid,toName:f.name,
+    listId:_activePurListId,
+    createdAt:firebase.firestore.FieldValue.serverTimestamp(),
+    readBy:[]
+  }).catch(function(e){console.warn('notif list_invite',e);});
+  toastSuccess(esc(f.name)+' invité — il/elle reçoit une notification.');
 }
 
 function removeFriendFromList(uid){
