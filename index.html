@@ -22415,6 +22415,7 @@ function _loadFsPrefs(cb){
       if(Array.isArray(_fsPrefs.wishlist))_wishlist=_fsPrefs.wishlist;
       else{try{var _w=localStorage.getItem('mtg_wishlist');if(_w)_wishlist=JSON.parse(_w);}catch(e){}}
       if(_fsPrefs.cmdManualOracle)_anaCmdManualOracle=_fsPrefs.cmdManualOracle;
+      if(_fsPrefs.cmdOracleFix)_anaCmdOracleFix=_fsPrefs.cmdOracleFix;
       if(_fsPrefs.userTheme&&_fsPrefs.userTheme!==_userTheme){_userTheme=_fsPrefs.userTheme;if(_userTheme==='default'){document.documentElement.removeAttribute('data-theme');}else{document.documentElement.setAttribute('data-theme',_userTheme);}_applyThemeBg(_userTheme);}
       // arena
       if(_fsPrefs.arPool&&_fsPrefs.arPool.length)_arPool=_fsPrefs.arPool;
@@ -29707,6 +29708,31 @@ var _anaCmdManualOracle={};
 try{var __cmo=localStorage.getItem('mtg_cmd_manual_oracle');if(__cmo){var __cmoP=JSON.parse(__cmo);if(__cmoP&&typeof __cmoP==='object')_anaCmdManualOracle=__cmoP;}}catch(e){}
 function _anaSaveCmdManualOracle(){try{localStorage.setItem('mtg_cmd_manual_oracle',JSON.stringify(_anaCmdManualOracle));}catch(e){}_fsPrefs.cmdManualOracle=_anaCmdManualOracle;_saveFsPrefs();}
 
+// Texte oracle corrigé par l'utilisateur, par commandant (nl) — l'analyse l'utilise tel quel
+var _anaCmdOracleFix={};
+try{var __cof=localStorage.getItem('mtg_cmd_oracle_fix');if(__cof){var __cofP=JSON.parse(__cof);if(__cofP&&typeof __cofP==='object')_anaCmdOracleFix=__cofP;}}catch(e){}
+function _anaSaveCmdOracleFix(){
+  try{localStorage.setItem('mtg_cmd_oracle_fix',JSON.stringify(_anaCmdOracleFix));}catch(e){}
+  if(typeof _fsPrefs!=='undefined'){_fsPrefs.cmdOracleFix=_anaCmdOracleFix;if(typeof _saveFsPrefs==='function')_saveFsPrefs();}
+}
+function _anaToggleCmdText(deckId){
+  var el=document.getElementById('ana-cmdtext-'+deckId);
+  if(el)el.style.display=(el.style.display==='none'||!el.style.display)?'block':'none';
+}
+function anaSaveCmdText(deckId,cmdNl){
+  var ta=document.getElementById('ana-cmdtxt-'+deckId);if(!ta||!cmdNl)return;
+  var txt=(ta.value||'').trim();
+  if(txt)_anaCmdOracleFix[cmdNl]=txt; else delete _anaCmdOracleFix[cmdNl];
+  _anaSaveCmdOracleFix();
+  if(typeof toastSuccess==='function')toastSuccess('Texte du commandant validé — ré-analyse en cours…');
+  anaRender(deckId);
+}
+function anaResetCmdText(deckId,cmdNl){
+  if(cmdNl)delete _anaCmdOracleFix[cmdNl];
+  _anaSaveCmdOracleFix();
+  anaRender(deckId);
+}
+
 function _anaPillToggle(btn){
   var on=btn.dataset.active==='1';
   if(on){btn.dataset.active='0';btn.style.borderColor='#444';btn.style.color='#888';btn.style.background='transparent';}
@@ -30320,15 +30346,17 @@ function _anaCommanderThemes(deck){
   if(cmdName){
     var nl=cmdName.split(' // ')[0].toLowerCase();
     var meta=_anaData[nl];
-    if(meta&&(meta.oracleText||(meta.keywords&&meta.keywords.length))){
-      var oracle=(meta.oracleText||'').toLowerCase();
+    // Le texte corrigé par l'utilisateur a priorité sur l'oracle Scryfall
+    var oracle=(_anaCmdOracleFix[nl]||(meta&&meta.oracleText)||'').toLowerCase();
+    var kws=(meta&&meta.keywords)||[];
+    if(oracle||kws.length){
       _COMMANDER_THEME_RULES.forEach(function(rule){
         if(rule.p.test(oracle)){
           Object.keys(rule.m).forEach(function(k){bump(k,rule.m[k]);});
           if(rule.label&&labels.indexOf(rule.label)<0)labels.push(rule.label);
         }
       });
-      (meta.keywords||[]).forEach(function(kw){
+      kws.forEach(function(kw){
         var kd=_SCRYFALL_KEYWORD_THEMES[kw];
         if(kd){
           Object.keys(kd.m).forEach(function(k){bump(k,kd.m[k]);});
@@ -32670,7 +32698,23 @@ function anaRender(deckId){
     _hdr+=themeContent;
     if(_hasThemeOverride)_hdr+=' <span style="font-size:9px;padding:1px 6px;background:rgba(201,168,76,.15);border:.5px solid var(--gold);border-radius:8px;color:var(--gold2)">✎ Personnalisé</span>';
     _hdr+=' <button onclick="_anaToggleThemeEditor(\''+deckId+'\')" style="font-size:10px;padding:1px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">⚙ Personnaliser</button>';
+    if(_anaCurrentThemes.cmdName){
+      _hdr+=' <button onclick="_anaToggleCmdText(\''+escJs(deckId)+'\')" title="Voir / corriger le texte du commandant lu par le moteur" style="font-size:10px;padding:1px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">📜 Texte commandant</button>';
+    }
     _hdr+='</div>';
+    // Panneau de vérification / correction du texte du commandant
+    if(_anaCurrentThemes.cmdName){
+      var _ctNl=_anaCurrentThemes.cmdName.split(' // ')[0].toLowerCase();
+      var _ctOracle=_anaCmdOracleFix[_ctNl]||(_anaData[_ctNl]&&_anaData[_ctNl].oracleText)||'';
+      var _ctFixed=!!_anaCmdOracleFix[_ctNl];
+      _hdr+='<div id="ana-cmdtext-'+deckId+'" style="display:none;margin-top:8px;padding:10px 12px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
+      _hdr+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;line-height:1.5">Texte oracle lu par le moteur pour <b style="color:var(--gold2)">'+esc(_anaCurrentThemes.cmdName)+'</b>'+(_ctFixed?' <span style="color:var(--gold2)">· corrigé</span>':'')+'.<br>Vérifie qu\'il est correct — corrige-le s\'il est faux ou vide, puis ré-analyse avec le texte validé.</div>';
+      _hdr+='<textarea id="ana-cmdtxt-'+deckId+'" spellcheck="false" style="width:100%;box-sizing:border-box;height:120px;resize:vertical;background:var(--s2);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:7px;font-size:.78rem;line-height:1.5;outline:none">'+esc(_ctOracle)+'</textarea>';
+      _hdr+='<div style="display:flex;gap:6px;margin-top:6px">';
+      _hdr+='<button onclick="anaSaveCmdText(\''+escJs(deckId)+'\',\''+escJs(_ctNl)+'\')" style="font-size:10px;padding:3px 10px;border-radius:7px;border:.5px solid var(--gold);background:rgba(201,168,76,.15);color:var(--gold2);cursor:pointer">✓ Valider et ré-analyser</button>';
+      if(_ctFixed)_hdr+='<button onclick="anaResetCmdText(\''+escJs(deckId)+'\',\''+escJs(_ctNl)+'\')" style="font-size:10px;padding:3px 10px;border-radius:7px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx3);cursor:pointer">↩ Texte d\'origine</button>';
+      _hdr+='</div></div>';
+    }
     var _edOpen=!!_anaThemeEditorOpen[deckId];
     _hdr+='<div id="ana-thed-'+deckId+'" style="display:'+(_edOpen?'block':'none')+';margin-top:8px;padding:10px 12px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
     _hdr+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;line-height:1.5">Ajuste les multiplicateurs selon ton plan de jeu (1.0 = neutre · 2.0 = important · 3.0 = central au deck).<br><span style="color:var(--gold2)">Auto</span> = valeur déduite de l\'oracle text du commandant.</div>';
