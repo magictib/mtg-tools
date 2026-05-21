@@ -24425,7 +24425,7 @@ function bldLoadSelectedDeck(){
     });
     renderBldDecks();renderBldStats();_bldShowBuilder();
     if(_bldPendingAnaSwaps&&_bldPendingAnaSwaps.length){
-      _bldSwaps=_bldPendingAnaSwaps.map(function(sw){var am=_anaData[sw.add.nl]||{};return{cut:{name:sw.cut.name,nl:sw.cut.nl},add:{name:sw.add.name,nl:sw.add.nl,qty:1,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||''},applied:false,suggested:true};});
+      _bldSwaps=_bldPendingAnaSwaps.map(function(sw){var am=_anaData[sw.add.nl]||{};return{cut:{name:sw.cut.name,nl:sw.cut.nl},add:{name:sw.add.name,nl:sw.add.nl,qty:1,cmc:am.cmc||0,colors:am.colors||[],type:am.typeLine||'',rarity:am.rarity||'',img:am.imageUri||''},applied:false,suggested:true,reason:sw.reason||null};});
       _bldPendingAnaSwaps=null;
       bldRenderSwapsPanel();
     }
@@ -25321,11 +25321,12 @@ function bldOptimize(){
 
     var existCuts=new Set(_bldSwaps.map(function(s){return s.cut&&s.cut.name.toLowerCase();}));
     var existAdds=new Set(_bldSwaps.map(function(s){return s.add&&s.add.name.toLowerCase();}));
+    var _swapCtx={arch:detectedArch,edhrecFreq:edhrecFreq,counts:_bldCounts,targets:_bldTargets};
     optResult.swaps.forEach(function(sw){
       var addMeta=sw.add.meta||{};
       var addCard={name:sw.add.name,nl:sw.add.nl,qty:1,cmc:addMeta.cmc||0,colors:addMeta.colors||[],type:(addMeta.typeLine||'').split(' — ')[0],rarity:addMeta.rarity||'',img:addMeta.imageUri||''};
       var isDup=existCuts.has(sw.cut.name.toLowerCase())||existAdds.has(addCard.name.toLowerCase());
-      _bldSwaps.push({cut:sw.cut,add:addCard,applied:false,suggested:true,duplicate:isDup});
+      _bldSwaps.push({cut:sw.cut,add:addCard,applied:false,suggested:true,duplicate:isDup,reason:_anaSwapExplain(sw,_swapCtx)});
     });
     _bldSugs=pool.slice(0,30).map(function(s){
       return {name:s.name,nl:s.nl,object:'card',image_uris:{normal:s.meta.imageUri||''},cmc:s.meta.cmc||0,colors:s.meta.colors||[],type_line:s.meta.typeLine||'',rarity:s.meta.rarity||''};
@@ -25507,6 +25508,7 @@ function bldRenderSwapsPanel(){
       +applyBtn+delBtn
       +'</div>'
       +(dupBadge?'<div style="padding:0 18px 4px">'+dupBadge+'</div>':'')
+      +(sw.reason?_anaRenderSwapExplain(sw.reason):'')
       +'</div>';
   });
   html+='<div style="text-align:center;margin-top:10px"><button onclick="bldSwAddEmpty()" style="padding:5px 14px;background:rgba(201,168,76,.1);border:.5px solid var(--gold2);border-radius:7px;color:var(--gold2);font-size:.72rem;cursor:pointer">+ Ajouter un swap</button></div>';
@@ -30247,6 +30249,62 @@ function _anaSynergyValue(nl,meta,archetype,freqMatrix,edhrecFreq){
   return {score:base*(1+fr*0.6),synergy:fr,source:fr>0?'local':null};
 }
 
+/* ----- Transparence : explication d'un swap (plan / sortante / entrante / impact) ----- */
+function _anaPlanLabel(a){
+  return ({aggro:'agressif',control:'contrôle',combo:'combo',tempo:'tempo',bigmana:'big mana',toolbox:'toolbox',midrange:'midrange'})[a]||'midrange';
+}
+var _ANA_ROLE_FR={ramp:'accélération',draw:'pioche',removal:'removal',interaction:'interaction',wincon:'finisher',land:'terrains'};
+function _anaPrimaryRole(roles){
+  var best=null,bv=0.3;
+  ['wincon','draw','ramp','removal','interaction'].forEach(function(k){if((roles[k]||0)>bv){bv=roles[k];best=k;}});
+  return best;
+}
+// Compose un objet reason lisible à partir des données déjà calculées par anaOptimize.
+function _anaSwapExplain(sw,ctx){
+  ctx=ctx||{};
+  var counts=ctx.counts||{},targets=ctx.targets||{},edh=ctx.edhrecFreq;
+  var cutNl=sw.cut&&sw.cut.nl,addNl=sw.add&&sw.add.nl;
+  var cutMeta=_anaData[cutNl]||{},addMeta=(sw.add&&sw.add.meta)||_anaData[addNl]||{};
+  var cutCmc=(sw.cut&&sw.cut.cmc!=null)?sw.cut.cmc:(cutMeta.cmc||0);
+  var addCmc=addMeta.cmc!=null?addMeta.cmc:0;
+  var cutRoles=cutMeta.tags?anaRoles(cutMeta):{};
+  var addRoles=addMeta.tags?anaRoles(addMeta):{};
+  // Pourquoi sortir la carte
+  var cutWhy='score contextuel faible pour ce plan';
+  var cutRole=_anaPrimaryRole(cutRoles);
+  if(cutRole&&targets[cutRole]&&(counts[cutRole]||0)>targets[cutRole][1]){
+    cutWhy='tu as déjà assez de '+(_ANA_ROLE_FR[cutRole]||cutRole)+' ('+Math.round(counts[cutRole])+' pour ~'+targets[cutRole][1]+' visés)';
+  }else if(cutCmc-addCmc>=2){
+    cutWhy='coûteuse ('+cutCmc+' mana) pour son impact dans ce deck';
+  }else if((sw.cutScore||0)<3){
+    cutWhy='peu d\'impact mesuré dans ce deck';
+  }
+  // Pourquoi entrer la carte
+  var addWhy='score contextuel supérieur';
+  var addRole=_anaPrimaryRole(addRoles);
+  if(edh&&addNl&&edh[addNl]&&(edh[addNl].freq||0)>0.08){
+    addWhy='jouée dans '+Math.round(edh[addNl].freq*100)+'% des decks EDHREC du commandant';
+  }else if(addRole&&targets[addRole]&&(counts[addRole]||0)<targets[addRole][0]){
+    addWhy='renforce ta '+(_ANA_ROLE_FR[addRole]||addRole)+', dont le deck manque ('+Math.round(counts[addRole]||0)+' pour ~'+targets[addRole][0]+' min)';
+  }else if(addRole){
+    addWhy='meilleur '+(_ANA_ROLE_FR[addRole]||addRole)+' pour un plan '+_anaPlanLabel(ctx.arch);
+  }
+  return {plan:_anaPlanLabel(ctx.arch),cutWhy:cutWhy,addWhy:addWhy,gain:Math.round((sw.gain||0)*10)/10};
+}
+function _anaRenderSwapExplain(r){
+  if(!r)return '';
+  return '<div style="margin:5px 14px 3px;padding:6px 9px;background:rgba(140,100,220,.07);border-left:2px solid rgba(140,100,220,.5);border-radius:0 5px 5px 0;font-size:.64rem;line-height:1.55;color:var(--tx2)">'
+    +'<div style="color:#c8a8ff;margin-bottom:1px">Plan détecté : <b>'+esc(r.plan)+'</b></div>'
+    +'<div><span style="color:var(--rd2)">✂</span> '+esc(r.cutWhy)+'</div>'
+    +'<div><span style="color:var(--gold2)">＋</span> '+esc(r.addWhy)+'</div>'
+    +(r.gain>0?'<div style="color:var(--gr2)">Impact estimé : +'+r.gain+' pts de synergie</div>':'')
+    +'</div>';
+}
+function _anaSwapExplainText(r){
+  if(!r)return '';
+  return 'Plan : '+r.plan+'\n✂ '+r.cutWhy+'\n＋ '+r.addWhy+(r.gain>0?'\nImpact estimé : +'+r.gain:'');
+}
+
 /* ----- EDHREC : cache + fetch + extraction matrice de frequence ----- */
 var _anaEDHRECCache={};
 try{var __eR=localStorage.getItem('mtg_edhrec_cache');if(__eR){var __eP=JSON.parse(__eR);if(__eP&&typeof __eP==='object')_anaEDHRECCache=__eP;}}catch(e){}
@@ -32103,6 +32161,11 @@ function anaRender(deckId){
 
   // Plan d'optimisation
   var optResult=anaOptimize(nonLandRows,suggPool.slice(),10,counts,targets,avgCmc);
+  // Transparence : attache un raisonnement lisible à chaque swap
+  (function(){
+    var _swCtx={arch:_anaDetectArchetype(deck),edhrecFreq:_anaCurrentEDHREC,counts:counts,targets:targets};
+    optResult.swaps.forEach(function(sw){sw.reason=_anaSwapExplain(sw,_swCtx);});
+  })();
 
   // ===== HTML =====
   var html=_anaFormatWarnings(deck,fmt,totalCards);
@@ -32829,7 +32892,7 @@ function anaRender(deckId){
             html+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+imgCard(sw.cut.name,cutMeta,sw.cutScore.toFixed(1),'#e07070')+'</div>';
             html+='<div class="ana-swap-arrow">→</div>';
             html+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+imgCard(sw.add.name,addMeta,sw.addScore.toFixed(1),'var(--gold2)')+'</div>';
-            html+='</div></div>';
+            html+='</div>'+(sw.reason?_anaRenderSwapExplain(sw.reason):'')+'</div>';
           });
         } else {
           html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">';
@@ -32837,7 +32900,7 @@ function anaRender(deckId){
             var addMeta=_anaData[sw.add.nl]||{};
             var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
             var reason=_anaSwapReason(addMeta,_anaCurrentThemes);
-            html+='<div style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:.5px solid var(--bd2);flex-wrap:wrap;min-width:0">';
+            html+='<div title="'+esc(_anaSwapExplainText(sw.reason))+'" style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:.5px solid var(--bd2);flex-wrap:wrap;min-width:0;cursor:help">';
             html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="flex-shrink:0;margin:0;cursor:pointer;accent-color:var(--gold2)">';
             html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">'+(i+1)+'.</span>';
             html+='<span style="color:#e07070;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:76px">'+esc(sw.cut.name)+'</span>';
