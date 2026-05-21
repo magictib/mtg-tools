@@ -30274,9 +30274,41 @@ function _anaApplyCommanderSignals(o,bump,labels){
   if(sGain&&(sDraw||sDrain)){bump('lifegain',2.0);lbl('Gain de vie');}
   else if(sGain){bump('lifegain',1.5);lbl('Gain de vie');}
 }
+// Thèmes inférés des CARTES du deck — robuste : fonctionne même si le commandant
+// n'est pas identifié ou pas en cache. Un deck rempli de payoffs de gain de vie
+// EST un deck lifegain, quel que soit son commandant.
+function _anaApplyDeckThemeSignals(deck,bump,labels){
+  if(!deck||!deck.cards)return;
+  function lbl(x){if(labels&&labels.indexOf(x)<0)labels.push(x);}
+  var sig={lifegain:0,draw:0,discard:0,sacrifice:0,counters:0,mill:0};
+  deck.cards.forEach(function(c){
+    var meta=_anaData[c.nl];if(!meta||!meta.oracleText)return;
+    var o=meta.oracleText.toLowerCase();var q=c.qty||1;
+    if(/whenever you gain life|gain \d+ life|gain that much life|lifelink/.test(o))sig.lifegain+=q;
+    if(/draw a card|draws? (?:two|three|four|\d+) cards?/.test(o))sig.draw+=q;
+    if(/discard/.test(o))sig.discard+=q;
+    if(/sacrifice (?:a|an|another|two|three|x|that)/.test(o))sig.sacrifice+=q;
+    if(/\+1\/\+1 counter/.test(o))sig.counters+=q;
+    if(/\bmill\b/.test(o))sig.mill+=q;
+  });
+  // Seuils en valeur absolue : un deck à thème dépasse facilement ces compteurs
+  function axis(key,count,strong,mid,label){
+    if(count>=strong){bump(key,2.0);lbl(label);}
+    else if(count>=mid){bump(key,1.5);lbl(label);}
+  }
+  axis('lifegain',sig.lifegain,8,5,'Gain de vie');
+  axis('draw',sig.draw,20,13,'Pioche');
+  axis('discard',sig.discard,8,5,'Défausse');
+  axis('sacrifice',sig.sacrifice,9,6,'Sacrifice');
+  axis('counters',sig.counters,10,6,'Marqueurs +1/+1');
+  axis('mill',sig.mill,8,5,'Mill');
+}
 function _anaCommanderThemes(deck){
-  var def={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,sweeper:0,mill:0,labels:[],_debug:'no-deck'};
-  if(!deck)return def;
+  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,mill:0};
+  var labels=[];
+  function bump(key,val){if((m[key]||1)<val)m[key]=val;}
+  if(!deck)return Object.assign(m,{labels:labels,_debug:'no-deck'});
+  // — Thèmes issus du commandant —
   var cmdName=(deck.commander&&deck.commander.name)||null;
   if(!cmdName&&deck.cards){
     for(var i=0;i<deck.cards.length;i++){
@@ -30284,34 +30316,32 @@ function _anaCommanderThemes(deck){
       if(/^commander|^commandant/.test(sec)){cmdName=deck.cards[i].name;break;}
     }
   }
-  if(!cmdName){def._debug='no-commander';return def;}
-  var nl=cmdName.split(' // ')[0].toLowerCase();
-  var meta=_anaData[nl];
-  if(!meta){def._debug='commander-not-cached:'+nl;console.warn('[Themes] commander pas en cache:',nl);return def;}
-  if(!meta.oracleText&&!(meta.keywords&&meta.keywords.length)){def._debug='no-oracle:'+nl;return def;}
-  var oracle=(meta.oracleText||'').toLowerCase();
-  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,mill:0};
-  var labels=[];
-  function bump(key,val){if((m[key]||1)<val)m[key]=val;}
-  // 1. Règles sur l'oracle text
-  _COMMANDER_THEME_RULES.forEach(function(rule){
-    if(rule.p.test(oracle)){
-      Object.keys(rule.m).forEach(function(k){bump(k,rule.m[k]);});
-      if(rule.label&&labels.indexOf(rule.label)<0)labels.push(rule.label);
-    }
-  });
-  // 2. Keywords officiels Scryfall (structurés, pas besoin de regex)
-  (meta.keywords||[]).forEach(function(kw){
-    var kd=_SCRYFALL_KEYWORD_THEMES[kw];
-    if(kd){
-      Object.keys(kd.m).forEach(function(k){bump(k,kd.m[k]);});
-      if(kd.label&&labels.indexOf(kd.label)<0)labels.push(kd.label);
-    }
-  });
-  // 3. Détection par signaux — rattrape les variantes de formulation manquées par les regex
-  _anaApplyCommanderSignals(oracle,bump,labels);
-  console.log('[Themes] '+nl+' — labels:',labels,'mult:',m);
-  return Object.assign(m,{labels:labels,_debug:'ok:'+labels.join(',')});
+  var dbg='ok';
+  if(cmdName){
+    var nl=cmdName.split(' // ')[0].toLowerCase();
+    var meta=_anaData[nl];
+    if(meta&&(meta.oracleText||(meta.keywords&&meta.keywords.length))){
+      var oracle=(meta.oracleText||'').toLowerCase();
+      _COMMANDER_THEME_RULES.forEach(function(rule){
+        if(rule.p.test(oracle)){
+          Object.keys(rule.m).forEach(function(k){bump(k,rule.m[k]);});
+          if(rule.label&&labels.indexOf(rule.label)<0)labels.push(rule.label);
+        }
+      });
+      (meta.keywords||[]).forEach(function(kw){
+        var kd=_SCRYFALL_KEYWORD_THEMES[kw];
+        if(kd){
+          Object.keys(kd.m).forEach(function(k){bump(k,kd.m[k]);});
+          if(kd.label&&labels.indexOf(kd.label)<0)labels.push(kd.label);
+        }
+      });
+      _anaApplyCommanderSignals(oracle,bump,labels);
+    }else{dbg=meta?'no-oracle':'commander-not-cached:'+nl;}
+  }else{dbg='no-commander';}
+  // — Thèmes inférés du deck (robuste, indépendant de l'identification du commandant) —
+  _anaApplyDeckThemeSignals(deck,bump,labels);
+  console.log('[Themes] '+(cmdName||'?')+' — labels:',labels,'mult:',m,'('+dbg+')');
+  return Object.assign(m,{labels:labels,_debug:dbg});
 }
 
 /* ----- Override manuel d'archetype par deck (persiste localStorage) ----- */
