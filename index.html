@@ -30196,13 +30196,19 @@ function _anaDetectArchetype(deck){
     if(roles.wincon)counts.wincon+=qty;
     if(roles.creature)counts.creature+=qty;
   });
-  var avgCmc=nonLandCount?totalCmc/nonLandCount:0;
-  if(counts.ramp>=10&&avgCmc>=3.5)return 'bigmana';
-  if(counts.removal+counts.interaction>=12&&counts.wincon<=6)return 'control';
-  if(avgCmc<=2.2&&counts.creature>=14)return 'aggro';
-  if(counts.draw>=10&&counts.wincon<=4)return 'combo';
-  if(counts.creature>=10&&counts.interaction>=6&&avgCmc<=2.5)return 'tempo';
-  if(counts.draw>=4&&counts.removal>=4&&counts.interaction>=4&&counts.wincon>=4)return 'toolbox';
+  if(nonLandCount<12)return 'midrange'; // trop peu de cartes pour trancher
+  var avgCmc=totalCmc/nonLandCount;
+  // Seuils exprimés en RATIO des cartes non-terrain → indépendants de la taille
+  // du deck (un deck 60 cartes et un deck 100 cartes sont jugés sur la même échelle).
+  var n=nonLandCount;
+  var rRamp=counts.ramp/n,rDraw=counts.draw/n,rRem=counts.removal/n,
+      rInt=counts.interaction/n,rWin=counts.wincon/n,rCrea=counts.creature/n;
+  if(rRamp>=0.16&&avgCmc>=3.4)return 'bigmana';
+  if((rRem+rInt)>=0.34&&rWin<=0.12)return 'control';
+  if(avgCmc<=2.4&&rCrea>=0.45)return 'aggro';
+  if(rDraw>=0.16&&rWin<=0.08)return 'combo';
+  if(rCrea>=0.35&&rInt>=0.13&&avgCmc<=2.7)return 'tempo';
+  if(rDraw>=0.07&&rRem>=0.07&&rInt>=0.07&&rWin>=0.07)return 'toolbox';
   return 'midrange';
 }
 
