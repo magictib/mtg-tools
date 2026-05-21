@@ -1705,6 +1705,22 @@ details > summary::-webkit-details-marker{display:none}
 .ml-welcome-tips{margin-top:10px;padding:9px 12px;background:rgba(91,140,245,.08);border:.5px solid rgba(91,140,245,.3);border-radius:8px;font-size:.78rem;color:var(--tx2);line-height:1.6}
 .ml-welcome-tips kbd{background:var(--s3);border:.5px solid var(--bd2);border-radius:3px;padding:1px 6px;font-family:monospace;font-size:.72rem;color:var(--gold2)}
 .ml-welcome-ft{padding:14px 22px 20px;text-align:center}
+/* ===== PLAYGROUP ===== */
+#ml-pg-ov{position:fixed;inset:0;z-index:9993;background:rgba(4,3,1,.9);display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+#ml-pg-ov.show{display:flex}
+.ml-pg-box{background:linear-gradient(180deg,var(--s2),var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:640px;width:100%;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.8)}
+.ml-pg-hd{padding:14px 20px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center;background:linear-gradient(180deg,rgba(201,168,76,.1),transparent)}
+.ml-pg-hd h2{font-family:var(--ff-head);color:var(--gold2);font-size:1.2rem;margin:0}
+.ml-pg-body{padding:14px 20px;overflow-y:auto}
+.ml-pg-sec{font-family:var(--ff-head);color:var(--tx);font-size:.95rem;margin:4px 0 8px}
+.ml-pg-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-bottom:16px}
+.ml-pg-table th{text-align:right;color:var(--tx3);font-size:.68rem;padding:3px 7px;border-bottom:.5px solid var(--bd);font-weight:600}
+.ml-pg-table th:first-child,.ml-pg-table td:first-child{text-align:left}
+.ml-pg-table td{text-align:right;padding:5px 7px;border-bottom:.5px solid rgba(255,255,255,.05)}
+.ml-pg-rank{display:inline-block;width:20px;color:var(--tx3);font-family:var(--ff-head)}
+.ml-pg-rank.r1{color:#f0c844}.ml-pg-rank.r2{color:#c8c8d0}.ml-pg-rank.r3{color:#cd9060}
+.ml-pg-me td{color:var(--gold2)}
+.ml-pg-wr{font-weight:700}
 /* ===== TROPHÉES ===== */
 #ml-trophy-ov{position:fixed;inset:0;z-index:9993;background:rgba(4,3,1,.9);display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 #ml-trophy-ov.show{display:flex}
@@ -6337,6 +6353,7 @@ function renderHome(){
     +'<button class="home-action" onclick="goTab(\'coll\')"><span>◈</span>Ma collection</button>'
     +'<button class="home-action" onclick="goTab(\'trade\');if(typeof renderTradePage===\'function\')renderTradePage()"><span>🤝</span>Échanges &amp; listes</button>'
     +'<button class="home-action" onclick="openTrophies()"><span>🏆</span>Trophées</button>'
+    +'<button class="home-action" onclick="openPlaygroup()"><span>👥</span>Playgroup</button>'
     +'<button class="home-action" onclick="cmdPalOpen()"><span>🔍</span>Recherche rapide</button>'
     +'</div></div>';
   // ── Mes decks ──
@@ -6430,6 +6447,87 @@ function showWelcome(){
 function closeWelcome(){
   var ov=document.getElementById('ml-welcome-ov');if(ov)ov.classList.remove('show');
   try{localStorage.setItem('mtg_welcomed','1');}catch(e){}
+}
+// ===== Tableau de bord playgroup =====
+function openPlaygroup(){
+  var ov=document.getElementById('ml-pg-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ml-pg-ov';
+    ov.onclick=function(e){if(e.target===ov)ov.classList.remove('show');};
+    document.body.appendChild(ov);
+  }
+  // Agrège les parties (les miennes + celles des amis), dédoublonnées par id
+  var allGames=[],seen={};
+  ((typeof games!=='undefined'&&games)||[]).concat((typeof _friendGames!=='undefined'&&_friendGames)||[]).forEach(function(g){
+    if(!g)return;
+    if(g.id){if(seen[g.id])return;seen[g.id]=1;}
+    allGames.push(g);
+  });
+  var myName=((typeof PN!=='undefined'&&PN[0])||'').toLowerCase();
+  var byPlayer={},h2h={};
+  function P(name){var k=(name||'?').toLowerCase();if(!byPlayer[k])byPlayer[k]={name:name||'?',games:0,wins:0};return byPlayer[k];}
+  allGames.forEach(function(g){
+    var isBO=g.boMode&&g.boMode!=='bo1'&&g.boScore&&g.boScore.length;
+    var maxW=isBO?Math.max.apply(null,g.boScore):0;
+    var winnerLc=g.winner?(g.winner.name||'').toLowerCase():null;
+    var myIdx=-1;
+    (g.players||[]).forEach(function(p,pi){if((p.name||'').toLowerCase()===myName)myIdx=pi;});
+    (g.players||[]).forEach(function(p,pi){
+      var pl=P(p.name);
+      var manches=isBO?g.boScore.reduce(function(s,w){return s+w;},0):1;
+      pl.games+=manches;
+      if(isBO)pl.wins+=(g.boScore[pi]||0);
+      else if(winnerLc&&(p.name||'').toLowerCase()===winnerLc)pl.wins+=1;
+    });
+    if(myIdx>=0){
+      var iWon=isBO?((g.boScore[myIdx]||0)===maxW&&maxW>0):(winnerLc===myName);
+      (g.players||[]).forEach(function(p,pi){
+        if(pi===myIdx)return;
+        var k=(p.name||'?').toLowerCase();
+        if(!h2h[k])h2h[k]={name:p.name||'?',played:0,won:0};
+        h2h[k].played++;if(iWon)h2h[k].won++;
+      });
+    }
+  });
+  var players=Object.keys(byPlayer).map(function(k){return byPlayer[k];})
+    .filter(function(p){return p.games>0;})
+    .sort(function(a,b){var wa=a.wins/a.games,wb=b.wins/b.games;if(wb!==wa)return wb-wa;return b.wins-a.wins;});
+  var h2hArr=Object.keys(h2h).map(function(k){return h2h[k];}).sort(function(a,b){return b.played-a.played;});
+  var html='';
+  if(!players.length){
+    html=mlEmpty('🎲','Aucune partie enregistrée','Joue des parties dans l\'Arène — le classement du playgroup se construira automatiquement.');
+  }else{
+    // Classement
+    html+='<div class="ml-pg-sec">🏅 Classement</div>';
+    html+='<table class="ml-pg-table"><thead><tr><th>Joueur</th><th>Parties</th><th>Victoires</th><th>Win%</th></tr></thead><tbody>';
+    players.forEach(function(p,i){
+      var wr=p.games>0?Math.round(p.wins/p.games*100):0;
+      var isMe=p.name.toLowerCase()===myName;
+      var wrCol=wr>=55?'var(--gr2)':wr>=45?'var(--am)':'var(--rd2)';
+      html+='<tr class="'+(isMe?'ml-pg-me':'')+'">'
+        +'<td><span class="ml-pg-rank r'+(i+1)+'">'+(i+1)+'</span> '+esc(p.name)+(isMe?' (moi)':'')+'</td>'
+        +'<td>'+p.games+'</td><td>'+p.wins+'</td>'
+        +'<td class="ml-pg-wr" style="color:'+wrCol+'">'+wr+'%</td></tr>';
+    });
+    html+='</tbody></table>';
+    // Têtes-à-têtes
+    if(h2hArr.length){
+      html+='<div class="ml-pg-sec">⚔ Mes têtes-à-têtes</div>';
+      html+='<table class="ml-pg-table"><thead><tr><th>Adversaire</th><th>Parties</th><th>Mes V</th><th>Bilan</th></tr></thead><tbody>';
+      h2hArr.forEach(function(o){
+        var wr=o.played>0?Math.round(o.won/o.played*100):0;
+        var col=wr>50?'var(--gr2)':wr<50?'var(--rd2)':'var(--am)';
+        html+='<tr><td>'+esc(o.name)+'</td><td>'+o.played+'</td><td>'+o.won+'</td>'
+          +'<td class="ml-pg-wr" style="color:'+col+'">'+o.won+'–'+(o.played-o.won)+' ('+wr+'%)</td></tr>';
+      });
+      html+='</tbody></table>';
+    }
+  }
+  ov.innerHTML='<div class="ml-pg-box">'
+    +'<div class="ml-pg-hd"><h2>👥 Playgroup</h2>'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'ml-pg-ov\').classList.remove(\'show\')">✕</button></div>'
+    +'<div class="ml-pg-body">'+html+'</div></div>';
+  ov.classList.add('show');
 }
 // ===== Trophées =====
 var _TROPHY_DEFS=[
@@ -26270,6 +26368,7 @@ function _cmdPalBuild(){
   items.push({key:'act:newdeck',ico:'➕',lbl:'Nouveau deck',cat:'Action',act:function(){if(typeof goTab==='function')goTab('build');if(typeof newDeck==='function')newDeck();}});
   items.push({key:'act:localBackup',ico:'💾',lbl:'Sauvegardes locales',cat:'Action',act:function(){if(typeof openLocalBackupPanel==='function')openLocalBackupPanel();}});
   items.push({key:'act:trophies',ico:'🏆',lbl:'Trophées',cat:'Action',act:function(){if(typeof openTrophies==='function')openTrophies();}});
+  items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
   items.push({key:'act:welcome',ico:'👋',lbl:'Guide de bienvenue',cat:'Action',act:function(){if(typeof showWelcome==='function')showWelcome();}});
   // Mode table pour chaque deck
   try{
