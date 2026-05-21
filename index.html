@@ -5656,6 +5656,12 @@ function _refreshAvatarDisplays(){
   if(ua)ua.innerHTML=_avatarHtml(_myAvatar,(typeof PN!=='undefined'&&PN[0])||'',40);
   if(typeof _renderFriendList==='function')_renderFriendList();
 }
+// Avatar du profil d'indice i dans un contexte (0 = moi, 1+ = amis chargés)
+function _profAvatar(ctx,i){
+  if(i===0)return _myAvatar;
+  var slots=_epSlots[ctx]||[];var ep=slots[i-1];
+  return ep?(_avatarCache[ep.uid]||null):null;
+}
 
 function openFriendModal(){
   document.getElementById('friend-modal').style.display='flex';
@@ -7816,6 +7822,12 @@ function removeExtraProf(ctx,uid){
 function _loadEpCards(uid,cb){
   if(_epCards[uid]!==undefined&&_epDecks[uid]!==undefined){if(cb)cb();return;}
   _epCards[uid]=null;
+  // Avatar de l'ami (pour les colonnes / pastilles de possession)
+  if(!_avatarCache[uid]){
+    db.collection('users').doc(uid).get().then(function(d){
+      if(d.exists&&d.data().avatar){_avatarCache[uid]=d.data().avatar;if(typeof _renderDeckListHeader==='function')_renderDeckListHeader();}
+    }).catch(function(){});
+  }
   var cardsDone=false,decksDone=false;
   function _done(){if(cardsDone&&decksDone&&cb)cb();}
   // Charger la collection
@@ -7867,7 +7879,12 @@ function _refreshCtxRender(ctx){
 
 function _renderDeckListHeader(){
   var hdr=document.getElementById('dlisthdr');if(!hdr)return;
-  var profCols=PN.map(function(n){return '<div style="text-align:center">'+esc(n)+'</div>';}).join('');
+  var profCols=PN.map(function(n,i){
+    var av=_profAvatar('deck',i);
+    return '<div style="display:flex;align-items:center;justify-content:center;gap:3px" title="'+esc(n)+'">'
+      +_avatarHtml(av,n,18)
+      +'<span style="font-size:.62rem;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:54px">'+esc(n)+'</span></div>';
+  }).join('');
   hdr.innerHTML='<div>Qté</div><div>Carte</div>'+profCols+'<div style="text-align:right">Prix</div><div></div>';
 }
 
