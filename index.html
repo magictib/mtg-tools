@@ -5003,6 +5003,20 @@ var userId = 'default_user';
 // Écriture localStorage tolérante au quota plein (QuotaExceededError, mode privé…)
 function _lsSet(k,v){try{localStorage.setItem(k,v);return true;}catch(e){console.warn('[localStorage] écriture refusée pour '+k,e&&e.name);return false;}}
 
+// Filet de sécurité global : journalise toute erreur non gérée pour diagnostic.
+// Une exception isolée dans un rendu/handler ne doit pas rester invisible.
+window.addEventListener('error',function(ev){
+  var msg=(ev&&ev.message)||'';
+  if(/ResizeObserver loop/i.test(msg))return; // bruit bénin connu des navigateurs
+  console.error('[erreur globale]',(ev&&(ev.error||msg))||ev);
+  try{if(typeof actLog==='function')actLog('error',String(msg).slice(0,160));}catch(_){}
+});
+window.addEventListener('unhandledrejection',function(ev){
+  var r=ev&&ev.reason;
+  console.error('[promesse rejetée]',r);
+  try{if(typeof actLog==='function')actLog('error','promise: '+String((r&&r.message)||r||'').slice(0,160));}catch(_){}
+});
+
 // ===== AUTH =====
 var _ADMIN_EMAIL='thibaud.combes31@gmail.com';
 var _currentUser=null;
@@ -6316,22 +6330,25 @@ function goTab(id) {
   var ctx=ctxMap[id];
   if(ctx){_syncProfsForCtx(ctx);_refreshTradeAndGame();}
   // Inits spécifiques de page (regroupés ici → fonctionne quelle que soit l'entrée)
-  if(id==='analyse'&&typeof anaInit==='function')anaInit();
-  if(id==='meta'&&typeof metaInit==='function')metaInit();
-  if(id==='scry'&&typeof loadScryfallSets==='function')loadScryfallSets();
-  if(id==='trade'&&typeof renderTradePage==='function')renderTradePage();
-  if(id==='rules'&&typeof initRulesTab==='function')initRulesTab();
-  if(id==='home'){try{renderHome();}catch(e){console.warn('renderHome',e);}}
-  if(id==='arena'){arSetMode(_arMode||'counter');}
-  if(id==='deck'){
-    renderProfSlots('deck','prof-grid-deck');_renderDeckListHeader();renderDBar();
-    if(actDeck&&decks[actDeck]){
-      var _dk=decks[actDeck];var _fr=_dk.rawName?parseList(_dk.rawName):null;
-      dCards=(_fr&&_fr.length)?_fr:(_dk.cards||[]);
-      renderDeck();
+  // Isolés dans un try/catch : une erreur d'init ne doit pas casser la navigation.
+  try{
+    if(id==='analyse'&&typeof anaInit==='function')anaInit();
+    if(id==='meta'&&typeof metaInit==='function')metaInit();
+    if(id==='scry'&&typeof loadScryfallSets==='function')loadScryfallSets();
+    if(id==='trade'&&typeof renderTradePage==='function')renderTradePage();
+    if(id==='rules'&&typeof initRulesTab==='function')initRulesTab();
+    if(id==='home')renderHome();
+    if(id==='arena')arSetMode(_arMode||'counter');
+    if(id==='deck'){
+      renderProfSlots('deck','prof-grid-deck');_renderDeckListHeader();renderDBar();
+      if(actDeck&&decks[actDeck]){
+        var _dk=decks[actDeck];var _fr=_dk.rawName?parseList(_dk.rawName):null;
+        dCards=(_fr&&_fr.length)?_fr:(_dk.cards||[]);
+        renderDeck();
+      }
     }
-  }
-  if(id==='build'){_renderBuildCollBtns();bldInitDeckSel();bldRenderSwapsPanel();_bldRefreshView();_initPropProfSel();}
+    if(id==='build'){_renderBuildCollBtns();bldInitDeckSel();bldRenderSwapsPanel();_bldRefreshView();_initPropProfSel();}
+  }catch(e){console.warn('[goTab] init page '+id,e);}
   if(_userLang&&_userLang!=='en'){
     var _pg=document.getElementById('pg-'+id);
     if(_pg)setTimeout(function(){_pg.querySelectorAll('img').forEach(_localizeOneImg);},120);
@@ -7169,7 +7186,7 @@ function loadFile(file) {
       prevSnap=new Map();
       var old=getProfCards(actP);
       old.forEach(function(c){
-        var k=c.name.toLowerCase().trim()+'||'+c.set.toLowerCase().trim()+'||'+c.num.toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
+        var k=(c.name||'').toLowerCase().trim()+'||'+(c.set||'').toLowerCase().trim()+'||'+(c.num||'').toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
         prevSnap.set(k,(prevSnap.get(k)||0)+(c.qty||1));
       });
       if(!old.length&&profs[actP]&&typeof profs[actP][0]==='string'){
@@ -7555,7 +7572,7 @@ function collSetQty(name,newQty){
   var idx=cards.findIndex(function(c){return c.name.toLowerCase()===name.toLowerCase();});
   if(idx<0){
     if(newQty<=0)return;
-    cards.push({name:name,qty:newQty,set:'',cond:'',finish:'',price:0});
+    cards.push({name:name,qty:newQty,set:'',num:'',cond:'',finish:'',price:0});
     profs[0]=cards;
     saveProfs();renderColl();
     toastSuccess('"'+name+'" ajoutée (×'+newQty+')');
@@ -8330,7 +8347,7 @@ function getPMap(i){
     // Nouveau format : objets normalisés
     p.forEach(function(c){
       var n=stripDFC(c.name).toLowerCase();
-      var rawKey=n+'||'+c.set.toLowerCase().trim()+'||'+c.num.toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
+      var rawKey=n+'||'+(c.set||'').toLowerCase().trim()+'||'+(c.num||'').toLowerCase().trim()+'||'+(c.finish||'').toLowerCase().trim();
       var key=getProfKey(rawKey);
       m.set(key,(m.get(key)||0)+(c.qty||1));
     });
