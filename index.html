@@ -3566,6 +3566,7 @@ details > summary::-webkit-details-marker{display:none}
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldMulliganSim();bldCloseToolsMenu()">🎴 Mulligan — sim 2000 mains</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldOpenCompareDeck();bldCloseToolsMenu()">🔄 Comparer — 2 decks</button>
           <div class="ar-cmenu-sep"></div>
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldOpenVersions();bldCloseToolsMenu()">🕰 Versions — historique &amp; comparaison</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShareCurrent();bldCloseToolsMenu()">🔗 Partager — URL lecture seule</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldPresentMode();bldCloseToolsMenu()">🎲 Mode table — vie & jetons</button>
         </div>
@@ -23877,7 +23878,15 @@ function bldSaveDeck(){
   var sideLines=bldSide.map(function(c){return c.qty+'x '+c.name;});
   var raw=mainLines.join('\n')+(sideLines.length?'\n// Sideboard\n'+sideLines.join('\n'):'');
   if(bldCurDeckId&&decks[bldCurDeckId]){
-    decks[bldCurDeckId]=Object.assign({},decks[bldCurDeckId],{rawName:raw,cards:bldMain.slice(),format:bldFormat||decks[bldCurDeckId].format||null,updatedAt:Date.now()});
+    var _prev=decks[bldCurDeckId];
+    // Auto-snapshot : si le contenu change, on archive l'état précédent
+    var _versions=(_prev.versions||[]).slice();
+    if(_prev.rawName&&_prev.rawName!==raw){
+      _versions.push({ts:Date.now(),raw:_prev.rawName,
+        count:(_prev.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0)});
+      if(_versions.length>20)_versions=_versions.slice(-20);
+    }
+    decks[bldCurDeckId]=Object.assign({},_prev,{rawName:raw,cards:bldMain.slice(),format:bldFormat||_prev.format||null,updatedAt:Date.now(),versions:_versions});
     // Synchronise dCards si ce deck est aussi actif dans l'onglet Deck
     if(actDeck===bldCurDeckId){
       var _fr=parseList(raw);dCards=(_fr&&_fr.length)?_fr:bldMain.slice();
@@ -23892,6 +23901,78 @@ function bldSaveDeck(){
   saveDecks();toastSuccess('Deck "'+name+'" sauvegardé !');bldInitDeckSel();
 }
 function bldClear(){if(!confirm('Vider le deck ?'))return;bldMain=[];bldSide=[];bldAvoir=[];bldOublie=[];bldCurDeckId=null;renderBldDecks();renderBldStats();}
+// ===== Versions de deck =====
+function bldOpenVersions(){
+  if(!bldCurDeckId||!decks[bldCurDeckId]){mlAlert('Versions','Charge ou sauvegarde d\'abord un deck.');return;}
+  var dk=decks[bldCurDeckId];
+  var versions=(dk.versions||[]).slice().reverse(); // plus récent en haut
+  var ov=document.getElementById('ml-dver-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ml-dver-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9993;background:rgba(4,3,1,.9);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)';
+    ov.onclick=function(e){if(e.target===ov)ov.remove();};
+    document.body.appendChild(ov);
+  }else{ov.style.display='flex';}
+  var rows;
+  if(!versions.length){
+    rows=mlEmpty('🕰','Aucune version archivée','Chaque fois que tu sauvegardes des modifications, l\'état précédent est archivé ici automatiquement.');
+  }else{
+    rows='<div style="display:flex;flex-direction:column;gap:5px">'+versions.map(function(v,i){
+      var d=new Date(v.ts);
+      var ds=d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'2-digit'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      var origIdx=(dk.versions||[]).indexOf(v);
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;background:var(--s1);border:.5px solid var(--bd);border-radius:7px">'
+        +'<div style="flex:1;min-width:0"><div style="color:var(--tx);font-size:.82rem">'+ds+'</div>'
+        +'<div style="color:var(--tx3);font-size:.7rem">'+(v.count||0)+' cartes</div></div>'
+        +'<button class="btn btnsm" onclick="bldCompareVersion('+origIdx+')" style="font-size:.7rem">Comparer</button>'
+        +'<button class="btn btnsm btnp" onclick="bldRestoreVersion('+origIdx+')" style="font-size:.7rem">↺ Restaurer</button>'
+        +'</div>';
+    }).join('')+'</div>';
+  }
+  ov.innerHTML='<div style="background:linear-gradient(180deg,var(--s2),var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:520px;width:100%;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.8)">'
+    +'<div style="padding:13px 18px;border-bottom:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+    +'<div><div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.1rem">🕰 Versions — '+esc(dk.name||'')+'</div>'
+    +'<div style="font-size:.7rem;color:var(--tx3)">'+versions.length+' version(s) archivée(s) · max 20</div></div>'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'ml-dver-ov\').remove()">✕</button></div>'
+    +'<div style="padding:14px 18px;overflow-y:auto">'+rows+'</div></div>';
+}
+function bldRestoreVersion(idx){
+  if(!bldCurDeckId||!decks[bldCurDeckId])return;
+  var dk=decks[bldCurDeckId];
+  var v=(dk.versions||[])[idx];if(!v){toastError('Version introuvable');return;}
+  if(!confirm('Restaurer cette version ? L\'état actuel sera archivé comme nouvelle version.'))return;
+  var cur=parseList(v.raw);
+  bldMain=cur.filter(function(c){return !/sideboard/i.test(c.sec||'');});
+  bldSide=cur.filter(function(c){return /sideboard/i.test(c.sec||'');});
+  bldSaveDeck(); // archive l'état actuel + applique
+  var dov=document.getElementById('ml-dver-ov');if(dov)dov.remove();
+  if(typeof _bldRefreshView==='function')_bldRefreshView();
+  if(typeof renderBldStats==='function')renderBldStats();
+  toastSuccess('Version restaurée');
+}
+function bldCompareVersion(idx){
+  if(!bldCurDeckId||!decks[bldCurDeckId])return;
+  var dk=decks[bldCurDeckId];
+  var v=(dk.versions||[])[idx];if(!v)return;
+  var oldCards=parseList(v.raw);
+  var oldMap={},newMap={};
+  oldCards.forEach(function(c){oldMap[c.nl]=(oldMap[c.nl]||0)+(c.qty||1);});
+  bldMain.concat(bldSide).forEach(function(c){var nl=stripDFC(c.name||'').toLowerCase();newMap[nl]=(newMap[nl]||0)+(c.qty||1);});
+  var added=[],removed=[],changed=[];
+  Object.keys(newMap).forEach(function(nl){
+    if(!oldMap[nl])added.push(nl+' ×'+newMap[nl]);
+    else if(oldMap[nl]!==newMap[nl])changed.push(nl+' : '+oldMap[nl]+'→'+newMap[nl]);
+  });
+  Object.keys(oldMap).forEach(function(nl){if(!newMap[nl])removed.push(nl+' ×'+oldMap[nl]);});
+  var h='<div style="text-align:left;max-height:60vh;overflow-y:auto;font-size:.8rem">';
+  h+='<div style="color:var(--tx3);font-size:.72rem;margin-bottom:8px">Différences entre cette version et l\'état actuel du deck :</div>';
+  if(added.length)h+='<div style="margin-bottom:6px"><b style="color:var(--gr2)">+ Ajoutées ('+added.length+')</b><br>'+added.map(esc).join('<br>')+'</div>';
+  if(removed.length)h+='<div style="margin-bottom:6px"><b style="color:var(--rd2)">− Retirées ('+removed.length+')</b><br>'+removed.map(esc).join('<br>')+'</div>';
+  if(changed.length)h+='<div style="margin-bottom:6px"><b style="color:var(--am)">~ Quantité modifiée ('+changed.length+')</b><br>'+changed.map(esc).join('<br>')+'</div>';
+  if(!added.length&&!removed.length&&!changed.length)h+='<div style="color:var(--gr2)">Identique à l\'état actuel.</div>';
+  h+='</div>';
+  mlAlert('🕰 Comparaison de version',h,{html:true,okLabel:'Fermer'});
+}
 var _bldExpFmt='mox';
 function bldExportDeck(){
   if(!bldMain.length){toastError('Deck vide');return;}
