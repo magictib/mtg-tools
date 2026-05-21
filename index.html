@@ -3918,8 +3918,10 @@ details > summary::-webkit-details-marker{display:none}
 <!-- PROXYS -->
 <style>
 .proxy-sheet{display:flex;flex-wrap:wrap;gap:0;background:#fff;border-radius:6px;padding:0;width:fit-content;max-width:100%}
-.proxy-card{width:63mm;height:88mm;box-sizing:border-box;overflow:hidden;background:#fff}
+.proxy-card{width:63mm;height:88mm;box-sizing:border-box;overflow:hidden;background:#fff;position:relative}
 .proxy-card img{width:100%;height:100%;object-fit:contain;display:block}
+.proxy-bord{position:absolute;inset:0;border:2.7mm solid #000;box-sizing:border-box;pointer-events:none}
+.proxy-bd-opt{width:22px;height:22px;border-radius:50%;border:2px solid var(--bd2);cursor:pointer;padding:0;flex-shrink:0}
 @media print{
   body * {visibility:hidden!important}
   #proxy-sheet,#proxy-sheet *{visibility:visible!important}
@@ -3937,6 +3939,18 @@ details > summary::-webkit-details-marker{display:none}
       <br><span style="color:var(--am)">Usage personnel et casual uniquement — ni tournoi, ni revente.</span>
     </div>
     <textarea id="proxy-input" placeholder="2 Lightning Bolt&#10;1 Sol Ring&#10;Counterspell" style="width:100%;box-sizing:border-box;height:140px;resize:vertical;background:var(--s2);color:var(--tx);border:.5px solid var(--bd2);border-radius:8px;padding:8px;font-family:monospace;font-size:.8rem;outline:none"></textarea>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:10px;flex-wrap:wrap">
+      <span style="font-size:.74rem;color:var(--tx3)">Bordure :</span>
+      <button class="btn btnsm proxy-bd-sel" onclick="proxySetBorder('',this)" style="outline:2px solid var(--gold2)">Défaut</button>
+      <button class="proxy-bd-opt proxy-bd-sel" title="Noir" style="background:#000" onclick="proxySetBorder('#000000',this)"></button>
+      <button class="proxy-bd-opt proxy-bd-sel" title="Blanc" style="background:#fff" onclick="proxySetBorder('#ffffff',this)"></button>
+      <button class="proxy-bd-opt proxy-bd-sel" title="Rouge" style="background:#c0392b" onclick="proxySetBorder('#c0392b',this)"></button>
+      <button class="proxy-bd-opt proxy-bd-sel" title="Violet" style="background:#7d3cb5" onclick="proxySetBorder('#7d3cb5',this)"></button>
+      <button class="proxy-bd-opt proxy-bd-sel" title="Or" style="background:#c9a84c" onclick="proxySetBorder('#c9a84c',this)"></button>
+      <button class="proxy-bd-opt proxy-bd-sel" title="Bleu" style="background:#2c6fb5" onclick="proxySetBorder('#2c6fb5',this)"></button>
+      <button class="proxy-bd-opt proxy-bd-sel" title="Vert" style="background:#3a8a4a" onclick="proxySetBorder('#3a8a4a',this)"></button>
+      <input type="color" title="Couleur personnalisée" oninput="proxySetBorder(this.value,null)" style="width:26px;height:26px;padding:0;border:none;background:none;cursor:pointer">
+    </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
       <button class="btn btnp" onclick="proxyGenerate()">🃏 Générer la feuille</button>
       <button class="btn" id="proxy-print-btn" onclick="window.print()" style="display:none">🖨 Imprimer</button>
@@ -6519,6 +6533,23 @@ function _proxyFetchImages(names,cb){
     }).catch(function(){done++;if(done===batches.length)cb(imgMap);});
   });
 }
+var _proxyBorder=''; // '' = bordure native de la carte ; sinon couleur de superposition
+function proxySetBorder(c,btn){
+  _proxyBorder=c||'';
+  document.querySelectorAll('.proxy-bd-sel').forEach(function(b){b.style.outline='';});
+  if(btn)btn.style.outline='2px solid var(--gold2)';
+  _proxyApplyBorder();
+}
+// Applique la bordure colorée choisie sur les cartes déjà rendues
+function _proxyApplyBorder(){
+  document.querySelectorAll('#proxy-sheet .proxy-card').forEach(function(cell){
+    var ov=cell.querySelector('.proxy-bord');
+    if(_proxyBorder){
+      if(!ov){ov=document.createElement('div');ov.className='proxy-bord';cell.appendChild(ov);}
+      ov.style.borderColor=_proxyBorder;
+    }else if(ov){ov.parentNode.removeChild(ov);}
+  });
+}
 function proxyGenerate(){
   var raw=(document.getElementById('proxy-input')||{}).value||'';
   var parsed=(typeof parseList==='function')?parseList(raw):[];
@@ -6542,6 +6573,7 @@ function proxyGenerate(){
       else if(missing.indexOf(n)<0)missing.push(n);
     });
     var sheet=document.getElementById('proxy-sheet');if(sheet)sheet.innerHTML=html;
+    _proxyApplyBorder();
     var sc=document.getElementById('proxy-sheet-card');if(sc)sc.style.display=rendered?'':'none';
     var pb=document.getElementById('proxy-print-btn');if(pb)pb.style.display=rendered?'':'none';
     var pages=Math.ceil(rendered/9);
