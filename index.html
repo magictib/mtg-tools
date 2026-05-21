@@ -17800,8 +17800,7 @@ function _arStartChessClock(){
       if(_ar.clockMs===0){
         _arStopChessClock();
         arLogAction('clock_expired',{});
-        alert('⏲ Temps écoulé ! Concession automatique.');
-        arConcede();
+        mlAlert('⏲ Temps écoulé','Concession automatique.').then(function(){arConcede();});
       }
     }
     _arRenderClocks();
@@ -17934,7 +17933,7 @@ function arCmdDmg(targetPn,delta){
     arLogAction('cmd_damage',{target:targetPn,delta:delta,total:_ar.cmdDmgDealt[targetPn]});
     if(_ar.cmdDmgDealt[targetPn]>=21){
       arLogAction('cmd_kill',{target:targetPn});
-      alert('☠ '+(_arRoom.opps[targetPn]?_arRoom.opps[targetPn].slot.name:'J'+targetPn)+' a reçu 21+ dégâts de votre commandant → mort par dégâts commander !');
+      mlAlert('☠ Dégâts de commandant',(_arRoom.opps[targetPn]?_arRoom.opps[targetPn].slot.name:'J'+targetPn)+' a reçu 21+ dégâts de votre commandant → mort par dégâts de commandant.');
     }
   }
   _arSyncToRoom();
@@ -18020,7 +18019,7 @@ function _arApplyRemoteState(data){
       document.getElementById('ar-end-ov').style.display='none';
       arRenderStats();
       var s=document.getElementById('ar-room-status');if(s)s.textContent='';
-      alert('La partie a été terminée par un joueur. L\'arène est fermée.');
+      mlAlert('Arène fermée','La partie a été terminée par un joueur.');
     }else{
       arLeaveRoom();
       var s=document.getElementById('ar-room-status');
@@ -18872,7 +18871,7 @@ function arViewOpGrave(){
     var opn=_arRoom.playerNum===1?2:1;
     var grave=(doc.data()['p'+opn+'_grave'])||[];
     if(!grave.length){toastError('Cimetière adversaire vide');return;}
-    alert('Cimetière adversaire :\n'+grave.map(function(c){return '• '+c.name;}).join('\n'));
+    mlAlert('Cimetière adversaire',grave.map(function(c){return '• '+esc(c.name);}).join('<br>'),{html:true});
   });
 }
 function arViewOpExile(){
@@ -18882,7 +18881,7 @@ function arViewOpExile(){
     var opn=_arRoom.playerNum===1?2:1;
     var exile=(doc.data()['p'+opn+'_exile'])||[];
     if(!exile.length){toastError('Exile adversaire vide');return;}
-    alert('Exile adversaire :\n'+exile.map(function(c){return '• '+c.name;}).join('\n'));
+    mlAlert('Exil adversaire',exile.map(function(c){return '• '+esc(c.name);}).join('<br>'),{html:true});
   });
 }
 function arPtrMove(e){
@@ -21423,7 +21422,7 @@ function gamesRestore(){
   var diag=[];
   diag.push('🔍 Diagnostic en cours…');
   diag.push('localStorage mtg_games : '+(localStorage.getItem('mtg_games')?(JSON.parse(localStorage.getItem('mtg_games')||'[]').length+' parties'):'absent'));
-  alert(diag.join('\n'));
+  mlAlert('Diagnostic',esc(diag.join('\n')).replace(/\n/g,'<br>'),{html:true});
   // Cherche dans prefs/games (priorité)
   db.collection('users').doc(userId).collection('settings').doc('prefs').get().then(function(d){
     var prefs=d.exists?(d.data()||{}):{};
@@ -23548,14 +23547,18 @@ function mlLoading(message){
     +'</div>';
 }
 // Toast léger (auto-dismiss)
+// Toast legacy : route vers le système de toasts unifié (un seul style dans l'app).
+// La couleur éventuellement passée est convertie en type (error / warning / info).
 function mlToast(message,opts){
-  opts=opts||{};var ms=opts.duration||3000;
-  var t=document.createElement('div');
-  t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:linear-gradient(180deg,rgba(20,15,40,.97),rgba(10,5,25,.97));border:1px solid '+(opts.color||'rgba(180,140,255,.55)')+';color:'+(opts.textColor||'#fff')+';padding:9px 16px;border-radius:8px;font-size:.82rem;z-index:10000;box-shadow:0 6px 20px rgba(0,0,0,.7);animation:ml-toast-in .3s ease-out;max-width:90%';
-  t.textContent=message;
-  document.body.appendChild(t);
-  setTimeout(function(){t.style.animation='ml-toast-out .3s ease-in forwards';},ms-300);
-  setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},ms);
+  opts=opts||{};
+  var type='info';
+  var m=/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(opts.color||'');
+  if(m){
+    var r=+m[1],g=+m[2],b=+m[3];
+    if(r>180&&g<130&&b<130)type='error';
+    else if(r>180&&g>=130&&b<150)type='warning';
+  }
+  if(typeof showToast==='function')showToast(message,type,opts.duration||(type==='error'?3600:3000));
 }
 
 // ===== PENDING / LOANS / TRADES — LOGIQUE =====
