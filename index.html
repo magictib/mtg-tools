@@ -4125,6 +4125,18 @@ details > summary::-webkit-details-marker{display:none}
     <div id="lim-status" style="font-size:.78rem;color:var(--tx3);min-height:1.1em;margin-bottom:6px"></div>
     <div id="lim-pool"></div>
   </div>
+  <div class="card">
+    <div class="lbl">🎴 Draft (solo contre des bots)</div>
+    <div style="font-size:.78rem;color:var(--tx3);line-height:1.6;margin-bottom:10px">Choisis l'extension ci-dessus, puis lance un draft : tu ouvres un booster, prends une carte, le pack tourne. Les bots occupent les autres sièges. 3 rondes → 42 cartes pour bâtir ton deck.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <span style="font-size:.78rem;color:var(--tx2)">Joueurs :</span>
+      <button class="dm" onclick="_draftSetSeats(4,this)">4</button>
+      <button class="dm" onclick="_draftSetSeats(6,this)">6</button>
+      <button class="dm active" onclick="_draftSetSeats(8,this)">8</button>
+      <button class="btn btnsm btnp" onclick="draftStart()" id="draft-start-btn">▶ Lancer le draft</button>
+    </div>
+    <div id="draft-area"></div>
+  </div>
 </div>
 
 <!-- ARÈNE -->
@@ -16578,6 +16590,115 @@ function limClearPool(){
   if(!_limPool.length)return;
   _limPool=[];_limRenderPool();
   var st=document.getElementById('lim-status');if(st)st.textContent='';
+}
+// ===== Draft solo contre des bots =====
+var _draft=null,_draftSeats=8;
+function _draftSetSeats(n,btn){
+  _draftSeats=n;
+  var p=btn&&btn.parentNode;
+  if(p)p.querySelectorAll('.dm').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+}
+function draftStart(){
+  var sel=document.getElementById('lim-set-sel');
+  var code=sel&&sel.value;
+  if(!code){toastError('Choisis une extension');return;}
+  var setName=(sel.options[sel.selectedIndex]&&sel.options[sel.selectedIndex].getAttribute('data-name'))||code;
+  var btn=document.getElementById('draft-start-btn'),area=document.getElementById('draft-area');
+  if(btn)btn.disabled=true;
+  if(area)area.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:10px 0">⏳ Préparation du draft…</div>';
+  _limFetchSetCards(code,function(buckets){
+    if(btn)btn.disabled=false;
+    if(!buckets||(!buckets.common.length&&!buckets.rare.length)){if(area)area.innerHTML='<div style="color:var(--am);font-size:.82rem">⚠ Données insuffisantes pour drafter cette extension.</div>';return;}
+    _draft={set:code,setName:setName,seats:_draftSeats,buckets:buckets,round:1,pick:1,mySeat:0,myPicks:[],packs:[]};
+    _draftNewRound();_draftRender();
+  });
+}
+function _draftNewRound(){
+  _draft.packs=[];
+  for(var i=0;i<_draft.seats;i++)_draft.packs.push(_boosterGen(_draft.buckets));
+}
+function _draftBotPick(pack){
+  var rOrd={mythic:0,rare:1,uncommon:2,common:3};
+  var best=0,bestR=99;
+  for(var i=0;i<pack.length;i++){
+    var r=rOrd[pack[i].rarity]!=null?rOrd[pack[i].rarity]:9;
+    if(r<bestR||(r===bestR&&Math.random()<0.35)){bestR=r;best=i;}
+  }
+  return best;
+}
+function draftPick(idx){
+  if(!_draft)return;
+  var myPack=_draft.packs[_draft.mySeat];
+  if(!myPack||idx<0||idx>=myPack.length)return;
+  _draft.myPicks.push(myPack.splice(idx,1)[0]);
+  for(var i=0;i<_draft.seats;i++){
+    if(i===_draft.mySeat)continue;
+    var p=_draft.packs[i];
+    if(p&&p.length)p.splice(_draftBotPick(p),1);
+  }
+  var dir=(_draft.round%2===1)?1:-1,N=_draft.seats,rot=[];
+  for(var s=0;s<N;s++)rot[s]=_draft.packs[((s+dir)%N+N)%N];
+  _draft.packs=rot;
+  _draft.pick++;
+  if(!_draft.packs[_draft.mySeat]||!_draft.packs[_draft.mySeat].length){
+    if(_draft.round<3){_draft.round++;_draft.pick=1;_draftNewRound();}
+  }
+  _draftRender();
+}
+function _draftCardGrid(cards,pickFn){
+  return '<div style="display:flex;flex-wrap:wrap;gap:6px">'+cards.map(function(c,i){
+    var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||{};
+    var img=iu.small||iu.normal||'';
+    var bc={mythic:'#e07030',rare:'#d4a017',uncommon:'#b0c4de',common:'var(--bd2)'}[c.rarity]||'var(--bd2)';
+    var attr=pickFn?(' onclick="'+pickFn+'('+i+')" style="width:100px;cursor:pointer"'):' style="width:84px"';
+    return '<div'+attr+' title="'+esc(c.name||'')+'">'
+      +(img?'<img src="'+esc(img)+'" loading="lazy" data-no-localize="1" style="width:100%;border-radius:5px;display:block;border:1.5px solid '+bc+'">':'<div style="font-size:.62rem;color:var(--tx2);border:1.5px solid '+bc+';border-radius:5px;padding:4px">'+esc(c.name||'?')+'</div>')
+      +'</div>';
+  }).join('')+'</div>';
+}
+function _draftRender(){
+  var area=document.getElementById('draft-area');if(!area||!_draft)return;
+  var myPack=_draft.packs[_draft.mySeat]||[];
+  var done=_draft.round>=3&&!myPack.length;
+  var h='';
+  if(done){
+    h+='<div style="padding:8px 0;font-size:.9rem;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif">✓ Draft terminé — '+_draft.myPicks.length+' cartes draftées</div>';
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn btnsm btnp" onclick="draftPoolToDeck()">🛠 Construire ce deck</button><button class="btn btnsm" onclick="draftCopyPool()">📋 Copier</button></div>';
+    h+=_draftCardGrid(_draft.myPicks,null);
+    area.innerHTML=h;return;
+  }
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding-top:8px;border-top:.5px solid var(--bd2)">';
+  h+='<b style="color:var(--gold2);font-size:.82rem">Ronde '+_draft.round+'/3 · Pick '+_draft.pick+'</b>';
+  h+='<span style="font-size:.74rem;color:var(--tx3)">'+_draft.seats+' joueurs · '+_draft.myPicks.length+' cartes draftées</span>';
+  h+='<span style="flex:1"></span><span style="font-size:.74rem;color:var(--tx2)">Clique une carte pour la prendre</span>';
+  h+='</div>';
+  h+=_draftCardGrid(myPack,'draftPick');
+  if(_draft.myPicks.length){
+    h+='<details style="margin-top:10px"><summary style="cursor:pointer;font-size:.78rem;color:var(--tx3);list-style:none">📋 Mes cartes draftées ('+_draft.myPicks.length+') ▾</summary><div style="margin-top:6px">'+_draftCardGrid(_draft.myPicks,null)+'</div></details>';
+  }
+  area.innerHTML=h;
+}
+function _draftPoolList(){
+  var counts={};
+  _draft.myPicks.forEach(function(c){var n=c.name||'';if(n)counts[n]=(counts[n]||0)+1;});
+  return Object.keys(counts).map(function(n){return counts[n]+' '+n;}).join('\n');
+}
+function draftPoolToDeck(){
+  if(!_draft||!_draft.myPicks.length)return;
+  var list=_draftPoolList(),name='Draft '+_draft.setName+' '+new Date().toLocaleDateString('fr-FR');
+  goTab('deck');
+  setTimeout(function(){
+    if(typeof newDeck==='function')newDeck();
+    var ni=document.getElementById('dnamein'),ta=document.getElementById('ta-name');
+    if(ni)ni.value=name;if(ta)ta.value=list;
+    if(typeof toastSuccess==='function')toastSuccess('🎴 Deck draft chargé — construis ton 40-cartes');
+    var ed=document.getElementById('deditor');if(ed)ed.scrollIntoView({behavior:'smooth'});
+  },220);
+}
+function draftCopyPool(){
+  if(!_draft||!_draft.myPicks.length)return;
+  if(navigator.clipboard)navigator.clipboard.writeText(_draftPoolList()).then(function(){if(typeof mlToast==='function')mlToast('📋 Deck draft copié');});
 }
 function loadScryfallSets(){
   if(_setsLoaded)return;
