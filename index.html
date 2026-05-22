@@ -2799,7 +2799,8 @@ details > summary::-webkit-details-marker{display:none}
     <div id="deditor-bg"></div>
     <div class="row" style="margin-bottom:.75rem">
       <div class="lbl" style="margin-bottom:0" id="etitle">Nouveau deck</div>
-      <button class="btn btnsm btnp" onclick="newDeck()" style="margin-left:auto">+ Nouveau deck</button>
+      <button class="btn btnsm" onclick="deckOpenInBuilder()" style="margin-left:auto" title="Ouvrir ce deck en mode construction (glisser-déposer)">🛠 Modifier</button>
+      <button class="btn btnsm btnp" onclick="newDeck()">+ Nouveau deck</button>
       <button class="btn btnsm btnrd" id="delbtn" onclick="deleteDeck()" style="display:none">✕ Supprimer</button>
     </div>
     <div class="lbl" style="margin-bottom:4px">Profil propriétaire</div>
@@ -3599,7 +3600,7 @@ details > summary::-webkit-details-marker{display:none}
       <!-- Menu déroulant pour les outils secondaires -->
       <div style="position:relative;display:inline-block">
         <button class="btn btnsm" onclick="bldToggleToolsMenu(event)" title="Outils complémentaires : stats, mulligan, synergies, partage…" style="font-size:.74rem;white-space:nowrap">🧰 Outils ▾</button>
-        <div id="bld-tools-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:rgba(8,12,22,.98);border:1px solid rgba(201,168,76,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.85);min-width:180px;padding:4px 0;backdrop-filter:blur(6px)">
+        <div id="bld-tools-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:200;background:rgba(8,12,22,.98);border:1px solid rgba(201,168,76,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.85);min-width:230px;white-space:nowrap;padding:4px 0;backdrop-filter:blur(6px)">
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShowDeckStats();bldCloseToolsMenu()">📊 Stats — courbe & types</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShowSynergies();bldCloseToolsMenu()">🧬 Synergies — thèmes internes</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldMulliganSim();bldCloseToolsMenu()">🎴 Mulligan — sim 2000 mains</button>
@@ -6492,6 +6493,15 @@ function getProfCards(i){
 // ===== TABS =====
 function openDeckModal(){goTab('deck');}
 function closeDeckModal(){goTab('build');}
+// Ouvre le deck courant dans le mode construction (glisser-déposer)
+function deckOpenInBuilder(){
+  var id=(typeof actDeck!=='undefined')?actDeck:null;
+  goTab('build');
+  if(id&&typeof decks!=='undefined'&&decks[id]){
+    var sel=document.getElementById('bld-deck-sel');
+    if(sel){sel.value=id;if(sel.value===id&&typeof bldLoadSelectedDeck==='function')bldLoadSelectedDeck();}
+  }
+}
 // ===== Raccourcis clavier globaux =====
 function openKbdHelp(){var o=document.getElementById('kbd-help-overlay');if(o)o.classList.add('on');}
 function closeKbdHelp(){var o=document.getElementById('kbd-help-overlay');if(o)o.classList.remove('on');}
@@ -25360,7 +25370,7 @@ function renderBldDecks(){
         }
       }
       // 4. Taille deck
-      var nMain=bldMain.reduce(function(s,c){return s+(c._qty||1);},0)||bldMain.length;
+      var nMain=bldMain.reduce(function(s,c){return s+(c.qty||1);},0)||bldMain.length;
       if(_isEdh&&dCommander){
         var expected=100;
         if(nMain!==expected-1&&nMain!==expected){
@@ -25370,7 +25380,7 @@ function renderBldDecks(){
         if(nMain<60){problems.push({sev:'warn',text:'⚠ Deck constructed : minimum 60 cartes (actuel : '+nMain+').'});}
       }
       // 5. Sideboard taille (max 15)
-      var nSide=bldSide.reduce(function(s,c){return s+(c._qty||1);},0)||bldSide.length;
+      var nSide=bldSide.reduce(function(s,c){return s+(c.qty||1);},0)||bldSide.length;
       if(nSide>15)problems.push({sev:'warn',text:'⚠ Sideboard > 15 cartes (actuel : '+nSide+').'});
     }
     if(problems.length){
