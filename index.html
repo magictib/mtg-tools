@@ -7761,6 +7761,7 @@ function openProfile(){
     +'<div style="background:rgba(255,255,255,.03);border:.5px solid var(--bd2);border-radius:10px;padding:10px;text-align:center"><div style="font-size:1.3rem;color:var(--tx);font-weight:700">🔥 '+(_progState.loginStreak||0)+'</div><div style="font-size:.66rem;color:var(--tx3)">Jours de série</div></div>'
     +'</div>'
     +'<div style="padding:12px 20px;border-bottom:.5px solid var(--bd)">'+_progQuestsHtml()+'</div>'
+    +'<div style="padding:12px 20px;border-bottom:.5px solid var(--bd)">'+_progBetsHtml()+'</div>'
     +'<div style="padding:14px 20px">'
     +'<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">D\'où vient ton XP</div>'
     +srcRows
@@ -7929,6 +7930,136 @@ function _progRefreshThemeUI(){
       badge.textContent='🔒 Niv.'+m.level+' ou '+m.price+'🪷';
     }else if(badge){badge.remove();}
   });
+}
+
+// ===== Paris sur les parties =====
+// Un seul pari en cours à la fois. Réglé automatiquement à la prochaine
+// partie résolue (Arène ou suivi de parties). Mise doublée si la
+// prédiction est correcte. La monnaie est côté client : entre amis,
+// c'est « à l'honneur ».
+var _PROG_BET_MIN=10,_PROG_BET_MAX=250;
+function _progPlaceBet(stake,prediction){
+  _progEnsureLoaded();
+  if(_progState.bet){if(typeof toastError==='function')toastError('Tu as déjà un pari en cours.');return;}
+  stake=parseInt(stake,10);
+  if(!stake||stake<_PROG_BET_MIN){if(typeof toastError==='function')toastError('Mise minimum : '+_PROG_BET_MIN+' Pétales.');return;}
+  if(stake>_PROG_BET_MAX){if(typeof toastError==='function')toastError('Mise maximum : '+_PROG_BET_MAX+' Pétales.');return;}
+  if(stake>_progState.coins){if(typeof toastError==='function')toastError('Solde de Pétales insuffisant.');return;}
+  if(prediction!=='win'&&prediction!=='loss')return;
+  _progState.coins-=stake;
+  _progState.bet={stake:stake,prediction:prediction,ts:Date.now()};
+  _progSave();
+  var ov=document.getElementById('prog-bet-ov');if(ov)ov.style.display='none';
+  if(typeof showToast==='function')showToast('🎲 Pari placé : '+stake+' 🪷 sur « '+(prediction==='win'?'je gagne':'je perds')+' »');
+  _progRefreshProfile();
+}
+function _progCancelBet(){
+  _progEnsureLoaded();
+  if(!_progState.bet)return;
+  _progState.coins+=_progState.bet.stake;
+  _progState.bet=null;
+  _progSave();
+  if(typeof showToast==='function')showToast('Pari annulé — mise remboursée.');
+  _progRefreshProfile();
+}
+function _progSettleBet(didWin){
+  _progEnsureLoaded();
+  if(!_progState.bet)return;
+  var b=_progState.bet;
+  _progState.bet=null;
+  var hist=_progState.betHistory||[];
+  if(didWin===null){
+    _progState.coins+=b.stake;
+    hist.push({result:'draw',stake:b.stake,ts:Date.now()});
+    if(typeof showToast==='function')showToast('🎲 Partie nulle — pari remboursé ('+b.stake+' 🪷).');
+  }else{
+    var correct=(b.prediction==='win'&&didWin)||(b.prediction==='loss'&&!didWin);
+    if(correct){
+      _progState.coins+=b.stake*2;
+      hist.push({result:'won',stake:b.stake,gain:b.stake,ts:Date.now()});
+      if(typeof showToast==='function')showToast('🎉 Pari gagné ! +'+b.stake+' Pétales (mise doublée).');
+    }else{
+      hist.push({result:'lost',stake:b.stake,ts:Date.now()});
+      if(typeof showToast==='function')showToast('🎲 Pari perdu — '+b.stake+' Pétales envolés.');
+    }
+  }
+  if(hist.length>12)hist=hist.slice(-12);
+  _progState.betHistory=hist;
+  _progSave();
+  _progRefreshProfile();
+}
+function _progSettleArena(result){
+  _progEnsureLoaded();
+  if(!_progState.bet)return;
+  _progSettleBet(result==='win'?true:result==='loss'?false:null);
+}
+function _progSettleFromGameRecord(record){
+  try{
+    _progEnsureLoaded();
+    if(!_progState.bet||!record||!record.players)return;
+    var myName=((typeof PN!=='undefined'&&PN[0])||'').toLowerCase();
+    var iAmIn=record.players.some(function(p){return p.profIdx===0||(!!myName&&(p.name||'').toLowerCase()===myName);});
+    if(!iAmIn)return;
+    if(!record.winner){_progSettleBet(null);return;}
+    var w=record.winner;
+    var didWin=(w.profIdx===0)||(!!myName&&(w.name||'').toLowerCase()===myName);
+    _progSettleBet(didWin);
+  }catch(e){}
+}
+function _progRefreshProfile(){
+  var ov=document.getElementById('ml-profile-ov');
+  if(ov&&ov.style.display==='block'){try{openProfile();}catch(e){}}
+}
+function _progOpenBetModal(){
+  _progEnsureLoaded();
+  if(_progState.bet){if(typeof toastError==='function')toastError('Tu as déjà un pari en cours.');return;}
+  if(_progState.coins<_PROG_BET_MIN){if(typeof toastError==='function')toastError('Il te faut au moins '+_PROG_BET_MIN+' Pétales pour parier.');return;}
+  var ov=document.getElementById('prog-bet-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='prog-bet-ov';ov.className='scan-modal';
+    ov.onclick=function(e){if(e.target===ov)ov.style.display='none';};
+    document.body.appendChild(ov);
+  }
+  var maxStake=Math.min(_PROG_BET_MAX,_progState.coins);
+  ov.innerHTML='<div style="width:100%;max-width:360px;background:var(--s1);border:1px solid var(--bd2);border-radius:14px;padding:16px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:1rem">🎲 Placer un pari</span><button class="btn btnsm" onclick="document.getElementById(\'prog-bet-ov\').style.display=\'none\'">✕</button></div>'
+    +'<div class="lbl" style="margin-bottom:3px">Mise — solde : '+_progState.coins.toLocaleString('fr-FR')+' 🪷 (max '+maxStake+')</div>'
+    +'<input type="number" id="prog-bet-stake" min="'+_PROG_BET_MIN+'" max="'+maxStake+'" value="'+Math.min(50,maxStake)+'" style="width:100%;box-sizing:border-box;margin-bottom:8px">'
+    +'<div style="font-size:.72rem;color:var(--tx3);margin-bottom:12px;line-height:1.5">Prédis le résultat de ta prochaine partie (Arène ou suivi de parties). Bonne prédiction = mise doublée.</div>'
+    +'<div style="display:flex;gap:8px">'
+    +'<button class="btn btnp" style="flex:1" onclick="_progPlaceBetFromModal(\'win\')">✓ Je gagne</button>'
+    +'<button class="btn" style="flex:1" onclick="_progPlaceBetFromModal(\'loss\')">✕ Je perds</button>'
+    +'</div></div>';
+  ov.style.display='flex';
+}
+function _progPlaceBetFromModal(pred){
+  var inp=document.getElementById('prog-bet-stake');
+  _progPlaceBet(inp?inp.value:0,pred);
+}
+function _progBetsHtml(){
+  _progEnsureLoaded();
+  var h='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🎲 Paris</div>';
+  if(_progState.bet){
+    var b=_progState.bet;
+    h+='<div style="background:rgba(201,168,76,.08);border:.5px solid var(--gold);border-radius:8px;padding:9px 11px;font-size:.8rem;color:var(--tx2)">'
+      +'Pari en cours : <b style="color:var(--gold2)">'+b.stake+' 🪷</b> sur « '+(b.prediction==='win'?'je gagne':'je perds')+' »'
+      +'<div style="font-size:.68rem;color:var(--tx3);margin-top:3px">Réglé à ta prochaine partie. Gain potentiel : '+(b.stake*2)+' 🪷.</div>'
+      +'<button class="btn btnsm btnrd" onclick="_progCancelBet()" style="margin-top:6px;font-size:.68rem;padding:2px 8px">Annuler le pari</button>'
+      +'</div>';
+  }else{
+    h+='<button class="btn btnsm btnp" onclick="_progOpenBetModal()" style="font-size:.76rem">🎲 Placer un pari</button>';
+    h+='<div style="font-size:.68rem;color:var(--tx3);margin-top:5px;line-height:1.5">Mise des Pétales sur le résultat de ta prochaine partie — bonne prédiction = mise doublée.</div>';
+  }
+  var hist=(_progState.betHistory||[]).slice(-6).reverse();
+  if(hist.length){
+    h+='<div style="margin-top:8px;font-size:.68rem;color:var(--tx3)">Derniers paris : '
+      +hist.map(function(x){
+        var c=x.result==='won'?'var(--gr2)':x.result==='lost'?'var(--rd2)':'var(--tx3)';
+        var t=x.result==='won'?'+'+x.gain:x.result==='lost'?'−'+x.stake:'='+x.stake;
+        return '<span style="color:'+c+'">'+t+'</span>';
+      }).join(' · ')+'</div>';
+  }
+  return h;
 }
 
 // ===== BUILD WIZARD =====
@@ -16541,6 +16672,7 @@ function _arSaveStats(rating){
   if(_arEndResult){
     var winner=_arEndResult==='win'?'p1':_arEndResult==='loss'?'p2':'draw';
     arRecordMatch(s.deckId,s.deckName,s.opponentId||'',s.opponentName||'',winner,s.turns,'vs-ai');
+    try{if(typeof _progSettleArena==='function')_progSettleArena(_arEndResult);}catch(e){}
   }
 }
 
@@ -22129,6 +22261,7 @@ function _endBoSeries(){
     duration:Math.round((Date.now()-activeGame.startedAt)/60000)
   };
   games.unshift(record);saveGames();
+  try{if(typeof _progSettleFromGameRecord==='function')_progSettleFromGameRecord(record);}catch(e){}
   _returnToSetup();
 }
 function _nextBoRound(){
@@ -22152,6 +22285,7 @@ function endGame(winnerIdx){
       duration:Math.round((Date.now()-activeGame.startedAt)/60000)
     };
     games.unshift(record);saveGames();
+    try{if(typeof _progSettleFromGameRecord==='function')_progSettleFromGameRecord(record);}catch(e){}
     _returnToSetup();
     return;
   }
@@ -23021,7 +23155,9 @@ function saveManualGame(){
     if(idx>=0){games[idx]=Object.assign({},games[idx],extras);}
     _editGameId=null;
   }else{
-    games.unshift(Object.assign({id:Date.now(),startLife:40,duration:null,manual:true},extras));
+    var _mgRec=Object.assign({id:Date.now(),startLife:40,duration:null,manual:true},extras);
+    games.unshift(_mgRec);
+    try{if(typeof _progSettleFromGameRecord==='function')_progSettleFromGameRecord(_mgRec);}catch(e){}
   }
   saveGames();
   toggleManualGame();
