@@ -7676,6 +7676,7 @@ function _progSync(){
   } else if(level<_progState.lastLevel){
     _progState.lastLevel=level;_progSave();
   }
+  try{_progQuestsCheck();}catch(e){}
   return bd;
 }
 function _progHomeBanner(){
@@ -7684,6 +7685,8 @@ function _progHomeBanner(){
   var lv=bd.level;
   var into=bd.total-_progXpForLevel(lv),span=_progXpForLevel(lv+1)-_progXpForLevel(lv);
   var pct=span>0?Math.max(3,Math.round(into/span*100)):100;
+  var dDone=0,dTot=0;
+  try{_progEnsureDaily();var dq=_progState.daily.quests||[];dTot=dq.length;dDone=dq.filter(function(q){return q.done;}).length;}catch(e){}
   return '<div class="home-section" style="cursor:pointer" onclick="openProfile()" title="Voir mon profil">'
     +'<div style="display:flex;align-items:center;gap:13px">'
     +'<div style="flex-shrink:0;width:42px;height:42px;border-radius:50%;background:radial-gradient(circle at 35% 30%,var(--gold2),var(--gold) 70%);color:#1a1206;font-weight:700;font-size:1.1rem;display:flex;align-items:center;justify-content:center;font-family:\'Goudy Mediaeval\',serif">'+lv+'</div>'
@@ -7692,7 +7695,9 @@ function _progHomeBanner(){
     +'<div style="height:7px;background:var(--s3);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,var(--gold),var(--gold2))"></div></div>'
     +'</div>'
     +'<div style="text-align:right;flex-shrink:0"><div style="color:var(--gold2);font-weight:700;font-size:.92rem">🪷 '+_progState.coins.toLocaleString('fr-FR')+'</div><div style="font-size:.6rem;color:var(--tx3)">Pétales</div></div>'
-    +'</div></div>';
+    +'</div>'
+    +(dTot?'<div style="margin-top:7px;padding-top:7px;border-top:.5px solid var(--bd);font-size:.72rem;color:var(--tx3)">🎯 Défis du jour <b style="color:'+(dDone>=dTot?'var(--gr2)':'var(--gold2)')+'">'+dDone+'/'+dTot+'</b></div>':'')
+    +'</div>';
 }
 function openProfile(){
   var bd=_progSync();
@@ -7735,13 +7740,109 @@ function openProfile(){
     +'<div style="background:rgba(201,168,76,.08);border:.5px solid var(--bd2);border-radius:10px;padding:10px;text-align:center"><div style="font-size:1.3rem;color:var(--gold2);font-weight:700">🪷 '+_progState.coins.toLocaleString('fr-FR')+'</div><div style="font-size:.66rem;color:var(--tx3)">Pétales de Lotus</div></div>'
     +'<div style="background:rgba(255,255,255,.03);border:.5px solid var(--bd2);border-radius:10px;padding:10px;text-align:center"><div style="font-size:1.3rem;color:var(--tx);font-weight:700">🔥 '+(_progState.loginStreak||0)+'</div><div style="font-size:.66rem;color:var(--tx3)">Jours de série</div></div>'
     +'</div>'
+    +'<div style="padding:12px 20px;border-bottom:.5px solid var(--bd)">'+_progQuestsHtml()+'</div>'
     +'<div style="padding:14px 20px">'
     +'<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">D\'où vient ton XP</div>'
     +srcRows
     +'</div>'
-    +'<div style="padding:4px 20px 18px"><div style="font-size:.72rem;color:var(--tx3);line-height:1.6;background:rgba(255,255,255,.03);border-radius:8px;padding:9px 11px">🔜 Bientôt : défis quotidiens, déblocage de thèmes et d\'arts de proxy, paris sur les parties — tout se paiera en Pétales de Lotus.</div></div>'
+    +'<div style="padding:4px 20px 18px"><div style="font-size:.72rem;color:var(--tx3);line-height:1.6;background:rgba(255,255,255,.03);border-radius:8px;padding:9px 11px">🔜 Bientôt : déblocage de thèmes et d\'arts de proxy, paris sur les parties — tout se paiera en Pétales de Lotus.</div></div>'
     +'</div>';
   ov.style.display='block';
+}
+
+// ===== Défis quotidiens =====
+var _PROG_QUEST_POOL=[
+  {id:'play1',type:'games',goal:1,label:'Joue une partie',xp:60,coins:25},
+  {id:'play2',type:'games',goal:2,label:'Joue 2 parties',xp:110,coins:45},
+  {id:'win1',type:'wins',goal:1,label:'Remporte une partie',xp:90,coins:40},
+  {id:'cards10',type:'cards',goal:10,label:'Ajoute 10 cartes à ta collection',xp:50,coins:20},
+  {id:'deck1',type:'decks',goal:1,label:'Crée ou importe un deck',xp:70,coins:30},
+  {id:'ana1',type:'analyse',goal:1,label:'Analyse un deck',xp:55,coins:22}
+];
+function _progHash(s){var h=0;for(var i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))>>>0;return h;}
+function _progDayStr(d){d=d||new Date();return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+function _progStatSnap(){
+  var st=(typeof _computeTrophyStats==='function')?_computeTrophyStats():{};
+  return {games:st.totalGames||0,wins:st.wins||0,cards:st.collQty||0,decks:st.decksCreated||0};
+}
+function _progGenQuests(dayStr){
+  var seed=_progHash(dayStr);
+  var pool=_PROG_QUEST_POOL.slice();
+  pool.sort(function(a,b){return ((seed^_progHash(a.id))>>>0)-((seed^_progHash(b.id))>>>0);});
+  var picked=[],types={};
+  for(var j=0;j<pool.length&&picked.length<3;j++){
+    if(types[pool[j].type])continue;
+    types[pool[j].type]=1;
+    picked.push({id:pool[j].id,type:pool[j].type,goal:pool[j].goal,label:pool[j].label,xp:pool[j].xp,coins:pool[j].coins,done:false});
+  }
+  return picked;
+}
+function _progEnsureDaily(){
+  _progEnsureLoaded();
+  var today=_progDayStr();
+  if(!_progState.daily||_progState.daily.date!==today){
+    _progState.daily={date:today,baseline:_progStatSnap(),quests:_progGenQuests(today),analyseDecks:{}};
+    _progSave();
+  }
+}
+function _progQuestProgress(q,snap){
+  var d=_progState.daily,bl=(d&&d.baseline)||{};
+  if(q.type==='analyse')return Object.keys((d&&d.analyseDecks)||{}).length;
+  snap=snap||_progStatSnap();
+  if(q.type==='games')return Math.max(0,snap.games-(bl.games||0));
+  if(q.type==='wins')return Math.max(0,snap.wins-(bl.wins||0));
+  if(q.type==='cards')return Math.max(0,snap.cards-(bl.cards||0));
+  if(q.type==='decks')return Math.max(0,snap.decks-(bl.decks||0));
+  return 0;
+}
+function _progQuestsCheck(){
+  _progEnsureDaily();
+  var snap=_progStatSnap(),changed=false;
+  (_progState.daily.quests||[]).forEach(function(q){
+    if(q.done)return;
+    if(_progQuestProgress(q,snap)>=q.goal){
+      q.done=true;changed=true;
+      _progState.coins+=q.coins;
+      _progState.bankedXp+=q.xp;
+      if(typeof showToast==='function')showToast('🎯 Défi accompli : '+q.label+' — +'+q.xp+' XP, +'+q.coins+' Pétales');
+    }
+  });
+  if(changed)_progSave();
+}
+function _progNoteAnalyse(deckId){
+  if(!deckId)return;
+  try{
+    _progEnsureDaily();
+    if(!_progState.daily.analyseDecks[deckId]){
+      _progState.daily.analyseDecks[deckId]=1;
+      _progSave();
+      _progQuestsCheck();
+    }
+  }catch(e){}
+}
+function _progDailyDoneCount(){
+  _progEnsureDaily();
+  return (_progState.daily.quests||[]).filter(function(q){return q.done;}).length;
+}
+function _progQuestsHtml(){
+  _progEnsureDaily();
+  var snap=_progStatSnap();
+  var qs=_progState.daily.quests||[];
+  var done=qs.filter(function(q){return q.done;}).length;
+  var h='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">🎯 Défis du jour <span style="color:var(--gold2)">'+done+'/'+qs.length+'</span></div>';
+  h+=qs.map(function(q){
+    var prog=Math.min(q.goal,_progQuestProgress(q,snap));
+    var pct=q.goal>0?Math.round(prog/q.goal*100):100;
+    return '<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
+      +'<span style="font-size:1rem">'+(q.done?'✅':'🎯')+'</span>'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="font-size:.8rem;color:'+(q.done?'var(--tx3)':'var(--tx2)')+(q.done?';text-decoration:line-through':'')+'">'+esc(q.label)+'</div>'
+      +(q.done?'':'<div style="height:5px;background:var(--s3);border-radius:3px;margin-top:4px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--gold2)"></div></div>')
+      +'</div>'
+      +'<span style="font-size:.68rem;color:var(--gold2);white-space:nowrap">'+(q.done?'✓':prog+'/'+q.goal)+' · +'+q.coins+'🪷</span>'
+      +'</div>';
+  }).join('');
+  return h;
 }
 
 // ===== BUILD WIZARD =====
@@ -33476,6 +33577,7 @@ function _anaFormatWarnings(deck,fmt,totalCards){
 function anaRender(deckId){
   var deck=_anaGetDeck(deckId);if(!deck)return;
   _anaCurDeckId=deckId;
+  try{_progNoteAnalyse(deckId);}catch(e){}
   // Themes du commandant : auto-détection puis application des overrides utilisateur
   var fmt=_anaGetFmt(deckId,deck);
   var _autoDetectedThemes=_anaCommanderThemes(deck);
