@@ -4112,6 +4112,21 @@ details > summary::-webkit-details-marker{display:none}
   </div>
 </div>
 
+<!-- DRAFT & SCELLÉ -->
+<div class="page" id="pg-limited">
+  <div class="card">
+    <div class="lbl">🎴 Draft &amp; Scellé</div>
+    <div style="font-size:.78rem;color:var(--tx3);line-height:1.6;margin-bottom:10px">Ouvre des boosters maison de l'extension de ton choix — 14 cartes par booster, raretés tirées selon les probabilités réelles (mythique ≈ 13,5 %). Le mode Draft multijoueur arrive bientôt.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <select id="lim-set-sel" style="flex:1;min-width:200px"><option value="">— Chargement des extensions… —</option></select>
+      <button class="btn btnsm btnp" onclick="limOpenSealed()" id="lim-sealed-btn">📦 Ouvrir un scellé (6 boosters)</button>
+      <button class="btn btnsm" onclick="limOpenBooster()" id="lim-booster-btn" title="Ajouter un booster au pool">＋ 1 booster</button>
+    </div>
+    <div id="lim-status" style="font-size:.78rem;color:var(--tx3);min-height:1.1em;margin-bottom:6px"></div>
+    <div id="lim-pool"></div>
+  </div>
+</div>
+
 <!-- ARÈNE -->
 <div class="page" id="pg-arena">
   <!-- Barre de mode -->
@@ -6695,7 +6710,7 @@ var _NAV_SPACES=[
   {id:'home',pages:[{id:'home',label:'🏠 Accueil'}]},
   {id:'collection',pages:[{id:'coll',label:'◈ Ma collection'},{id:'scry',label:'🔮 Bibliothèque'}]},
   {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{label:'🛠 Modifier',action:'deckOpenInBuilder()'},{id:'analyse',label:'📊 Analyse'}]},
-  {id:'play',pages:[{id:'arena',label:'⚡ Arène'},{id:'meta',label:'🌐 Méta'}]},
+  {id:'play',pages:[{id:'arena',label:'⚡ Arène'},{id:'limited',label:'🎴 Draft & Scellé'},{id:'meta',label:'🌐 Méta'}]},
   {id:'social',pages:[{id:'trade',label:'🤝 Échanges'},{id:'lists',label:'🛒 Listes partagées'}]},
   {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'},{id:'proxy',label:'🖨 Proxys'},{id:'banlist',label:'🚫 Banlists'}]}
 ];
@@ -6743,6 +6758,7 @@ function goTab(id, fromHistory) {
     if(id==='trade'&&typeof renderTradePage==='function')renderTradePage();
     if(id==='lists'){_ensurePurchaseMgrPlaced();if(typeof loadPurchaseLists==='function')loadPurchaseLists();if(typeof renderPurchaseMgr==='function')renderPurchaseMgr();}
     if(id==='rules'&&typeof initRulesTab==='function')initRulesTab();
+    if(id==='limited'&&typeof _limInit==='function')_limInit();
     if(id==='home')renderHome();
     if(id==='arena')arSetMode(_arMode||'counter');
     if(id==='deck'){
@@ -16420,6 +16436,149 @@ var SET_TYPE_LABELS={
 };
 var SET_TYPE_ORDER=['expansion','core','masters','commander','draft_innovation','starter','box','planechase','archenemy','duel_deck','from_the_vault','premium_deck','masterpiece','alchemy','funny'];
 var SET_SKIP=['token','memorabilia','vanguard','minigame','treasure_chest','promo'];
+// ===== Draft & Scellé : moteur de boosters maison =====
+var _LIM_SET_CACHE={},_limPool=[],_limSetName='';
+function _limInit(){
+  var sel=document.getElementById('lim-set-sel');
+  if(!sel||sel._loaded)return;
+  fetch('https://api.scryfall.com/sets').then(function(r){return r.json();}).then(function(data){
+    var sets=(data.data||[]).filter(function(s){
+      return s.card_count>=60&&['expansion','core','masters','draft_innovation'].indexOf(s.set_type)>=0;
+    });
+    sets.sort(function(a,b){return (b.released_at||'').localeCompare(a.released_at||'');});
+    sel.innerHTML='<option value="">— Choisir une extension… —</option>'+sets.map(function(s){
+      var yr=s.released_at?s.released_at.slice(0,4):'';
+      return '<option value="'+esc(s.code)+'" data-name="'+esc(s.name)+'">'+esc(s.name)+(yr?' ('+yr+')':'')+'</option>';
+    }).join('');
+    sel._loaded=true;
+  }).catch(function(){sel.innerHTML='<option value="">— Erreur de chargement —</option>';});
+}
+function _limFetchSetCards(code,cb){
+  if(_LIM_SET_CACHE[code]){cb(_LIM_SET_CACHE[code]);return;}
+  var all=[];
+  function page(url){
+    fetch(url).then(function(r){return r.json();}).then(function(d){
+      (d.data||[]).forEach(function(c){all.push(c);});
+      if(d.has_more&&d.next_page&&all.length<1000)page(d.next_page);
+      else{
+        var buckets={common:[],uncommon:[],rare:[],mythic:[]};
+        all.forEach(function(c){
+          if(c.type_line&&/Basic Land/.test(c.type_line))return;
+          if(buckets[c.rarity])buckets[c.rarity].push(c);
+        });
+        _LIM_SET_CACHE[code]=buckets;
+        cb(buckets);
+      }
+    }).catch(function(){cb(null);});
+  }
+  page('https://api.scryfall.com/cards/search?q='+encodeURIComponent('set:'+code+' -is:extra')+'&unique=cards&order=set');
+}
+function _boosterGen(buckets){
+  function pick(pool,n,allowDup){
+    var avail=pool.slice(),out=[];
+    for(var i=0;i<n&&avail.length;i++){
+      var idx=Math.floor(Math.random()*avail.length);
+      out.push(avail[idx]);
+      if(!allowDup)avail.splice(idx,1);
+    }
+    return out;
+  }
+  var b=[];
+  // 1 rare ou mythique (mythique ≈ 13,5 %)
+  var useMythic=buckets.mythic.length&&Math.random()<0.135;
+  var rarePool=useMythic?buckets.mythic:(buckets.rare.length?buckets.rare:buckets.mythic);
+  if(rarePool.length)b.push(rarePool[Math.floor(Math.random()*rarePool.length)]);
+  // 3 inhabituelles + 10 communes
+  b=b.concat(pick(buckets.uncommon,3,buckets.uncommon.length<3));
+  b=b.concat(pick(buckets.common,10,buckets.common.length<10));
+  return b;
+}
+function _limGenInto(append){
+  var sel=document.getElementById('lim-set-sel');
+  var code=sel&&sel.value;
+  if(!code){toastError('Choisis une extension');return;}
+  _limSetName=(sel.options[sel.selectedIndex]&&sel.options[sel.selectedIndex].getAttribute('data-name'))||code;
+  var st=document.getElementById('lim-status');
+  var b1=document.getElementById('lim-sealed-btn'),b2=document.getElementById('lim-booster-btn');
+  if(b1)b1.disabled=true;if(b2)b2.disabled=true;
+  if(st)st.textContent='⏳ Ouverture des boosters '+_limSetName+'…';
+  _limFetchSetCards(code,function(buckets){
+    if(b1)b1.disabled=false;if(b2)b2.disabled=false;
+    if(!buckets||(!buckets.common.length&&!buckets.uncommon.length&&!buckets.rare.length)){
+      if(st)st.textContent='⚠ Données insuffisantes pour générer des boosters de cette extension.';return;
+    }
+    var n=append?1:6;
+    if(!append)_limPool=[];
+    for(var i=0;i<n;i++)_limPool=_limPool.concat(_boosterGen(buckets));
+    if(st)st.textContent='✓ '+(append?'+1 booster':'Scellé ouvert')+' — '+_limPool.length+' cartes dans le pool';
+    _limRenderPool();
+  });
+}
+function limOpenSealed(){_limGenInto(false);}
+function limOpenBooster(){_limGenInto(true);}
+function _limRenderPool(){
+  var el=document.getElementById('lim-pool');if(!el)return;
+  if(!_limPool.length){el.innerHTML='';return;}
+  var rOrd={mythic:0,rare:1,uncommon:2,common:3};
+  var sorted=_limPool.slice().sort(function(a,b){
+    var ra=rOrd[a.rarity]!=null?rOrd[a.rarity]:9,rb=rOrd[b.rarity]!=null?rOrd[b.rarity]:9;
+    if(ra!==rb)return ra-rb;return (a.name||'').localeCompare(b.name||'');
+  });
+  var rc={mythic:0,rare:0,uncommon:0,common:0};
+  _limPool.forEach(function(c){if(rc[c.rarity]!=null)rc[c.rarity]++;});
+  var h='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;padding-top:8px;border-top:.5px solid var(--bd2)">';
+  h+='<span style="font-size:.82rem;color:var(--tx2)"><b>'+_limPool.length+'</b> cartes</span>';
+  h+='<span style="font-size:.72rem;color:#e07030">★ '+rc.mythic+'</span>';
+  h+='<span style="font-size:.72rem;color:#d4a017">R '+rc.rare+'</span>';
+  h+='<span style="font-size:.72rem;color:#b0c4de">U '+rc.uncommon+'</span>';
+  h+='<span style="font-size:.72rem;color:var(--tx3)">C '+rc.common+'</span>';
+  h+='<span style="flex:1"></span>';
+  h+='<button class="btn btnsm btnp" onclick="limPoolToDeck()">🛠 Construire ce pool</button>';
+  h+='<button class="btn btnsm" onclick="limCopyPool()">📋 Copier</button>';
+  h+='<button class="btn btnsm btnrd" onclick="limClearPool()">🗑 Vider</button>';
+  h+='</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+  sorted.forEach(function(c){
+    var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||{};
+    var img=iu.small||iu.normal||'';
+    var bc={mythic:'#e07030',rare:'#d4a017',uncommon:'#b0c4de',common:'var(--bd2)'}[c.rarity]||'var(--bd2)';
+    h+='<div style="width:96px" title="'+esc(c.name||'')+'">';
+    h+=img?'<img src="'+esc(img)+'" loading="lazy" data-no-localize="1" style="width:96px;border-radius:5px;display:block;border:1.5px solid '+bc+'">'
+         :'<div style="font-size:.66rem;color:var(--tx2);padding:4px;border:1.5px solid '+bc+';border-radius:5px">'+esc(c.name||'?')+'</div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  el.innerHTML=h;
+}
+function _limPoolList(){
+  var counts={};
+  _limPool.forEach(function(c){var n=c.name||'';if(n)counts[n]=(counts[n]||0)+1;});
+  return Object.keys(counts).map(function(n){return counts[n]+' '+n;}).join('\n');
+}
+function limPoolToDeck(){
+  if(!_limPool.length)return;
+  var list=_limPoolList();
+  var name='Scellé '+_limSetName+' '+new Date().toLocaleDateString('fr-FR');
+  goTab('deck');
+  setTimeout(function(){
+    if(typeof newDeck==='function')newDeck();
+    var ni=document.getElementById('dnamein'),ta=document.getElementById('ta-name');
+    if(ni)ni.value=name;
+    if(ta)ta.value=list;
+    if(typeof toastSuccess==='function')toastSuccess('🎴 Pool scellé chargé — construis ton deck (40 cartes min.)');
+    var ed=document.getElementById('deditor');if(ed)ed.scrollIntoView({behavior:'smooth'});
+  },220);
+}
+function limCopyPool(){
+  if(!_limPool.length)return;
+  var txt=_limPoolList();
+  if(navigator.clipboard)navigator.clipboard.writeText(txt).then(function(){if(typeof mlToast==='function')mlToast('📋 Pool copié');});
+}
+function limClearPool(){
+  if(!_limPool.length)return;
+  _limPool=[];_limRenderPool();
+  var st=document.getElementById('lim-status');if(st)st.textContent='';
+}
 function loadScryfallSets(){
   if(_setsLoaded)return;
   var sel=document.getElementById('set-sel');if(!sel)return;
