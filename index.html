@@ -2846,6 +2846,10 @@ details > summary::-webkit-details-marker{display:none}
     <div id="ta-name-wrap">
       <textarea class="dia" id="ta-name" placeholder="Collez votre liste par nom...&#10;&#10;• 4 Lightning Bolt&#10;• 1 Black Lotus&#10;• // Lands  (sections)"></textarea>
     </div>
+    <details id="dnotes-wrap" style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:.78rem;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.03em;list-style:none">📝 Notes / Primer du deck <span id="dnotes-badge" style="font-size:.66rem;color:var(--gold2)"></span></summary>
+      <textarea id="dnotes-in" oninput="_dckUpdateNotesBadge()" placeholder="Stratégie, plan de jeu, mulligan, matchups, lignes clés...&#10;&#10;Ces notes s'affichent dans l'analyse et sur la page du deck public." style="width:100%;box-sizing:border-box;height:120px;resize:vertical;margin-top:6px;font-size:.8rem;line-height:1.5"></textarea>
+    </details>
     <div class="row" style="margin-top:8px">
       <button class="btn btnp" onclick="saveDeck()">💾 Sauvegarder</button>
       <button class="btn btnsm" onclick="analyzeCurrent()">♥ Analyser</button>
@@ -8488,6 +8492,7 @@ function loadFriendDeck(uid,deckId){
   actDeck=null;var _freshF=d.rawName?parseList(d.rawName):null;dCards=(_freshF&&_freshF.length)?_freshF:(d.cards||[]);_customAchat=[];renderCustomPanel();
   document.getElementById('dnamein').value='';
   document.getElementById('ta-name').value='';
+  _dckSetNotes(d.notes||'');
   document.getElementById('etitle').textContent=(PN[pi>0?pi:0]||'Ami')+' — '+esc(d.name||'Deck');
   document.getElementById('delbtn').style.display='none';
   document.getElementById('dcnt').textContent=dCards.length+' entrées, '+dCards.reduce(function(s,c){return s+c.qty;},0)+' cartes';
@@ -8513,6 +8518,7 @@ function loadDeckAdmin(uid,deckId){
   dCards=(_freshF&&_freshF.length)?_freshF:(d.cards||[]);_customAchat=[];renderCustomPanel();
   document.getElementById('dnamein').value=d.name||'';
   document.getElementById('ta-name').value=d.rawName||d.raw||'';
+  _dckSetNotes(d.notes||'');
   document.getElementById('etitle').textContent='👑 Admin — '+esc(d.name||'Deck');
   document.getElementById('delbtn').style.display='inline-block';
   document.getElementById('dcnt').textContent=dCards.length+' entrées, '+dCards.reduce(function(s,c){return s+c.qty;},0)+' cartes';
@@ -8636,6 +8642,7 @@ function newDeck(){
   document.querySelectorAll('.dview-btn').forEach(function(b){b.classList.toggle('active',b.dataset.mode==='list');});
   document.getElementById('dnamein').value='';
   document.getElementById('ta-name').value='';
+  _dckSetNotes('');
   document.getElementById('dcnt').textContent='';
   document.getElementById('etitle').textContent='Nouveau deck';
   document.getElementById('delbtn').style.display='none';
@@ -8658,6 +8665,7 @@ function loadDeck(id){
   _customAchat=[];renderCustomPanel();
   document.getElementById('dnamein').value=d.name;
   document.getElementById('ta-name').value=d.rawName||d.raw||'';
+  _dckSetNotes(d.notes||'');
   document.getElementById('etitle').textContent=d.name;
   document.getElementById('delbtn').style.display='inline-block';
   document.getElementById('dcnt').textContent=dCards.length+' entrées, '+dCards.reduce(function(s,c){return s+c.qty;},0)+' cartes';
@@ -8697,7 +8705,12 @@ function saveDeck(){
   var id=actDeck||(Date.now().toString());actDeck=id;
   var isCmd=COMMANDER_FMTS.indexOf(dFormat)>=0;
   var savedColors=isCmd?(dCommander?dCommander.colors:[]):dColors.slice();
-  var deckData={name:name,rawName:rawName,cards:cards,owner:_adminEditUid?dOwner:0,ownerUid:(_adminEditUid?(_profUid(dOwner)||userId):userId),format:dFormat||null,commander:dCommander||null,colors:savedColors,updatedAt:Date.now()};
+  var _notesEl=document.getElementById('dnotes-in');
+  var notes=_notesEl?_notesEl.value.trim():'';
+  var deckData={name:name,rawName:rawName,cards:cards,owner:_adminEditUid?dOwner:0,ownerUid:(_adminEditUid?(_profUid(dOwner)||userId):userId),format:dFormat||null,commander:dCommander||null,colors:savedColors,notes:notes,updatedAt:Date.now()};
+  // Préserve les snapshots existants (non gérés par l'éditeur)
+  var _prevDeck=_adminEditUid?(_epDecks[_adminEditUid]&&_epDecks[_adminEditUid][id]):decks[id];
+  if(_prevDeck&&_prevDeck.snapshots)deckData.snapshots=_prevDeck.snapshots;
   if(_adminEditUid){
     db.collection('users').doc(_adminEditUid).collection('decks').doc(id).set(deckData).catch(function(e){console.error('[Admin] Erreur save deck:',e);});
     if(!_epDecks[_adminEditUid])_epDecks[_adminEditUid]={};
@@ -8742,11 +8755,24 @@ function deleteDeck(){
     toastSuccess('Deck restauré');
   });
 }
+function _dckUpdateNotesBadge(){
+  var el=document.getElementById('dnotes-in'),badge=document.getElementById('dnotes-badge');
+  if(!el||!badge)return;
+  var v=(el.value||'').trim();
+  badge.textContent=v?'· '+v.length+' car.':'';
+}
+function _dckSetNotes(txt){
+  var el=document.getElementById('dnotes-in'),wrap=document.getElementById('dnotes-wrap');
+  if(el)el.value=txt||'';
+  if(wrap&&txt&&(''+txt).trim())wrap.open=true;
+  _dckUpdateNotesBadge();
+}
 function clearDeckEditor(){
   document.getElementById('ta-name').value='';
   document.getElementById('dcnt').textContent='';
   var mm=document.getElementById('moxfield-msg');if(mm)mm.textContent='';
   var mu=document.getElementById('moxfield-url-in');if(mu)mu.value='';
+  _dckSetNotes('');
 }
 
 /* ===== IMPORT MOXFIELD ===== */
@@ -13356,6 +13382,7 @@ function deckShare(deckId){
       rawName:dk.rawName||'',
       cards:dk.cards||[],
       commander:dk.commander||null,
+      notes:dk.notes||'',
       sharedAt:Date.now()
     };
     db.collection('public_decks').doc(pubId).set(payload).then(function(){
@@ -13470,6 +13497,7 @@ function openSharedDeckView(d,pubId){
     +'<div><div style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-head);letter-spacing:.06em;margin-bottom:4px">COULEURS</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+(colHtml||'<span style="color:var(--tx3);font-style:italic;font-size:.78rem">Non disponible</span>')+'</div>'
     +(totalPrice>0?'<div style="margin-top:8px;font-size:.78rem;color:var(--gold2)">💰 Valeur estimée : <b>'+totalPrice.toFixed(2)+'€</b></div>':'')+'</div>'
     +'</div>'
+    +((d.notes&&d.notes.trim())?'<div style="padding:14px 22px;border-bottom:.5px solid var(--bd)"><div style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-head);letter-spacing:.06em;margin-bottom:6px">📝 NOTES / PRIMER</div><div style="font-size:.84rem;color:var(--tx2);line-height:1.6;white-space:pre-wrap">'+esc(d.notes.trim())+'</div></div>':'')
     +'<div style="padding:16px 22px">'+cardsHtml+'</div>'
     +'<div style="padding:10px 22px 18px;text-align:center;font-size:.7rem;color:var(--tx3);border-top:.5px solid var(--bd)">Partagé via ManaLAB · <a href="#" onclick="event.preventDefault();closeSharedDeckView()" style="color:var(--gold2)">Revenir à l\'app</a></div>'
     +'</div>';
@@ -33249,6 +33277,13 @@ function anaRender(deckId){
       _hdr+='⚔ NIVEAU : <span title="'+esc(_pwTip)+'" style="color:'+_pwCol+';cursor:help">Bracket '+_pw.bracket+'/5 — '+esc(_pwLbl)+'</span>';
       if(_pw.gcNames&&_pw.gcNames.length)_hdr+=' <span style="color:var(--tx3)">· '+esc(_pw.gcNames.slice(0,4).join(', '))+(_pw.gcNames.length>4?'…':'')+'</span>';
       _hdr+='</div>';
+    }
+    // Notes / primer du deck (saisies dans l'éditeur)
+    if(deck.notes&&deck.notes.trim()){
+      _hdr+='<details style="margin-top:7px;padding:7px 10px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2)">';
+      _hdr+='<summary style="cursor:pointer;font-size:10px;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;list-style:none">📝 NOTES / PRIMER DU DECK</summary>';
+      _hdr+='<div style="margin-top:6px;font-size:11.5px;color:var(--tx2);line-height:1.55;white-space:pre-wrap">'+esc(deck.notes.trim())+'</div>';
+      _hdr+='</details>';
     }
     // Panneau de vérification / correction du texte du commandant
     if(_anaCurrentThemes.cmdName){
