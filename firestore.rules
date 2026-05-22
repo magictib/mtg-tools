@@ -86,11 +86,16 @@ service cloud.firestore {
         request.resource.data.createdBy == request.auth.uid;
     }
 
-    // Decks publics : lecture pour tout le monde (même anonyme), écriture pour le propriétaire
+    // Decks publics : lecture pour tout le monde (même anonyme), écriture pour le
+    // propriétaire ; tout utilisateur connecté peut aimer / commenter (likes + comments)
     match /public_decks/{deckId} {
       allow read: if true;
       allow create: if isAuthed() && request.resource.data.createdBy == request.auth.uid;
-      allow update, delete: if isAuthed() && resource.data.createdBy == request.auth.uid;
+      allow delete: if isAuthed() && resource.data.createdBy == request.auth.uid;
+      allow update: if isAuthed() && (
+        resource.data.createdBy == request.auth.uid ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'comments'])
+      );
     }
   }
 }

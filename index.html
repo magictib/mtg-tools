@@ -13642,7 +13642,9 @@ function _checkSharedDeckUrl(){
     try{history.replaceState(null,'',window.location.pathname);}catch(e){}
   }).catch(function(e){mlAlert('Erreur','Impossible de charger : '+e.message);});
 }
+var _sharedDeckCur=null;
 function openSharedDeckView(d,pubId){
+  _sharedDeckCur={d:d,pubId:pubId};
   var ov=document.getElementById('shared-deck-ov');
   if(!ov){
     ov=document.createElement('div');
@@ -13726,8 +13728,63 @@ function openSharedDeckView(d,pubId){
     +'</div>'
     +((d.notes&&d.notes.trim())?'<div style="padding:14px 22px;border-bottom:.5px solid var(--bd)"><div style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-head);letter-spacing:.06em;margin-bottom:6px">📝 NOTES / PRIMER</div><div style="font-size:.84rem;color:var(--tx2);line-height:1.6;white-space:pre-wrap">'+esc(d.notes.trim())+'</div></div>':'')
     +'<div style="padding:16px 22px">'+cardsHtml+'</div>'
+    +_pubDeckSocialHtml(d)
     +'<div style="padding:10px 22px 18px;text-align:center;font-size:.7rem;color:var(--tx3);border-top:.5px solid var(--bd)">Partagé via ManaLAB · <a href="#" onclick="event.preventDefault();closeSharedDeckView()" style="color:var(--gold2)">Revenir à l\'app</a></div>'
     +'</div>';
+}
+function _pubDeckSocialHtml(d){
+  var likes=d.likes||[];
+  var comments=(d.comments||[]).slice().sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+  var liked=userId&&likes.indexOf(userId)>=0;
+  var h='<div style="padding:14px 22px;border-top:.5px solid var(--bd)">';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
+  h+='<button onclick="_pubDeckToggleLike()" style="display:flex;align-items:center;gap:6px;padding:5px 13px;border-radius:8px;border:.5px solid '+(liked?'var(--rd2)':'var(--bd2)')+';background:'+(liked?'rgba(220,80,80,.14)':'var(--s3)')+';color:'+(liked?'var(--rd2)':'var(--tx2)')+';cursor:pointer;font-size:.84rem">'+(liked?'❤':'🤍')+' '+likes.length+'</button>';
+  h+='<span style="font-size:.74rem;color:var(--tx3)">💬 '+comments.length+' commentaire'+(comments.length>1?'s':'')+'</span>';
+  h+='</div>';
+  if(comments.length){
+    h+='<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">';
+    comments.forEach(function(c){
+      var when=c.ts?new Date(c.ts).toLocaleDateString('fr-FR',{day:'numeric',month:'short'}):'';
+      h+='<div style="background:rgba(255,255,255,.03);border:.5px solid var(--bd);border-radius:8px;padding:7px 10px">';
+      h+='<div style="display:flex;justify-content:space-between;font-size:.72rem;margin-bottom:2px"><b style="color:var(--gold2)">'+esc(c.name||'?')+'</b><span style="color:var(--tx3)">'+esc(when)+'</span></div>';
+      h+='<div style="font-size:.82rem;color:var(--tx2);line-height:1.45;white-space:pre-wrap">'+esc(c.text||'')+'</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+  if(userId){
+    h+='<div style="display:flex;gap:6px"><input type="text" id="pubdeck-comment-in" maxlength="500" placeholder="Ajoute un commentaire…" onkeydown="if(event.key===\'Enter\')_pubDeckAddComment()" style="flex:1;font-size:.8rem;box-sizing:border-box"><button class="btn btnsm btnp" onclick="_pubDeckAddComment()">Publier</button></div>';
+  }else{
+    h+='<div style="font-size:.74rem;color:var(--tx3);font-style:italic">Connecte-toi pour aimer et commenter ce deck.</div>';
+  }
+  h+='</div>';
+  return h;
+}
+function _pubDeckToggleLike(){
+  if(!_sharedDeckCur)return;
+  if(!userId){toastError('Connecte-toi pour aimer ce deck.');return;}
+  var d=_sharedDeckCur.d,pubId=_sharedDeckCur.pubId;
+  d.likes=d.likes||[];
+  var liked=d.likes.indexOf(userId)>=0;
+  d.likes=liked?d.likes.filter(function(u){return u!==userId;}):d.likes.concat([userId]);
+  openSharedDeckView(d,pubId);
+  db.collection('public_decks').doc(pubId).update({
+    likes:liked?firebase.firestore.FieldValue.arrayRemove(userId):firebase.firestore.FieldValue.arrayUnion(userId)
+  }).catch(function(e){toastError('Erreur : '+e.message);});
+}
+function _pubDeckAddComment(){
+  if(!_sharedDeckCur)return;
+  if(!userId){toastError('Connecte-toi pour commenter.');return;}
+  var inp=document.getElementById('pubdeck-comment-in');if(!inp)return;
+  var txt=inp.value.trim();if(!txt)return;
+  if(txt.length>500)txt=txt.slice(0,500);
+  var d=_sharedDeckCur.d,pubId=_sharedDeckCur.pubId;
+  var c={uid:userId,name:(typeof PN!=='undefined'&&PN[0])||'Anonyme',text:txt,ts:Date.now()};
+  d.comments=(d.comments||[]).concat([c]);
+  openSharedDeckView(d,pubId);
+  db.collection('public_decks').doc(pubId).update({
+    comments:firebase.firestore.FieldValue.arrayUnion(c)
+  }).catch(function(e){toastError('Erreur : '+e.message);});
 }
 function closeSharedDeckView(){var ov=document.getElementById('shared-deck-ov');if(ov)ov.style.display='none';}
 
