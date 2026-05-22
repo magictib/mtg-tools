@@ -28494,7 +28494,7 @@ var _ANA_TAB_RULES=[
   {tab:'overview',  pats:[/répartition par type/i,/courbe de mana/i,/heatmap par tour/i]},
   {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i]},
   {tab:'manabase',  pats:[/analyse des terrains/i,/manabase/i]},
-  {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i]},
+  {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i,/mulligan/i]},
   {tab:'strategy',  pats:[/combos/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
   {tab:'versions',  pats:[/versions sauveg/i,/snapshot/i]}
 ];
@@ -30834,6 +30834,29 @@ function _anaDeckPower(deck){
   else if(pts>=5)bracket=2;
   else bracket=1;
   return {bracket:bracket,gc:gc,gcNames:gcNames,fastMana:fastMana,tutors:tutors,extraTurns:extraTurns,landDenial:landDenial,freeSpells:freeSpells,avgCmc:avgCmc,pts:Math.round(pts)};
+}
+// ----- Guide de mulligan par matchup (heuristique, pensé pour les novices) -----
+function _anaMulliganGuide(deck){
+  if(!deck||!deck.cards||!deck.cards.length)return null;
+  var lands=0,total=0,ramp=0,cheapInt=0,cmcSum=0,nSpell=0,cheapPlays=0;
+  deck.cards.forEach(function(c){
+    var q=c.qty||1;total+=q;
+    var meta=_anaData[c.nl];if(!meta)return;
+    var o=(meta.oracleText||'').toLowerCase();
+    var cmc=meta.cmc||0;
+    if(meta.isLand||(meta.typeLine||'').toLowerCase().indexOf('land')>=0){lands+=q;return;}
+    cmcSum+=cmc*q;nSpell+=q;
+    if(cmc<=2)cheapPlays+=q;
+    if(cmc<=3&&/(add \{|search your library for [^.]{0,30}\bland)/.test(o))ramp+=q;
+    if(cmc<=2&&/(destroy target|exile target|counter target|deals? \d+ damage to)/.test(o))cheapInt+=q;
+  });
+  var landRatio=total?lands/total:0;
+  var avgCmc=nSpell?cmcSum/nSpell:0;
+  var ideal=Math.round(landRatio*7);
+  if(avgCmc>=3.4&&ramp<6)ideal+=1; // deck cher sans ramp → garde plus de terres
+  ideal=Math.max(2,Math.min(5,ideal));
+  var lo=Math.max(2,ideal-1),hi=Math.min(6,ideal+1);
+  return {lands:lands,total:total,landRatio:landRatio,avgCmc:avgCmc,ramp:ramp,cheapInt:cheapInt,cheapPlays:cheapPlays,ideal:ideal,lo:lo,hi:hi};
 }
 // Thèmes inférés des CARTES du deck — robuste : fonctionne même si le commandant
 // n'est pas identifié ou pas en cache. Un deck rempli de payoffs de gain de vie
@@ -33862,6 +33885,45 @@ function anaRender(deckId){
     }
     html+='</div>';
   }
+
+  // === Guide de mulligan par matchup ===
+  (function(){
+    var mg=_anaMulliganGuide(deck);
+    if(!mg)return;
+    html+='<div class="card"><div class="lbl">🃏 Guide de mulligan par matchup</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Repères pour garder ou mulligan une main de 7 cartes selon l\'adversaire. Heuristique — adapte au contexte de la partie.</div>';
+    // Règle générale
+    html+='<div style="padding:8px 10px;background:rgba(201,168,76,.07);border-left:2px solid var(--gold2);border-radius:0 6px 6px 0;margin-bottom:8px;font-size:11.5px;color:var(--tx2);line-height:1.55">';
+    html+='<b style="color:var(--gold2)">Règle générale</b> — ce deck tourne bien avec <b>'+mg.lo+' à '+mg.hi+' terrains</b> en main d\'ouverture (idéal '+mg.ideal+'). ';
+    html+='Garde une main qui a ses terrains <i>et</i> au moins une action jouable dans les 3 premiers tours. ';
+    if(mg.avgCmc>=3.2&&mg.ramp<8)html+='Courbe élevée (CMC moyen '+mg.avgCmc.toFixed(1)+') et peu de ramp : sois exigeant sur le nombre de terrains. ';
+    else if(mg.ramp>=8)html+='Avec '+mg.ramp+' sources de ramp, une main légère en terrains mais avec accélération reste gardable. ';
+    html+='Une main sans terrain ou avec un seul, ou 6+ terrains sans action, part au mulligan.';
+    html+='</div>';
+    var matchups=[
+      {ico:'🔥',name:'Contre l\'Aggro',col:'#e07070',
+       keep:'2-3 terrains et un jeu dès le tour 1-2 : bloqueur, removal bon marché ou gain de tempo.',
+       mull:'mains lentes sans action avant le tour 3, ou qui misent tout sur un seul gros sort.'},
+      {ico:'💧',name:'Contre le Contrôle',col:'#5b8cf5',
+       keep:'une menace résiliente et de quoi enchaîner : avantage de cartes ou pression continue.',
+       mull:'mains 100% réactives sans menace — tu ne refermeras jamais la partie.'},
+      {ico:'💥',name:'Contre le Combo',col:'#c95bf5',
+       keep:'de la disruption (contre-sort, défausse) ou un clock assez rapide pour les devancer.',
+       mull:'mains passives et lentes — le combo se résout avant que tu agisses.'},
+      {ico:'🌳',name:'Contre le Midrange',col:'#78c890',
+       keep:'des échanges favorables et de l\'avantage de cartes sur la durée.',
+       mull:'mains à sens unique : trop fragiles ou trop passives pour la course aux ressources.'}
+    ];
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">';
+    matchups.forEach(function(m){
+      html+='<div style="padding:8px 10px;background:rgba(0,0,0,.18);border-radius:8px;border:.5px solid var(--bd2)">';
+      html+='<div style="font-size:11.5px;color:'+m.col+';font-weight:600;margin-bottom:5px">'+m.ico+' '+m.name+'</div>';
+      html+='<div style="font-size:10.5px;color:var(--tx2);line-height:1.5;margin-bottom:3px"><b style="color:#78c890">Garde</b> si la main a '+esc(m.keep)+'</div>';
+      html+='<div style="font-size:10.5px;color:var(--tx2);line-height:1.5"><b style="color:#e07070">Mulligan</b> les '+esc(m.mull)+'</div>';
+      html+='</div>';
+    });
+    html+='</div></div>';
+  })();
 
   // === Proposition deck 100% (mode Composition uniquement — en mode Simulation c'est dans la section ci-dessus) ===
   if(_dMode!=='perf'){
