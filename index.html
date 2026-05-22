@@ -23085,6 +23085,7 @@ function openScan(){
   document.getElementById('scan-status').textContent='';
   document.getElementById('scan-btn').style.display='inline-block';
   document.getElementById('scan-again-btn').style.display='none';
+  _scanRenderPool();
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
     document.getElementById('scan-status').textContent='Caméra non supportée par ce navigateur (HTTPS requis)';
     return;
@@ -23193,6 +23194,7 @@ function _scanSearchScryfall(name){
         +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:8px">'+esc(card.set_name||'')+' · '+esc(card.rarity||'')+'</div>'
         +'<div style="display:flex;gap:6px;flex-wrap:wrap">'
         +'<button class="btn btnsm btnp" onclick="_scanAddColl(\''+safeName+'\',\''+safeSet+'\',\''+esc(card.set||'')+'\','+priceVal+')">➕ Collection</button>'
+        +'<button class="btn btnsm" onclick="_scanPoolAdd(\''+safeName+'\',1)" title="Ajouter au deck éphémère (draft / scellé)">➕ Pool éphémère</button>'
         +'<button class="btn btnsm" id="scan-ver-btn" onclick="_scanLoadVersions(\''+printsUri+'\',this)">Versions</button>'
         +'</div>'
         +'<div id="scan-versions" style="margin-top:6px"></div>'
@@ -23236,6 +23238,103 @@ function _scanLoadVersions(encodedUri,btn){
     .catch(function(){btn.textContent='Erreur';btn.disabled=false;});
 }
 
+// ===== Deck éphémère (draft / scellé) — pool de cartes scannées =====
+var _ephPool=[];
+try{var _ephRaw=localStorage.getItem('mtg_eph_pool');if(_ephRaw)_ephPool=JSON.parse(_ephRaw)||[];}catch(e){_ephPool=[];}
+function _scanPoolSave(){try{localStorage.setItem('mtg_eph_pool',JSON.stringify(_ephPool));}catch(e){}}
+function _scanPoolToggle(){
+  var body=document.getElementById('scan-pool-body'),btn=document.getElementById('scan-pool-toggle');
+  if(!body)return;
+  var show=body.style.display==='none';
+  body.style.display=show?'block':'none';
+  if(btn)btn.textContent=show?'Masquer':'Afficher';
+}
+function _scanPoolAdd(name,qty){
+  name=(name||'').trim();if(!name)return;
+  qty=qty||1;
+  var key=name.toLowerCase();
+  var ex=_ephPool.find(function(c){return c.name.toLowerCase()===key;});
+  if(ex)ex.qty+=qty;else _ephPool.push({name:name,qty:qty});
+  _scanPoolSave();_scanRenderPool();
+  var body=document.getElementById('scan-pool-body');
+  if(body&&body.style.display==='none')_scanPoolToggle();
+}
+function _scanPoolAddManual(){
+  var inp=document.getElementById('scan-pool-add');if(!inp)return;
+  var v=inp.value.trim();if(!v)return;
+  var m=v.match(/^(\d+)\s*x?\s+(.+)$/i);
+  if(m)_scanPoolAdd(m[2],parseInt(m[1])||1);
+  else _scanPoolAdd(v,1);
+  inp.value='';inp.focus();
+}
+function _scanPoolSetQty(i,delta){
+  if(!_ephPool[i])return;
+  _ephPool[i].qty+=delta;
+  if(_ephPool[i].qty<=0)_ephPool.splice(i,1);
+  _scanPoolSave();_scanRenderPool();
+}
+function _scanPoolDel(i){
+  if(!_ephPool[i])return;
+  _ephPool.splice(i,1);_scanPoolSave();_scanRenderPool();
+}
+function _scanPoolClear(){
+  if(!_ephPool.length)return;
+  if(!confirm('Vider le deck éphémère ('+_ephPool.length+' cartes) ?'))return;
+  _ephPool=[];_scanPoolSave();_scanRenderPool();
+}
+function _scanPoolTotal(){return _ephPool.reduce(function(s,c){return s+(c.qty||1);},0);}
+function _scanPoolListTxt(){return _ephPool.map(function(c){return c.qty+' '+c.name;}).join('\n');}
+function _scanPoolCopy(){
+  var txt=_scanPoolListTxt();if(!txt)return;
+  if(navigator.clipboard)navigator.clipboard.writeText(txt).then(function(){if(typeof mlToast==='function')mlToast('📋 Liste copiée');});
+}
+function _scanPoolOpenAsDeck(){
+  if(!_ephPool.length)return;
+  var list=_scanPoolListTxt();
+  var name='Pool éphémère '+new Date().toLocaleDateString('fr-FR');
+  closeScan();
+  goTab('deck');
+  setTimeout(function(){
+    if(typeof newDeck==='function')newDeck();
+    var ni=document.getElementById('dnamein'),ta=document.getElementById('ta-name');
+    if(ni)ni.value=name;
+    if(ta)ta.value=list;
+    var parsed=(typeof parseList==='function')?parseList(list):[];
+    var dc=document.getElementById('dcnt');
+    if(dc)dc.textContent=parsed.length+' entrées, '+parsed.reduce(function(s,c){return s+c.qty;},0)+' cartes';
+    if(typeof toastSuccess==='function')toastSuccess('🃏 Pool chargé — analyse ou sauvegarde quand tu veux');
+    var ed=document.getElementById('deditor');if(ed)ed.scrollIntoView({behavior:'smooth'});
+  },220);
+}
+function _scanRenderPool(){
+  var list=document.getElementById('scan-pool-list'),cnt=document.getElementById('scan-pool-count'),acts=document.getElementById('scan-pool-actions');
+  if(cnt)cnt.textContent=_ephPool.length?'· '+_scanPoolTotal()+' cartes':'';
+  if(list){
+    if(!_ephPool.length){
+      list.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.74rem;padding:4px 0">Pool vide — scanne une carte puis « ➕ Pool éphémère », ou saisis un nom ci-dessus.</div>';
+    } else {
+      list.innerHTML=_ephPool.map(function(c,i){
+        return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:.5px solid var(--bd);font-size:.78rem">'
+          +'<span style="flex:1;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>'
+          +'<button class="btn btnsm" onclick="_scanPoolSetQty('+i+',-1)" style="padding:0 7px;font-size:.8rem">−</button>'
+          +'<span style="min-width:18px;text-align:center;color:var(--gold2)">'+c.qty+'</span>'
+          +'<button class="btn btnsm" onclick="_scanPoolSetQty('+i+',1)" style="padding:0 7px;font-size:.8rem">+</button>'
+          +'<button class="btn btnsm btnrd" onclick="_scanPoolDel('+i+')" style="padding:0 6px;font-size:.72rem">✕</button>'
+          +'</div>';
+      }).join('');
+    }
+  }
+  if(acts){
+    if(_ephPool.length){
+      acts.style.display='flex';
+      acts.innerHTML='<button class="btn btnsm btnp" onclick="_scanPoolOpenAsDeck()" style="font-size:.74rem">🛠 Ouvrir comme deck</button>'
+        +'<button class="btn btnsm" onclick="_scanPoolCopy()" style="font-size:.74rem">📋 Copier</button>'
+        +'<button class="btn btnsm btnrd" onclick="_scanPoolClear()" style="font-size:.74rem">🗑 Vider</button>';
+    } else {
+      acts.style.display='none';acts.innerHTML='';
+    }
+  }
+}
 // ===== COLLECTION =====
 function toggleCollAddForm(){
   var el=document.getElementById('coll-add-form');
@@ -35803,6 +35902,21 @@ try{
     </div>
     <div id="scan-status" style="text-align:center;color:var(--tx3);font-size:.8rem;margin-top:6px;min-height:1.2rem"></div>
     <div id="scan-result" style="margin-top:8px"></div>
+    <div id="scan-pool-box" style="margin-top:12px;border-top:.5px solid var(--bd2);padding-top:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.82rem;letter-spacing:.05em">🃏 DECK ÉPHÉMÈRE <span id="scan-pool-count" style="color:var(--tx3);font-size:.72rem"></span></span>
+        <button class="btn btnsm" onclick="_scanPoolToggle()" id="scan-pool-toggle" style="font-size:.72rem">Afficher</button>
+      </div>
+      <div id="scan-pool-body" style="display:none;margin-top:8px">
+        <div style="font-size:.68rem;color:var(--tx3);font-style:italic;margin-bottom:6px">Scanne ou saisis tes cartes de draft / scellé. Le pool est conservé même si tu fermes le scanner, jusqu'à ce que tu le vides.</div>
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <input type="text" id="scan-pool-add" placeholder="Ajouter une carte au pool…" onkeydown="if(event.key==='Enter')_scanPoolAddManual()" style="flex:1;font-size:.78rem">
+          <button class="btn btnsm btnp" onclick="_scanPoolAddManual()" style="font-size:.74rem">+ Ajouter</button>
+        </div>
+        <div id="scan-pool-list"></div>
+        <div id="scan-pool-actions" style="display:none;gap:6px;margin-top:8px;flex-wrap:wrap"></div>
+      </div>
+    </div>
   </div>
 </div>
 <script>
