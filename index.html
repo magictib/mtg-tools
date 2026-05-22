@@ -33342,6 +33342,28 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/from.*graveyard|return.*graveyard/.test(o))s+=2;
     if(/graveyard/.test(o))s+=1;
   }
+  // Réanimateur : cimetière fort → on remplit le GY de grosses créatures pour
+  // les tricher en jeu (Hashaton, Varina…). Les fatties à effet sont des payoffs,
+  // pas des liabilités, et les sorts de réanimation sont du top tier.
+  if((th.graveyard||1)>1.3){
+    var _rCmc=cardMeta.cmc||0;
+    var _rIsCreature=t.indexOf('creature')>=0;
+    // Sorts / effets qui ramènent une créature du cimetière sur le champ de bataille
+    if(/return [^.]{0,40}creature cards?[^.]{0,40}graveyard[^.]{0,40}(to|onto) the battlefield/.test(o))s+=9;
+    else if(/put [^.]{0,40}creature cards?[^.]{0,30}graveyard[^.]{0,30}onto the battlefield/.test(o))s+=9;
+    else if(/return [^.]{0,30}graveyard[^.]{0,30}battlefield/.test(o)&&/creature/.test(o))s+=6;
+    // Grosses créatures à effet = cibles de réanimation / défausse idéales
+    if(_rIsCreature&&_rCmc>=5){
+      if(/when[^.]{0,40}enters the battlefield/.test(o))s+=7;
+      else if(/whenever[^.]{0,30}attacks?\b/.test(o))s+=5;
+      else s+=3;
+    }
+    // Remplir le cimetière : défausse contrôlée + auto-meule
+    if(/discard (your hand|a card|two|three|four|\d+)/.test(o))s+=3;
+    if(/\bmill\b|put the top[^.]{0,30}your library[^.]{0,20}graveyard|surveil/.test(o))s+=3;
+    // Copies de créatures (cœur du plan Hashaton)
+    if(/create [^.]{0,30}tokens?[^.]{0,30}copy of/.test(o))s+=4;
+  }
   // Meule (mill)
   if((th.mill||0)>1){
     if(/mills? (?:\w+ )?cards? of (?:each|all|each opponent|target player)/.test(o))s+=8;
