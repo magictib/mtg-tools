@@ -5662,6 +5662,38 @@ function _profAvatar(ctx,i){
   var slots=_epSlots[ctx]||[];var ep=slots[i-1];
   return ep?(_avatarCache[ep.uid]||null):null;
 }
+// Index de possession des amis chargés : { idx: {nl:{uid:qty}}, names: {uid:nom} }
+function _buildFriendOwnIndex(){
+  var idx={},names={};
+  ['coll','deck','build','game','trade'].forEach(function(ctx){
+    (_epSlots[ctx]||[]).forEach(function(ep){if(ep&&ep.uid)names[ep.uid]=ep.name||ep.uid;});
+  });
+  Object.keys(_epCards||{}).forEach(function(uid){
+    var fc=_epCards[uid];if(!Array.isArray(fc))return;
+    fc.forEach(function(card){
+      if(!card||!card.name)return;
+      var nl=stripDFC(card.name).toLowerCase();
+      if(!idx[nl])idx[nl]={};
+      idx[nl][uid]=(idx[nl][uid]||0)+(card.qty||1);
+    });
+  });
+  return {idx:idx,names:names};
+}
+// Pastilles « ce(s) ami(s) possède(nt) la carte » — avatar + ×N, plafonné à 3
+function _ownBadges(nl,own,excludeUid){
+  if(!nl||!own||!own.idx[nl])return '';
+  var o=own.idx[nl];
+  var uids=Object.keys(o).filter(function(u){return u!==excludeUid&&o[u]>0;});
+  if(!uids.length)return '';
+  var html='<span style="display:inline-flex;align-items:center;gap:2px;margin-left:5px;vertical-align:middle">';
+  uids.slice(0,3).forEach(function(uid){
+    html+='<span title="'+esc((own.names[uid]||'Ami')+' possède cette carte (×'+o[uid]+')')+'" style="display:inline-flex;align-items:center;gap:1px">'
+      +_avatarHtml(_avatarCache[uid],own.names[uid],15)
+      +(o[uid]>1?'<span style="font-size:.56rem;color:var(--tx3)">×'+o[uid]+'</span>':'')+'</span>';
+  });
+  if(uids.length>3)html+='<span style="font-size:.56rem;color:var(--tx3)">+'+(uids.length-3)+'</span>';
+  return html+'</span>';
+}
 
 function openFriendModal(){
   document.getElementById('friend-modal').style.display='flex';
@@ -23419,6 +23451,9 @@ function renderColl(){
       if(_deckIdx[nl].indexOf(dk.name||'?')<0)_deckIdx[nl].push(dk.name||'?');
     });
   });
+  // Possession amis (précalcul unique) — pastilles « qui d'autre a la carte »
+  var _own=_buildFriendOwnIndex();
+  var _exclU=collP===0?userId:(((_epSlots.coll||[])[collP-1])||{}).uid;
   document.getElementById('colllist').innerHTML=filtered.map(function(c){
     var foilStr=fNF(c.finish)==='foil'?'✦':'';
     var priceStr=c.price>0?c.price.toFixed(2)+'€':'—';
@@ -23430,7 +23465,7 @@ function renderColl(){
     var rowBdg=(lOut?'<span class="badge-loan" title="'+lOut+'× prêtée(s)">⟳'+lOut+'</span>':'')+(pQty?'<span class="badge-pend" title="'+pQty+'× commandée(s)">⏳'+pQty+'</span>':'');
     var nClass='cname'+(lOut?' cname-loan':'');
     return '<div class="collrow" data-nm="'+nm+'" onclick="toggleCollDetail(this,this.dataset.nm)" onmouseenter="showTip(this.dataset.nm,event)" onmouseleave="hideTip()">'+
-      '<div class="'+nClass+'" title="'+esc(c.name)+'">'+esc(c.name)+deckBdg+rowBdg+'</div>'+
+      '<div class="'+nClass+'" title="'+esc(c.name)+'">'+esc(c.name)+deckBdg+rowBdg+_ownBadges(stripDFC(c.name||'').toLowerCase(),_own,_exclU)+'</div>'+
       '<div class="cset">'+esc(c.set)+'</div>'+
       '<div class="cqty">'+c.qty+'</div>'+
       '<div class="ccond">'+esc(c.cond)+'</div>'+
