@@ -27902,22 +27902,38 @@ function _loadAdminScryfallStatus(){
 }
 // Client: check if IDB needs update — interroge DIRECTEMENT Scryfall pour la vraie dernière
 // version (au lieu de se fier au meta Firestore qui peut être en retard si pas de sync admin)
+var _SCRY_STALE_DAYS=7;   // on ne propose la MAJ que si les données locales dépassent cet âge
+var _SCRY_SNOOZE_DAYS=4;  // après un « ✕ », on ne re-propose pas avant ce délai
+function _dismissScryfallBanner(btn){
+  try{localStorage.setItem('mtg_scry_dismiss',String(Date.now()));}catch(_){}
+  var b=btn&&btn.closest('[id]');if(b)b.remove();
+}
 function _checkScryfallIDB(){
-  // cache:no-store + ts cache-buster pour s'assurer d'avoir la TRUE dernière version
-  // (le bulk-data est re-généré toutes les ~6 heures côté Scryfall)
+  // Scryfall régénère son bulk-data toutes les ~6 h, mais le CONTENU des cartes
+  // (texte oracle, types) ne change réellement qu'aux sorties d'extension / errata.
+  // On évite donc de harceler l'utilisateur : bannière uniquement si les données
+  // locales sont vraiment anciennes, et mise en veille après un refus.
+  try{
+    var snooze=parseInt(localStorage.getItem('mtg_scry_dismiss')||'0',10);
+    if(snooze&&Date.now()-snooze<_SCRY_SNOOZE_DAYS*86400000)return;
+  }catch(_){}
   fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
     var bulk=(data.data||[]).find(function(d){return d.type===_SCRY_BULK_TYPE;});
     if(!bulk||!bulk.download_uri||!bulk.updated_at)return;
     return _idbGetMeta('updated_at').then(function(local){
-      if(local===bulk.updated_at)return;
-      var d=new Date(bulk.updated_at);
-      var dateStr=d.toLocaleDateString('fr-FR')+' '+('0'+d.getHours()).slice(-2)+'h';
+      if(local===bulk.updated_at)return; // déjà à jour
+      // Données locales encore récentes → on ne dérange pas (sauf absence totale de cache)
+      if(local){
+        var ageDays=(Date.now()-new Date(local).getTime())/86400000;
+        if(ageDays<_SCRY_STALE_DAYS)return;
+      }
+      var localStr=local?new Date(local).toLocaleDateString('fr-FR'):null;
       var banner=document.createElement('div');
       banner.id='scryfall-update-banner';
       banner.style.cssText='position:fixed;bottom:8px;left:50%;transform:translateX(-50%);background:var(--s2);border:.5px solid var(--bd2);border-radius:8px;padding:8px 14px;font-size:.75rem;color:var(--tx2);z-index:1500;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.55);max-width:94vw';
-      banner.innerHTML='<span>Base Scryfall : mise à jour disponible ('+esc(dateStr)+')</span>'
+      banner.innerHTML='<span>Base de cartes : une mise à jour est disponible'+(localStr?' (tes données datent du '+esc(localStr)+')':'')+'</span>'
         +'<button class="btn btnsm" style="font-size:.7rem;padding:2px 10px;white-space:nowrap" onclick="_startClientSync(\''+esc(bulk.download_uri)+'\',\''+esc(bulk.updated_at)+'\',this.closest(\'[id]\'))">Mettre à jour</button>'
-        +'<button onclick="this.closest(\'[id]\').remove()" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:0 2px">✕</button>';
+        +'<button onclick="_dismissScryfallBanner(this)" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:0 2px">✕</button>';
       document.body.appendChild(banner);
     });
   }).catch(function(){});
