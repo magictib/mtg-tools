@@ -30471,6 +30471,12 @@ function _anaApplyCommanderSignals(o,bump,labels){
   // Le gain de vie devient un axe central s'il se combine à la pioche ou au drain
   if(sGain&&(sDraw||sDrain)){bump('lifegain',2.0);lbl('Gain de vie');}
   else if(sGain){bump('lifegain',1.5);lbl('Gain de vie');}
+  // Autres axes : une mention dans le texte du commandant est un signal fort
+  if(/sacrifice/.test(o)){bump('sacrifice',1.8);lbl('Sacrifice');}
+  if(/\+1\/\+1 counter/.test(o)){bump('counters',1.8);lbl('Marqueurs +1/+1');}
+  if(/discard/.test(o)){bump('discard',1.6);lbl('Défausse');}
+  if(/graveyard/.test(o)){bump('graveyard',1.7);lbl('Cimetière');}
+  if(/create .{0,30}\btokens?\b|populate/.test(o)){bump('tokens',1.8);lbl('Tokens');}
 }
 // Thèmes inférés des CARTES du deck — robuste : fonctionne même si le commandant
 // n'est pas identifié ou pas en cache. Un deck rempli de payoffs de gain de vie
@@ -30478,16 +30484,20 @@ function _anaApplyCommanderSignals(o,bump,labels){
 function _anaApplyDeckThemeSignals(deck,bump,labels){
   if(!deck||!deck.cards)return;
   function lbl(x){if(labels&&labels.indexOf(x)<0)labels.push(x);}
-  var sig={lifegain:0,draw:0,discard:0,sacrifice:0,counters:0,mill:0};
+  var sig={lifegain:0,draw:0,discard:0,sacrifice:0,counters:0,mill:0,graveyard:0,enchantment:0,artifact:0,tokens:0};
   deck.cards.forEach(function(c){
-    var meta=_anaData[c.nl];if(!meta||!meta.oracleText)return;
-    var o=meta.oracleText.toLowerCase();var q=c.qty||1;
+    var meta=_anaData[c.nl];if(!meta)return;
+    var o=(meta.oracleText||'').toLowerCase();var tl=(meta.typeLine||'').toLowerCase();var q=c.qty||1;
     if(/whenever you gain life|gain \d+ life|gain that much life|lifelink/.test(o))sig.lifegain+=q;
     if(/draw a card|draws? (?:two|three|four|\d+) cards?/.test(o))sig.draw+=q;
     if(/discard/.test(o))sig.discard+=q;
     if(/sacrifice (?:a|an|another|two|three|x|that)/.test(o))sig.sacrifice+=q;
     if(/\+1\/\+1 counter/.test(o))sig.counters+=q;
     if(/\bmill\b/.test(o))sig.mill+=q;
+    if(/from (?:your |a |their |its )?graveyard|flashback|\bescape\b|unearth|\bdredge\b|disturb|embalm|eternalize/.test(o))sig.graveyard+=q;
+    if(tl.indexOf('enchantment')>=0||/constellation/.test(o))sig.enchantment+=q;
+    if(tl.indexOf('artifact')>=0)sig.artifact+=q;
+    if(/create .{0,30}\btokens?\b|populate/.test(o))sig.tokens+=q;
   });
   // Seuils en valeur absolue : un deck à thème dépasse facilement ces compteurs
   function axis(key,count,strong,mid,label){
@@ -30500,6 +30510,10 @@ function _anaApplyDeckThemeSignals(deck,bump,labels){
   axis('sacrifice',sig.sacrifice,9,6,'Sacrifice');
   axis('counters',sig.counters,10,6,'Marqueurs +1/+1');
   axis('mill',sig.mill,8,5,'Mill');
+  axis('graveyard',sig.graveyard,10,6,'Cimetière');
+  axis('enchantment',sig.enchantment,18,11,'Enchantements');
+  axis('artifact',sig.artifact,20,13,'Artefacts');
+  axis('tokens',sig.tokens,9,5,'Tokens');
 }
 function _anaCommanderThemes(deck){
   var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,mill:0};
@@ -31556,6 +31570,14 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/\+1\/\+1 counter|put.*counter|proliferate/.test(o))s+=3;
     if(/for each counter/.test(o))s+=2;
     if(/distribut.*counter|doubl.*counter/.test(o))s+=2;
+  }
+  // Tokens — générateurs + payoffs (anthems, « for each », doublement)
+  if((th.tokens||1)>1){
+    if(/create .{0,30}\btokens?\b|populate/.test(o))s+=3;
+    if(/for each (?:creature|token|artifact|enchantment) you control/.test(o))s+=4;
+    if(/(?:other )?creatures you control get \+/.test(o))s+=3;
+    if(/whenever (?:a|another) (?:creature|token)(?: you control)? enters/.test(o))s+=3;
+    if(/double the number of tokens|create twice that many/.test(o))s+=4;
   }
   // Gain de vie
   if((th.lifegain||1)>1){
