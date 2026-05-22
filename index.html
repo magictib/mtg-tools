@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -28594,7 +28594,7 @@ var _ANA_TAB_RULES=[
   {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i]},
   {tab:'manabase',  pats:[/analyse des terrains/i,/manabase/i]},
   {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i,/mulligan/i]},
-  {tab:'strategy',  pats:[/combos/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
+  {tab:'strategy',  pats:[/combos/i,/game changers/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
   {tab:'versions',  pats:[/versions sauveg/i,/snapshot/i]}
 ];
 var _ANA_TAB_DEFS=[
@@ -30903,7 +30903,9 @@ function _anaApplyCommanderSignals(o,bump,labels){
   if(/create .{0,30}\btokens?\b|populate/.test(o)){bump('tokens',1.8);lbl('Tokens');}
 }
 // ----- Niveau de puissance estimé (bracket EDH 1-5) -----
-var _ANA_POWER_GC=['rhystic study','mystic remora','smothering tithe','cyclonic rift','demonic tutor','vampiric tutor','imperial seal','mana drain','force of will','fierce guardianship','the one ring','jeweled lotus','mana crypt','ancient tomb','gaea\'s cradle','necropotence','bolas\'s citadel','underworld breach','thassa\'s oracle','expropriate','grand arbiter augustin iv','drannith magistrate','opposition agent','enlightened tutor','survival of the fittest','grim monolith','mox diamond','chrome mox','jeska\'s will','natural order','green sun\'s zenith','consecrated sphinx','notion thief','aura shards','crop rotation','the tabernacle at pendrell vale','glacial chasm'];
+// Liste « Game Changers » des règles de brackets Commander de Wizards.
+// Indicative : la liste officielle évolue, ceci en est une représentation fidèle.
+var _ANA_POWER_GC=['ancient tomb','bolas\'s citadel','chrome mox','coalition victory','cyclonic rift','deflecting swat','demonic tutor','drannith magistrate','enlightened tutor','expropriate','fierce guardianship','field of the dead','force of will','gaea\'s cradle','gifts ungiven','glacial chasm','grand arbiter augustin iv','grim monolith','imperial seal','intuition','jeska\'s will','jeweled lotus','kinnan, bonder prodigy','mana drain','mana vault','mishra\'s workshop','mox diamond','mystic remora','najeela, the blade-blossom','necropotence','notion thief','opposition agent','orcish bowmasters','rhystic study','seedborn muse','serra\'s sanctum','smothering tithe','survival of the fittest','tergrid, god of fright','thassa\'s oracle','the one ring','the tabernacle at pendrell vale','trinisphere','underworld breach','urza, lord high artificer','vampiric tutor','yuriko, the tiger\'s shadow'];
 var _ANA_POWER_FASTMANA=['sol ring','mana crypt','mana vault','grim monolith','mox diamond','chrome mox','mox opal','jeweled lotus','lotus petal','dark ritual','cabal ritual','jeska\'s will','simian spirit guide','elvish spirit guide','lion\'s eye diamond','arcane signet'];
 var _ANA_POWER_LABELS=['','Exhibition','Cœur','Amélioré','Optimisé','cEDH'];
 function _anaDeckPower(deck){
@@ -33172,6 +33174,28 @@ function anaRender(deckId){
     html+='</div>';
     return html;
   })();
+  // === Game Changers (règles de brackets WotC) ===
+  var _gcHtml=(function(){
+    var pw=_anaDeckPower(deck);
+    if(!pw)return '';
+    var n=pw.gc;
+    var note,col,bg;
+    if(n===0){note='Aucun Game Changer détecté — ce deck reste compatible avec les brackets 1 et 2 (parties casual / découverte).';col='var(--gr2)';bg='rgba(100,200,120,.06)';}
+    else if(n<=3){note=n+' Game Changer'+(n>1?'s':'')+' — fixe le deck au bracket 3 (Amélioré) minimum selon les règles WotC. À mentionner avant une partie casual.';col='var(--gold2)';bg='rgba(201,168,76,.07)';}
+    else {note=n+' Game Changers — niveau bracket 4 (Optimisé) ou plus. Réserve ce deck aux tables qui assument le high-power.';col='var(--am)';bg='rgba(255,140,40,.07)';}
+    var html='<div class="card"><div class="lbl">⭐ Game Changers</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Cartes de la liste « Game Changers » du système de brackets Commander de Wizards : leur présence impose un plancher de niveau de puissance. Liste indicative.</div>';
+    html+='<div style="padding:7px 10px;border-left:2px solid '+col+';background:'+bg+';border-radius:0 6px 6px 0;font-size:11.5px;color:var(--tx2);line-height:1.5">'+note+'</div>';
+    if(pw.gcNames&&pw.gcNames.length){
+      html+='<div style="margin-top:7px;display:flex;flex-wrap:wrap;gap:4px">';
+      pw.gcNames.forEach(function(nm){
+        html+='<span style="font-size:10px;padding:2px 8px;background:rgba(201,168,76,.13);border:.5px solid var(--gold);border-radius:9px;color:var(--gold2)">'+esc(nm)+'</span>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+    return html;
+  })();
   // === Détecteur de faiblesses : scan des réponses critiques manquantes ===
   var _weakHtml=(function(){
     var w=_anaWeaknessScan(deck,fmt);
@@ -33615,7 +33639,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -33624,7 +33648,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_typeHtml+_curveHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
