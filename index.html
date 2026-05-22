@@ -6195,6 +6195,11 @@ function _renderNotifPanel(){
         +'<button onclick="event.stopPropagation();markNotifRead(\''+n.id+'\');_podOpenFromNotif(\''+_notifEsc(n.podId||'')+'\')" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);font-size:.72rem;cursor:pointer">📅 Voir la session</button>'
         +'</div>';
     }
+    if(n.type==='bet_event'&&n.targetUid===_currentUid){
+      friendBtns='<div style="margin-top:6px">'
+        +'<button onclick="event.stopPropagation();markNotifRead(\''+n.id+'\');if(typeof closeHub===\'function\')closeHub();openProfile()" style="padding:3px 12px;border-radius:5px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);font-size:.72rem;cursor:pointer">🎲 Voir mes paris</button>'
+        +'</div>';
+    }
     return '<div class="notif-item'+(unread?' unread':'')+'" style="position:relative" onclick="markNotifRead(\''+n.id+'\')">'
       +'<button onclick="event.stopPropagation();deleteNotif(\''+n.id+'\')" title="Supprimer cette notification" style="position:absolute;top:6px;right:8px;background:none;border:none;color:var(--tx3);font-size:14px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:4px;transition:.12s" onmouseover="this.style.color=\'var(--rd2)\';this.style.background=\'rgba(220,80,80,.08)\'" onmouseout="this.style.color=\'var(--tx3)\';this.style.background=\'none\'">✕</button>'
       +'<div class="notif-item-title" style="padding-right:24px">'+_notifEsc(n.title||'')+tradeLink+'</div>'
@@ -7631,6 +7636,7 @@ function _progInit(){
   }
   _progDailyCheck();
   try{_progRefreshThemeUI();}catch(e){}
+  try{if(typeof _betLoad==='function')_betLoad();}catch(e){}
 }
 function _progLevel(xp){
   return Math.max(1,Math.floor((1+Math.sqrt(1+0.08*Math.max(0,xp)))/2));
@@ -7766,9 +7772,9 @@ function openProfile(){
     +'<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">D\'où vient ton XP</div>'
     +srcRows
     +'</div>'
-    +'<div style="padding:4px 20px 18px"><div style="font-size:.72rem;color:var(--tx3);line-height:1.6;background:rgba(255,255,255,.03);border-radius:8px;padding:9px 11px">🔜 Bientôt : déblocage de thèmes et d\'arts de proxy, paris sur les parties — tout se paiera en Pétales de Lotus.</div></div>'
     +'</div>';
   ov.style.display='block';
+  if(typeof _betLoad==='function')_betLoad(_betRefreshSection);
 }
 
 // ===== Défis quotidiens =====
@@ -8059,6 +8065,220 @@ function _progBetsHtml(){
         return '<span style="color:'+c+'">'+t+'</span>';
       }).join(' · ')+'</div>';
   }
+  h+='<div id="prog-pvp-section" style="margin-top:10px;padding-top:10px;border-top:.5px solid var(--bd)">'+_betPvpHtml()+'</div>';
+  return h;
+}
+
+// ===== Paris joueur-contre-joueur (Firestore) =====
+var _betState={bets:[],loaded:false};
+function _betFind(id){return (_betState.bets||[]).find(function(b){return b.id===id;});}
+function _betLoad(cb){
+  if(!userId||!window.db){if(cb)cb();return;}
+  db.collection('bets').where('participants','array-contains',userId).get().then(function(snap){
+    _betState.bets=[];
+    snap.forEach(function(d){var x=d.data();x.id=d.id;_betState.bets.push(x);});
+    _betState.bets.sort(function(a,b){return (b.createdAt||0)-(a.createdAt||0);});
+    _betState.loaded=true;
+    _betApplyOutcomes();
+    if(cb)cb();
+  }).catch(function(e){console.warn('betLoad',e);if(cb)cb();});
+}
+function _betApplyOutcomes(){
+  _progEnsureLoaded();
+  _progState.appliedBets=_progState.appliedBets||{};
+  var changed=false;
+  (_betState.bets||[]).forEach(function(bet){
+    if(!bet||!bet.id)return;
+    if(['settled','declined','cancelled','disputed'].indexOf(bet.status)<0)return;
+    if(_progState.appliedBets[bet.id])return;
+    var me=userId;
+    var iStaked=(bet.fromUid===me)||(bet.toUid===me&&bet.accepted);
+    if(iStaked){
+      if(bet.status==='settled'){
+        if(bet.reportedWinnerUid===me){
+          _progState.coins+=bet.stake*2;
+          if(typeof showToast==='function')showToast('🏆 Pari gagné contre '+esc(bet.fromUid===me?bet.toName:bet.fromName)+' — +'+bet.stake+' Pétales !');
+        }else{
+          if(typeof showToast==='function')showToast('🎲 Pari perdu contre '+esc(bet.fromUid===me?bet.toName:bet.fromName)+' — '+bet.stake+' Pétales.');
+        }
+      }else{
+        _progState.coins+=bet.stake;
+        if(typeof showToast==='function')showToast('🎲 Pari annulé — mise remboursée ('+bet.stake+' 🪷).');
+      }
+    }
+    _progState.appliedBets[bet.id]=1;changed=true;
+  });
+  if(changed)_progSave();
+}
+function _betNotify(uid,title,body,betId){
+  if(!uid||!window.db)return;
+  var myName=(typeof PN!=='undefined'&&PN[0])||'Moi';
+  db.collection('notifications').add({type:'bet_event',title:title,
+    body:myName+' — '+body,fromUid:userId,fromName:myName,targetUid:uid,betId:betId,
+    createdAt:firebase.firestore.FieldValue.serverTimestamp(),readBy:[]}).catch(function(){});
+}
+function _betRefreshSection(){
+  var el=document.getElementById('prog-pvp-section');
+  if(el)el.innerHTML=_betPvpHtml();
+}
+function _betCreate(toUid,toName,stake){
+  _progEnsureLoaded();
+  stake=parseInt(stake,10);
+  if(!toUid){return;}
+  if(!stake||stake<_PROG_BET_MIN){if(typeof toastError==='function')toastError('Mise minimum : '+_PROG_BET_MIN+' Pétales.');return;}
+  if(stake>_PROG_BET_MAX){if(typeof toastError==='function')toastError('Mise maximum : '+_PROG_BET_MAX+' Pétales.');return;}
+  if(stake>_progState.coins){if(typeof toastError==='function')toastError('Solde de Pétales insuffisant.');return;}
+  var myName=(typeof PN!=='undefined'&&PN[0])||'Moi';
+  var betId='bet_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  _progState.coins-=stake;_progSave();
+  var doc={fromUid:userId,fromName:myName,toUid:toUid,toName:toName,stake:stake,
+    status:'pending',accepted:false,participants:[userId,toUid],createdAt:Date.now()};
+  db.collection('bets').doc(betId).set(doc).then(function(){
+    _betNotify(toUid,'Défi de pari','te défie : '+stake+' Pétales sur votre prochaine partie.',betId);
+    if(typeof toastSuccess==='function')toastSuccess('⚔ Défi envoyé à '+toName);
+    var ov=document.getElementById('bet-challenge-ov');if(ov)ov.style.display='none';
+    _betLoad(function(){_progRefreshProfile();});
+  }).catch(function(e){
+    _progState.coins+=stake;_progSave();
+    if(typeof toastError==='function')toastError('Erreur : '+e.message);
+  });
+}
+function _betAccept(betId){
+  var bet=_betFind(betId);if(!bet||bet.status!=='pending')return;
+  _progEnsureLoaded();
+  if(_progState.coins<bet.stake){if(typeof toastError==='function')toastError('Solde insuffisant pour couvrir la mise ('+bet.stake+' 🪷).');return;}
+  _progState.coins-=bet.stake;_progSave();
+  db.collection('bets').doc(betId).update({status:'active',accepted:true}).then(function(){
+    bet.status='active';bet.accepted=true;
+    _betNotify(bet.fromUid,'Pari accepté','a accepté ton défi de '+bet.stake+' Pétales.',betId);
+    if(typeof toastSuccess==='function')toastSuccess('Pari accepté — que le meilleur gagne !');
+    _progRefreshProfile();
+  }).catch(function(e){_progState.coins+=bet.stake;_progSave();if(typeof toastError==='function')toastError('Erreur : '+e.message);});
+}
+function _betDecline(betId){
+  var bet=_betFind(betId);if(!bet||bet.status!=='pending')return;
+  db.collection('bets').doc(betId).update({status:'declined'}).then(function(){
+    bet.status='declined';
+    _betNotify(bet.fromUid,'Défi refusé','a refusé ton défi de pari.',betId);
+    _betLoad(function(){_progRefreshProfile();});
+  }).catch(function(e){if(typeof toastError==='function')toastError('Erreur : '+e.message);});
+}
+function _betCancel(betId){
+  var bet=_betFind(betId);if(!bet||bet.status!=='pending'||bet.fromUid!==userId)return;
+  db.collection('bets').doc(betId).update({status:'cancelled'}).then(function(){
+    bet.status='cancelled';
+    _betLoad(function(){_progRefreshProfile();});
+  }).catch(function(e){if(typeof toastError==='function')toastError('Erreur : '+e.message);});
+}
+function _betReport(betId,iWon){
+  var bet=_betFind(betId);if(!bet||bet.status!=='active')return;
+  var winnerUid=iWon?userId:(bet.fromUid===userId?bet.toUid:bet.fromUid);
+  db.collection('bets').doc(betId).update({status:'reported',reportedWinnerUid:winnerUid,reportedBy:userId}).then(function(){
+    bet.status='reported';bet.reportedWinnerUid=winnerUid;bet.reportedBy=userId;
+    var other=bet.fromUid===userId?bet.toUid:bet.fromUid;
+    _betNotify(other,'Résultat de pari à confirmer','a déclaré un résultat — confirme-le pour régler le pari de '+bet.stake+' Pétales.',betId);
+    if(typeof toastSuccess==='function')toastSuccess('Résultat envoyé — en attente de confirmation.');
+    _progRefreshProfile();
+  }).catch(function(e){if(typeof toastError==='function')toastError('Erreur : '+e.message);});
+}
+function _betConfirm(betId){
+  var bet=_betFind(betId);if(!bet||bet.status!=='reported')return;
+  db.collection('bets').doc(betId).update({status:'settled',confirmedBy:userId}).then(function(){
+    bet.status='settled';bet.confirmedBy=userId;
+    _betApplyOutcomes();
+    var other=bet.fromUid===userId?bet.toUid:bet.fromUid;
+    _betNotify(other,'Pari réglé','a confirmé le résultat — le pari est réglé.',betId);
+    _progRefreshProfile();
+  }).catch(function(e){if(typeof toastError==='function')toastError('Erreur : '+e.message);});
+}
+function _betDispute(betId){
+  var bet=_betFind(betId);if(!bet||bet.status!=='reported')return;
+  if(typeof confirm==='function'&&!confirm('Contester ce résultat ? Le pari sera annulé et les deux mises remboursées.'))return;
+  db.collection('bets').doc(betId).update({status:'disputed'}).then(function(){
+    bet.status='disputed';
+    _betApplyOutcomes();
+    var other=bet.fromUid===userId?bet.toUid:bet.fromUid;
+    _betNotify(other,'Résultat contesté','a contesté le résultat — pari annulé, mises remboursées.',betId);
+    _progRefreshProfile();
+  }).catch(function(e){if(typeof toastError==='function')toastError('Erreur : '+e.message);});
+}
+function _betOpenChallenge(){
+  _progEnsureLoaded();
+  if(_progState.coins<_PROG_BET_MIN){if(typeof toastError==='function')toastError('Il te faut au moins '+_PROG_BET_MIN+' Pétales pour défier un ami.');return;}
+  var friends=(typeof _friends!=='undefined'&&_friends)||[];
+  var ov=document.getElementById('bet-challenge-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='bet-challenge-ov';ov.className='scan-modal';
+    ov.onclick=function(e){if(e.target===ov)ov.style.display='none';};
+    document.body.appendChild(ov);
+  }
+  var maxStake=Math.min(_PROG_BET_MAX,_progState.coins);
+  var friendOpts=friends.length
+    ?friends.map(function(f){return '<option value="'+esc(f.uid)+'" data-name="'+esc(f.name||'')+'">'+esc(f.name||f.uid)+'</option>';}).join('')
+    :'';
+  ov.innerHTML='<div style="width:100%;max-width:360px;background:var(--s1);border:1px solid var(--bd2);border-radius:14px;padding:16px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:1rem">⚔ Défier un ami</span><button class="btn btnsm" onclick="document.getElementById(\'bet-challenge-ov\').style.display=\'none\'">✕</button></div>'
+    +(friends.length
+      ?('<div class="lbl" style="margin-bottom:3px">Adversaire</div><select id="bet-friend-sel" style="width:100%;box-sizing:border-box;margin-bottom:8px">'+friendOpts+'</select>'
+        +'<div class="lbl" style="margin-bottom:3px">Mise (solde : '+_progState.coins.toLocaleString('fr-FR')+' 🪷 · max '+maxStake+')</div>'
+        +'<input type="number" id="bet-friend-stake" min="'+_PROG_BET_MIN+'" max="'+maxStake+'" value="'+Math.min(50,maxStake)+'" style="width:100%;box-sizing:border-box;margin-bottom:8px">'
+        +'<div style="font-size:.72rem;color:var(--tx3);margin-bottom:12px;line-height:1.5">Chacun mise la même somme. Le gagnant de votre prochaine partie remporte le pot. Résultat à déclarer puis confirmer — entre amis, c\'est à l\'honneur.</div>'
+        +'<button class="btn btnp" style="width:100%" onclick="_betSubmitChallenge()">⚔ Envoyer le défi</button>')
+      :'<div style="font-size:.82rem;color:var(--tx3);font-style:italic;padding:8px 0">Ajoute des amis pour pouvoir les défier.</div>')
+    +'</div>';
+  ov.style.display='flex';
+}
+function _betSubmitChallenge(){
+  var sel=document.getElementById('bet-friend-sel');
+  var inp=document.getElementById('bet-friend-stake');
+  if(!sel||!sel.value){if(typeof toastError==='function')toastError('Choisis un adversaire.');return;}
+  var toName=sel.options[sel.selectedIndex]?sel.options[sel.selectedIndex].getAttribute('data-name'):'';
+  _betCreate(sel.value,toName||sel.value,inp?inp.value:0);
+}
+function _betPvpHtml(){
+  if(!_betState.loaded){
+    return '<div style="font-size:.72rem;color:var(--tx3);margin-bottom:6px">⚔ Paris entre amis</div>'
+      +'<button class="btn btnsm" onclick="_betOpenChallenge()" style="font-size:.74rem">⚔ Défier un ami</button>'
+      +'<div style="font-size:.66rem;color:var(--tx3);margin-top:5px">Chargement des paris…</div>';
+  }
+  var me=userId;
+  var live=(_betState.bets||[]).filter(function(b){return ['pending','active','reported'].indexOf(b.status)>=0;});
+  var h='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:6px">⚔ Paris entre amis</div>';
+  h+='<button class="btn btnsm" onclick="_betOpenChallenge()" style="font-size:.74rem;margin-bottom:6px">⚔ Défier un ami</button>';
+  if(!live.length){
+    h+='<div style="font-size:.66rem;color:var(--tx3)">Aucun pari en cours avec un ami.</div>';
+    return h;
+  }
+  h+=live.map(function(b){
+    var other=b.fromUid===me?b.toName:b.fromName;
+    var box='<div style="background:rgba(255,255,255,.03);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px;margin-bottom:5px;font-size:.78rem">';
+    box+='<div style="color:var(--tx2);margin-bottom:5px"><b style="color:var(--gold2)">'+b.stake+' 🪷</b> vs <b>'+esc(other||'?')+'</b></div>';
+    if(b.status==='pending'){
+      if(b.toUid===me){
+        box+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(b.fromName)+' te défie.</div>'
+          +'<div style="display:flex;gap:6px"><button class="btn btnsm btnp" onclick="_betAccept(\''+b.id+'\')" style="font-size:.7rem">✓ Accepter</button>'
+          +'<button class="btn btnsm btnrd" onclick="_betDecline(\''+b.id+'\')" style="font-size:.7rem">✕ Refuser</button></div>';
+      }else{
+        box+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">En attente de la réponse de '+esc(b.toName)+'.</div>'
+          +'<button class="btn btnsm btnrd" onclick="_betCancel(\''+b.id+'\')" style="font-size:.7rem">Annuler le défi</button>';
+      }
+    }else if(b.status==='active'){
+      box+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">Pari actif — déclare le résultat après votre partie :</div>'
+        +'<div style="display:flex;gap:6px"><button class="btn btnsm btnp" onclick="_betReport(\''+b.id+'\',true)" style="font-size:.7rem">🏆 J\'ai gagné</button>'
+        +'<button class="btn btnsm" onclick="_betReport(\''+b.id+'\',false)" style="font-size:.7rem">J\'ai perdu</button></div>';
+    }else if(b.status==='reported'){
+      var winName=b.reportedWinnerUid===me?'toi':esc(other||'?');
+      if(b.reportedBy===me){
+        box+='<div style="font-size:.7rem;color:var(--tx3)">Résultat déclaré ('+winName+' gagnant) — en attente de la confirmation de '+esc(other)+'.</div>';
+      }else{
+        box+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">'+esc(other)+' déclare que <b>'+winName+'</b> a gagné.</div>'
+          +'<div style="display:flex;gap:6px"><button class="btn btnsm btnp" onclick="_betConfirm(\''+b.id+'\')" style="font-size:.7rem">✓ Confirmer</button>'
+          +'<button class="btn btnsm btnrd" onclick="_betDispute(\''+b.id+'\')" style="font-size:.7rem">⚠ Contester</button></div>';
+      }
+    }
+    box+='</div>';
+    return box;
+  }).join('');
   return h;
 }
 
