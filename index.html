@@ -16116,12 +16116,19 @@ function _arSaveStats(rating){
   var s=_ar.ss;if(!s)return;
   var duration=Math.round((Date.now()-s.t0)/60000);
   var entry={deckId:s.deckId,deckName:s.deckName,
-    date:new Date().toLocaleDateString('fr-FR'),
+    date:new Date().toLocaleDateString('fr-FR'),ts:Date.now(),
     turns:s.turns,muls:s.muls,drawn:s.drawn,duration:duration,rating:rating||0,
     finalLife:_ar.life,
     lifeHist:(_ar.lifeHist||[]).map(function(h){return{turn:h.turn,life:h.life};}),
     cmdDmgDealt:_ar.cmdDmgDealt||{},
     mode:_arRoom?'online-'+(_arRoom.numPlayers||2)+'p':(_arBot?'vs-ai':'solo')};
+  // Replay : journal d'actions de la partie (sans le bruit tap/untap)
+  if(_arActionLog&&_arActionLog.length){
+    entry.actionLog=_arActionLog.filter(function(a){return a.type!=='tap'&&a.type!=='untap';}).slice(-500);
+    entry.replayMeta={myPn:_arRoom?(_arRoom.playerNum||0):0,
+      myName:(typeof PN!=='undefined'&&PN[0])||'Moi',
+      opName:(typeof _arOpName==='function'&&_arOpName())||'Adversaire'};
+  }
   var all=[];try{all=JSON.parse(localStorage.getItem('manalab_ar_stats')||'[]');}catch(e){}
   all.push(entry);
   _lsSet('manalab_ar_stats',JSON.stringify(all));
@@ -16182,12 +16189,143 @@ function arRenderStats(){
         +'</tr>';
     }).join('')
     +'</tbody></table></div>'
-    +'<div style="margin-top:8px;font-size:.68rem;color:var(--tx3)">Classement par cohérence (⊘ mulligans croissants). Vert = très consistant, rouge = inconsistant.</div>';
+    +'<div style="margin-top:8px;font-size:.68rem;color:var(--tx3)">Classement par cohérence (⊘ mulligans croissants). Vert = très consistant, rouge = inconsistant.</div>'
+    +_arReplayListHtml(all);
 }
 
 function arClearStats(){
   if(!confirm('Supprimer toutes les statistiques ?'))return;
   localStorage.removeItem('manalab_ar_stats');arRenderStats();
+}
+
+// ===== Replay de partie d'Arène =====
+var _arReplay=null;
+function _arReplayLine(a,meta){
+  var p=a.payload||{};
+  var byName=(a.by===meta.myPn)?meta.myName:meta.opName;
+  var mine=a.by===meta.myPn;
+  function nm(x){return esc(x||'');}
+  switch(a.type){
+    case 'turn':return {cls:'turn',text:'⟐ Tour '+(p.turn||'?')};
+    case 'phase':return {cls:'sys',text:byName+' → '+nm(p.name)};
+    case 'play':return {cls:mine?'mine':'opp',text:byName+' joue '+nm(p.name||'une carte')};
+    case 'life':return {cls:mine?'mine':'opp',text:byName+' : vie '+(p.delta>0?'+':'')+p.delta+' → '+p.life};
+    case 'draw':return {cls:'sys',text:byName+' pioche '+(p.n||1)+' carte(s)'};
+    case 'mulligan':return {cls:'sys',text:byName+' mulligan ('+(p.count||0)+')'};
+    case 'token':return {cls:mine?'mine':'opp',text:byName+' crée '+(p.qty>1?p.qty+'× ':'')+'jeton '+nm(p.name)};
+    case 'attack_declared':return {cls:mine?'mine':'opp',text:'⚔ '+byName+' attaque avec '+((p.names||[]).map(nm).join(', ')||'?')};
+    case 'block_declared':return {cls:mine?'mine':'opp',text:'🛡 '+byName+' bloque avec '+((p.names||[]).map(nm).join(', ')||'?')};
+    case 'stack_cast':return {cls:mine?'mine':'opp',text:'🌀 '+byName+' lance '+nm(p.name||'un sort')};
+    case 'stack_resolved':return {cls:'sys',text:'⚡ résolution : '+nm(p.name)};
+    case 'trigger':return {cls:mine?'mine':'opp',text:'⚡ '+byName+' déclenche : '+nm(p.source||p.text)};
+    case 'cmd_damage':return {cls:mine?'mine':'opp',text:'⚔ '+byName+' inflige '+p.delta+' dmg commander (J'+p.target+', '+p.total+'/21)'};
+    case 'cmd_kill':return {cls:'sys',text:'☠ J'+p.target+' tué par dégâts commander'};
+    case 'defeat':return {cls:'sys',text:'☠ '+byName+' éliminé ('+(p.cause||'?')+')'};
+    case 'concede':return {cls:'sys',text:'🏳 '+byName+' a concédé'};
+    case 'chat':return {cls:'chat',text:'💬 '+byName+' : '+nm(p.text)};
+    case 'move_zone':return {cls:mine?'mine':'opp',text:byName+' : '+nm(p.name)+' → '+nm(p.to)};
+    case 'paid':return {cls:mine?'mine':'opp',text:'💰 '+byName+' paie '+nm(p.cost)+' ('+nm(p.name)+')'};
+    case 'discard_end':return {cls:mine?'mine':'opp',text:'🗑 '+byName+' défausse '+(p.n||1)};
+    case 'reveal':return {cls:mine?'mine':'opp',text:'👁 '+byName+' révèle '+nm(p.name)};
+    case 'shuffle':return {cls:'sys',text:byName+' mélange'};
+    case 'tap_all_lands':return {cls:mine?'mine':'opp',text:'⟳ '+byName+' tape ses terrains'};
+    default:return {cls:'sys',text:byName+' · '+a.type};
+  }
+}
+function _arReplayListHtml(all){
+  var withLog=[];
+  all.forEach(function(s,i){if(s.actionLog&&s.actionLog.length)withLog.push({s:s,i:i});});
+  if(!withLog.length)return '';
+  var recent=withLog.slice(-12).reverse();
+  var h='<div style="margin-top:16px;font-size:11px;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">🎬 Replays de parties</div>';
+  h+=recent.map(function(o){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:rgba(255,255,255,.03);border:.5px solid var(--bd);border-radius:6px;margin-bottom:3px;font-size:.78rem">'
+      +'<span style="flex:1;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(o.s.deckName||'Deck')+'</span>'
+      +'<span style="color:var(--tx3);font-size:.68rem">'+esc(o.s.date||'')+' · '+(o.s.turns||0)+'t</span>'
+      +'<button class="btn btnsm btnp" onclick="arOpenReplay('+o.i+')" style="padding:2px 9px;font-size:.7rem">▶ Revoir</button>'
+      +'</div>';
+  }).join('');
+  return h;
+}
+function arOpenReplay(idx){
+  var all=[];try{all=JSON.parse(localStorage.getItem('manalab_ar_stats')||'[]');}catch(e){}
+  var s=all[idx];
+  if(!s||!s.actionLog||!s.actionLog.length){toastError('Aucun replay pour cette partie.');return;}
+  if(_arReplay&&_arReplay.timer)clearInterval(_arReplay.timer);
+  _arReplay={log:s.actionLog,meta:s.replayMeta||{myPn:0,myName:'Moi',opName:'Adversaire'},
+    pos:0,playing:false,timer:null,deckName:s.deckName||'',date:s.date||'',turns:s.turns||0};
+  var ov=document.getElementById('ar-replay-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ar-replay-ov';ov.className='scan-modal';
+    ov.onclick=function(e){if(e.target===ov)arCloseReplay();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  _arReplayRender();
+}
+function arCloseReplay(){
+  if(_arReplay&&_arReplay.timer){clearInterval(_arReplay.timer);_arReplay.timer=null;}
+  var ov=document.getElementById('ar-replay-ov');if(ov)ov.style.display='none';
+  _arReplay=null;
+}
+function _arReplayStep(delta){
+  if(!_arReplay)return;
+  _arReplay.pos=Math.max(0,Math.min(_arReplay.log.length-1,_arReplay.pos+delta));
+  _arReplayRender();
+}
+function _arReplayJump(end){
+  if(!_arReplay)return;
+  _arReplay.pos=end?_arReplay.log.length-1:0;
+  _arReplayRender();
+}
+function _arReplayPlayPause(){
+  if(!_arReplay)return;
+  if(_arReplay.playing){
+    if(_arReplay.timer)clearInterval(_arReplay.timer);
+    _arReplay.timer=null;_arReplay.playing=false;
+  }else{
+    if(_arReplay.pos>=_arReplay.log.length-1)_arReplay.pos=0;
+    _arReplay.playing=true;
+    _arReplay.timer=setInterval(function(){
+      if(!_arReplay){return;}
+      if(_arReplay.pos>=_arReplay.log.length-1){
+        clearInterval(_arReplay.timer);_arReplay.timer=null;_arReplay.playing=false;_arReplayRender();return;
+      }
+      _arReplay.pos++;_arReplayRender();
+    },1000);
+  }
+  _arReplayRender();
+}
+function _arReplayRender(){
+  var ov=document.getElementById('ar-replay-ov');if(!ov||!_arReplay)return;
+  var R=_arReplay,log=R.log;
+  var visible=log.slice(0,R.pos+1);
+  var rows=visible.map(function(a,i){
+    var line=_arReplayLine(a,R.meta);
+    var isCur=i===visible.length-1;
+    var col=line.cls==='turn'?'var(--gold2)':line.cls==='mine'?'#7ec8ff':line.cls==='opp'?'#f5a5a5':line.cls==='chat'?'#c8a8ff':'var(--tx3)';
+    var bg=line.cls==='turn'?'rgba(201,168,76,.12)':isCur?'rgba(255,255,255,.07)':'transparent';
+    return '<div style="padding:3px 8px;font-size:.78rem;color:'+col+';background:'+bg+';border-radius:4px;font-weight:'+(line.cls==='turn'?'600':'400')+'">'+line.text+'</div>';
+  }).join('');
+  var pct=log.length>1?Math.round(R.pos/(log.length-1)*100):100;
+  ov.innerHTML='<div style="width:100%;max-width:480px;background:var(--s1);border:1px solid var(--bd2);border-radius:14px;display:flex;flex-direction:column;max-height:90vh">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:.5px solid var(--bd)">'
+    +'<div><div style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:.92rem">🎬 Replay — '+esc(R.deckName)+'</div>'
+    +'<div style="font-size:.68rem;color:var(--tx3)">'+esc(R.date)+' · '+R.turns+' tours · '+log.length+' actions</div></div>'
+    +'<button class="btn btnsm" onclick="arCloseReplay()">✕</button></div>'
+    +'<div id="ar-replay-list" style="flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-height:200px">'+rows+'</div>'
+    +'<div style="padding:10px 14px;border-top:.5px solid var(--bd)">'
+    +'<div style="height:4px;background:var(--s3);border-radius:2px;margin-bottom:8px"><div style="height:100%;width:'+pct+'%;background:var(--gold2);border-radius:2px"></div></div>'
+    +'<div style="display:flex;gap:6px;justify-content:center;align-items:center">'
+    +'<button class="btn btnsm" onclick="_arReplayJump(false)" title="Début">⏮</button>'
+    +'<button class="btn btnsm" onclick="_arReplayStep(-1)" title="Précédent">◀</button>'
+    +'<button class="btn btnsm btnp" onclick="_arReplayPlayPause()" style="min-width:70px">'+(R.playing?'⏸ Pause':'▶ Lire')+'</button>'
+    +'<button class="btn btnsm" onclick="_arReplayStep(1)" title="Suivant">▶</button>'
+    +'<button class="btn btnsm" onclick="_arReplayJump(true)" title="Fin">⏭</button>'
+    +'<span style="font-size:.7rem;color:var(--tx3);margin-left:6px">'+(R.pos+1)+'/'+log.length+'</span>'
+    +'</div></div></div>';
+  var list=document.getElementById('ar-replay-list');
+  if(list)list.scrollTop=list.scrollHeight;
 }
 
 function arRestart(){
@@ -19228,15 +19366,16 @@ function arToggleLog(){
 function _arMakeActionId(){return 'a_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
 
 function arLogAction(type,payload){
-  if(!_arRoom||!window.db||!_ar.active)return;
-  if(_arRoom.playerNum===0&&type!=='chat')return; // spectateur peut juste chater
-  var pn=_arRoom.playerNum||0;
+  if(!_ar.active)return;
+  if(_arRoom&&_arRoom.playerNum===0&&type!=='chat')return; // spectateur peut juste chater
+  var pn=_arRoom?(_arRoom.playerNum||0):0;
   var entry={id:_arMakeActionId(),ts:Date.now(),by:pn,type:type,payload:payload||{}};
-  // Push optimiste local
+  // Push optimiste local — alimente aussi le journal et le replay des parties solo / IA
   _arActionLog.push(entry);_arLogSeenIds[entry.id]=1;
+  if(_arActionLog.length>900)_arActionLog=_arActionLog.slice(-600);
   _arRenderLogIfOpen(entry);
-  // Push Firestore via arrayUnion (avec trim périodique)
-  if(typeof firebase!=='undefined'&&firebase.firestore){
+  // Push Firestore via arrayUnion (parties en ligne uniquement, avec trim périodique)
+  if(_arRoom&&window.db&&typeof firebase!=='undefined'&&firebase.firestore){
     db.collection('arena_rooms').doc(_arRoom.id).update({
       actions:firebase.firestore.FieldValue.arrayUnion(entry)
     }).catch(function(e){console.warn('arLogAction',e);});
