@@ -4444,6 +4444,9 @@ details > summary::-webkit-details-marker{display:none}
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Mort à 21 dégâts de commandant cumulés depuis la même source">
               <input type="checkbox" id="ar-opt-cmddmg"> ⚔ Dégâts commandant
             </label>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Format 2v2 : 4 joueurs, 2 équipes (J1+J2 vs J3+J4), 30 PV de départ. La gestion d'équipe est à l'honneur entre joueurs.">
+              <input type="checkbox" id="ar-opt-2hg"> 🤝 Troll à deux têtes (2v2)
+            </label>
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Auto-pass de priorité 15s après chaque sort sur la pile">
               <input type="checkbox" id="ar-opt-stacktimer" checked> ⏱ Timer de pile 15s
             </label>
@@ -19577,10 +19580,11 @@ function arCreateRoom(){
   var code=_arGenCode();
   var uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||'anon';
   var name=PN[0]||'Joueur 1';
+  var mode2HG=!!(document.getElementById('ar-opt-2hg')||{}).checked;
   var npEl=document.getElementById('ar-create-numplayers');
-  var numPlayers=npEl?Math.max(2,Math.min(4,parseInt(npEl.value)||2)):2;
+  var numPlayers=mode2HG?4:(npEl?Math.max(2,Math.min(4,parseInt(npEl.value)||2)):2);
   var lifeEl=document.getElementById('ar-setup-life');
-  var startLife=numPlayers>2?40:(lifeEl?parseInt(lifeEl.value)||40:40);
+  var startLife=mode2HG?30:(numPlayers>2?40:(lifeEl?parseInt(lifeEl.value)||40:40));
   var useCmdDmg=!!(document.getElementById('ar-opt-cmddmg')||{}).checked;
   var useStackTimer=(document.getElementById('ar-opt-stacktimer')||{checked:true}).checked;
   var useChess=!!(document.getElementById('ar-opt-chessclock')||{}).checked;
@@ -19593,6 +19597,7 @@ function arCreateRoom(){
     useStackTimer:useStackTimer,
     useChessClock:useChess,
     chessClockMs:useChess?chessMs:0,
+    mode2HG:mode2HG,
     p1:{uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0,clockMs:useChess?chessMs:0},
     field:[],
     stack:[],
@@ -19608,10 +19613,11 @@ function arCreateRoom(){
   db.collection('arena_rooms').doc(code).set(doc).then(function(){
     _arActionLog=[];_arLogSeenIds={};
     _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-    _arRoom={id:code,code:code,playerNum:1,numPlayers:numPlayers,useCmdDmg:useCmdDmg,useStackTimer:useStackTimer,useChessClock:useChess,chessClockMs:chessMs};
+    _arRoom={id:code,code:code,playerNum:1,numPlayers:numPlayers,useCmdDmg:useCmdDmg,useStackTimer:useStackTimer,useChessClock:useChess,chessClockMs:chessMs,mode2HG:mode2HG};
     var s=document.getElementById('ar-room-status');
     if(s)s.innerHTML='Code : <strong style="color:var(--gold);font-size:.9rem;letter-spacing:.12em">'+code+'</strong>'
-      +' · '+numPlayers+' joueurs'
+      +' · '+numPlayers+' joueurs'+(mode2HG?' · <span style="color:var(--gold2)">🤝 Troll à deux têtes</span>':'')
+      +(mode2HG?'<br><span style="color:var(--gold2);font-size:.7rem">Équipe A : J1+J2 · Équipe B : J3+J4 · 30 PV/équipe (gestion à l\'honneur)</span>':'')
       +'<br><span style="color:var(--tx3);font-size:.7rem">En attente des autres joueurs…</span>'
       +'<div style="display:flex;gap:6px;margin-top:6px">'
       +'<button class="btn btnsm" onclick="arOpenInviteModal(\''+code+'\')" style="flex:1;font-size:.72rem">📨 Inviter un ami</button>'
@@ -19645,9 +19651,12 @@ function arJoinRoom(){
     return db.collection('arena_rooms').doc(code).update(upd).then(function(){
       _arActionLog=[];_arLogSeenIds={};
       _arSharedStack=[];_arSharedStackDirty=false;_arClearSharedStackTimer();
-      _arRoom={id:code,code:code,playerNum:mySlot,numPlayers:N,useCmdDmg:!!data.useCmdDmg,useStackTimer:data.useStackTimer!==false,useChessClock:!!data.useChessClock,chessClockMs:data.chessClockMs||0};
+      _arRoom={id:code,code:code,playerNum:mySlot,numPlayers:N,useCmdDmg:!!data.useCmdDmg,useStackTimer:data.useStackTimer!==false,useChessClock:!!data.useChessClock,chessClockMs:data.chessClockMs||0,mode2HG:!!data.mode2HG};
       var s=document.getElementById('ar-room-status');
+      var _2hg=!!data.mode2HG;
+      var _teamLbl=_2hg?(mySlot<=2?'Équipe A (avec J'+(mySlot===1?2:1)+')':'Équipe B (avec J'+(mySlot===3?4:3)+')'):'';
       if(s)s.innerHTML='Rejoint ! Vous êtes joueur '+mySlot+'/'+N
+        +(_2hg?' · <span style="color:var(--gold2)">🤝 '+_teamLbl+'</span>':'')
         +'<br><button class="btn btnsm btnp" onclick="arOpen()" style="margin-top:5px;width:100%">▶ Lancer l\'arène</button>';
       arListenRoom();
     });
