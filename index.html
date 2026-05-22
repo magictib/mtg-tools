@@ -4474,9 +4474,12 @@ details > summary::-webkit-details-marker{display:none}
         </select>
         <button class="btn btnsm btnp" onclick="htStart()" title="Test interactif d'une main : pioche, tour suivant, mulligan manuel">▶ Tester (1 main)</button>
         <button class="btn btnsm" onclick="htSimulate()" title="Lance 1000 mains virtuelles et affiche les statistiques agrégées" style="border-color:rgba(140,100,220,.55);color:#c8a8ff">🎲 Simuler 1000 mains</button>
+        <button class="btn btnsm" onclick="htTrainStart()" title="Entraîne-toi à décider garder ou mulligan, avec correction selon le matchup" style="border-color:rgba(201,168,76,.55);color:var(--gold2)">🎓 Entraînement mulligan</button>
       </div>
       <!-- Panneau résultats simulateur -->
       <div id="ht-sim-results" style="display:none;margin-top:12px"></div>
+      <!-- Panneau entraînement mulligan -->
+      <div id="ht-train" style="display:none;margin-top:12px"></div>
       <div id="ht-active" style="display:none;margin-top:10px">
         <!-- Barre d'info -->
         <div class="ht-info-bar">
@@ -22090,6 +22093,137 @@ function htReset(close){
   document.getElementById('ht-close-btn').style.display='none';
   document.getElementById('ht-setup-bar').style.display='flex';
   document.getElementById('ht-mul-bar').style.display='none';
+  _htTrain.on=false;
+  var _tr=document.getElementById('ht-train');if(_tr){_tr.style.display='none';_tr.innerHTML='';}
+}
+// ===== Entraînement au mulligan =====
+var _htTrain={on:false,matchup:'random'};
+var _HT_MATCHUPS={aggro:'🔥 Aggro',control:'💧 Contrôle',combo:'💥 Combo',midrange:'🌳 Midrange'};
+function _htRandMatchup(){return ['aggro','control','combo','midrange'][Math.floor(Math.random()*4)];}
+function _htEvalHand(hand,matchup){
+  var lands=0,cheap=0,early=0,inter=0,threats=0,ramp=0,nspell=0,cmcSum=0;
+  hand.forEach(function(c){
+    var m=_anaData[(c.name||'').toLowerCase()]||{};
+    var tl=(m.typeLine||'').toLowerCase();
+    if(tl.indexOf('land')>=0){lands++;return;}
+    var cmc=m.cmc||0;nspell++;cmcSum+=cmc;
+    if(cmc<=2)cheap++;
+    if(cmc<=3)early++;
+    var r=(typeof anaRoles==='function')?anaRoles(m):{};
+    if(r.removal||r.interaction)inter++;
+    if(r.wincon||tl.indexOf('creature')>=0||tl.indexOf('planeswalker')>=0)threats++;
+    if(r.ramp)ramp++;
+  });
+  var avgCmc=nspell?cmcSum/nspell:0;
+  var reasons=[],verdict='keep';
+  if(lands<=1){verdict='mull';reasons.push((lands?'Un seul terrain':'Aucun terrain')+' : tu vas rester bloqué sur la mana.');}
+  else if(lands>=6){verdict='mull';reasons.push(lands+' terrains pour '+nspell+' sort(s) : main noyée, trop peu d\'action.');}
+  else{
+    reasons.push(lands+' terrains : base de mana viable.');
+    if(early===0){verdict='mull';reasons.push('Rien à jouer avant le tour 4 : démarrage beaucoup trop lent.');}
+    else reasons.push(early+' sort(s) jouable(s) d\'ici le tour 3.');
+    if(ramp)reasons.push(ramp+' accélération(s) de mana pour soutenir la courbe.');
+  }
+  if(verdict==='keep'){
+    if(matchup==='aggro'){
+      if(inter===0&&cheap<=1){verdict='mull';reasons.push('Contre l\'aggro : aucune interaction et presque pas de jeu bon marché — tu seras submergé.');}
+      else if(inter>0)reasons.push('Contre l\'aggro : '+inter+' réponse(s) précoce(s) pour tenir le rythme.');
+      else reasons.push('Contre l\'aggro : courbe basse suffisante pour ne pas subir.');
+    }else if(matchup==='combo'){
+      if(inter===0&&avgCmc>=3.2){verdict='mull';reasons.push('Contre le combo : ni disruption ni pression rapide — ils se résolvent avant toi.');}
+      else reasons.push('Contre le combo : '+(inter?inter+' interaction(s)':'tempo assez rapide')+' pour les gêner.');
+    }else if(matchup==='control'){
+      if(threats===0){verdict='mull';reasons.push('Contre le contrôle : aucune menace en main, tu ne refermeras pas la partie.');}
+      else reasons.push('Contre le contrôle : '+threats+' menace(s) pour maintenir la pression.');
+    }else{
+      reasons.push('Contre le midrange : main équilibrée, les échanges décideront.');
+    }
+  }
+  return {verdict:verdict,lands:lands,nspell:nspell,early:early,inter:inter,threats:threats,avgCmc:avgCmc,reasons:reasons};
+}
+function htTrainStart(){
+  var sel=document.getElementById('ht-deck-sel');
+  var id=sel&&sel.value;
+  if(!id){toastError('Choisissez un deck');return;}
+  var cards=_htExpandDeck(id);
+  if(cards.length<7){toastError('Le deck doit contenir au moins 7 cartes');return;}
+  _htTrain={on:true,deckId:id,cards:cards,hand:[],matchup:_htTrain.matchup||'random',curMatchup:'midrange',rounds:0,correct:0,answered:false,eval:null,userChoice:null};
+  document.getElementById('ht-setup-bar').style.display='none';
+  document.getElementById('ht-sim-results').style.display='none';
+  document.getElementById('ht-active').style.display='none';
+  document.getElementById('ht-close-btn').style.display='inline-flex';
+  document.getElementById('ht-train').style.display='block';
+  var unique={};cards.forEach(function(c){unique[c.name.toLowerCase()]=c.name;});
+  var nls=Object.keys(unique),fb=nls.map(function(nl){return {nl:nl,name:unique[nl]};});
+  var toLoad=nls.filter(function(nl){return !_anaData[nl];});
+  if(toLoad.length&&typeof anaFetchMissing==='function')anaFetchMissing(toLoad,fb,function(){if(_htTrain.on)htTrainRender();});
+  htTrainNewHand();
+}
+function htTrainSetMatchup(m){
+  _htTrain.matchup=m;
+  if(_htTrain.on&&!_htTrain.answered)_htTrain.curMatchup=(m==='random')?_htRandMatchup():m;
+  htTrainRender();
+}
+function htTrainNewHand(){
+  var lib=_htTrain.cards.slice();_htShuffle(lib);
+  _htTrain.hand=lib.slice(0,7);
+  _htTrain.answered=false;_htTrain.eval=null;_htTrain.userChoice=null;
+  _htTrain.curMatchup=(_htTrain.matchup==='random')?_htRandMatchup():_htTrain.matchup;
+  htTrainRender();
+}
+function htTrainAnswer(choice){
+  if(!_htTrain.on||_htTrain.answered)return;
+  var ev=_htEvalHand(_htTrain.hand,_htTrain.curMatchup);
+  _htTrain.eval=ev;_htTrain.answered=true;_htTrain.userChoice=choice;_htTrain.rounds++;
+  if(choice===ev.verdict)_htTrain.correct++;
+  htTrainRender();
+}
+function htTrainRender(){
+  var el=document.getElementById('ht-train');if(!el||!_htTrain.on)return;
+  var T=_htTrain;
+  var h='<div class="card" style="background:rgba(40,30,10,.4);border-color:rgba(201,168,76,.4)">';
+  h+='<div class="lbl" style="color:var(--gold2);display:flex;align-items:center;justify-content:space-between;gap:8px">🎓 Entraînement mulligan'
+    +'<span style="font-size:.74rem;color:var(--tx3)">Bonnes décisions : <b style="color:var(--gold2)">'+T.correct+'/'+T.rounds+'</b></span></div>';
+  // Sélecteur de matchup
+  h+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px">';
+  h+='<button onclick="htTrainSetMatchup(\'random\')" style="font-size:.7rem;padding:3px 9px;border-radius:7px;cursor:pointer;border:.5px solid '+(T.matchup==='random'?'var(--gold2)':'var(--bd2)')+';background:'+(T.matchup==='random'?'rgba(201,168,76,.16)':'var(--s3)')+';color:'+(T.matchup==='random'?'var(--gold2)':'var(--tx2)')+'">🎲 Aléatoire</button>';
+  Object.keys(_HT_MATCHUPS).forEach(function(k){
+    var on=T.matchup===k;
+    h+='<button onclick="htTrainSetMatchup(\''+k+'\')" style="font-size:.7rem;padding:3px 9px;border-radius:7px;cursor:pointer;border:.5px solid '+(on?'var(--gold2)':'var(--bd2)')+';background:'+(on?'rgba(201,168,76,.16)':'var(--s3)')+';color:'+(on?'var(--gold2)':'var(--tx2)')+'">'+_HT_MATCHUPS[k]+'</button>';
+  });
+  h+='</div>';
+  h+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:8px">Adversaire de cette main : <b style="color:var(--gold2)">'+(_HT_MATCHUPS[T.curMatchup]||T.curMatchup)+'</b></div>';
+  // La main
+  h+='<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:10px">';
+  T.hand.forEach(function(c){
+    var m=_anaData[(c.name||'').toLowerCase()]||{};
+    var tl=(m.typeLine||'').toLowerCase();
+    var isLand=tl.indexOf('land')>=0;
+    h+='<div onmouseover="htShowZoom(\''+escJs(c.name)+'\',event)" onmousemove="htMoveZoom(event)" onmouseout="htHideZoom()" style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:'+(isLand?'rgba(100,160,90,.1)':'rgba(255,255,255,.03)')+';border:.5px solid var(--bd);border-radius:6px;font-size:.8rem;cursor:help">'
+      +'<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>'
+      +'<span style="font-size:.66rem;color:var(--tx3)">'+(isLand?'Terrain':'CMC '+(m.cmc||0))+'</span>'
+      +'</div>';
+  });
+  h+='</div>';
+  if(!T.answered){
+    h+='<div style="font-size:.8rem;color:var(--tx2);margin-bottom:6px">Gardes-tu cette main de 7 ?</div>';
+    h+='<div style="display:flex;gap:8px">'
+      +'<button class="btn btnp" style="flex:1" onclick="htTrainAnswer(\'keep\')">✓ Garder</button>'
+      +'<button class="btn btnrd" style="flex:1" onclick="htTrainAnswer(\'mull\')">✗ Mulligan</button></div>';
+  }else{
+    var ev=T.eval,good=T.userChoice===ev.verdict;
+    var col=good?'var(--gr2)':'var(--rd2)';
+    h+='<div style="padding:9px 11px;border-radius:8px;border:.5px solid '+col+';background:'+(good?'rgba(100,200,120,.1)':'rgba(220,80,80,.1)')+';margin-bottom:8px">';
+    h+='<div style="font-size:.86rem;font-weight:600;color:'+col+';margin-bottom:3px">'+(good?'✓ Bon choix !':'✗ Décision à revoir')+'</div>';
+    h+='<div style="font-size:.74rem;color:var(--tx2)">Ton choix : <b>'+(T.userChoice==='keep'?'Garder':'Mulligan')+'</b> · Recommandation : <b style="color:'+col+'">'+(ev.verdict==='keep'?'Garder':'Mulligan')+'</b></div>';
+    h+='</div>';
+    h+='<div style="font-size:.76rem;color:var(--tx2);line-height:1.6;margin-bottom:8px">';
+    ev.reasons.forEach(function(r){h+='<div>• '+esc(r)+'</div>';});
+    h+='</div>';
+    h+='<button class="btn btnp" style="width:100%" onclick="htTrainNewHand()">Main suivante →</button>';
+  }
+  h+='</div>';
+  el.innerHTML=h;
 }
 
 function htDraw(n){
