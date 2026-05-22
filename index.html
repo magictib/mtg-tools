@@ -16526,73 +16526,166 @@ function _limGenInto(append){
     if(!append)_limPool=[];
     for(var i=0;i<n;i++)_limPool=_limPool.concat(_boosterGen(buckets));
     if(st)st.textContent='✓ '+(append?'+1 booster':'Scellé ouvert')+' — '+_limPool.length+' cartes dans le pool';
-    _limRenderPool();
+    _limShowBuilderIn('lim-pool',_limPool,'Scellé '+_limSetName,'sealed');
   });
 }
 function limOpenSealed(){_limGenInto(false);}
 function limOpenBooster(){_limGenInto(true);}
-function _limRenderPool(){
-  var el=document.getElementById('lim-pool');if(!el)return;
-  if(!_limPool.length){el.innerHTML='';return;}
-  var rOrd={mythic:0,rare:1,uncommon:2,common:3};
-  var sorted=_limPool.slice().sort(function(a,b){
-    var ra=rOrd[a.rarity]!=null?rOrd[a.rarity]:9,rb=rOrd[b.rarity]!=null?rOrd[b.rarity]:9;
-    if(ra!==rb)return ra-rb;return (a.name||'').localeCompare(b.name||'');
-  });
-  var rc={mythic:0,rare:0,uncommon:0,common:0};
-  _limPool.forEach(function(c){if(rc[c.rarity]!=null)rc[c.rarity]++;});
-  var h='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;padding-top:8px;border-top:.5px solid var(--bd2)">';
-  h+='<span style="font-size:.82rem;color:var(--tx2)"><b>'+_limPool.length+'</b> cartes</span>';
-  h+='<span style="font-size:.72rem;color:#e07030">★ '+rc.mythic+'</span>';
-  h+='<span style="font-size:.72rem;color:#d4a017">R '+rc.rare+'</span>';
-  h+='<span style="font-size:.72rem;color:#b0c4de">U '+rc.uncommon+'</span>';
-  h+='<span style="font-size:.72rem;color:var(--tx3)">C '+rc.common+'</span>';
-  h+='<span style="flex:1"></span>';
-  h+='<button class="btn btnsm btnp" onclick="limPoolToDeck()">🛠 Construire ce pool</button>';
-  h+='<button class="btn btnsm" onclick="limCopyPool()">📋 Copier</button>';
-  h+='<button class="btn btnsm btnrd" onclick="limClearPool()">🗑 Vider</button>';
-  h+='</div>';
-  h+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
-  sorted.forEach(function(c){
+// ===== Constructeur de deck pour pools de Draft / Scellé =====
+// Le pool reste en mémoire (pas d'ajout automatique à la liste de decks).
+// L'utilisateur trie, filtre, déplace des cartes vers le deck, et peut
+// explicitement sauvegarder via "💾 Sauvegarder dans mes decks".
+var _limAll=[],_limDeckIds={},_limSortPri='cmc',_limSortSec='',_limColorFlt={W:1,U:1,B:1,R:1,G:1,C:1},_limBuilderName='',_limBuilderTarget='',_limBuilderSource='sealed';
+function _limColorGroup(c){var cs=c.colors||[];if(!cs.length)return 'C';if(cs.length>1)return 'M';return cs[0];}
+function _limColorOrder(c){var g=_limColorGroup(c);return {W:1,U:2,B:3,R:4,G:5,M:6,C:7}[g]||9;}
+function _limRarityOrder(c){return {mythic:1,rare:2,uncommon:3,common:4}[c.rarity]||9;}
+function _limTypeOf(c){
+  var tl=(c.type_line||'').toLowerCase();
+  if(tl.indexOf('creature')>=0)return 'creature';
+  if(tl.indexOf('planeswalker')>=0)return 'planeswalker';
+  if(tl.indexOf('instant')>=0)return 'instant';
+  if(tl.indexOf('sorcery')>=0)return 'sorcery';
+  if(tl.indexOf('enchantment')>=0)return 'enchantment';
+  if(tl.indexOf('artifact')>=0)return 'artifact';
+  if(tl.indexOf('land')>=0)return 'land';
+  return 'other';
+}
+function _limTypeOrder(c){return {creature:1,planeswalker:2,instant:3,sorcery:4,enchantment:5,artifact:6,land:7,other:8}[_limTypeOf(c)]||9;}
+function _limSortKey(c,k){switch(k){case 'cmc':return c.cmc!=null?c.cmc:99;case 'color':return _limColorOrder(c);case 'rarity':return _limRarityOrder(c);case 'type':return _limTypeOrder(c);case 'name':return (c.name||'').toLowerCase();}return 0;}
+function _limSortCmp(a,b){
+  var p=_limSortKey(a,_limSortPri),q=_limSortKey(b,_limSortPri);
+  if(p!==q)return p<q?-1:1;
+  if(_limSortSec&&_limSortSec!==_limSortPri){
+    var p2=_limSortKey(a,_limSortSec),q2=_limSortKey(b,_limSortSec);
+    if(p2!==q2)return p2<q2?-1:1;
+  }
+  var na=(a.name||'').toLowerCase(),nb=(b.name||'').toLowerCase();
+  return na<nb?-1:na>nb?1:0;
+}
+function _limGroupLabel(c,k){
+  switch(k){
+    case 'cmc':return 'CMC '+(c.cmc!=null?c.cmc:'?');
+    case 'color':return {W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',M:'Multicolore',C:'Incolore'}[_limColorGroup(c)]||'?';
+    case 'rarity':return {mythic:'Mythique',rare:'Rare',uncommon:'Inhabituelle',common:'Commune'}[c.rarity]||c.rarity;
+    case 'type':return {creature:'Créatures',planeswalker:'Planeswalkers',instant:'Éphémères',sorcery:'Rituels',enchantment:'Enchantements',artifact:'Artefacts',land:'Terrains',other:'Autres'}[_limTypeOf(c)]||'?';
+  }
+  return '';
+}
+function _limCardVisible(c){
+  var cs=c.colors||[];
+  if(!cs.length)return !!_limColorFlt.C;
+  return cs.every(function(col){return !!_limColorFlt[col];});
+}
+function _limShowBuilderIn(targetId,cards,baseName,source){
+  _limAll=cards.map(function(c,i){var copy={};for(var k in c){if(c.hasOwnProperty(k))copy[k]=c[k];}copy._id='lim_'+i+'_'+(c.id||c.name||'');return copy;});
+  _limDeckIds={};
+  _limBuilderName=baseName||'Limité';
+  _limBuilderTarget=targetId;
+  _limBuilderSource=source||'sealed';
+  _limRenderBuilder();
+}
+function _limAddToDeck(id){_limDeckIds[id]=true;_limRenderBuilder();}
+function _limRemoveFromDeck(id){delete _limDeckIds[id];_limRenderBuilder();}
+function _limSetSort(pri,sec){if(pri!==null&&pri!==undefined)_limSortPri=pri;if(sec!==undefined)_limSortSec=sec;_limRenderBuilder();}
+function _limToggleColor(c){_limColorFlt[c]=!_limColorFlt[c];_limRenderBuilder();}
+function _limClearDeck(){_limDeckIds={};_limRenderBuilder();}
+function _limRenderBuilder(){
+  var host=document.getElementById(_limBuilderTarget);if(!host)return;
+  var pool=_limAll.filter(function(c){return !_limDeckIds[c._id]&&_limCardVisible(c);});
+  var deck=_limAll.filter(function(c){return _limDeckIds[c._id];});
+  function cardThumb(c,pickFn){
     var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||{};
     var img=iu.small||iu.normal||'';
     var bc={mythic:'#e07030',rare:'#d4a017',uncommon:'#b0c4de',common:'var(--bd2)'}[c.rarity]||'var(--bd2)';
-    h+='<div style="width:96px" title="'+esc(c.name||'')+'">';
-    h+=img?'<img src="'+esc(img)+'" loading="lazy" data-no-localize="1" style="width:96px;border-radius:5px;display:block;border:1.5px solid '+bc+'">'
-         :'<div style="font-size:.66rem;color:var(--tx2);padding:4px;border:1.5px solid '+bc+';border-radius:5px">'+esc(c.name||'?')+'</div>';
-    h+='</div>';
+    var safeId=String(c._id).replace(/'/g,"\\'");
+    return img
+      ?'<img src="'+esc(img)+'" loading="lazy" data-no-localize="1" title="'+esc(c.name||'')+'" onclick="'+pickFn+'(\''+safeId+'\')" style="width:62px;border-radius:4px;cursor:pointer;border:1.5px solid '+bc+';display:block">'
+      :'<div onclick="'+pickFn+'(\''+safeId+'\')" style="width:62px;font-size:.6rem;color:var(--tx2);padding:3px;border:1.5px solid '+bc+';border-radius:4px;cursor:pointer">'+esc(c.name||'?')+'</div>';
+  }
+  function groupedHtml(cards,pickFn){
+    var sorted=cards.slice().sort(_limSortCmp);
+    if(_limSortPri==='name')return '<div style="display:flex;flex-wrap:wrap;gap:3px">'+sorted.map(function(c){return cardThumb(c,pickFn);}).join('')+'</div>';
+    var groups=[],lastG=null,buf=null;
+    sorted.forEach(function(c){
+      var lbl=_limGroupLabel(c,_limSortPri);
+      if(lbl!==lastG){buf={lbl:lbl,cards:[]};groups.push(buf);lastG=lbl;}
+      buf.cards.push(c);
+    });
+    return groups.map(function(g){
+      return '<div style="margin-bottom:6px">'
+        +'<div style="font-size:.62rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">'+esc(g.lbl)+' ('+g.cards.length+')</div>'
+        +'<div style="display:flex;flex-wrap:wrap;gap:3px">'+g.cards.map(function(c){return cardThumb(c,pickFn);}).join('')+'</div></div>';
+    }).join('');
+  }
+  // courbe et couleurs du deck
+  var curve={0:0,1:0,2:0,3:0,4:0,5:0,6:0,'7+':0},nonLand=0;
+  deck.forEach(function(c){if(c.type_line&&/Land/.test(c.type_line))return;nonLand++;var v=c.cmc||0;var k=v>=7?'7+':String(Math.floor(v));curve[k]=(curve[k]||0)+1;});
+  var colorsDeck={W:0,U:0,B:0,R:0,G:0};
+  deck.forEach(function(c){(c.colors||[]).forEach(function(col){if(colorsDeck[col]!=null)colorsDeck[col]++;});});
+  var h='';
+  h+='<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:.5px solid var(--bd2);border-bottom:.5px solid var(--bd2);margin-bottom:8px">';
+  h+='<span style="font-size:.86rem;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif">🛠 '+esc(_limBuilderName)+'</span>';
+  h+='<span style="font-size:.74rem;color:var(--tx3)">Pool : '+pool.length+' visibles · Deck : <b style="color:var(--gold2)">'+deck.length+'</b></span>';
+  h+='<span style="flex:1"></span>';
+  h+='<button class="btn btnsm btnp" onclick="limSaveToDecks()" title="Ajoute ce deck à ta liste pour l\'analyser et le jouer pour de vrai">💾 Sauvegarder dans mes decks</button>';
+  if(deck.length)h+='<button class="btn btnsm btnrd" onclick="_limClearDeck()" title="Vide le deck (renvoie les cartes au pool)">↩ Tout dans le pool</button>';
+  h+='</div>';
+  // Tris
+  function sortBtn(key,lbl,which){
+    var on=(which==='pri'?_limSortPri:_limSortSec)===key;
+    var fn=which==='pri'?'_limSetSort(\''+key+'\',undefined)':'_limSetSort(null,\''+key+'\')';
+    return '<button onclick="'+fn+'" style="font-size:.7rem;padding:2px 7px;border-radius:5px;cursor:pointer;border:.5px solid '+(on?'var(--gold2)':'var(--bd2)')+';background:'+(on?'rgba(201,168,76,.14)':'var(--s3)')+';color:'+(on?'var(--gold2)':'var(--tx2)')+'">'+lbl+'</button>';
+  }
+  h+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:.74rem">';
+  h+='<span style="color:var(--tx3)">Tri 1 :</span>';
+  ['cmc','color','rarity','type','name'].forEach(function(k){h+=sortBtn(k,{cmc:'CMC',color:'Couleur',rarity:'Rareté',type:'Type',name:'Nom'}[k],'pri');});
+  h+='</div>';
+  h+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:.74rem">';
+  h+='<span style="color:var(--tx3)">Tri 2 :</span>';
+  h+='<button onclick="_limSetSort(null,\'\')" style="font-size:.7rem;padding:2px 7px;border-radius:5px;cursor:pointer;border:.5px solid '+(!_limSortSec?'var(--gold2)':'var(--bd2)')+';background:'+(!_limSortSec?'rgba(201,168,76,.14)':'var(--s3)')+';color:'+(!_limSortSec?'var(--gold2)':'var(--tx2)')+'">—</button>';
+  ['cmc','color','rarity','type','name'].forEach(function(k){h+=sortBtn(k,{cmc:'CMC',color:'Couleur',rarity:'Rareté',type:'Type',name:'Nom'}[k],'sec');});
+  h+='</div>';
+  // Filtre couleur
+  h+='<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:.72rem">';
+  h+='<span style="color:var(--tx3)">Filtre couleur :</span>';
+  ['W','U','B','R','G','C'].forEach(function(c){
+    var on=!!_limColorFlt[c];
+    var ico={W:'⚪',U:'🔵',B:'⚫',R:'🔴',G:'🟢',C:'◇'}[c];
+    h+='<button onclick="_limToggleColor(\''+c+'\')" style="font-size:.7rem;padding:2px 8px;border-radius:5px;cursor:pointer;border:.5px solid '+(on?'var(--gold2)':'var(--bd2)')+';background:'+(on?'rgba(255,255,255,.05)':'var(--s3)')+';color:'+(on?'var(--tx)':'var(--tx3)')+'">'+ico+' '+c+'</button>';
   });
   h+='</div>';
-  el.innerHTML=h;
+  // Deux panneaux
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  h+='<div><div style="font-size:.78rem;color:var(--tx2);margin-bottom:4px"><b>📦 Pool ('+pool.length+')</b> <span style="color:var(--tx3)">— clique une carte pour l\'ajouter →</span></div>'+(pool.length?groupedHtml(pool,'_limAddToDeck'):'<div style="color:var(--tx3);font-style:italic;font-size:.75rem;padding:8px 0">Pool vide (ou tout filtré).</div>')+'</div>';
+  h+='<div><div style="font-size:.78rem;color:var(--tx2);margin-bottom:4px"><b>🃏 Deck ('+deck.length+')</b> <span style="color:var(--tx3)">— clique pour retirer ←</span></div>'+(deck.length?groupedHtml(deck,'_limRemoveFromDeck'):'<div style="color:var(--tx3);font-style:italic;font-size:.75rem;padding:8px 0">Aucune carte. Clique des cartes du pool.</div>')+'</div>';
+  h+='</div>';
+  if(deck.length){
+    h+='<div style="margin-top:10px;padding-top:8px;border-top:.5px solid var(--bd2);display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:.72rem;color:var(--tx3)">';
+    h+='<span><b>Courbe :</b> ';
+    ['0','1','2','3','4','5','6','7+'].forEach(function(k){h+='<span style="margin-right:5px">'+k+'<b style="color:var(--gold2)">×'+(curve[k]||0)+'</b></span>';});
+    h+='</span>';
+    var colChips='';
+    ['W','U','B','R','G'].forEach(function(k){if(colorsDeck[k])colChips+='<span style="margin-right:5px">'+{W:'⚪',U:'🔵',B:'⚫',R:'🔴',G:'🟢'}[k]+' '+colorsDeck[k]+'</span>';});
+    if(colChips)h+='<span><b>Couleurs :</b> '+colChips+'</span>';
+    h+='<span style="color:var(--tx2)">Format limité : 40 cartes minimum, ≈ 17 terrains.</span>';
+    h+='</div>';
+  }
+  host.innerHTML=h;
 }
-function _limPoolList(){
-  var counts={};
-  _limPool.forEach(function(c){var n=c.name||'';if(n)counts[n]=(counts[n]||0)+1;});
-  return Object.keys(counts).map(function(n){return counts[n]+' '+n;}).join('\n');
-}
-function limPoolToDeck(){
-  if(!_limPool.length)return;
-  var list=_limPoolList();
-  var name='Scellé '+_limSetName+' '+new Date().toLocaleDateString('fr-FR');
-  goTab('deck');
-  setTimeout(function(){
-    if(typeof newDeck==='function')newDeck();
-    var ni=document.getElementById('dnamein'),ta=document.getElementById('ta-name');
-    if(ni)ni.value=name;
-    if(ta)ta.value=list;
-    if(typeof toastSuccess==='function')toastSuccess('🎴 Pool scellé chargé — construis ton deck (40 cartes min.)');
-    var ed=document.getElementById('deditor');if(ed)ed.scrollIntoView({behavior:'smooth'});
-  },220);
-}
-function limCopyPool(){
-  if(!_limPool.length)return;
-  var txt=_limPoolList();
-  if(navigator.clipboard)navigator.clipboard.writeText(txt).then(function(){if(typeof mlToast==='function')mlToast('📋 Pool copié');});
-}
-function limClearPool(){
-  if(!_limPool.length)return;
-  _limPool=[];_limRenderPool();
-  var st=document.getElementById('lim-status');if(st)st.textContent='';
+function limSaveToDecks(){
+  var deck=_limAll.filter(function(c){return _limDeckIds[c._id];});
+  if(!deck.length){if(typeof toastError==='function')toastError('Ton deck est vide.');return;}
+  var counts={};deck.forEach(function(c){var n=c.name||'';if(n)counts[n]=(counts[n]||0)+1;});
+  var raw=Object.keys(counts).map(function(n){return counts[n]+' '+n;}).join('\n');
+  var def=_limBuilderName+' '+new Date().toLocaleDateString('fr-FR');
+  var name=prompt('Nom du deck à sauvegarder dans Mes decks :',def);
+  if(!name||!name.trim())return;
+  name=name.trim();
+  var id=Date.now().toString();
+  var parsed=(typeof parseList==='function')?parseList(raw):[];
+  decks[id]={name:name,rawName:raw,cards:parsed,owner:0,ownerUid:(typeof userId!=='undefined'?userId:''),format:_limBuilderSource==='draft'?'draft':'sealed',commander:null,colors:[],updatedAt:Date.now()};
+  if(typeof saveDecks==='function')saveDecks();
+  if(typeof toastSuccess==='function')toastSuccess('💾 « '+name+' » enregistré dans Mes decks');
 }
 // ===== Draft solo contre des bots =====
 var _draft=null,_draftSeats=8;
@@ -16666,10 +16759,8 @@ function _draftRender(){
   var done=_draft.round>=3&&!myPack.length;
   var h='';
   if(done){
-    h+='<div style="padding:8px 0;font-size:.9rem;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif">✓ Draft terminé — '+_draft.myPicks.length+' cartes draftées</div>';
-    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn btnsm btnp" onclick="draftPoolToDeck()">🛠 Construire ce deck</button><button class="btn btnsm" onclick="draftCopyPool()">📋 Copier</button></div>';
-    h+=_draftCardGrid(_draft.myPicks,null);
-    area.innerHTML=h;return;
+    _limShowBuilderIn('draft-area',_draft.myPicks,'Draft '+_draft.setName,'draft');
+    return;
   }
   h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding-top:8px;border-top:.5px solid var(--bd2)">';
   h+='<b style="color:var(--gold2);font-size:.82rem">Ronde '+_draft.round+'/3 · Pick '+_draft.pick+'</b>';
