@@ -2308,6 +2308,19 @@ details > summary::-webkit-details-marker{display:none}
         <div id="admin-topdeck-msg" style="font-size:.72rem;color:var(--gr2);margin-top:5px;min-height:.9rem"></div>
       </div>
     </div>
+    <!-- Lien d'achat / affiliation -->
+    <div style="margin:8px 0;border:.5px solid var(--bd2);border-radius:8px">
+      <div style="padding:8px 10px;background:var(--s3);font-family:'Goudy Mediaeval',serif;color:var(--tx2);font-size:.76rem;letter-spacing:.06em">🛒 LIEN D'ACHAT / AFFILIATION</div>
+      <div style="padding:10px">
+        <div style="font-size:.72rem;color:var(--tx3);margin-bottom:8px;line-height:1.5">Modèle d'URL d'achat des cartes — <code>{q}</code> = nom de la carte. Colle ici ton lien affilié (Cardmarket / TCGplayer) une fois ton programme d'affiliation rejoint : chaque achat depuis les listes rapportera une commission. Partagé pour tous les utilisateurs.</div>
+        <input type="text" id="admin-buylink-tpl" placeholder="https://www.cardmarket.com/en/Magic/Products/Search?searchString={q}" style="width:100%;margin-bottom:6px;font-size:.78rem">
+        <div style="display:flex;gap:6px">
+          <button class="btn btnsm btnp" onclick="adminSaveBuyLink()" style="font-size:.76rem">💾 Sauvegarder</button>
+          <button class="btn btnsm" onclick="adminResetBuyLink()" style="font-size:.76rem">↩ Cardmarket par défaut</button>
+        </div>
+        <div id="admin-buylink-msg" style="font-size:.72rem;color:var(--gr2);margin-top:5px;min-height:.9rem"></div>
+      </div>
+    </div>
     <!-- Users section -->
     <div style="font-family:'Goudy Mediaeval',serif;color:var(--tx2);font-size:.76rem;letter-spacing:.06em;margin-bottom:8px">👥 UTILISATEURS</div>
     <div id="admin-user-list"><div style="color:var(--tx3);font-size:.82rem">Chargement…</div></div>
@@ -6159,6 +6172,7 @@ function openAdminPanel(){
   _loadAdminScryfallStatus();
   _loadAdminImportUsers();
   _loadAdminTopdeckStatus();
+  var bf=document.getElementById('admin-buylink-tpl');if(bf)bf.value=(_buyLinkTpl&&_buyLinkTpl!==_BUYLINK_DEFAULT)?_buyLinkTpl:'';
 }
 function adminSaveTopdeckKey(){
   var key=document.getElementById('admin-topdeck-key').value.trim();
@@ -12710,6 +12724,7 @@ function _purRenderRoleSection(title,subtitle,color,items,actionsBuilder){
         +'</div>'
         +'<div style="flex-shrink:0;text-align:right;min-width:60px">'+_purPriceBadge(c)+'</div>'
         +'<div style="flex-shrink:0">'+_purPossessBadge(c)+'</div>'
+        +'<a href="'+esc(_buyLink(c.name))+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Acheter cette carte" style="flex-shrink:0;text-decoration:none;font-size:.95rem">🛒</a>'
         +'<div style="display:flex;gap:4px;flex-shrink:0">'+actionsBuilder(c,sid)+'</div>'
         +'</div>';
       _zoomList.push({nl:c.nl,name:c.name});
@@ -22606,15 +22621,36 @@ function _getWorkerUrl(){
   return localStorage.getItem('ml_worker_url')||_sharedWorkerUrl||'';
 }
 
+// Lien d'achat — modèle d'URL configurable, {q} = nom de carte. On peut y mettre
+// un lien affilié (Cardmarket / TCGplayer) une fois le programme d'affiliation rejoint.
+var _BUYLINK_DEFAULT='https://www.cardmarket.com/en/Magic/Products/Search?searchString={q}';
+var _buyLinkTpl=_BUYLINK_DEFAULT;
+function _buyLink(name){return _buyLinkTpl.replace('{q}',encodeURIComponent(name||''));}
 function _loadSharedWorkerUrl(){
   db.collection('meta').doc('config').get().then(function(doc){
-    if(doc.exists&&doc.data().workerUrl){
-      _sharedWorkerUrl=doc.data().workerUrl;
-      if(!localStorage.getItem('ml_worker_url')){
-        _applyWorkerUrl(_sharedWorkerUrl);
-      }
+    if(!doc.exists)return;
+    var d=doc.data()||{};
+    if(d.workerUrl){
+      _sharedWorkerUrl=d.workerUrl;
+      if(!localStorage.getItem('ml_worker_url'))_applyWorkerUrl(_sharedWorkerUrl);
     }
+    if(d.buyLinkTpl&&d.buyLinkTpl.indexOf('{q}')>=0)_buyLinkTpl=d.buyLinkTpl;
   }).catch(function(){});
+}
+function adminSaveBuyLink(){
+  var f=document.getElementById('admin-buylink-tpl'),msg=document.getElementById('admin-buylink-msg');
+  var tpl=((f&&f.value)||'').trim();
+  if(tpl&&tpl.indexOf('{q}')<0){if(msg){msg.style.color='var(--rd2)';msg.textContent='Le modèle doit contenir {q} (emplacement du nom de carte).';}return;}
+  _buyLinkTpl=tpl||_BUYLINK_DEFAULT;
+  db.collection('meta').doc('config').set({buyLinkTpl:_buyLinkTpl},{merge:true})
+    .then(function(){if(msg){msg.style.color='var(--gr2)';msg.textContent='✓ Lien d\'achat enregistré.';}})
+    .catch(function(e){if(msg){msg.style.color='var(--rd2)';msg.textContent='Erreur : '+(e&&e.message||e);}});
+}
+function adminResetBuyLink(){
+  _buyLinkTpl=_BUYLINK_DEFAULT;
+  var f=document.getElementById('admin-buylink-tpl');if(f)f.value=_BUYLINK_DEFAULT;
+  db.collection('meta').doc('config').set({buyLinkTpl:_BUYLINK_DEFAULT},{merge:true}).catch(function(){});
+  var msg=document.getElementById('admin-buylink-msg');if(msg){msg.style.color='var(--gr2)';msg.textContent='✓ Réinitialisé sur Cardmarket.';}
 }
 
 function initRulesTab(){
