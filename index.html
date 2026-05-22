@@ -30763,6 +30763,38 @@ function _anaApplyCommanderSignals(o,bump,labels){
   if(/graveyard/.test(o)){bump('graveyard',1.7);lbl('Cimetière');}
   if(/create .{0,30}\btokens?\b|populate/.test(o)){bump('tokens',1.8);lbl('Tokens');}
 }
+// ----- Niveau de puissance estimé (bracket EDH 1-5) -----
+var _ANA_POWER_GC=['rhystic study','mystic remora','smothering tithe','cyclonic rift','demonic tutor','vampiric tutor','imperial seal','mana drain','force of will','fierce guardianship','the one ring','jeweled lotus','mana crypt','ancient tomb','gaea\'s cradle','necropotence','bolas\'s citadel','underworld breach','thassa\'s oracle','expropriate','grand arbiter augustin iv','drannith magistrate','opposition agent','enlightened tutor','survival of the fittest','grim monolith','mox diamond','chrome mox','jeska\'s will','natural order','green sun\'s zenith','consecrated sphinx','notion thief','aura shards','crop rotation','the tabernacle at pendrell vale','glacial chasm'];
+var _ANA_POWER_FASTMANA=['sol ring','mana crypt','mana vault','grim monolith','mox diamond','chrome mox','mox opal','jeweled lotus','lotus petal','dark ritual','cabal ritual','jeska\'s will','simian spirit guide','elvish spirit guide','lion\'s eye diamond','arcane signet'];
+var _ANA_POWER_LABELS=['','Exhibition','Cœur','Amélioré','Optimisé','cEDH'];
+function _anaDeckPower(deck){
+  if(!deck||!deck.cards||!deck.cards.length)return null;
+  var gc=0,fastMana=0,tutors=0,extraTurns=0,landDenial=0,freeSpells=0,n=0,cmcSum=0,gcNames=[];
+  deck.cards.forEach(function(c){
+    var nl=c.nl||stripDFC(c.name||'').toLowerCase();
+    var meta=_anaData[nl];
+    var o=(meta&&meta.oracleText||'').toLowerCase();
+    var q=c.qty||1;
+    if(meta&&!meta.isLand&&!(meta.tags&&meta.tags.isLand)){n+=q;cmcSum+=(meta.cmc||0)*q;}
+    if(_ANA_POWER_GC.indexOf(nl)>=0){gc+=q;if(gcNames.indexOf(c.name)<0)gcNames.push(c.name);}
+    if(_ANA_POWER_FASTMANA.indexOf(nl)>=0)fastMana+=q;
+    if(o){
+      if(/search your library for [^.]*\b(card|land|creature|artifact)\b/.test(o)&&/(your hand|the battlefield|onto the battlefield)/.test(o))tutors+=q;
+      if(/take an extra turn|extra turn after this one/.test(o))extraTurns+=q;
+      if(/destroy all lands|each player sacrifices all lands/.test(o))landDenial+=q;
+      if(/without paying its mana cost|without paying their mana costs/.test(o))freeSpells+=q;
+    }
+  });
+  var avgCmc=n?cmcSum/n:0;
+  var pts=gc*3+fastMana*0.8+tutors*0.7+extraTurns*1.6+landDenial*2.2+freeSpells*1.3+Math.max(0,(3.2-avgCmc))*3;
+  var bracket;
+  if(gc>=6||pts>=42)bracket=5;
+  else if(gc>=4||pts>=26)bracket=4;
+  else if(gc>=1||pts>=12)bracket=3;
+  else if(pts>=5)bracket=2;
+  else bracket=1;
+  return {bracket:bracket,gc:gc,gcNames:gcNames,fastMana:fastMana,tutors:tutors,extraTurns:extraTurns,landDenial:landDenial,freeSpells:freeSpells,avgCmc:avgCmc,pts:Math.round(pts)};
+}
 // Thèmes inférés des CARTES du deck — robuste : fonctionne même si le commandant
 // n'est pas identifié ou pas en cache. Un deck rempli de payoffs de gain de vie
 // EST un deck lifegain, quel que soit son commandant.
@@ -33181,6 +33213,25 @@ function anaRender(deckId){
       _hdr+=' <button onclick="_anaToggleCmdText(\''+escJs(deckId)+'\')" title="Voir / corriger le texte du commandant lu par le moteur" style="font-size:10px;padding:1px 8px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">📜 Texte commandant</button>';
     }
     _hdr+='</div>';
+    // Niveau de puissance estimé (bracket EDH 1-5)
+    var _pw=_anaDeckPower(deck);
+    if(_pw){
+      var _pwLbl=_ANA_POWER_LABELS[_pw.bracket]||'';
+      var _pwCol=_pw.bracket>=5?'var(--rd2)':_pw.bracket>=4?'var(--am)':_pw.bracket>=3?'var(--gold2)':'var(--gr2)';
+      var _pwBits=[];
+      if(_pw.gc)_pwBits.push(_pw.gc+' game changer'+(_pw.gc>1?'s':''));
+      if(_pw.fastMana)_pwBits.push(_pw.fastMana+' fast mana');
+      if(_pw.tutors)_pwBits.push(_pw.tutors+' tuteur'+(_pw.tutors>1?'s':''));
+      if(_pw.extraTurns)_pwBits.push(_pw.extraTurns+' tour'+(_pw.extraTurns>1?'s':'')+' sup.');
+      if(_pw.landDenial)_pwBits.push(_pw.landDenial+' destruction de terrains');
+      if(_pw.freeSpells)_pwBits.push(_pw.freeSpells+' sort'+(_pw.freeSpells>1?'s':'')+' gratuit'+(_pw.freeSpells>1?'s':''));
+      _pwBits.push('CMC moyen '+_pw.avgCmc.toFixed(2));
+      var _pwTip='Estimation indicative (brackets WotC) — '+_pwBits.join(' · ');
+      _hdr+='<div style="margin-top:6px;font-size:10px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em">';
+      _hdr+='⚔ NIVEAU : <span title="'+esc(_pwTip)+'" style="color:'+_pwCol+';cursor:help">Bracket '+_pw.bracket+'/5 — '+esc(_pwLbl)+'</span>';
+      if(_pw.gcNames&&_pw.gcNames.length)_hdr+=' <span style="color:var(--tx3)">· '+esc(_pw.gcNames.slice(0,4).join(', '))+(_pw.gcNames.length>4?'…':'')+'</span>';
+      _hdr+='</div>';
+    }
     // Panneau de vérification / correction du texte du commandant
     if(_anaCurrentThemes.cmdName){
       var _ctNl=_anaCurrentThemes.cmdName.split(' // ')[0].toLowerCase();
