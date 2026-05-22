@@ -3116,6 +3116,9 @@ details > summary::-webkit-details-marker{display:none}
 </style>
 
 <!-- BUILDER -->
+<!-- LISTES PARTAGÉES (espace Social) — #purchase-mgr y est déplacé au runtime -->
+<div class="page" id="pg-lists"></div>
+
 <div class="page" id="pg-build">
 
 <!-- Barre de navigation partagée : toujours au même endroit -->
@@ -6224,7 +6227,6 @@ function toggleNotifPanel(){openHubTab('notifs');}
 // Ouvre une liste partagée depuis une notification d'invitation
 function _openSharedListFromNotif(listId){
   if(typeof closeHub==='function')closeHub();
-  goTab('build');
   if(typeof openPurchaseMgr==='function')openPurchaseMgr();
   if(listId&&typeof selectPurList==='function'){
     // Laisse le temps à la souscription Firestore de récupérer la liste
@@ -6691,7 +6693,7 @@ var _NAV_SPACES=[
   {id:'collection',pages:[{id:'coll',label:'◈ Ma collection'},{id:'scry',label:'🔮 Bibliothèque'}]},
   {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{id:'analyse',label:'📊 Analyse'}]},
   {id:'play',pages:[{id:'arena',label:'⚡ Arène'},{id:'meta',label:'🌐 Méta'}]},
-  {id:'social',pages:[{id:'trade',label:'🤝 Échanges & listes'}]},
+  {id:'social',pages:[{id:'trade',label:'🤝 Échanges'},{id:'lists',label:'🛒 Listes partagées'}]},
   {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'},{id:'proxy',label:'🖨 Proxys'},{id:'banlist',label:'🚫 Banlists'}]}
 ];
 var _navPageToSpace={};
@@ -6735,6 +6737,7 @@ function goTab(id, fromHistory) {
     if(id==='meta'&&typeof metaInit==='function')metaInit();
     if(id==='scry'&&typeof loadScryfallSets==='function')loadScryfallSets();
     if(id==='trade'&&typeof renderTradePage==='function')renderTradePage();
+    if(id==='lists'){_ensurePurchaseMgrPlaced();if(typeof loadPurchaseLists==='function')loadPurchaseLists();if(typeof renderPurchaseMgr==='function')renderPurchaseMgr();}
     if(id==='rules'&&typeof initRulesTab==='function')initRulesTab();
     if(id==='home')renderHome();
     if(id==='arena')arSetMode(_arMode||'counter');
@@ -7009,7 +7012,8 @@ function renderHome(){
     +'<button class="home-action" onclick="goTab(\'arena\')"><span>⚔</span>Lancer l\'Arène</button>'
     +'<button class="home-action" onclick="goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit()"><span>📊</span>Analyser un deck</button>'
     +'<button class="home-action" onclick="goTab(\'coll\')"><span>◈</span>Ma collection</button>'
-    +'<button class="home-action" onclick="goTab(\'trade\');if(typeof renderTradePage===\'function\')renderTradePage()"><span>🤝</span>Échanges &amp; listes</button>'
+    +'<button class="home-action" onclick="goTab(\'trade\');if(typeof renderTradePage===\'function\')renderTradePage()"><span>🤝</span>Échanges</button>'
+    +'<button class="home-action" onclick="openPurchaseMgr()"><span>🛒</span>Listes partagées</button>'
     +'<button class="home-action" onclick="openProfile()"><span>👤</span>Profil</button>'
     +'<button class="home-action" onclick="openTrophies()"><span>🏆</span>Trophées</button>'
     +'<button class="home-action" onclick="openPlaygroup()"><span>👥</span>Playgroup</button>'
@@ -8419,8 +8423,6 @@ function _bldUpdateTopbar(isPurchaseMgr){
   if(propBtn&&!isPurchaseMgr)propBtn.style.display='none';
 }
 function _bldTopbarBack(){
-  var pm=document.getElementById('purchase-mgr');
-  if(pm&&pm.style.display!=='none'){closePurchaseMgr();return;}
   _bldBackToWizard();
 }
 function _bldEntryCmd(title){
@@ -13507,26 +13509,22 @@ function importAchatToPurchase(){
   renderPurchaseMgr();
 }
 
+// Déplace le bloc #purchase-mgr (jadis dans l'onglet Construction) vers sa
+// propre page de l'espace Social, la première fois qu'on en a besoin.
+function _ensurePurchaseMgrPlaced(){
+  var pm=document.getElementById('purchase-mgr');
+  var pl=document.getElementById('pg-lists');
+  if(pm&&pl&&pm.parentNode!==pl){
+    pl.appendChild(pm);
+    pm.style.display='';
+  }
+}
 function openPurchaseMgr(){
   loadPurchaseLists();
-  var pm=document.getElementById('purchase-mgr');
-  var wiz=document.getElementById('bld-wizard');
-  var cols=document.getElementById('bld-cols');
-  var cmd=document.getElementById('bld-cmd-zone');
-  var blank=document.getElementById('bld-blank-zone');
-  if(pm)pm.style.display='';
-  if(wiz)wiz.style.display='none';
-  if(cols)cols.style.display='none';
-  if(cmd)cmd.style.display='none';
-  if(blank)blank.style.display='none';
-  _bldUpdateTopbar(true);
+  goTab('lists');
 }
-
 function closePurchaseMgr(){
-  var pm=document.getElementById('purchase-mgr');
-  if(pm)pm.style.display='none';
-  if(typeof _bldView==='undefined'||!_bldView)_bldView='wizard';
-  if(typeof _bldRefreshView==='function')_bldRefreshView();
+  if(typeof goTab==='function')goTab('trade');
 }
 
 function renderPurListSel(){
@@ -14228,7 +14226,7 @@ function qkBuildItems(){
   if(typeof _purchaseLists==='object'){
     Object.keys(_purchaseLists).forEach(function(id){
       var l=_purchaseLists[id];if(!l)return;
-      items.push({kind:'list',label:l.name||'(sans nom)',sub:'Liste partagée · '+((l.cards||[]).length)+' cartes',action:function(){if(typeof goTab==='function')goTab('build');if(typeof openPurchaseMgr==='function')openPurchaseMgr();if(typeof selectPurList==='function')selectPurList(id);}});
+      items.push({kind:'list',label:l.name||'(sans nom)',sub:'Liste partagée · '+((l.cards||[]).length)+' cartes',action:function(){if(typeof openPurchaseMgr==='function')openPurchaseMgr();if(typeof selectPurList==='function')selectPurList(id);}});
     });
   }
   // Amis
