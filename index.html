@@ -3631,6 +3631,10 @@ details > summary::-webkit-details-marker{display:none}
   <div class="card" id="bld-deckcard" style="display:none">
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem;flex-wrap:wrap">
       <div class="lbl" style="margin-bottom:0">Deck — <span id="bld-main-n">0</span></div>
+      <div style="display:flex;gap:3px;align-items:center">
+        <button class="dm active" id="bld-dv-list" onclick="bldSetDeckView('list')" title="Affichage en liste">≡ Liste</button>
+        <button class="dm" id="bld-dv-img" onclick="bldSetDeckView('image')" title="Affichage en images — permet de changer l'art des cartes">🖼 Images</button>
+      </div>
       <div style="display:flex;gap:3px;margin-left:auto;flex-wrap:wrap;align-items:center">
         <button class="dm active" id="bld-sort-type" onclick="setBldSort('type',this)">Type</button>
         <button class="dm" id="bld-sort-cmc" onclick="setBldSort('cmc',this)">CMC</button>
@@ -24957,8 +24961,9 @@ function bldLoadSelectedDeck(){
 }
 function bldSaveDeck(){
   if(!bldMain.length){toastError('Deck vide');return;}
-  var mainLines=bldMain.map(function(c){return c.qty+'x '+c.name;});
-  var sideLines=bldSide.map(function(c){return c.qty+'x '+c.name;});
+  function _bldLine(c){return c.qty+'x '+c.name+(c.set&&c.num?' ('+c.set+') '+c.num:'');}
+  var mainLines=bldMain.map(_bldLine);
+  var sideLines=bldSide.map(_bldLine);
   var raw=mainLines.join('\n')+(sideLines.length?'\n// Sideboard\n'+sideLines.join('\n'):'');
   if(bldCurDeckId&&decks[bldCurDeckId]){
     var _prev=decks[bldCurDeckId];
@@ -25481,6 +25486,60 @@ function bldShowCardImg(name){
   ov.innerHTML='<img src="'+d.img+'" alt="'+esc(name)+'" style="max-height:85vh;max-width:90vw;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.9)">';
   ov.style.display='flex';
 }
+// ----- Builder : mode d'affichage Liste / Images -----
+var _bldDeckView='list';
+function bldSetDeckView(v){
+  _bldDeckView=v;
+  var lb=document.getElementById('bld-dv-list'),ib=document.getElementById('bld-dv-img');
+  if(lb)lb.classList.toggle('active',v==='list');
+  if(ib)ib.classList.toggle('active',v==='image');
+  renderBldDecks();
+}
+function _bldImageGrid(zone,section){
+  if(!zone||!zone.length)return '<div style="color:var(--tx3);font-style:italic;font-size:.78rem;padding:8px 2px">Vide — cherche des cartes pour en ajouter.</div>';
+  return '<div style="display:flex;flex-wrap:wrap;gap:8px">'+zone.map(function(c){
+    var nm=(c.name||'').replace(/'/g,'&#39;');
+    var lc=(c.name||'').toLowerCase();
+    var img=c.img||(bldData[lc]&&bldData[lc].img)||('https://api.scryfall.com/cards/named?format=image&version=normal&fuzzy='+encodeURIComponent(c.name||''));
+    return '<div style="width:132px;position:relative">'
+      +'<img src="'+esc(img)+'" loading="lazy" title="'+esc(c.name||'')+'" style="width:132px;border-radius:8px;display:block">'
+      +(c.qty>1?'<span style="position:absolute;top:5px;left:5px;background:rgba(0,0,0,.82);color:#fff;border-radius:5px;padding:1px 6px;font-size:.72rem;font-weight:600">×'+c.qty+'</span>':'')
+      +'<button onclick="bldPickArt(\''+escJs(c.name||'')+'\')" title="Changer la version / l\'art" style="position:absolute;bottom:5px;left:5px;background:rgba(0,0,0,.84);border:.5px solid var(--gold);color:var(--gold2);border-radius:6px;font-size:.66rem;padding:2px 7px;cursor:pointer">🎨 Version</button>'
+      +'<button onclick="bldRemFrom(\''+nm+'\',\''+section+'\')" title="Retirer du deck" style="position:absolute;top:5px;right:5px;background:rgba(200,60,60,.88);border:none;color:#fff;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:.72rem;line-height:1">✕</button>'
+      +'</div>';
+  }).join('')+'</div>';
+}
+function bldPickArt(name){
+  if(!name)return;
+  if(typeof toastInfo==='function')toastInfo('Chargement des versions de '+name+'…');
+  fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent('!"'+name+'"')+'&unique=prints&order=released')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var prints=(d.data||[]).filter(function(c){return !!_proxyCardImg(c);});
+      if(!prints.length){if(typeof toastError==='function')toastError('Aucune version trouvée.');return;}
+      var html='<div style="font-size:.74rem;color:var(--tx3);text-align:center;margin-bottom:8px">'+prints.length+' version(s) — clique pour choisir l\'art</div>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:8px;max-height:58vh;overflow-y:auto;justify-content:center">';
+      prints.forEach(function(c){
+        var img=_proxyCardImg(c);
+        var setLbl=((c.set||'').toUpperCase())+' #'+(c.collector_number||'');
+        html+='<div onclick="bldApplyArt('+esc(JSON.stringify(name))+','+esc(JSON.stringify(img))+','+esc(JSON.stringify(c.set||''))+','+esc(JSON.stringify(c.collector_number||''))+')" style="width:120px;cursor:pointer;text-align:center">'
+          +'<img src="'+esc(img)+'" loading="lazy" style="width:116px;border-radius:6px;display:block">'
+          +'<div style="font-size:8.5px;color:var(--tx3);margin-top:2px">'+esc(setLbl)+'</div></div>';
+      });
+      html+='</div>';
+      if(typeof mlAlert==='function')mlAlert('Versions — '+name,html,{html:true,okLabel:'Fermer'});
+    }).catch(function(){if(typeof toastError==='function')toastError('Erreur de chargement des versions.');});
+}
+function bldApplyArt(name,img,set,num){
+  if(typeof _mlClose==='function')_mlClose(null);
+  var lc=(name||'').toLowerCase();
+  [bldMain,bldSide,bldAvoir].forEach(function(zone){
+    zone.forEach(function(c){if((c.name||'')===name){c.img=img;c.set=set;c.num=num;}});
+  });
+  if(bldData[lc])bldData[lc].img=img;
+  renderBldDecks();
+  if(typeof toastSuccess==='function')toastSuccess('Version mise à jour');
+}
 function renderBldDecks(){
   var total=bldMain.reduce(function(s,c){return s+c.qty;},0);
   var el;
@@ -25582,6 +25641,14 @@ function renderBldDecks(){
       +(c.cmc!=null&&c.type&&c.type.indexOf('Land')<0?'<span style="font-size:.66rem;color:var(--tx3);min-width:14px;text-align:right">'+c.cmc+'</span>':'')
       +'<span onpointerdown="event.stopPropagation()" onclick="bldRemFrom(\''+nm+'\',\''+section+'\')" style="font-size:.7rem;color:var(--rd2);cursor:pointer;padding:0 4px;line-height:1;opacity:.6">✕</span>'
       +'</div>';
+  }
+  // Mode Images : grilles d'images (avec sélecteur d'art) au lieu des lignes de texte
+  if(_bldDeckView==='image'){
+    el=document.getElementById('bld-mainlist');if(el)el.innerHTML=_bldImageGrid(bldMain,'main');
+    el=document.getElementById('bld-sideblist');if(el)el.innerHTML=_bldImageGrid(bldSide,'sideb');
+    el=document.getElementById('bld-avoirlist');if(el)el.innerHTML=_bldImageGrid(bldAvoir,'avoir');
+    bldUpdateResMaxed();
+    return;
   }
   // Main deck : tri + groupement
   var sorted=bldMain.slice();
