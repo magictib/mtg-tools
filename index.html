@@ -26939,6 +26939,11 @@ var _anaState=null;
 var _anaMissingCards=[];
 var _anaSimMode='duel'; // 'multi' = 40 PV / 20 tours | 'duel' = 20 PV / 14 tours
 var _anaOptMode='all'; // 'all' = toutes suggestions | 'collection' = cartes des decks uniquement
+// Détection de combos infinis : opt-in. Beaucoup de groupes n'aiment pas les combos
+// infinis (ça casse les parties entre amis) — la détection n'est donc jamais imposée
+// et n'alimente JAMAIS les suggestions de swap, c'est purement informatif.
+var _anaShowCombos=false;
+try{_anaShowCombos=localStorage.getItem('mtg_ana_combos')==='1';}catch(e){}
 var _anaBudgetMax=null; // null = pas de limite, sinon nombre EUR max par carte
 var _anaFormatOverride={}; // deckId → format string surchargé par l'utilisateur
 // ===== Snapshots de deck =====
@@ -27032,6 +27037,13 @@ function anaShowDiff(deckId,ts){
 function anaSetOptMode(mode){
   _anaOptMode=mode;
   var deckId=document.getElementById('ana-deck-sel').value;
+  if(deckId&&_anaState)try{anaRender(deckId);}catch(e){}
+}
+function anaToggleCombos(){
+  _anaShowCombos=!_anaShowCombos;
+  try{localStorage.setItem('mtg_ana_combos',_anaShowCombos?'1':'0');}catch(e){}
+  var sel=document.getElementById('ana-deck-sel');
+  var deckId=sel&&sel.value;
   if(deckId&&_anaState)try{anaRender(deckId);}catch(e){}
 }
 function anaSetBudget(maxStr){
@@ -28455,7 +28467,7 @@ var _ANA_TAB_RULES=[
   {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i]},
   {tab:'manabase',  pats:[/analyse des terrains/i,/manabase/i]},
   {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i]},
-  {tab:'strategy',  pats:[/combos d/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
+  {tab:'strategy',  pats:[/combos/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
   {tab:'versions',  pats:[/versions sauveg/i,/snapshot/i]}
 ];
 var _ANA_TAB_DEFS=[
@@ -32973,14 +32985,20 @@ function anaRender(deckId){
     html+='</div>';
     return html;
   })();
-  // === Détecteur de combos infinis ===
+  // === Détecteur de combos infinis (opt-in) ===
   var _comboHtml=(function(){
     var combos=_anaDetectCombos(deck);
     var active=combos.filter(function(c){return !c.partial;});
     var partial=combos.filter(function(c){return c.partial;});
-    if(!active.length&&!partial.length)return '';
+    var _tog=function(on){return '<button onclick="anaToggleCombos()" style="font-size:10px;padding:2px 9px;border-radius:8px;border:.5px solid var(--bd2);background:'+(on?'rgba(201,80,80,.12)':'rgba(201,168,76,.14)')+';color:'+(on?'var(--rd2)':'var(--gold2)')+';cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">'+(on?'Masquer':'Détecter les combos')+'</button>';};
+    // Désactivé par défaut : beaucoup de groupes n'apprécient pas les combos infinis.
+    if(!_anaShowCombos){
+      return '<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">⚡ Combos infinis '+_tog(false)+'</div>'
+        +'<div style="font-size:10.5px;color:var(--tx3);line-height:1.5;font-style:italic">Détection désactivée. Beaucoup de tables n\'aiment pas les combos infinis — active le scan uniquement si tu veux vérifier ton deck. La détection n\'influence jamais les suggestions de swap.</div></div>';
+    }
+    if(!active.length&&!partial.length)return '<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">⚡ Combos infinis '+_tog(true)+'</div><div style="font-size:11px;color:var(--gr2);padding:4px 0">✓ Aucun combo infini connu détecté dans ce deck.</div></div>';
     var typeCol={'Win':'#c95bf5','Dégâts ∞':'#f55b5b','Créatures ∞':'#5bf590','Mana ∞':'#cdb87a','Pioche ∞':'#5b8cf5','Boucle ETB':'#5bf590','Mill ∞':'#9060c0','Token x4':'#f5b95b'};
-    var html='<div class="card"><div class="lbl">⚡ Combos détectés</div>';
+    var html='<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">⚡ Combos détectés '+_tog(true)+'</div>';
     if(active.length){
       html+='<div style="font-size:11px;color:var(--gr2);margin-bottom:4px;font-weight:600">✓ Actifs ('+active.length+')</div>';
       active.forEach(function(c){
