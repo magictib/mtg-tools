@@ -6936,6 +6936,69 @@ function banlistShow(fmt,btn){
 // ============================================================
 // ACCUEIL — tableau de bord
 // ============================================================
+// ===== Accueil : tâches en cours =====
+function _homeTasks(){
+  var tasks=[];
+  // 1. Listes partagées à compléter
+  try{
+    var pls=(typeof _purchaseLists!=='undefined'&&_purchaseLists)||{};
+    Object.keys(pls).forEach(function(id){
+      var l=pls[id];if(!l||!l.cards)return;
+      var pending=l.cards.filter(function(c){return !(c.received||c.status==='delivered');})
+        .reduce(function(s,c){return s+(c.qty||1);},0);
+      if(pending>0)tasks.push({ico:'🛒',label:'Liste « '+(l.name||'sans nom')+' »',
+        sub:pending+' carte'+(pending>1?'s':'')+' à compléter',
+        action:'openPurchaseMgr();if(typeof selectPurList===\'function\')setTimeout(function(){selectPurList(\''+id+'\')},200)'});
+    });
+  }catch(e){}
+  // 2. Montages en cours
+  try{
+    Object.keys((typeof decks!=='undefined'&&decks)||{}).forEach(function(id){
+      var dk=decks[id];if(!dk||!dk.built)return;
+      if(typeof _deckBelongsTo==='function'&&!_deckBelongsTo(dk,0))return;
+      var bm=dk.built[userId||'_local'];if(!bm)return;
+      var cards=(typeof parseList==='function')?parseList((dk.cmpMode==='full'?dk.rawFull:dk.rawName)||''):[];
+      var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+      var bd=cards.reduce(function(s,c){return s+Math.min(c.qty||1,bm[c.nl]||0);},0);
+      if(bd>0&&bd<tot)tasks.push({ico:'🖨',label:'Montage « '+(dk.name||'Deck')+' »',
+        sub:bd+'/'+tot+' cartes montées',
+        action:'goTab(\'deck\');if(typeof openMultiMontage===\'function\')openMultiMontage()'});
+    });
+  }catch(e){}
+  // 3. Partie d'Arène à reprendre
+  try{
+    var ses=(typeof _arLoadSession==='function')?_arLoadSession():null;
+    if(ses&&ses.code&&Date.now()-(ses.ts||0)<24*3600*1000)
+      tasks.push({ico:'⚡',label:'Partie d\'Arène en cours',
+        sub:'Reprendre la session (salon '+ses.code+')',
+        action:'goTab(\'arena\');setTimeout(function(){if(typeof arTryRestoreSession===\'function\')arTryRestoreSession()},300)'});
+  }catch(e){}
+  // 4. Échanges en attente de ma réponse
+  try{
+    var ft=(typeof _firebaseTrades!=='undefined'&&_firebaseTrades)||[];
+    var nTr=ft.filter(function(tr){return tr&&tr.status==='pending'&&tr.fromUid!==userId;}).length;
+    if(nTr>0)tasks.push({ico:'🤝',label:'Échange'+(nTr>1?'s':'')+' en attente',
+      sub:nTr+' proposition'+(nTr>1?'s':'')+' à accepter ou refuser',
+      action:'goTab(\'trade\');if(typeof renderTradePage===\'function\')renderTradePage()'});
+  }catch(e){}
+  return tasks;
+}
+function _homeTasksHtml(){
+  var tasks=_homeTasks();
+  if(!tasks.length)return '';
+  var h='<div class="home-section"><div class="home-sec-title">⏳ À continuer <span class="home-sec-count">'+tasks.length+'</span></div>';
+  h+='<div style="display:flex;flex-direction:column;gap:7px">';
+  tasks.forEach(function(t){
+    h+='<div onclick="'+t.action+'" style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;background:rgba(255,255,255,.03);border:.5px solid var(--bd);cursor:pointer;transition:border-color .12s" onmouseover="this.style.borderColor=\'var(--gold2)\'" onmouseout="this.style.borderColor=\'var(--bd)\'">'
+      +'<span style="font-size:1.2rem;flex-shrink:0">'+t.ico+'</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:.84rem;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(t.label)+'</div>'
+      +'<div style="font-size:.7rem;color:var(--tx3)">'+esc(t.sub)+'</div></div>'
+      +'<span style="color:var(--tx3);flex-shrink:0">→</span>'
+      +'</div>';
+  });
+  h+='</div></div>';
+  return h;
+}
 function renderHome(){
   var host=document.getElementById('home-body');if(!host)return;
   var myName=(typeof PN!=='undefined'&&PN[0])||'Joueur';
@@ -6969,6 +7032,8 @@ function renderHome(){
     +'</div>';
   // ── Bandeau de progression (niveau / XP / Pétales) ──
   try{html+=_progHomeBanner();}catch(e){}
+  // ── Tâches en cours ──
+  try{html+=_homeTasksHtml();}catch(e){}
   // ── Premiers pas (nouvel utilisateur) ──
   var hasColl=totalCards>0,hasDeck=myDeckIds.length>0;
   var hasFriend=((typeof _friends!=='undefined'&&_friends)||[]).length>0;
