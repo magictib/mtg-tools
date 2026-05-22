@@ -17747,6 +17747,16 @@ function arLifeAdj(n){
     setTimeout(function(){if(d.parentNode)d.parentNode.removeChild(d);},950);
   }
   _arSyncToRoom();
+  // En Troll à deux têtes : vie partagée par équipe — applique l'ajustement
+  // atomiquement sur la team via FieldValue.increment (compose correctement
+  // si les deux coéquipiers modifient en même temps).
+  if(_arRoom&&_arRoom.mode2HG&&_arRoom.playerNum&&window.db&&typeof firebase!=='undefined'&&firebase.firestore){
+    try{
+      var _team2hg=_arRoom.playerNum<=2?'A':'B';
+      var _upd2hg={};_upd2hg['teamLife'+_team2hg]=firebase.firestore.FieldValue.increment(n);
+      db.collection('arena_rooms').doc(_arRoom.id).update(_upd2hg).catch(function(){});
+    }catch(e){}
+  }
   arLogAction('life',{delta:n,life:_ar.life});
 }
 function arShowFullCard(name){
@@ -19598,6 +19608,8 @@ function arCreateRoom(){
     useChessClock:useChess,
     chessClockMs:useChess?chessMs:0,
     mode2HG:mode2HG,
+    teamLifeA:mode2HG?30:null,
+    teamLifeB:mode2HG?30:null,
     p1:{uid:uid,name:name,life:startLife,handCount:0,libCount:0,cmd:null,cmdCasts:0,clockMs:useChess?chessMs:0},
     field:[],
     stack:[],
@@ -19859,7 +19871,14 @@ function _arRenderOpponentBars(){
       el.onclick=function(){_arSetDefaultAttackTarget(pn);};
       container.appendChild(el);
     }
-    var lifeStr=(o.slot.life!=null?o.slot.life:'—');
+    var lifeStr;
+    if(_arRoom.mode2HG){
+      var _oTeam=pn<=2?'A':'B';
+      var _oTL=_arRoom['_teamLife'+_oTeam];
+      lifeStr=(typeof _oTL==='number'?_oTL:(o.slot.life!=null?o.slot.life:'—'));
+    } else {
+      lifeStr=(o.slot.life!=null?o.slot.life:'—');
+    }
     var isTarget=_arRoom._defaultTargetPn===pn;
     el.classList.toggle('targeted',isTarget);
     var myCmdDmg=(_ar.cmdDmgDealt||{})[pn]||0;
@@ -19969,6 +19988,19 @@ function _arApplyRemoteState(data){
   _arRoom.useStackTimer=data.useStackTimer!==false;
   _arRoom.useChessClock=!!data.useChessClock;
   _arRoom.chessClockMs=data.chessClockMs||0;
+  _arRoom.mode2HG=!!data.mode2HG;
+  // Troll à deux têtes : la vie d'équipe est la source de vérité — chaque
+  // coéquipier la lit comme sa propre vie. Les opps affichent celle de leur équipe.
+  if(_arRoom.mode2HG){
+    _arRoom._teamLifeA=(typeof data.teamLifeA==='number')?data.teamLifeA:30;
+    _arRoom._teamLifeB=(typeof data.teamLifeB==='number')?data.teamLifeB:30;
+    var _myTeam2hg=pn<=2?'A':'B';
+    var _myTL=_arRoom['_teamLife'+_myTeam2hg];
+    if(typeof _myTL==='number'&&_myTL!==_ar.life&&_ar.active){
+      _ar.life=Math.max(0,_myTL);
+      if(typeof arRenderTopbar==='function')try{arRenderTopbar();}catch(e){}
+    }
+  }
   var opps=_arGetOpponents(data,pn);
   var anyOpp=opps.length>0;
   // Etat initial : on ignore tant qu'aucune partie n'a ete lancee ni aucun adversaire connu
