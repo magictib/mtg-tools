@@ -4022,12 +4022,14 @@ details > summary::-webkit-details-marker{display:none}
     <div class="row" style="margin-bottom:8px;align-items:center">
       <div class="lbl" style="margin-bottom:0">❤ Ma wishlist</div>
       <span id="wishlist-count" style="font-size:.74rem;color:var(--tx3);margin-left:auto"></span>
+      <button class="btn btnsm" onclick="wishlistCheckPrices(true)" id="wl-price-btn" title="Vérifier les prix Scryfall et les alertes de prix cible" style="margin-left:6px">💰 Prix</button>
     </div>
     <div style="display:flex;gap:5px;margin-bottom:8px">
       <input type="text" id="wishlist-in" placeholder="Nom de la carte recherchée…" oninput="wishlistSuggest()" onkeydown="if(event.key==='Enter')wishlistAdd()" style="flex:1">
       <button class="btn btnsm btnp" onclick="wishlistAdd()">＋ Ajouter</button>
     </div>
     <div id="wishlist-sug" class="suglist" style="position:relative;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;display:none;max-height:160px;overflow-y:auto;margin-bottom:8px"></div>
+    <div id="wishlist-alerts"></div>
     <div id="wishlist-list" style="margin-bottom:10px"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;margin-bottom:6px">
       <div style="font-size:11px;color:var(--gold2);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;text-transform:uppercase">🎯 Disponible chez tes amis</div>
@@ -5526,18 +5528,101 @@ function wishlistSuggest(){
   box.innerHTML=matches.map(function(n){return '<div class="sug-item" onclick="wishlistAdd(\''+escJs(n)+'\')" style="padding:6px 10px;cursor:pointer;border-bottom:.5px solid var(--bd2);font-size:.82rem">'+esc(n)+'</div>';}).join('');
   box.style.display='block';
 }
+// ===== Alertes de prix de la wishlist =====
+var _wishlistPrices={};   // nameLower -> {eur,usd}
+var _wishlistPricesTs=0;
+try{var __wp=JSON.parse(localStorage.getItem('mtg_wishlist_prices')||'{}');if(__wp&&__wp.map){_wishlistPrices=__wp.map;_wishlistPricesTs=__wp.ts||0;}}catch(e){}
+function _wishlistSavePrices(){
+  try{localStorage.setItem('mtg_wishlist_prices',JSON.stringify({map:_wishlistPrices,ts:_wishlistPricesTs}));}catch(e){}
+}
+function _wishlistTargetHits(){
+  var n=0;
+  _wishlist.forEach(function(w){
+    if(w.target==null)return;
+    var p=_wishlistPrices[w.name.toLowerCase()];
+    if(p&&p.eur!=null&&p.eur<=w.target)n++;
+  });
+  return n;
+}
+function wishlistSetTarget(nLow){
+  var w=_wishlist.find(function(x){return x.name.toLowerCase()===nLow;});
+  if(!w)return;
+  var v=prompt('Prix cible pour « '+w.name+' » (en €).\nTu seras alerté quand le prix Scryfall passe en dessous.\nLaisse vide pour retirer l\'alerte :',w.target!=null?String(w.target):'');
+  if(v===null)return;
+  v=v.trim().replace(',','.');
+  if(v===''){delete w.target;}
+  else{var n=parseFloat(v);if(isNaN(n)||n<0){toastError('Prix invalide');return;}w.target=n;}
+  _wishlistSave();renderWishlist();
+  if(w.target!=null)wishlistCheckPrices(true);
+}
+function wishlistCheckPrices(force){
+  var names=_wishlist.map(function(w){return w.name;});
+  if(!names.length)return;
+  if(!force&&Date.now()-_wishlistPricesTs<6*3600*1000)return; // throttle 6h
+  var btn=document.getElementById('wl-price-btn');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Prix…';}
+  var chunks=[];for(var i=0;i<names.length;i+=75)chunks.push(names.slice(i,i+75));
+  Promise.all(chunks.map(function(ch){
+    return fetch('https://api.scryfall.com/cards/collection',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({identifiers:ch.map(function(n){return {name:n};})})
+    }).then(function(r){return r.json();}).catch(function(){return {data:[]};});
+  })).then(function(results){
+    results.forEach(function(res){
+      (res&&res.data||[]).forEach(function(card){
+        var pr=card.prices||{};
+        _wishlistPrices[(card.name||'').toLowerCase()]={
+          eur:pr.eur?parseFloat(pr.eur):null,
+          usd:pr.usd?parseFloat(pr.usd):null
+        };
+      });
+    });
+    _wishlistPricesTs=Date.now();
+    _wishlistSavePrices();
+    if(btn){btn.disabled=false;btn.textContent='💰 Prix';}
+    renderWishlist();
+    var hit=_wishlistTargetHits();
+    if(hit>0&&typeof showToast==='function')showToast('💰 '+hit+' carte'+(hit>1?'s':'')+' de ta wishlist au prix cible !');
+  }).catch(function(){if(btn){btn.disabled=false;btn.textContent='💰 Prix';}});
+}
 function renderWishlist(){
   var el=document.getElementById('wishlist-list');var cntEl=document.getElementById('wishlist-count');
   if(cntEl)cntEl.textContent=_wishlist.length+' carte'+(_wishlist.length>1?'s':'');
+  var alertEl=document.getElementById('wishlist-alerts');
   if(!el)return;
-  if(!_wishlist.length){el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:8px 0">Aucune carte. Ajoute-en pour que tes amis voient ce que tu cherches.</div>';return;}
+  if(!_wishlist.length){
+    el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px;padding:8px 0">Aucune carte. Ajoute-en pour que tes amis voient ce que tu cherches.</div>';
+    if(alertEl)alertEl.innerHTML='';
+    return;
+  }
+  // Bannière d'alerte : cartes au prix cible
+  if(alertEl){
+    var hits=_wishlistTargetHits();
+    alertEl.innerHTML=hits>0
+      ?'<div style="padding:6px 9px;background:rgba(100,200,120,.12);border:.5px solid rgba(100,200,120,.4);border-radius:6px;margin-bottom:6px;font-size:11px;color:var(--gr2)">💰 '+hits+' carte'+(hits>1?'s':'')+' au prix cible — bon moment pour acheter !</div>'
+      :'';
+  }
   var sorted=_wishlist.slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);});
   el.innerHTML=sorted.map(function(w){
-    return '<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:rgba(255,80,100,.05);border:.5px solid rgba(255,80,100,.18);border-radius:6px;margin-bottom:3px">'
-      +'<span style="flex:1;color:var(--tx);font-size:.82rem">❤ '+esc(w.name)+'</span>'
+    var p=_wishlistPrices[w.name.toLowerCase()];
+    var curEur=p&&p.eur!=null?p.eur:null;
+    var hasTarget=w.target!=null;
+    var atTarget=hasTarget&&curEur!=null&&curEur<=w.target;
+    var bg=atTarget?'rgba(100,200,120,.12)':'rgba(255,80,100,.05)';
+    var bd=atTarget?'rgba(100,200,120,.4)':'rgba(255,80,100,.18)';
+    var priceBit=curEur!=null?'<span style="font-size:.7rem;color:'+(atTarget?'var(--gr2)':'var(--tx3)')+'">'+curEur.toFixed(2)+'€</span>':'';
+    var targetBit=hasTarget?'<span style="font-size:.66rem;color:'+(atTarget?'var(--gr2)':'var(--am)')+'">🔔'+w.target.toFixed(2)+'€'+(atTarget?' ✓':'')+'</span>':'';
+    return '<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:'+bg+';border:.5px solid '+bd+';border-radius:6px;margin-bottom:3px">'
+      +'<span style="flex:1;color:var(--tx);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(atTarget?'💰':'❤')+' '+esc(w.name)+'</span>'
+      +priceBit+targetBit
+      +'<button class="btn btnsm" onclick="wishlistSetTarget(\''+escJs(w.name.toLowerCase())+'\')" title="Définir un prix cible" style="padding:2px 6px;font-size:.7rem">🔔</button>'
       +'<button class="btn btnsm btnrd" onclick="wishlistRemove(\''+escJs(w.name.toLowerCase())+'\')" style="padding:2px 7px;font-size:.7rem">✕</button>'
       +'</div>';
   }).join('');
+  // Auto-vérification des prix si des alertes sont définies et le cache est périmé
+  if(_wishlist.some(function(w){return w.target!=null;})&&Date.now()-_wishlistPricesTs>6*3600*1000){
+    wishlistCheckPrices(false);
+  }
 }
 function wishlistScanFriends(){
   if(!_friends||!_friends.length){var el=document.getElementById('wishlist-matches');if(el)el.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:11px">Aucun ami enregistré.</div>';return;}
