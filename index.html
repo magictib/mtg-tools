@@ -6861,8 +6861,12 @@ function proxyPickArt(nl,displayName){
     .then(function(r){return r.json();}).then(function(d){
       var prints=(d.data||[]).filter(function(c){return !!_proxyCardImg(c);});
       if(!prints.length){if(typeof toastError==='function')toastError('Aucune version trouvée pour cette carte.');return;}
-      var html='<div style="font-size:.74rem;color:var(--tx3);text-align:center;margin-bottom:8px">'+prints.length+' version(s) — clique pour choisir l\'art</div>';
-      html+='<div style="display:flex;flex-wrap:wrap;gap:8px;max-height:58vh;overflow-y:auto;justify-content:center">';
+      var html='<div style="text-align:center;margin-bottom:10px;padding-bottom:10px;border-bottom:.5px solid var(--bd)">'
+        +'<label class="btn btnsm btnp" style="cursor:pointer;display:inline-block">📁 Importer mon propre art'
+        +'<input type="file" accept="image/*" onchange="_proxyImportArt(\''+escJs(nl)+'\',this)" style="display:none"></label>'
+        +'<div style="font-size:.66rem;color:var(--tx3);margin-top:4px">JPG / PNG, 5 Mo max — pour un alter ou un art personnalisé</div></div>';
+      html+='<div style="font-size:.74rem;color:var(--tx3);text-align:center;margin-bottom:8px">'+prints.length+' version(s) Scryfall — clique pour choisir l\'art</div>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:8px;max-height:50vh;overflow-y:auto;justify-content:center">';
       prints.forEach(function(c){
         var img=_proxyCardImg(c);
         var setLbl=((c.set||'').toUpperCase())+' · '+(c.set_name||'');
@@ -6884,6 +6888,16 @@ function _proxyApplyArt(nl,url){
   });
   if(typeof _mlClose==='function')_mlClose(null);
   if(typeof toastSuccess==='function')toastSuccess('Version mise à jour.');
+}
+// Import d'un art personnalisé pour une carte du proxy (alter / art perso)
+function _proxyImportArt(nl,input){
+  var f=input&&input.files&&input.files[0];
+  if(!f)return;
+  if(f.size>5*1024*1024){if(typeof toastError==='function')toastError('Image trop lourde (5 Mo max).');return;}
+  var reader=new FileReader();
+  reader.onload=function(e){_proxyApplyArt(nl,e.target.result);};
+  reader.onerror=function(){if(typeof toastError==='function')toastError('Lecture de l\'image échouée.');};
+  reader.readAsDataURL(f);
 }
 
 // ============================================================
