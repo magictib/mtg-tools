@@ -29942,7 +29942,8 @@ function anaInit(){
               :(typeof bldCurDeckId!=='undefined'&&bldCurDeckId&&typeof decks!=='undefined'&&decks[bldCurDeckId])?bldCurDeckId:null;
     if(sel&&openId){
       sel.value=openId;
-      if(sel.value===openId){try{anaRender(openId);}catch(e){console.warn('anaInit auto-analyse',e);}}
+      // Analyse complète (récupération + simulations) avec le loader « sceau »
+      if(sel.value===openId){try{anaAnalyze();}catch(e){console.warn('anaInit auto-analyse',e);}}
     }
   }
   // Charge les decks publics communautaires en arrière-plan (fréquences formats construits)
@@ -31153,6 +31154,9 @@ function anaAnalyze(){
   if(!deckId){toastError('Sélectionne un deck à analyser');return;}
   var deck=_anaGetDeck(deckId);
   if(!deck||!deck.cards||!deck.cards.length){toastError('Ce deck est vide');return;}
+  // Loader « sceau » plein écran le temps de l'analyse (récupération + simulations)
+  if(typeof _showLoader==='function')_showLoader();
+  setTimeout(function(){if(typeof _hideLoader==='function')_hideLoader();},20000); // filet de sécurité
   var st=document.getElementById('ana-status');
   document.getElementById('ana-results').style.display='none';
   var _anaCS2=document.getElementById('ana-card-search-sec');if(_anaCS2)_anaCS2.style.display='none';
@@ -31224,6 +31228,7 @@ function anaAnalyze(){
     // Délai de chargement : laisse le temps à l'animation et aux requêtes async
     setTimeout(function(){
       try{anaRender(deckId);}catch(e){console.error('[Analyse] Erreur de rendu',e);st.textContent='❌ Erreur : '+e.message;}
+      if(typeof _hideLoader==='function')_hideLoader();
     },1200);
   });
 }
