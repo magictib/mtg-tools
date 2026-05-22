@@ -3988,6 +3988,25 @@ details > summary::-webkit-details-marker{display:none}
   </div>
 </div>
 
+<!-- BANLISTS -->
+<div class="page" id="pg-banlist">
+  <div class="card">
+    <div class="lbl">🚫 Cartes bannies par format</div>
+    <div style="font-size:.78rem;color:var(--tx3);line-height:1.6;margin-bottom:10px">Listes des cartes interdites — données à jour récupérées depuis Scryfall. Choisis un format.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" id="banlist-fmts">
+      <button class="dm" onclick="banlistShow('standard',this)">Standard</button>
+      <button class="dm" onclick="banlistShow('pioneer',this)">Pioneer</button>
+      <button class="dm" onclick="banlistShow('modern',this)">Modern</button>
+      <button class="dm" onclick="banlistShow('legacy',this)">Legacy</button>
+      <button class="dm" onclick="banlistShow('vintage',this)">Vintage</button>
+      <button class="dm" onclick="banlistShow('pauper',this)">Pauper</button>
+      <button class="dm" onclick="banlistShow('commander',this)">Commander</button>
+      <button class="dm" onclick="banlistShow('brawl',this)">Brawl</button>
+    </div>
+    <div id="banlist-result"><div style="color:var(--tx3);font-style:italic;font-size:.82rem">Sélectionne un format ci-dessus.</div></div>
+  </div>
+</div>
+
 <!-- ÉCHANGES / PRÊTS / COMMANDES -->
 <div class="page" id="pg-trade">
   <!-- Wishlist -->
@@ -6567,7 +6586,7 @@ var _NAV_SPACES=[
   {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{id:'analyse',label:'📊 Analyse'}]},
   {id:'play',pages:[{id:'arena',label:'⚡ Arène'},{id:'meta',label:'🌐 Méta'}]},
   {id:'social',pages:[{id:'trade',label:'🤝 Échanges & listes'}]},
-  {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'},{id:'proxy',label:'🖨 Proxys'}]}
+  {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'},{id:'proxy',label:'🖨 Proxys'},{id:'banlist',label:'🚫 Banlists'}]}
 ];
 var _navPageToSpace={};
 _NAV_SPACES.forEach(function(s){s.pages.forEach(function(p){_navPageToSpace[p.id]=s.id;});});
@@ -6764,6 +6783,31 @@ function _proxyApplyArt(nl,url){
   });
   if(typeof _mlClose==='function')_mlClose(null);
   if(typeof toastSuccess==='function')toastSuccess('Version mise à jour.');
+}
+
+// ============================================================
+// BANLISTS — cartes bannies par format (Scryfall)
+// ============================================================
+function banlistShow(fmt,btn){
+  var btns=document.getElementById('banlist-fmts');
+  if(btns)btns.querySelectorAll('.dm').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  var res=document.getElementById('banlist-result');if(!res)return;
+  res.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:8px 0">Chargement de la banlist '+esc(fmt)+'…</div>';
+  fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent('banned:'+fmt)+'&order=name&unique=cards')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var cards=d.data||[];
+      if(!cards.length){res.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:8px 0">Aucune carte bannie pour ce format.</div>';return;}
+      var html='<div style="font-size:.8rem;color:var(--am);margin-bottom:8px">⚠ '+cards.length+' carte(s) bannie(s) en '+esc(fmt)+'</div>';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      cards.forEach(function(c){
+        var u='https://scryfall.com/card/'+(c.set||'')+'/'+(c.collector_number||'');
+        html+='<a href="'+esc(u)+'" target="_blank" rel="noopener" title="Voir sur Scryfall" style="font-size:.78rem;background:rgba(200,60,60,.12);border:.5px solid rgba(200,60,60,.4);color:var(--rd2);padding:3px 9px;border-radius:6px;text-decoration:none">'+esc(c.name)+'</a>';
+      });
+      html+='</div>';
+      res.innerHTML=html;
+    }).catch(function(){res.innerHTML='<div style="color:var(--rd2);font-size:.82rem;padding:8px 0">Erreur de chargement. Réessaie.</div>';});
 }
 
 // ============================================================
@@ -15948,7 +15992,7 @@ function arRenderHand(){
     var arc=total>1?Math.abs((i-(total-1)/2)/((total-1)/2)):0;
     var lift=Math.round((1-arc*arc)*6);
     var style='--rot:'+rot.toFixed(2)+'deg;--lift:'+lift+'px';
-    return '<div class="'+cls+'" data-id="'+c.id+'" data-zone="hand" data-name="'+esc(c.name)+'" style="'+style+'" onpointerdown="arPtrDown(event,this)" onclick="arHandClick(event,this)" onmouseenter="arShowTip(\''+esc(c.name)+'\',event)" onmouseleave="arHideTip()" title="'+esc(c.name)+'">'
+    return '<div class="'+cls+'" data-id="'+c.id+'" data-zone="hand" data-name="'+esc(c.name)+'" style="'+style+'" onpointerdown="arPtrDown(event,this)" onclick="arHandClick(event,this)" onmouseenter="arShowTip(this.dataset.name,event)" onmouseleave="arHideTip()" title="'+esc(c.name)+'">'
       +'<img src="'+_AR_BACK+'" data-name="'+esc(c.name)+'" alt="'+esc(c.name)+'" loading="lazy">'
       +'</div>';
   }).join('');
@@ -18276,7 +18320,7 @@ function _arRenderAllOpLands(allCards){
       le=document.createElement('div');le.className='ar-op-land-card';le.dataset.id=c.id;
       var li=document.createElement('img');li.alt=c.name;li.src=_arImgCache[(c.name||'').toLowerCase()]||_AR_BACK;
       le.appendChild(li);
-      le.onmouseenter=function(ev){arShowTip(c.name+(c._byPn?' (J'+c._byPn+')':''),ev);};le.onmouseleave=arHideTip;
+      le.onmouseenter=function(ev){arShowTip(c.name,ev);};le.onmouseleave=arHideTip;
       opLandsEl.appendChild(le);
       _arLoadImg(c.name,li);
     }
