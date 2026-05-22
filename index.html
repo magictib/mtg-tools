@@ -7610,7 +7610,13 @@ function _progSave(){
 function _progInit(){
   _progLoaded=false; // recharge depuis _fsPrefs désormais disponible
   _progEnsureLoaded();
+  // Conserve l'accès au thème déjà actif, même s'il est désormais payant
+  if(typeof _userTheme!=='undefined'&&typeof _PROG_THEMES!=='undefined'&&_PROG_THEMES[_userTheme]){
+    _progState.unlocks=_progState.unlocks||[];
+    if(_progState.unlocks.indexOf('theme:'+_userTheme)<0){_progState.unlocks.push('theme:'+_userTheme);_progSave();}
+  }
   _progDailyCheck();
+  try{_progRefreshThemeUI();}catch(e){}
 }
 function _progLevel(xp){
   return Math.max(1,Math.floor((1+Math.sqrt(1+0.08*Math.max(0,xp)))/2));
@@ -7843,6 +7849,72 @@ function _progQuestsHtml(){
       +'</div>';
   }).join('');
   return h;
+}
+
+// ===== Personnalisation : déblocage de thèmes =====
+var _PROG_THEMES={
+  steampunk:{level:3,price:250,label:'Steampunk'},
+  futuriste:{level:5,price:400,label:'Futuriste'},
+  horreur:{level:8,price:600,label:'Horreur'}
+};
+function _progLevelNow(){
+  _progEnsureLoaded();
+  var st=(typeof _computeTrophyStats==='function')?_computeTrophyStats():null;
+  if(!st)return 1;
+  return _progXpBreakdown(st).level;
+}
+function _progThemeUnlocked(id){
+  var m=_PROG_THEMES[id];
+  if(!m)return true; // thème gratuit
+  _progEnsureLoaded();
+  if((_progState.unlocks||[]).indexOf('theme:'+id)>=0)return true;
+  return _progLevelNow()>=m.level;
+}
+function _progDoUnlockTheme(id){
+  var m=_PROG_THEMES[id];if(!m)return;
+  _progEnsureLoaded();
+  if(_progState.coins<m.price){if(typeof toastError==='function')toastError('Solde de Pétales insuffisant.');return;}
+  _progState.coins-=m.price;
+  _progState.unlocks=_progState.unlocks||[];
+  if(_progState.unlocks.indexOf('theme:'+id)<0)_progState.unlocks.push('theme:'+id);
+  _progSave();
+  if(typeof showToast==='function')showToast('🎨 Thème « '+m.label+' » débloqué !');
+  _progRefreshThemeUI();
+  setTheme(id);
+}
+function _progPromptUnlockTheme(id){
+  var m=_PROG_THEMES[id];if(!m)return;
+  _progEnsureLoaded();
+  var lvl=_progLevelNow();
+  var msg='Ce thème se débloque gratuitement au niveau '+m.level+' (tu es niveau '+lvl+'), ou immédiatement pour '+m.price+' Pétales de Lotus (solde : '+_progState.coins+').';
+  if(_progState.coins>=m.price){
+    if(typeof mlConfirm==='function'){
+      mlConfirm('🔒 Thème « '+m.label+' »',msg,{okLabel:'Débloquer ('+m.price+' 🪷)',cancelLabel:'Annuler'}).then(function(ok){if(ok)_progDoUnlockTheme(id);});
+    }else if(confirm(msg+'\nDébloquer ?')){_progDoUnlockTheme(id);}
+  }else{
+    var miss=' Il te manque '+(m.price-_progState.coins)+' Pétales.';
+    if(typeof mlAlert==='function')mlAlert('🔒 Thème « '+m.label+' »',msg+miss,{okLabel:'Compris'});
+    else alert(msg+miss);
+  }
+}
+function _progRefreshThemeUI(){
+  Object.keys(_PROG_THEMES).forEach(function(id){
+    var el=document.getElementById('theme-btn-'+id);
+    if(!el)return;
+    var m=_PROG_THEMES[id];
+    var locked=!_progThemeUnlocked(id);
+    el.style.opacity=locked?'0.62':'1';
+    var badge=el.querySelector('.theme-lock-badge');
+    if(locked){
+      if(!badge){
+        badge=document.createElement('div');
+        badge.className='theme-lock-badge';
+        badge.style.cssText='font-size:.58rem;color:var(--gold2);margin-top:2px;line-height:1.2';
+        el.appendChild(badge);
+      }
+      badge.textContent='🔒 Niv.'+m.level+' ou '+m.price+'🪷';
+    }else if(badge){badge.remove();}
+  });
 }
 
 // ===== BUILD WIZARD =====
@@ -29024,7 +29096,12 @@ function _steampunkExtras(bgEl){
   });
 }
 function setTheme(name){
-  _userTheme=name||'default';
+  name=name||'default';
+  if(typeof _progThemeUnlocked==='function'&&!_progThemeUnlocked(name)){
+    if(typeof _progPromptUnlockTheme==='function')_progPromptUnlockTheme(name);
+    return;
+  }
+  _userTheme=name;
   try{localStorage.setItem('mtg_theme',_userTheme);}catch(e){}
   _fsPrefs.userTheme=_userTheme;_saveFsPrefs();
   if(_userTheme==='default'){document.documentElement.removeAttribute('data-theme');}
@@ -29042,6 +29119,7 @@ function _initThemeUI(){
     var el=document.getElementById('theme-btn-'+t);
     if(el)el.classList.toggle('theme-card-active',t===_userTheme);
   });
+  try{_progRefreshThemeUI();}catch(e){}
 }
 // Localisation transparente des images Scryfall.
 // Pour l'anglais : restitue l'URL CDN originale.
