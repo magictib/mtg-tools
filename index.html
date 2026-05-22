@@ -2799,8 +2799,7 @@ details > summary::-webkit-details-marker{display:none}
     <div id="deditor-bg"></div>
     <div class="row" style="margin-bottom:.75rem">
       <div class="lbl" style="margin-bottom:0" id="etitle">Nouveau deck</div>
-      <button class="btn btnsm" onclick="deckOpenInBuilder()" style="margin-left:auto" title="Ouvrir ce deck en mode construction (glisser-déposer)">🛠 Modifier</button>
-      <button class="btn btnsm btnp" onclick="newDeck()">+ Nouveau deck</button>
+      <button class="btn btnsm btnp" onclick="newDeck()" style="margin-left:auto">+ Nouveau deck</button>
       <button class="btn btnsm btnrd" id="delbtn" onclick="deleteDeck()" style="display:none">✕ Supprimer</button>
     </div>
     <div class="lbl" style="margin-bottom:4px">Profil propriétaire</div>
@@ -6691,13 +6690,13 @@ function closeKbdHelp(){var o=document.getElementById('kbd-help-overlay');if(o)o
 var _NAV_SPACES=[
   {id:'home',pages:[{id:'home',label:'🏠 Accueil'}]},
   {id:'collection',pages:[{id:'coll',label:'◈ Ma collection'},{id:'scry',label:'🔮 Bibliothèque'}]},
-  {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{id:'analyse',label:'📊 Analyse'}]},
+  {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{label:'🛠 Modifier',action:'deckOpenInBuilder()'},{id:'analyse',label:'📊 Analyse'}]},
   {id:'play',pages:[{id:'arena',label:'⚡ Arène'},{id:'meta',label:'🌐 Méta'}]},
   {id:'social',pages:[{id:'trade',label:'🤝 Échanges'},{id:'lists',label:'🛒 Listes partagées'}]},
   {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'},{id:'proxy',label:'🖨 Proxys'},{id:'banlist',label:'🚫 Banlists'}]}
 ];
 var _navPageToSpace={};
-_NAV_SPACES.forEach(function(s){s.pages.forEach(function(p){_navPageToSpace[p.id]=s.id;});});
+_NAV_SPACES.forEach(function(s){s.pages.forEach(function(p){if(p.id)_navPageToSpace[p.id]=s.id;});});
 function goSpace(spaceId){
   var sp=_NAV_SPACES.find(function(s){return s.id===spaceId;});
   if(sp&&sp.pages.length)goTab(sp.pages[0].id);
@@ -6707,6 +6706,7 @@ function _renderSubTabs(pageId){
   var sp=_NAV_SPACES.find(function(s){return s.id===_navPageToSpace[pageId];});
   if(!sp||sp.pages.length<2){bar.style.display='none';bar.innerHTML='';document.body.classList.remove('has-subtabs');return;}
   bar.innerHTML=sp.pages.map(function(p){
+    if(p.action)return '<button class="sub-tab" onclick="'+p.action+'">'+p.label+'</button>';
     return '<button class="sub-tab'+(p.id===pageId?' active':'')+'" onclick="goTab(\''+p.id+'\')">'+p.label+'</button>';
   }).join('');
   bar.style.display='flex';
@@ -30730,11 +30730,15 @@ function _anaDetectCombos(deck){
   var detected=[];
   _ANA_COMBOS.forEach(function(combo){
     var hits=combo.names.filter(function(n){return nameSet[n.toLowerCase()];});
+    var miss=combo.names.filter(function(n){return !nameSet[n.toLowerCase()];});
     if(hits.length===combo.names.length){
-      detected.push({names:combo.names,type:combo.type,desc:combo.desc,partial:false});
+      detected.push({names:combo.names,type:combo.type,desc:combo.desc,partial:false,theoretical:false});
     }else if(hits.length>=combo.names.length-1&&combo.names.length>=2){
-      // 'Partial' : il manque une seule pièce → suggère
-      detected.push({names:combo.names,type:combo.type,desc:combo.desc,partial:true,have:hits,missing:combo.names.filter(function(n){return !nameSet[n.toLowerCase()];})});
+      // 'Partial' : il manque une seule pièce
+      detected.push({names:combo.names,type:combo.type,desc:combo.desc,partial:true,theoretical:false,have:hits,missing:miss});
+    }else if(hits.length>=1){
+      // 'Theoretical' : le deck possède au moins une pièce — combo envisageable
+      detected.push({names:combo.names,type:combo.type,desc:combo.desc,partial:false,theoretical:true,have:hits,missing:miss});
     }
   });
   return detected;
@@ -34371,15 +34375,16 @@ function anaRender(deckId){
   // === Détecteur de combos infinis (opt-in) ===
   var _comboHtml=(function(){
     var combos=_anaDetectCombos(deck);
-    var active=combos.filter(function(c){return !c.partial;});
+    var active=combos.filter(function(c){return !c.partial&&!c.theoretical;});
     var partial=combos.filter(function(c){return c.partial;});
+    var theoretical=combos.filter(function(c){return c.theoretical;});
     var _tog=function(on){return '<button onclick="anaToggleCombos()" style="font-size:10px;padding:2px 9px;border-radius:8px;border:.5px solid var(--bd2);background:'+(on?'rgba(201,80,80,.12)':'rgba(201,168,76,.14)')+';color:'+(on?'var(--rd2)':'var(--gold2)')+';cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">'+(on?'Masquer':'Détecter les combos')+'</button>';};
     // Désactivé par défaut : beaucoup de groupes n'apprécient pas les combos infinis.
     if(!_anaShowCombos){
       return '<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">⚡ Combos infinis '+_tog(false)+'</div>'
         +'<div style="font-size:10.5px;color:var(--tx3);line-height:1.5;font-style:italic">Détection désactivée. Beaucoup de tables n\'aiment pas les combos infinis — active le scan uniquement si tu veux vérifier ton deck. La détection n\'influence jamais les suggestions de swap.</div></div>';
     }
-    if(!active.length&&!partial.length)return '<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">⚡ Combos infinis '+_tog(true)+'</div><div style="font-size:11px;color:var(--gr2);padding:4px 0">✓ Aucun combo infini connu détecté dans ce deck.</div></div>';
+    if(!active.length&&!partial.length&&!theoretical.length)return '<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">⚡ Combos infinis '+_tog(true)+'</div><div style="font-size:11px;color:var(--gr2);padding:4px 0">✓ Aucun combo infini connu détecté dans ce deck.</div></div>';
     var typeCol={'Win':'#c95bf5','Dégâts ∞':'#f55b5b','Créatures ∞':'#5bf590','Mana ∞':'#cdb87a','Pioche ∞':'#5b8cf5','Boucle ETB':'#5bf590','Mill ∞':'#9060c0','Token x4':'#f5b95b'};
     var html='<div class="card"><div class="lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">⚡ Combos détectés '+_tog(true)+'</div>';
     if(active.length){
@@ -34399,6 +34404,17 @@ function anaRender(deckId){
         html+='<div style="padding:5px 9px;background:rgba(255,140,40,.05);border-left:2px solid var(--am);border-radius:0 5px 5px 0;margin-bottom:3px">';
         html+='<div style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="background:'+tc+';color:#0a0a0a;padding:1px 7px;border-radius:8px;font-size:9.5px;font-weight:700">'+c.type+'</span><span style="color:var(--tx3);text-decoration:line-through">'+c.names.map(esc).join(' + ')+'</span></div>';
         html+='<div style="font-size:10.5px;color:var(--am);margin-top:2px">Manque : <b>'+c.missing.map(esc).join(', ')+'</b></div>';
+        html+='</div>';
+      });
+    }
+    if(theoretical.length){
+      theoretical.sort(function(a,b){return (b.have?b.have.length:0)-(a.have?a.have.length:0);});
+      html+='<div style="font-size:11px;color:#8ab0ff;margin:8px 0 4px;font-weight:600">💡 Combos possibles ('+theoretical.length+') — tu possèdes déjà une pièce</div>';
+      theoretical.slice(0,8).forEach(function(c){
+        var tc=typeCol[c.type]||'var(--gold2)';
+        html+='<div style="padding:5px 9px;background:rgba(91,140,245,.05);border-left:2px solid #5b8cf5;border-radius:0 5px 5px 0;margin-bottom:3px">';
+        html+='<div style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="background:'+tc+';color:#0a0a0a;padding:1px 7px;border-radius:8px;font-size:9.5px;font-weight:700">'+c.type+'</span><span style="color:var(--tx3)">'+c.names.map(esc).join(' + ')+'</span></div>';
+        html+='<div style="font-size:10px;color:var(--tx3);margin-top:2px">Tu as : <b style="color:#8ab0ff">'+(c.have||[]).map(esc).join(', ')+'</b> · à ajouter : '+(c.missing||[]).map(esc).join(', ')+'</div>';
         html+='</div>';
       });
     }
