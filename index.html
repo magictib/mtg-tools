@@ -16948,7 +16948,7 @@ function draftStart(){
   _limFetchSetCards(code,function(buckets){
     if(btn)btn.disabled=false;
     if(!buckets||(!buckets.common.length&&!buckets.rare.length)){if(area)area.innerHTML='<div style="color:var(--am);font-size:.82rem">⚠ Données insuffisantes pour drafter cette extension.</div>';return;}
-    _draft={set:code,setName:setName,seats:_draftSeats,buckets:buckets,round:1,pick:1,mySeat:0,myPicks:[],packs:[]};
+    _draft={set:code,setName:setName,seats:_draftSeats,buckets:buckets,round:1,pick:1,mySeat:0,myPicks:[],botPicks:{},packs:[]};
     _draftNewRound();_draftRender();
   });
 }
@@ -16956,7 +16956,13 @@ function _draftNewRound(){
   _draft.packs=[];
   for(var i=0;i<_draft.seats;i++)_draft.packs.push(_boosterGen(_draft.buckets));
 }
-function _draftBotPick(pack){
+function _draftBotPick(pack,botPicks){
+  // Pick selon le moteur d'évaluation + engagement de couleurs après ~4 picks.
+  if(typeof _draftSuggestPick==='function'&&typeof _limCardEval==='function'){
+    var sugg=_draftSuggestPick(pack,botPicks||[]);
+    if(sugg&&sugg.bestIdx!=null)return sugg.bestIdx;
+  }
+  // Repli : rareté seule
   var rOrd={mythic:0,rare:1,uncommon:2,common:3};
   var best=0,bestR=99;
   for(var i=0;i<pack.length;i++){
@@ -16973,7 +16979,12 @@ function draftPick(idx){
   for(var i=0;i<_draft.seats;i++){
     if(i===_draft.mySeat)continue;
     var p=_draft.packs[i];
-    if(p&&p.length)p.splice(_draftBotPick(p),1);
+    if(p&&p.length){
+      if(!_draft.botPicks[i])_draft.botPicks[i]=[];
+      var bi=_draftBotPick(p,_draft.botPicks[i]);
+      _draft.botPicks[i].push(p[bi]);
+      p.splice(bi,1);
+    }
   }
   var dir=(_draft.round%2===1)?1:-1,N=_draft.seats,rot=[];
   for(var s=0;s<N;s++)rot[s]=_draft.packs[((s+dir)%N+N)%N];
@@ -17231,7 +17242,7 @@ function _lroomHostStep(data){
     var seat=String(i),p=data.players[seat];
     if(p&&p.isBot&&(!data.pendingPicks||data.pendingPicks[seat]==null)){
       var pack=(data.packs&&data.packs[seat])||[];
-      if(pack.length){botUpd['pendingPicks.'+seat]=pack[_draftBotPick(pack)];anyBot=true;}
+      if(pack.length){var bpicks=(data.picks&&data.picks[seat])||[];botUpd['pendingPicks.'+seat]=pack[_draftBotPick(pack,bpicks)];anyBot=true;}
     }
   }
   if(anyBot){_lroomCommitting=true;db.collection('limited_rooms').doc(data.code).update(botUpd).then(function(){_lroomCommitting=false;}).catch(function(){_lroomCommitting=false;});return;}
