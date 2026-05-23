@@ -15633,7 +15633,7 @@ function _renderCardScanner(view){
     html+='<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">';
     html+='<button onclick="_scanStartCamera()" style="padding:14px;background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📷</span> Utiliser la caméra</button>';
     html+='<button onclick="document.getElementById(\'gscan-file-in\').click()" style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📁</span> Choisir un fichier</button>';
-    html+='<input type="file" id="gscan-file-in" accept="image/*" style="display:none" onchange="_scanFromFile(this.files[0])">';
+    html+='<input type="file" id="gscan-file-in" accept="image/*" capture="environment" style="display:none" onchange="_scanFromFile(this.files[0])">';
     html+='</div>';
     html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Cadre bien la carte (face avant uniquement, sans reflets) pour de meilleurs résultats. Le scan utilise Google Gemini 1.5 Flash (gratuit, 15 req/min).</div>';
   } else if(view==='camera'){
@@ -15648,9 +15648,25 @@ function _renderCardScanner(view){
     var res=_scanLastResult;
     if(!res){html+='<div style="text-align:center;color:var(--rd2)">Aucun résultat.</div>';}
     else if(res.error){
+      var isCamErr=/cam|permission|denied|notallowed|allow/i.test(res.error);
       html+='<div style="background:rgba(255,80,80,.10);border:.5px solid var(--rd2);border-radius:10px;padding:14px 16px;color:var(--rd2);font-size:.85rem;text-align:center">❌ '+esc(res.error)+'</div>';
       if(res.hint)html+='<div style="margin-top:8px;color:var(--tx3);font-size:.74rem;text-align:center;line-height:1.5">'+esc(res.hint)+'</div>';
-      html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Réessayer</button></div>';
+      if(isCamErr){
+        html+='<div style="margin-top:12px;padding:10px 14px;background:rgba(255,255,255,.04);border:.5px solid var(--bd2);border-radius:8px;font-size:.74rem;color:var(--tx2);line-height:1.6">';
+        html+='<div style="color:var(--gold2);font-weight:600;margin-bottom:5px">💡 Pour réactiver la caméra</div>';
+        html+='<b>Chrome/Edge :</b> clique sur l\'icône 🔒 à gauche de l\'URL → « Paramètres du site » → Caméra → <i>Autoriser</i> → recharge.<br>';
+        html+='<b>Firefox :</b> clique sur le cadenas → croix à côté de « Bloqué temporairement » → recharge.<br>';
+        html+='<b>iPhone Safari :</b> Réglages → Safari → Caméra → Autoriser.<br>';
+        html+='<span style="color:var(--tx3);font-style:italic">Sinon, choisis simplement un fichier ci-dessous.</span>';
+        html+='</div>';
+        html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap">';
+        html+='<button onclick="document.getElementById(\'gscan-file-in-err\').click()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.85rem">📁 Choisir un fichier</button>';
+        html+='<input type="file" id="gscan-file-in-err" accept="image/*" capture="environment" style="display:none" onchange="_scanFromFile(this.files[0])">';
+        html+='<button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Retour</button>';
+        html+='</div>';
+      } else {
+        html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Réessayer</button></div>';
+      }
     } else if(!res.name){
       html+='<div style="background:rgba(255,140,40,.10);border:.5px solid var(--am);border-radius:10px;padding:14px 16px;color:var(--am);font-size:.85rem;text-align:center">⚠ '+esc(res.message||'Carte non identifiée.')+'</div>';
       html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Réessayer</button></div>';
