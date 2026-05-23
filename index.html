@@ -16675,7 +16675,10 @@ function _limRenderBuilder(){
   h+=_limAnalysisHtml();
   host.innerHTML=h;
 }
-// Archétypes de couleur : inhabituelles bicolores (signposts) groupées par paire
+// Archétypes de couleur : inhabituelles bicolores (signposts) + mécaniques détectées
+// par scan oracle dans le set. Mots-clés ciblés (mécaniques de set), pas génériques
+// (vol/initiative/etc. exclus car présents partout).
+var _LIM_SET_MECHANICS=['investigate','flashback','cycling','kicker','prowess','treasure','sacrifice','+1/+1 counter','mill','discard','energy','embalm','token','graveyard','spectacle','venture','poison','blood token','clue','food','convoke','crew','escape','devotion','raid','surveil','explore','jump-start','ascend','disturb','daybound','channel','ninjutsu','reconfigure','training','blitz','specialize'];
 function _limArchetypePairs(setCode){
   var buckets=_LIM_SET_CACHE[setCode];if(!buckets)return null;
   var pairs={},wo={W:0,U:1,B:2,R:3,G:4};
@@ -16690,29 +16693,71 @@ function _limArchetypePairs(setCode){
   });
   return pairs;
 }
+function _limArchetypeMechanics(setCode){
+  var buckets=_LIM_SET_CACHE[setCode];if(!buckets)return null;
+  var all=(buckets.common||[]).concat(buckets.uncommon||[]).concat(buckets.rare||[]).concat(buckets.mythic||[]);
+  var allPairs=['WU','WB','WR','WG','UB','UR','UG','BR','BG','RG'];
+  var byPair={};allPairs.forEach(function(p){byPair[p]={};});
+  var wo={W:0,U:1,B:2,R:3,G:4};
+  all.forEach(function(c){
+    var cs=c.colors||[],ot=(c.oracle_text||'').toLowerCase();
+    if(!ot)return;
+    var applicable=[];
+    if(!cs.length){applicable=allPairs;}
+    else if(cs.length===1){applicable=allPairs.filter(function(p){return p.indexOf(cs[0])>=0;});}
+    else if(cs.length===2){var sorted=cs.slice().sort(function(a,b){return wo[a]-wo[b];});var k=sorted.join('');if(allPairs.indexOf(k)>=0)applicable=[k];}
+    else return;
+    _LIM_SET_MECHANICS.forEach(function(m){
+      if(ot.indexOf(m)>=0){applicable.forEach(function(p){byPair[p][m]=(byPair[p][m]||0)+1;});}
+    });
+  });
+  // Pour chaque paire, top 3 mécaniques distinctives
+  var setTotals={};
+  _LIM_SET_MECHANICS.forEach(function(m){setTotals[m]=0;});
+  allPairs.forEach(function(p){Object.keys(byPair[p]).forEach(function(m){setTotals[m]+=byPair[p][m];});});
+  // Distinctive : count dans la paire / total set, pondéré
+  var result={};
+  allPairs.forEach(function(p){
+    var ranked=Object.keys(byPair[p]).filter(function(m){return byPair[p][m]>=3;}).map(function(m){
+      var share=setTotals[m]?byPair[p][m]/setTotals[m]:0;
+      return {m:m,n:byPair[p][m],dist:share*byPair[p][m]};
+    }).sort(function(a,b){return b.dist-a.dist;}).slice(0,3);
+    if(ranked.length)result[p]=ranked;
+  });
+  return result;
+}
 function _limArchetypeHtml(){
   if(!_limCurrentSetCode)return '';
   var pairs=_limArchetypePairs(_limCurrentSetCode);
   if(!pairs)return '';
+  var mech=_limArchetypeMechanics(_limCurrentSetCode)||{};
   var pairLabels={WU:'⚪🔵 Azorius',WB:'⚪⚫ Orzhov',WR:'⚪🔴 Boros',WG:'⚪🟢 Selesnya',UB:'🔵⚫ Dimir',UR:'🔵🔴 Izzet',UG:'🔵🟢 Simic',BR:'⚫🔴 Rakdos',BG:'⚫🟢 Golgari',RG:'🔴🟢 Gruul'};
   var order=['WU','WB','WR','WG','UB','UR','UG','BR','BG','RG'];
   var any=order.some(function(k){return pairs[k]&&pairs[k].length;});
   if(!any)return '';
   var h='<details style="margin-bottom:10px;padding:8px 10px;background:rgba(91,140,245,.05);border:.5px solid rgba(91,140,245,.3);border-radius:8px">';
-  h+='<summary style="cursor:pointer;list-style:none;font-size:.82rem;color:#8ab0ff">💡 Archétypes de couleur de l\'extension <span style="font-size:.7rem;color:var(--tx3);font-style:italic">— signposts bicolores qui orientent les paires</span> ▾</summary>';
+  h+='<summary style="cursor:pointer;list-style:none;font-size:.82rem;color:#8ab0ff">💡 Archétypes de couleur de l\'extension <span style="font-size:.7rem;color:var(--tx3);font-style:italic">— signposts + mécaniques détectées par scan</span> ▾</summary>';
   h+='<div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">';
   order.forEach(function(k){
     if(!pairs[k]||!pairs[k].length)return;
     h+='<div style="background:rgba(255,255,255,.03);border-radius:6px;padding:6px 8px">';
     h+='<div style="font-size:.74rem;color:var(--tx2);margin-bottom:4px"><b>'+(pairLabels[k]||k)+'</b></div>';
-    h+='<div style="display:flex;flex-wrap:wrap;gap:3px">';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px">';
     pairs[k].forEach(function(c){
       var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||{};
       var img=iu.small||iu.normal||'';
       if(img)h+='<img src="'+esc(img)+'" loading="lazy" data-no-localize="1" title="'+esc(c.name||'')+'" style="width:62px;border-radius:4px;border:1.5px solid #b0c4de">';
       else h+='<div style="font-size:.62rem;color:var(--tx2);padding:3px;border:1.5px solid #b0c4de;border-radius:4px;width:62px">'+esc(c.name||'?')+'</div>';
     });
-    h+='</div></div>';
+    h+='</div>';
+    if(mech[k]&&mech[k].length){
+      h+='<div style="font-size:.66rem;color:var(--tx3);display:flex;flex-wrap:wrap;gap:3px">';
+      mech[k].forEach(function(m){
+        h+='<span style="background:rgba(91,140,245,.15);border:.5px solid rgba(91,140,245,.4);border-radius:8px;padding:1px 6px;color:#8ab0ff">'+esc(m.m)+' <b>×'+m.n+'</b></span>';
+      });
+      h+='</div>';
+    }
+    h+='</div>';
   });
   h+='</div></details>';
   return h;
