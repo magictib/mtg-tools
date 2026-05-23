@@ -32988,11 +32988,14 @@ function _anaTagSectionsAndAddTabs(){
   bar.id='ana-internal-tabs';
   bar.className='ar-tabs';
   bar.style.cssText='position:sticky;top:48px;z-index:20;margin-bottom:14px;backdrop-filter:blur(8px)';
+  // Stocke les counts sur le host pour permettre d'afficher un placeholder quand
+  // l'onglet ouvert est vide (au lieu de disabler le bouton, ce qui empêchait
+  // l'utilisateur d'arriver sur Stratégie quand un deck n'avait ni combo ni
+  // game changer ni anti-synergie détectés).
+  host._anaSectionCounts=sectionCounts;
   bar.innerHTML=_ANA_TAB_DEFS.map(function(t){
     var count=t.id==='all'?Object.keys(sectionCounts).reduce(function(s,k){return s+sectionCounts[k];},0):sectionCounts[t.id]||0;
-    var disabled=t.id!=='all'&&count===0;
-    return '<button class="ar-tab '+(t.id===_anaActiveTab?'active':'')+(disabled?' disabled':'')+'" '
-      +(disabled?'disabled':'onclick="anaSetInternalTab(\''+t.id+'\')"')+'>'
+    return '<button class="ar-tab '+(t.id===_anaActiveTab?'active':'')+'" onclick="anaSetInternalTab(\''+t.id+'\')">'
       +'<span class="ar-tab-ico">'+t.ico+'</span>'
       +'<span class="ar-tab-lbl">'+t.lbl+(count?' <span style="opacity:.6;font-size:.85em">('+count+')</span>':'')+'</span>'
       +'</button>';
@@ -33008,6 +33011,26 @@ function anaSetInternalTab(tab){
   _anaRememberTab(_anaCurDeckId,tab);
   var host=document.getElementById('ana-results');if(!host)return;
   host.setAttribute('data-active-tab',tab);
+  // Placeholder si l'onglet est vide (au lieu d'écran vide muet)
+  var counts=host._anaSectionCounts||{};
+  var ph=document.getElementById('ana-empty-tab-ph');
+  if(tab!=='all'&&!(counts[tab]>0)){
+    if(!ph){
+      ph=document.createElement('div');
+      ph.id='ana-empty-tab-ph';
+      ph.className='card ana-sec-always';
+      ph.style.cssText='text-align:center;padding:40px 20px;font-style:italic;color:var(--tx3);font-size:.88rem';
+      host.appendChild(ph);
+    }
+    var tabDef=_ANA_TAB_DEFS.find(function(d){return d.id===tab;})||{lbl:tab};
+    var msg='Rien à afficher dans « '+tabDef.ico+' '+tabDef.lbl+' » pour ce deck.';
+    if(tab==='strategy')msg+='<br><span style="font-size:.78rem;color:var(--tx3)">Pas de combo infini, ni de Game Changer, ni d\'anti-synergie détecté — ton deck est équilibré et n\'a pas de pièges flagrants.</span><br><br><span style="font-size:.78rem">Pour voir les combos potentiels, active <b>« Afficher les combos »</b> en haut de l\'analyse.</span>';
+    else if(tab==='versions')msg+='<br><span style="font-size:.78rem">Sauvegarde des versions de ce deck pour comparer.</span>';
+    ph.innerHTML=msg;
+    ph.style.display='block';
+  } else if(ph){
+    ph.style.display='none';
+  }
   // Update tab buttons
   host.querySelectorAll('#ana-internal-tabs .ar-tab').forEach(function(b){
     b.classList.remove('active');
@@ -34447,7 +34470,12 @@ var _COMMANDER_THEME_RULES=[
   {p:/whenever you sacrifice.*\+1\/\+1 counter|\+1\/\+1 counter.*whenever you sacrifice/i, m:{sacrifice:2.5,wincon:1.6,counters:1.4}, label:'Sacrifice-counters'},
   // Korvold / Prossh-type : sacrifice → draw ou bénéfice massif
   {p:/whenever you sacrifice a (permanent|creature|token).*draw|whenever a (creature|permanent).*dies.*draw/i, m:{sacrifice:2.0,wincon:1.5,draw:1.4}, label:'Sacrifice-draw'},
-  {p:/each opponent loses \d+ life|deals \d+ damage to each opponent|drain/i, m:{wincon:1.5,lifegain:1.3}, label:'Drain'},
+  // Drain : « each opponent loses N life » OU « that much life » (Queza-type) OU « X life » (formule X)
+  {p:/each opponent loses (\d+|that much|x) life|deals (\d+|that much) damage to each opponent|drain/i, m:{wincon:1.5,lifegain:1.3}, label:'Drain'},
+  // Queza-type : combat damage déclenche une pioche multiple → draw devient central
+  // (Queza, Augur of Agonies / Toski-like / Edric-like)
+  {p:/whenever.*deals? (combat )?damage to (a player|an opponent|any target)[^.]*draw[^.]*card/i,
+   m:{draw:2.2,wincon:1.6,protection:1.5}, label:'Combat-damage→Draw'},
   {p:/(?:and )?you gain \d+ life|you gain that much life|you gain life equal/i, m:{lifegain:1.3}, label:'Lifegain-passive'},
   // +1/+1 / compteurs
   {p:/\+1\/\+1 counter|proliferate/i,                          m:{wincon:1.3,counters:1.3}, label:'+1/+1 counters'},
@@ -37317,10 +37345,52 @@ var _BILANDS={
   BG:['Overgrown Tomb','Woodland Cemetery','Blooming Marsh','Verdant Catacombs','Twilight Mire'],
   RG:['Stomping Ground','Rootbound Crag','Copperline Gorge','Wooded Foothills','Fire-Lit Thicket']
 };
-function _anaBilandSuggestions(pairs){
+// Bilands LÉGAUX EN PAUPER (rareté commune uniquement) — cycles principaux :
+// Gates (entrent engagés, ajoutent 2 couleurs), Refuges (entrent engagés + 1 PV),
+// Gain Lands (entrent engagés + 1 PV), Karoo Bouncelands (entrent dégagés mais
+// renvoient un terrain en main).
+var _BILANDS_PAUPER={
+  WU:['Azorius Chancery','Azorius Guildgate','Sejiri Refuge','Tranquil Cove','Meandering River'],
+  WB:['Orzhov Basilica','Orzhov Guildgate','Scoured Barrens','Forsaken Sanctuary'],
+  WR:['Boros Garrison','Boros Guildgate','Stone Quarry','Wind-Scarred Crag'],
+  WG:['Selesnya Sanctuary','Selesnya Guildgate','Graypelt Refuge','Blossoming Sands','Tranquil Expanse'],
+  UB:['Dimir Aqueduct','Dimir Guildgate','Jwar Isle Refuge','Submerged Boneyard','Dismal Backwater'],
+  UR:['Izzet Boilerworks','Izzet Guildgate','Izzet Boilerworks','Swiftwater Cliffs','Highland Lake'],
+  UG:['Simic Growth Chamber','Simic Guildgate','Thornwood Falls','Woodland Stream'],
+  BR:['Rakdos Carnarium','Rakdos Guildgate','Akoum Refuge','Bloodfell Caves','Cinder Barrens'],
+  BG:['Golgari Rot Farm','Golgari Guildgate','Jungle Hollow','Foul Orchard'],
+  RG:['Gruul Turf','Gruul Guildgate','Kazandu Refuge','Rugged Highlands','Timber Gorge']
+};
+// Lightbox d'image de carte (clic sur n'importe quelle image de carte → grand format)
+// Réutilisable partout dans l'app. Accepte un nom de carte (résout via Scryfall named)
+// ou directement une URL d'image.
+function cardLightbox(cardNameOrUrl){
+  if(!cardNameOrUrl)return;
+  var ov=document.getElementById('card-lightbox-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='card-lightbox-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:24px;cursor:zoom-out;backdrop-filter:blur(4px)';
+    ov.onclick=function(){ov.style.display='none';ov.innerHTML='';};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  var isUrl=/^https?:\/\//.test(cardNameOrUrl);
+  var src=isUrl?cardNameOrUrl:('https://api.scryfall.com/cards/named?exact='+encodeURIComponent(cardNameOrUrl)+'&format=image&version=normal');
+  ov.innerHTML='<img src="'+esc(src)+'" alt="" style="max-width:min(420px,92vw);max-height:90vh;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.8);display:block">';
+}
+
+function _anaBilandSuggestions(pairs,fmt){
+  // En Pauper / Pauper Commander, on n'utilise QUE les bilands en rareté commune.
+  // Le format est inféré depuis _anaState.deck si non passé explicitement.
+  var f=(fmt||'').toLowerCase();
+  if(!f&&typeof _anaState!=='undefined'&&_anaState&&_anaState.deck){
+    f=(_anaState.deck.format||_anaState.deck.fmt||'').toLowerCase();
+  }
+  var source=(f==='pauper'||f==='paupercmd')?_BILANDS_PAUPER:_BILANDS;
   var res=[];
   pairs.forEach(function(p){
-    var k=p[0]+p[1],lands=_BILANDS[k]||_BILANDS[p[1]+p[0]];
+    var k=p[0]+p[1],lands=source[k]||source[p[1]+p[0]];
     if(lands)lands.slice(0,3).forEach(function(l){res.push({name:l,pair:p});});
   });
   return res;
@@ -38263,6 +38333,28 @@ function anaRender(deckId){
   }
 
   // === Top / Bottom ===
+  // Helper : pourquoi cette carte est haut/bas dans le score contextuel.
+  function cardScoreReason(r,isTop){
+    if(!r||!r.meta)return '';
+    var bits=[];
+    var roleFr={ramp:'ramp',draw:'pioche',removal:'retrait',interaction:'interaction',wincon:'win con',land:'terrain'};
+    var roleKeys=Object.keys(r.roles||{}).filter(function(k){return r.roles[k]&&roleFr[k];});
+    if(isTop){
+      if(roleKeys.length)bits.push('rôle '+roleKeys.map(function(k){return roleFr[k];}).join(', '));
+      var synP=(typeof _anaThemeSynergyScore==='function')?_anaThemeSynergyScore(r.meta,_anaCurrentThemes):0;
+      if(synP>=1.5)bits.push('forte synergie avec ton plan');
+      else if(synP>=0.8)bits.push('bonne synergie thématique');
+      if(r.meta.cmc!=null&&r.meta.cmc<=2&&!r.roles.land)bits.push('faible coût ('+r.meta.cmc+' mana)');
+      if(detectedArch&&_ARCH_LABELS&&_ARCH_LABELS[detectedArch])bits.push('cadre dans l\'archétype '+_ARCH_LABELS[detectedArch].label.toLowerCase());
+    } else {
+      if(r.meta.cmc>=5)bits.push('coût élevé ('+r.meta.cmc+' mana) pour peu d\'impact mesuré');
+      if(!roleKeys.length||(roleKeys.length===1&&roleKeys[0]==='wincon'&&r.score<2))bits.push('aucun rôle utile détecté');
+      var synLow=(typeof _anaThemeSynergyScore==='function')?_anaThemeSynergyScore(r.meta,_anaCurrentThemes):0;
+      if(synLow<0.3)bits.push('pas de synergie avec les thèmes du deck');
+      if(r.score<1.5)bits.push('score contextuel très faible');
+    }
+    return bits.length?bits.join(' · '):'';
+  }
   html+='<div class="ana-grid-2">';
   // Top
   html+='<div class="card"><div class="ana-section-head"><div class="lbl">⭐ Cartes les plus efficaces</div>'+viewToggle('top')+'</div>';
@@ -38277,9 +38369,11 @@ function anaRender(deckId){
     html+='</div>';
   } else {
     topRows.forEach(function(r,i){
-      html+='<div class="ana-card-row">';
-      html+='<div>'+(i+1)+'. '+esc(r.card.name)+' <span style="font-size:10px">'+roleHints(r.roles)+'</span></div>';
-      html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">'+r.score.toFixed(1)+'</div>';
+      var why=cardScoreReason(r,true);
+      html+='<div class="ana-card-row" style="flex-direction:column;align-items:stretch;gap:2px">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><div>'+(i+1)+'. '+esc(r.card.name)+' <span style="font-size:10px">'+roleHints(r.roles)+'</span></div>';
+      html+='<div style="color:var(--gold2);font-weight:bold;font-variant-numeric:tabular-nums">'+r.score.toFixed(1)+'</div></div>';
+      if(why)html+='<div style="font-size:9.5px;color:#a8c894;font-style:italic;line-height:1.4">↳ '+esc(why)+'</div>';
       html+='</div>';
     });
   }
@@ -38296,9 +38390,11 @@ function anaRender(deckId){
     html+='</div>';
   } else {
     bottomRows.forEach(function(r,i){
-      html+='<div class="ana-card-row">';
-      html+='<div>'+(i+1)+'. '+esc(r.card.name)+'</div>';
-      html+='<div style="color:#e07070;font-weight:bold;font-variant-numeric:tabular-nums">'+r.score.toFixed(1)+'</div>';
+      var why=cardScoreReason(r,false);
+      html+='<div class="ana-card-row" style="flex-direction:column;align-items:stretch;gap:2px">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><div>'+(i+1)+'. '+esc(r.card.name)+'</div>';
+      html+='<div style="color:#e07070;font-weight:bold;font-variant-numeric:tabular-nums">'+r.score.toFixed(1)+'</div></div>';
+      if(why)html+='<div style="font-size:9.5px;color:#d4a888;font-style:italic;line-height:1.4">↳ '+esc(why)+'</div>';
       html+='</div>';
     });
   }
@@ -38427,7 +38523,8 @@ function anaRender(deckId){
             var addMeta=_anaData[sw.add.nl]||{};
             var chk=(_anaCheckedSwaps[deckId]&&_anaCheckedSwaps[deckId][i])?'checked':'';
             var reason=_anaSwapReason(addMeta,_anaCurrentThemes);
-            html+='<div title="'+esc(_anaSwapExplainText(sw.reason))+'" style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:.5px solid var(--bd2);flex-wrap:wrap;min-width:0;cursor:help">';
+            html+='<div style="padding:6px 0;border-bottom:.5px solid var(--bd2)">';
+            html+='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0">';
             html+='<input type="checkbox" '+chk+' onchange="_anaToggleSwap(\''+deckId+'\','+i+')" style="flex-shrink:0;margin:0;cursor:pointer;accent-color:var(--gold2)">';
             html+='<span style="color:var(--tx3);font-size:9px;flex-shrink:0">'+(i+1)+'.</span>';
             html+='<span style="color:#e07070;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:76px">'+esc(sw.cut.name)+'</span>';
@@ -38435,6 +38532,14 @@ function anaRender(deckId){
             html+='<span style="color:var(--gold2);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:76px">'+esc(sw.add.name)+'</span>';
             if(reason)html+='<span style="font-size:8.5px;color:#5b8cf5;background:rgba(91,140,245,.12);padding:0 5px;border-radius:8px;white-space:nowrap">'+reason+'</span>';
             html+='<span style="margin-left:auto;color:var(--gold2);font-size:9.5px;flex-shrink:0;font-weight:bold">+'+sw.gain.toFixed(2)+'</span>';
+            html+='</div>';
+            // Toujours visible : l'explication pédagogique du swap, pas seulement en tooltip.
+            if(sw.reason){
+              html+='<div style="margin-top:4px;padding:5px 9px;background:rgba(140,100,220,.06);border-left:2px solid rgba(140,100,220,.45);border-radius:0 5px 5px 0;font-size:10px;line-height:1.5;color:var(--tx2)">';
+              html+='<span style="color:var(--rd2)">✂</span> '+esc(sw.reason.cutWhy||'')+'<br>';
+              html+='<span style="color:var(--gold2)">＋</span> '+esc(sw.reason.addWhy||'');
+              html+='</div>';
+            }
             html+='</div>';
           });
           html+='</div>';
@@ -38715,7 +38820,7 @@ function anaRender(deckId){
           var tc=tierColors[b.tier]||'var(--tx3)';
           html+='<div style="text-align:center;position:relative" title="'+esc(b.label)+' — '+esc(b.cond)+'">';
           html+='<span style="position:absolute;top:-4px;left:-4px;z-index:2;width:22px;height:22px;border-radius:50%;background:'+tc+';color:#0a0a0a;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;border:1.5px solid #0a0a0a;font-family:monospace;box-shadow:0 2px 6px rgba(0,0,0,.6)">'+b.tier+'</span>';
-          html+='<img src="https://api.scryfall.com/cards/named?exact='+encodeURIComponent(b.name)+'&format=image&version=small" style="width:104px;border-radius:7px;display:block;box-shadow:0 2px 8px rgba(0,0,0,.4)" loading="lazy" alt="'+esc(b.name)+'">';
+          html+='<img onclick="cardLightbox(\''+escJs(b.name)+'\')" src="https://api.scryfall.com/cards/named?exact='+encodeURIComponent(b.name)+'&format=image&version=small" style="width:104px;border-radius:7px;display:block;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:zoom-in" loading="lazy" alt="'+esc(b.name)+'" title="Cliquer pour agrandir">';
           html+='<div style="font-size:9px;margin-top:3px">'+_metaColorPips(b.pair)+'</div>';
           html+='<div style="font-size:8.5px;color:'+tc+';margin-top:2px">'+b.icon+' '+esc(b.label)+'</div>';
           html+='</div>';
