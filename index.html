@@ -15647,6 +15647,50 @@ function _renderCardScanner(view){
     html+='</div>';
   } else if(view==='loading'){
     html+='<div style="text-align:center;padding:32px 12px"><div style="font-size:2rem;margin-bottom:10px">⏳</div><div style="color:var(--gold2);font-family:\'Cinzel\',serif">Analyse en cours…</div><div style="color:var(--tx3);font-size:.78rem;margin-top:6px">Gemini Vision identifie la carte.</div></div>';
+  } else if(view==='edition'){
+    // Saisie manuelle du set/collector OU sélection visuelle parmi toutes les
+    // versions de la carte. Idéal pour les vieilles cartes sans collector visible
+    // ou quand Gemini a mal lu le bas de la carte.
+    var res=_scanLastResult||{};
+    var s=res.scryfall||{};
+    var prints=_scanPrintsCache||{name:'',list:null,loading:false};
+    html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:6px">✎ MODIFIER L\'ÉDITION DE <b style="color:var(--gold2)">'+esc(res.name||'?')+'</b></div>';
+    // Saisie manuelle
+    html+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:10px;padding:12px;margin-bottom:14px">';
+    html+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:8px">Saisie manuelle (visible en bas à gauche de la carte) :</div>';
+    html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    html+='<div style="flex:1;min-width:90px"><label style="font-size:.66rem;color:var(--tx3);display:block;margin-bottom:3px">Code set (3 lettres)</label><input id="edit-set" value="'+esc((s.set||res.detected_set||'').toUpperCase())+'" placeholder="LCI" maxlength="5" style="width:100%;background:var(--s2);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:5px 8px;font-size:.85rem;outline:none;text-transform:uppercase;font-family:monospace;box-sizing:border-box"></div>';
+    html+='<div style="flex:1;min-width:90px"><label style="font-size:.66rem;color:var(--tx3);display:block;margin-bottom:3px">Numéro collector</label><input id="edit-num" value="'+esc(s.collector_number||res.detected_collector||'')+'" placeholder="234" maxlength="12" style="width:100%;background:var(--s2);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:5px 8px;font-size:.85rem;outline:none;font-family:monospace;box-sizing:border-box"></div>';
+    html+='</div>';
+    html+='<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">';
+    html+='<button onclick="_scanApplyManualEdition()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.8rem">✓ Appliquer</button>';
+    html+='<div id="edit-status" style="font-size:.74rem;color:var(--tx3);align-self:center"></div>';
+    html+='</div></div>';
+    // Liste de toutes les versions
+    html+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:6px">Ou choisis une version dans la liste :</div>';
+    if(prints.loading){
+      html+='<div style="text-align:center;color:var(--tx3);font-style:italic;font-size:.78rem;padding:24px 0">⏳ Chargement des versions…</div>';
+    } else if(prints.list&&prints.list.length){
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;max-height:340px;overflow-y:auto;padding:4px">';
+      prints.list.forEach(function(p){
+        var img=p.image_uris?(p.image_uris.small||p.image_uris.normal):'';
+        var isCur=s.id&&p.id===s.id;
+        html+='<div onclick="_scanPickPrint(\''+escJs(p.set)+'\',\''+escJs(p.collector_number)+'\')" style="cursor:pointer;text-align:center;padding:4px;border-radius:6px;border:'+(isCur?'1.5px solid var(--gold)':'.5px solid var(--bd2)')+';background:'+(isCur?'rgba(201,168,76,.10)':'transparent')+';transition:transform .1s,border-color .15s" onmouseover="this.style.borderColor=\'var(--gold2)\'" onmouseout="this.style.borderColor=\''+(isCur?'var(--gold)':'var(--bd2)')+'\'">';
+        if(img)html+='<img src="'+esc(img)+'" alt="" style="width:100%;max-width:80px;border-radius:4px;display:block;margin:0 auto">';
+        html+='<div style="font-size:.6rem;color:var(--tx2);margin-top:3px;font-family:\'Cinzel\',serif">'+esc((p.set||'').toUpperCase())+' #'+esc(p.collector_number||'?')+'</div>';
+        html+='<div style="font-size:.55rem;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.released_at?p.released_at.slice(0,4):'')+'</div>';
+        html+='</div>';
+      });
+      html+='</div>';
+    } else if(prints.list){
+      html+='<div style="text-align:center;color:var(--tx3);font-style:italic;font-size:.78rem;padding:18px 0">Aucune autre version trouvée.</div>';
+    } else {
+      html+='<div style="text-align:center;color:var(--tx3);font-style:italic;font-size:.78rem;padding:18px 0">Clique « Charger les versions » pour voir toutes les éditions disponibles.</div>';
+      html+='<div style="text-align:center;margin-top:4px"><button onclick="_scanLoadPrints()" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.78rem">📚 Charger les versions</button></div>';
+    }
+    html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px">';
+    html+='<button onclick="_renderCardScanner(\'result\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">← Retour</button>';
+    html+='</div>';
   } else if(view==='batch'){
     var b=_scanBatch||{total:0,done:0,results:[],stopped:false};
     var pct=b.total?Math.round((b.done/b.total)*100):0;
@@ -15722,6 +15766,7 @@ function _renderCardScanner(view){
       html+='</div>';
       html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap">';
       html+='<button onclick="_scanAddToCollection()" style="background:rgba(100,200,120,.18);border:.5px solid var(--gr);color:var(--gr2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">+ Ajouter à ma collection</button>';
+      html+='<button onclick="_scanOpenEditionPicker()" style="background:var(--s3);border:.5px solid var(--gold);color:var(--gold2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">✎ Modifier l\'édition</button>';
       html+='<button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Scanner une autre</button>';
       html+='</div>';
     }
@@ -15858,6 +15903,71 @@ function _scanBatchNext(){
 }
 function _scanBatchStop(){
   if(_scanBatch)_scanBatch.stopped=true;
+}
+// Ouvre l'éditeur d'édition pour la carte courante.
+var _scanPrintsCache=null; // {name, list:[...], loading}
+function _scanOpenEditionPicker(){
+  if(!_scanLastResult||!_scanLastResult.name)return;
+  // Réinitialise le cache des prints si la carte courante a changé
+  if(!_scanPrintsCache||_scanPrintsCache.name!==_scanLastResult.name){
+    _scanPrintsCache={name:_scanLastResult.name,list:null,loading:false};
+  }
+  _renderCardScanner('edition');
+}
+function _scanApplyManualEdition(){
+  var setEl=document.getElementById('edit-set'),numEl=document.getElementById('edit-num'),stEl=document.getElementById('edit-status');
+  var setCode=(setEl&&setEl.value||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+  var num=(numEl&&numEl.value||'').trim().replace(/[^a-z0-9\-★]/gi,'');
+  if(!setCode||!num){if(stEl){stEl.style.color='var(--am)';stEl.textContent='⚠ Renseigne les deux champs.';}return;}
+  if(stEl){stEl.style.color='var(--tx3)';stEl.textContent='⏳ Recherche Scryfall…';}
+  var url='https://api.scryfall.com/cards/'+encodeURIComponent(setCode)+'/'+encodeURIComponent(num);
+  fetch(url).then(function(r){
+    if(!r.ok)throw new Error(r.status===404?'Version introuvable':'Erreur '+r.status);
+    return r.json();
+  }).then(function(sd){
+    // Met à jour _scanLastResult avec la nouvelle version
+    _scanLastResult.scryfall={
+      id:sd.id,name:sd.name,set:sd.set,set_name:sd.set_name,collector_number:sd.collector_number,
+      rarity:sd.rarity,type_line:sd.type_line,mana_cost:sd.mana_cost,colors:sd.colors,cmc:sd.cmc,
+      oracle_text:sd.oracle_text,
+      image_uris:sd.image_uris||(sd.card_faces&&sd.card_faces[0]&&sd.card_faces[0].image_uris),
+      prices:sd.prices,scryfall_uri:sd.scryfall_uri
+    };
+    _scanLastResult.name=sd.name||_scanLastResult.name;
+    _scanLastResult.exact_version_matched=true;
+    _renderCardScanner('result');
+  }).catch(function(e){
+    if(stEl){stEl.style.color='var(--rd2)';stEl.textContent='✗ '+(e.message||'Erreur Scryfall');}
+  });
+}
+function _scanPickPrint(setCode,collectorNumber){
+  // Identique à _scanApplyManualEdition mais déclenché depuis la grille
+  var setEl=document.getElementById('edit-set'),numEl=document.getElementById('edit-num');
+  if(setEl)setEl.value=setCode.toUpperCase();
+  if(numEl)numEl.value=collectorNumber;
+  _scanApplyManualEdition();
+}
+function _scanLoadPrints(){
+  if(!_scanLastResult||!_scanLastResult.name)return;
+  _scanPrintsCache={name:_scanLastResult.name,list:null,loading:true};
+  _renderCardScanner('edition');
+  // Scryfall : search par nom exact, unique=prints retourne toutes les versions
+  var url='https://api.scryfall.com/cards/search?order=released&dir=asc&unique=prints&q='+encodeURIComponent('!"'+_scanLastResult.name+'"');
+  fetch(url).then(function(r){return r.json();}).then(function(d){
+    var list=[];
+    (d.data||[]).forEach(function(c){
+      list.push({
+        id:c.id,set:c.set,collector_number:c.collector_number,
+        set_name:c.set_name,released_at:c.released_at,
+        image_uris:c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)
+      });
+    });
+    _scanPrintsCache={name:_scanLastResult.name,list:list,loading:false};
+    _renderCardScanner('edition');
+  }).catch(function(){
+    _scanPrintsCache={name:_scanLastResult.name,list:[],loading:false};
+    _renderCardScanner('edition');
+  });
 }
 function _scanBatchFinish(){
   // Persiste la collection une seule fois à la fin
