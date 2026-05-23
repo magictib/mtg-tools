@@ -15631,13 +15631,14 @@ function _renderCardScanner(view){
   html+='</div>';
   if(view==='choice'){
     html+='<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">';
-    html+='<button onclick="_scanStartCamera()" style="padding:14px;background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📷</span> Utiliser la caméra</button>';
-    // Pattern label > input : sur Android, document.getElementById(\'…\').click() depuis
-    // un overlay dynamique ne déclenche pas le picker natif. Un <label> englobant
-    // résout le problème, l'input doit être focusable (opacity:0 plutôt que display:none).
-    html+='<label style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;position:relative;overflow:hidden"><span style="font-size:1.5rem">📁</span> Choisir un fichier (galerie ou photo)<input type="file" id="gscan-file-in" accept="image/*" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="_scanFromFile(this.files[0])"></label>';
+    // Option 1 : caméra Web (viseur direct) — peut être bloquée par permissions
+    html+='<button onclick="_scanStartCamera()" style="padding:14px;background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;text-align:left"><span style="font-size:1.5rem;flex-shrink:0">🎥</span> <span style="flex:1">Caméra avec viseur <span style="font-size:.7rem;color:var(--tx3);display:block;font-family:inherit">Recommandé sur PC. Peut nécessiter une autorisation Web.</span></span></button>';
+    // Option 2 : app caméra native (capture="environment") — fonctionne même si Web bloqué
+    html+='<label style="padding:14px;background:rgba(100,200,120,.12);border:.5px solid var(--gr);color:var(--gr2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;text-align:left;position:relative;overflow:hidden"><span style="font-size:1.5rem;flex-shrink:0">📷</span> <span style="flex:1">Prendre une photo <span style="font-size:.7rem;color:var(--tx3);display:block;font-family:inherit">Recommandé sur mobile. Ouvre directement ton app photo.</span></span><input type="file" accept="image/*" capture="environment" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="_scanFromFile(this.files[0])"></label>';
+    // Option 3 : galerie / fichier existant
+    html+='<label style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;text-align:left;position:relative;overflow:hidden"><span style="font-size:1.5rem;flex-shrink:0">📁</span> <span style="flex:1">Choisir depuis la galerie <span style="font-size:.7rem;color:var(--tx3);display:block;font-family:inherit">Photo déjà prise / screenshot / fichier image.</span></span><input type="file" accept="image/*" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="_scanFromFile(this.files[0])"></label>';
     html+='</div>';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Cadre bien la carte (face avant uniquement, sans reflets) pour de meilleurs résultats. Le scan utilise Google Gemini 1.5 Flash (gratuit, 15 req/min).</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Cadre bien la carte (face avant uniquement, sans reflets) pour de meilleurs résultats. Le scan utilise Gemini Vision via GitHub Models.</div>';
   } else if(view==='camera'){
     html+='<div style="position:relative;background:#000;border-radius:10px;overflow:hidden;margin-bottom:10px;aspect-ratio:3/4"><video id="gscan-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video><div style="position:absolute;inset:8% 6%;border:2px dashed rgba(201,168,76,.7);border-radius:14px;pointer-events:none"></div></div>';
     html+='<div style="display:flex;gap:8px;justify-content:center">';
@@ -15697,14 +15698,26 @@ function _renderCardScanner(view){
 }
 function _scanStartCamera(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    _scanLastResult={error:'Caméra non supportée par ce navigateur.',hint:'Utilise « Choisir un fichier » pour téléverser une photo.'};
+    _scanLastResult={error:'Caméra Web non supportée par ce navigateur.',hint:'Utilise « Prendre une photo » à la place — ça ouvrira ton app photo natale.'};
     _renderCardScanner('result');return;
   }
+  // Indique à l'utilisateur que ça travaille
+  _renderCardScanner('loading');
+  var done=false;
+  var timeoutId=setTimeout(function(){
+    if(done)return;done=true;
+    _scanLastResult={error:'La caméra met trop de temps à répondre.',hint:'Utilise « Prendre une photo » à la place — ça ouvrira ton app photo natale.'};
+    _renderCardScanner('result');
+  },5000);
   navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false}).then(function(stream){
+    if(done){try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}return;}
+    done=true;clearTimeout(timeoutId);
     _scanStream=stream;
     _renderCardScanner('camera');
   }).catch(function(e){
-    _scanLastResult={error:'Impossible d\'accéder à la caméra : '+(e.message||e.name||'permission refusée.'),hint:'Utilise « Choisir un fichier » à la place.'};
+    if(done)return;done=true;clearTimeout(timeoutId);
+    var msg=e&&(e.message||e.name)||'permission refusée';
+    _scanLastResult={error:'Caméra Web bloquée : '+msg,hint:'Utilise « Prendre une photo » — l\'app photo natale d\'Android n\'a pas le même blocage.'};
     _renderCardScanner('result');
   });
 }
