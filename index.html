@@ -15632,12 +15632,12 @@ function _renderCardScanner(view){
   if(view==='choice'){
     html+='<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">';
     html+='<button onclick="_scanStartCamera()" style="padding:14px;background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📷</span> Utiliser la caméra</button>';
-    html+='<button onclick="document.getElementById(\'scan-file-in\').click()" style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📁</span> Choisir un fichier</button>';
-    html+='<input type="file" id="scan-file-in" accept="image/*" style="display:none" onchange="_scanFromFile(this.files[0])">';
+    html+='<button onclick="document.getElementById(\'gscan-file-in\').click()" style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📁</span> Choisir un fichier</button>';
+    html+='<input type="file" id="gscan-file-in" accept="image/*" style="display:none" onchange="_scanFromFile(this.files[0])">';
     html+='</div>';
     html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Cadre bien la carte (face avant uniquement, sans reflets) pour de meilleurs résultats. Le scan utilise Google Gemini 1.5 Flash (gratuit, 15 req/min).</div>';
   } else if(view==='camera'){
-    html+='<div style="position:relative;background:#000;border-radius:10px;overflow:hidden;margin-bottom:10px;aspect-ratio:3/4"><video id="scan-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video><div style="position:absolute;inset:8% 6%;border:2px dashed rgba(201,168,76,.7);border-radius:14px;pointer-events:none"></div></div>';
+    html+='<div style="position:relative;background:#000;border-radius:10px;overflow:hidden;margin-bottom:10px;aspect-ratio:3/4"><video id="gscan-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video><div style="position:absolute;inset:8% 6%;border:2px dashed rgba(201,168,76,.7);border-radius:14px;pointer-events:none"></div></div>';
     html+='<div style="display:flex;gap:8px;justify-content:center">';
     html+='<button onclick="_scanSnap()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:8px 20px;border-radius:8px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif">📸 Capturer</button>';
     html+='<button onclick="_renderCardScanner(\'choice\');_scanStopCamera()" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem">← Retour</button>';
@@ -15674,7 +15674,7 @@ function _renderCardScanner(view){
   ov.innerHTML=html;
   if(view==='camera'){
     setTimeout(function(){
-      var v=document.getElementById('scan-video');if(v&&_scanStream)v.srcObject=_scanStream;
+      var v=document.getElementById('gscan-video');if(v&&_scanStream)v.srcObject=_scanStream;
     },20);
   }
 }
@@ -15692,7 +15692,7 @@ function _scanStartCamera(){
   });
 }
 function _scanSnap(){
-  var v=document.getElementById('scan-video');if(!v)return;
+  var v=document.getElementById('gscan-video');if(!v)return;
   var w=v.videoWidth,h=v.videoHeight;if(!w||!h)return;
   // Redimensionne pour ne pas envoyer 5MB inutilement
   var maxSide=900;
@@ -27124,6 +27124,10 @@ function _renderChatHistory(){
 var _scanStream=null;
 
 function openScan(){
+  // Bascule vers le nouveau scanner Gemini Vision (meilleur OCR que Tesseract).
+  // L'ancienne implémentation Tesseract ci-dessous reste comme fallback historique
+  // mais n'est plus appelée.
+  if(typeof openCardScanner==='function'){return openCardScanner();}
   var modal=document.getElementById('scan-modal');
   if(!modal)return;
   modal.style.display='flex';
