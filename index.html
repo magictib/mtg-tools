@@ -4122,6 +4122,11 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm btnp" onclick="limOpenSealed()" id="lim-sealed-btn">📦 Ouvrir un scellé (6 boosters)</button>
       <button class="btn btnsm" onclick="limOpenBooster()" id="lim-booster-btn" title="Ajouter un booster au pool">＋ 1 booster</button>
     </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.74rem;color:var(--tx2);border-top:.5px dashed var(--bd);padding-top:8px;margin-bottom:6px">
+      <span>Multijoueur :</span>
+      <button class="btn btnsm" onclick="lroomCreate('sealed')" title="Créer un salon de scellé en ligne — chaque joueur ouvre son propre pool">🌐 Créer en ligne</button>
+      <button class="btn btnsm" onclick="lroomJoin()" title="Rejoindre un salon avec un code">🔗 Rejoindre</button>
+    </div>
     <div id="lim-status" style="font-size:.78rem;color:var(--tx3);min-height:1.1em;margin-bottom:6px"></div>
     <div id="lim-pool"></div>
   </div>
@@ -4133,10 +4138,16 @@ details > summary::-webkit-details-marker{display:none}
       <button class="dm" onclick="_draftSetSeats(4,this)">4</button>
       <button class="dm" onclick="_draftSetSeats(6,this)">6</button>
       <button class="dm active" onclick="_draftSetSeats(8,this)">8</button>
-      <button class="btn btnsm btnp" onclick="draftStart()" id="draft-start-btn">▶ Lancer le draft</button>
+      <button class="btn btnsm btnp" onclick="draftStart()" id="draft-start-btn">▶ Lancer (solo vs bots)</button>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.74rem;color:var(--tx2);border-top:.5px dashed var(--bd);padding-top:8px;margin-bottom:6px">
+      <span>Multijoueur :</span>
+      <button class="btn btnsm" onclick="lroomCreate('draft')" title="Créer un draft en ligne — invite des amis, complète avec des bots si besoin">🌐 Créer en ligne</button>
+      <button class="btn btnsm" onclick="lroomJoin()" title="Rejoindre un draft via un code">🔗 Rejoindre</button>
     </div>
     <div id="draft-area"></div>
   </div>
+  <div id="lroom-area" style="display:none"></div>
 </div>
 
 <!-- ARÈNE -->
@@ -16793,6 +16804,302 @@ function draftPoolToDeck(){
 function draftCopyPool(){
   if(!_draft||!_draft.myPicks.length)return;
   if(navigator.clipboard)navigator.clipboard.writeText(_draftPoolList()).then(function(){if(typeof mlToast==='function')mlToast('📋 Deck draft copié');});
+}
+// ===== Salons Limité multijoueur (Draft & Scellé en ligne) =====
+var _lroom=null,_lroomUnsub=null,_lroomCommitting=false;
+function _cardCompact(c){
+  if(!c)return null;
+  var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||{};
+  return {id:c.id||'',name:c.name||'',cmc:c.cmc!=null?c.cmc:0,colors:c.colors||[],type_line:c.type_line||'',rarity:c.rarity||'common',image_uris:{small:iu.small||'',normal:iu.normal||''}};
+}
+function lroomCreate(mode){
+  if(!userId){toastError('Connecte-toi pour créer un salon');return;}
+  var sel=document.getElementById('lim-set-sel');
+  var code=sel&&sel.value;
+  if(!code){toastError('Choisis une extension d\'abord');return;}
+  var setName=(sel.options[sel.selectedIndex]&&sel.options[sel.selectedIndex].getAttribute('data-name'))||code;
+  var seats=mode==='draft'?_draftSeats:4;
+  var roomCode=(typeof _arGenCode==='function')?_arGenCode():(Math.random().toString(36).slice(2,8).toUpperCase());
+  var myUid=userId,myName=(typeof PN!=='undefined'&&PN[0])||'Hôte';
+  var players={};
+  players['1']={uid:myUid,name:myName,isBot:false,ready:true};
+  for(var i=2;i<=seats;i++)players[String(i)]={uid:null,name:'Siège libre',isBot:false,ready:false};
+  var doc={code:roomCode,hostUid:myUid,hostName:myName,mode:mode,set:code,setName:setName,seats:seats,
+    phase:'lobby',players:players,packs:{},picks:{},pendingPicks:{},sealedReady:{},
+    round:0,pickNum:0,direction:1,participants:[myUid],createdAt:Date.now()};
+  if(typeof _showLoader==='function')_showLoader();
+  db.collection('limited_rooms').doc(roomCode).set(doc).then(function(){
+    if(typeof _hideLoader==='function')_hideLoader();
+    _lroom={code:roomCode,mySeat:1,isHost:true,mode:mode};
+    _lroomSubscribe(roomCode);
+  }).catch(function(e){if(typeof _hideLoader==='function')_hideLoader();toastError('Erreur : '+e.message);});
+}
+function lroomJoin(){
+  if(!userId){toastError('Connecte-toi pour rejoindre');return;}
+  var code=prompt('Code du salon (6 caractères) :','');
+  if(!code)return;
+  code=code.toUpperCase().trim();
+  if(code.length!==6){toastError('Code invalide');return;}
+  if(typeof _showLoader==='function')_showLoader();
+  db.collection('limited_rooms').doc(code).get().then(function(snap){
+    if(typeof _hideLoader==='function')_hideLoader();
+    if(!snap.exists){toastError('Salon introuvable');return;}
+    var data=snap.data();
+    if(data.phase!=='lobby'){toastError('Cette partie a déjà commencé.');return;}
+    var existing=null;
+    for(var i=1;i<=data.seats;i++){var p=data.players[String(i)];if(p&&p.uid===userId){existing=i;break;}}
+    if(existing){_lroom={code:code,mySeat:existing,isHost:data.hostUid===userId,mode:data.mode};_lroomSubscribe(code);return;}
+    var mySeat=null;
+    for(var i=1;i<=data.seats;i++){var p=data.players[String(i)];if(p&&!p.uid&&!p.isBot){mySeat=i;break;}}
+    if(!mySeat){toastError('Salon complet.');return;}
+    var upd={};
+    upd['players.'+mySeat]={uid:userId,name:(typeof PN!=='undefined'&&PN[0])||('Joueur '+mySeat),isBot:false,ready:true};
+    upd['participants']=firebase.firestore.FieldValue.arrayUnion(userId);
+    db.collection('limited_rooms').doc(code).update(upd).then(function(){
+      _lroom={code:code,mySeat:mySeat,isHost:false,mode:data.mode};
+      _lroomSubscribe(code);
+    }).catch(function(e){toastError('Erreur : '+e.message);});
+  }).catch(function(e){if(typeof _hideLoader==='function')_hideLoader();toastError('Erreur : '+e.message);});
+}
+function _lroomSubscribe(code){
+  if(_lroomUnsub){_lroomUnsub();_lroomUnsub=null;}
+  _lroomUnsub=db.collection('limited_rooms').doc(code).onSnapshot(function(snap){
+    if(!snap.exists){_lroomLeave();return;}
+    var data=snap.data();
+    _lroom.data=data;
+    _lroomRender();
+    if(_lroom.isHost&&data.phase==='drafting'&&data.mode==='draft'){
+      setTimeout(function(){_lroomHostStep(data);},120);
+    }
+  },function(e){console.warn('lroom listener',e);});
+}
+function _lroomLeave(){
+  if(_lroomUnsub){_lroomUnsub();_lroomUnsub=null;}
+  _lroom=null;
+  var el=document.getElementById('lroom-area');
+  if(el){el.style.display='none';el.innerHTML='';}
+}
+function lroomQuit(){
+  if(!_lroom)return;
+  if(!confirm('Quitter ce salon ?'))return;
+  if(_lroom.isHost){db.collection('limited_rooms').doc(_lroom.code).delete().catch(function(){});}
+  else{var seat=String(_lroom.mySeat);var upd={};upd['players.'+seat]={uid:null,name:'Siège libre',isBot:false,ready:false};
+    db.collection('limited_rooms').doc(_lroom.code).update(upd).catch(function(){});}
+  _lroomLeave();
+}
+function _lroomFillBots(){
+  if(!_lroom||!_lroom.isHost||!_lroom.data)return;
+  var data=_lroom.data,upd={},any=false;
+  for(var i=1;i<=data.seats;i++){var p=data.players[String(i)];if(p&&!p.uid&&!p.isBot){upd['players.'+i]={uid:'bot_'+i,name:'Bot '+i,isBot:true,ready:true};any=true;}}
+  if(any)db.collection('limited_rooms').doc(data.code).update(upd);
+}
+function _lroomClearBots(){
+  if(!_lroom||!_lroom.isHost||!_lroom.data)return;
+  var data=_lroom.data,upd={},any=false;
+  for(var i=1;i<=data.seats;i++){var p=data.players[String(i)];if(p&&p.isBot){upd['players.'+i]={uid:null,name:'Siège libre',isBot:false,ready:false};any=true;}}
+  if(any)db.collection('limited_rooms').doc(data.code).update(upd);
+}
+function _lroomStart(){
+  if(!_lroom||!_lroom.isHost||!_lroom.data)return;
+  var data=_lroom.data;
+  for(var i=1;i<=data.seats;i++){var p=data.players[String(i)];if(!p.uid&&!p.isBot){toastError('Remplis tous les sièges (joueurs ou bots) avant de lancer.');return;}}
+  if(typeof _showLoader==='function')_showLoader();
+  _limFetchSetCards(data.set,function(buckets){
+    if(typeof _hideLoader==='function')_hideLoader();
+    if(!buckets){toastError('Données de l\'extension indisponibles');return;}
+    if(data.mode==='draft'){
+      var packs={},picks={},pending={};
+      for(var i=1;i<=data.seats;i++){packs[String(i)]=_boosterGen(buckets).map(_cardCompact);picks[String(i)]=[];pending[String(i)]=null;}
+      db.collection('limited_rooms').doc(data.code).update({phase:'drafting',round:1,pickNum:1,direction:1,packs:packs,picks:picks,pendingPicks:pending});
+    }else{
+      db.collection('limited_rooms').doc(data.code).update({phase:'opening'});
+    }
+  });
+}
+function _lroomDraftPick(idx){
+  if(!_lroom||!_lroom.data)return;
+  var data=_lroom.data,seat=String(_lroom.mySeat);
+  if(data.pendingPicks&&data.pendingPicks[seat]){if(typeof toastInfo==='function')toastInfo('Tu as déjà pické cette ronde');return;}
+  var pack=(data.packs&&data.packs[seat])||[];
+  if(idx<0||idx>=pack.length)return;
+  var card=pack[idx];
+  var upd={};upd['pendingPicks.'+seat]=card;
+  db.collection('limited_rooms').doc(data.code).update(upd).catch(function(e){toastError('Erreur : '+e.message);});
+}
+function _lroomHostStep(data){
+  if(data.phase!=='drafting'||_lroomCommitting)return;
+  var botUpd={},anyBot=false;
+  for(var i=1;i<=data.seats;i++){
+    var seat=String(i),p=data.players[seat];
+    if(p&&p.isBot&&(!data.pendingPicks||data.pendingPicks[seat]==null)){
+      var pack=(data.packs&&data.packs[seat])||[];
+      if(pack.length){botUpd['pendingPicks.'+seat]=pack[_draftBotPick(pack)];anyBot=true;}
+    }
+  }
+  if(anyBot){_lroomCommitting=true;db.collection('limited_rooms').doc(data.code).update(botUpd).then(function(){_lroomCommitting=false;}).catch(function(){_lroomCommitting=false;});return;}
+  var allPicked=true;
+  for(var i=1;i<=data.seats;i++)if(!data.pendingPicks||data.pendingPicks[String(i)]==null){allPicked=false;break;}
+  if(!allPicked)return;
+  _lroomCommitting=true;
+  var newPacks={},newPicks={},newPending={};
+  for(var i=1;i<=data.seats;i++){
+    var seat=String(i),pack=((data.packs&&data.packs[seat])||[]).slice(),pp=data.pendingPicks[seat],pi=-1;
+    for(var k=0;k<pack.length;k++)if(pack[k].id===pp.id&&pack[k].name===pp.name){pi=k;break;}
+    if(pi>=0)pack.splice(pi,1);
+    newPacks[seat]=pack;
+    newPicks[seat]=((data.picks&&data.picks[seat])||[]).concat([pp]);
+    newPending[seat]=null;
+  }
+  var dir=data.direction||1,N=data.seats,rotated={};
+  for(var s=1;s<=N;s++){var src=((s+dir-1)%N+N)%N+1;rotated[String(s)]=newPacks[String(src)];}
+  var packEmpty=(rotated[String(1)]||[]).length===0;
+  var upd={picks:newPicks,pendingPicks:newPending,pickNum:(data.pickNum||1)+1};
+  if(packEmpty){
+    if((data.round||1)>=3){
+      upd.phase='done';upd.packs=rotated;
+      db.collection('limited_rooms').doc(data.code).update(upd).then(function(){_lroomCommitting=false;}).catch(function(){_lroomCommitting=false;});
+    }else{
+      _limFetchSetCards(data.set,function(buckets){
+        var packs2={};for(var i=1;i<=N;i++)packs2[String(i)]=_boosterGen(buckets).map(_cardCompact);
+        upd.packs=packs2;upd.round=(data.round||1)+1;upd.pickNum=1;upd.direction=(upd.round%2===1)?1:-1;
+        db.collection('limited_rooms').doc(data.code).update(upd).then(function(){_lroomCommitting=false;}).catch(function(){_lroomCommitting=false;});
+      });
+    }
+  }else{
+    upd.packs=rotated;
+    db.collection('limited_rooms').doc(data.code).update(upd).then(function(){_lroomCommitting=false;}).catch(function(){_lroomCommitting=false;});
+  }
+}
+function _lroomSealedOpenMyPool(){
+  if(!_lroom||!_lroom.data)return;
+  var data=_lroom.data;if(data.phase!=='opening')return;
+  var seat=String(_lroom.mySeat);
+  if(data.sealedReady&&data.sealedReady[seat])return;
+  if(typeof _showLoader==='function')_showLoader();
+  _limFetchSetCards(data.set,function(buckets){
+    if(typeof _hideLoader==='function')_hideLoader();
+    if(!buckets){toastError('Données de l\'extension indisponibles');return;}
+    var pool=[];for(var i=0;i<6;i++)pool=pool.concat(_boosterGen(buckets));
+    _limPool=pool;_limSetName=data.setName||data.set;
+    var upd={};upd['sealedReady.'+seat]=true;
+    db.collection('limited_rooms').doc(data.code).update(upd).then(function(){
+      setTimeout(function(){_limShowBuilderIn('lroom-builder',pool,'Scellé '+_limSetName,'sealed');},150);
+    }).catch(function(){});
+  });
+}
+function _lroomRender(){
+  var host=document.getElementById('lroom-area');if(!host)return;
+  if(!_lroom||!_lroom.data){host.style.display='none';host.innerHTML='';return;}
+  host.style.display='block';
+  var data=_lroom.data;
+  if(data.phase==='lobby')return _lroomRenderLobby(host,data);
+  if(data.phase==='drafting')return _lroomRenderDrafting(host,data);
+  if(data.phase==='opening')return _lroomRenderSealedOpening(host,data);
+  if(data.phase==='done')return _lroomRenderDone(host,data);
+}
+function _lroomRenderLobby(host,data){
+  var modeLbl=data.mode==='draft'?'🎴 Draft en ligne':'📦 Scellé en ligne';
+  var h='<div class="card">';
+  h+='<div class="lbl">'+modeLbl+' — '+esc(data.setName||data.set)+'</div>';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:.78rem">';
+  h+='<span>Code : <b style="color:var(--gold);font-size:1rem;letter-spacing:.12em">'+esc(data.code)+'</b></span>';
+  h+='<button class="btn btnsm" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+data.code+'\').then(function(){if(typeof mlToast===\'function\')mlToast(\'Code copié\')})">📋 Copier</button>';
+  h+='<span style="flex:1"></span>';
+  if(_lroom.isHost)h+='<button class="btn btnsm" onclick="_lroomFillBots()">🤖 Compléter avec des bots</button>';
+  if(_lroom.isHost)h+='<button class="btn btnsm" onclick="_lroomClearBots()">Retirer les bots</button>';
+  h+='<button class="btn btnsm btnrd" onclick="lroomQuit()">'+(_lroom.isHost?'✕ Fermer le salon':'✕ Quitter')+'</button>';
+  h+='</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px">';
+  for(var i=1;i<=data.seats;i++){
+    var p=data.players[String(i)]||{};
+    var taken=p.uid||p.isBot;
+    var col=p.isBot?'#c8a8ff':(taken?'var(--gr2)':'var(--tx3)');
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 9px;background:rgba(255,255,255,.03);border:.5px solid var(--bd);border-radius:6px;font-size:.82rem">';
+    h+='<b style="color:var(--gold2);min-width:22px">J'+i+'</b>';
+    h+='<span style="flex:1;color:'+col+'">'+(taken?esc(p.name||'?'):'(libre)')+(p.isBot?' 🤖':'')+(p.uid===userId?' <span style="color:var(--gold2)">(toi)</span>':'')+'</span>';
+    h+='</div>';
+  }
+  h+='</div>';
+  if(_lroom.isHost){
+    h+='<div style="text-align:center"><button class="btn btnp" onclick="_lroomStart()">▶ Lancer la partie</button></div>';
+    h+='<div style="font-size:.72rem;color:var(--tx3);margin-top:6px;text-align:center;font-style:italic">Partage le code avec tes amis. Les sièges restants peuvent être complétés par des bots.</div>';
+  }else{
+    h+='<div style="font-size:.78rem;color:var(--tx3);text-align:center;font-style:italic">En attente de l\'hôte pour lancer…</div>';
+  }
+  h+='</div>';host.innerHTML=h;
+}
+function _lroomRenderDrafting(host,data){
+  var seat=String(_lroom.mySeat);
+  var myPack=(data.packs&&data.packs[seat])||[];
+  var myPicks=(data.picks&&data.picks[seat])||[];
+  var hasPicked=!!(data.pendingPicks&&data.pendingPicks[seat]);
+  var pickedStep=0;for(var i=1;i<=data.seats;i++)if(data.pendingPicks&&data.pendingPicks[String(i)])pickedStep++;
+  var h='<div class="card">';
+  h+='<div class="lbl">🎴 Draft en ligne — '+esc(data.setName||data.set)+'</div>';
+  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.78rem">';
+  h+='<b style="color:var(--gold2)">Ronde '+data.round+'/3 · Pick '+data.pickNum+'</b>';
+  h+='<span style="color:var(--tx3)">'+pickedStep+'/'+data.seats+' ont pické</span>';
+  h+='<span style="color:var(--tx2)">Tes cartes : '+myPicks.length+'</span>';
+  h+='<span style="flex:1"></span>';
+  h+='<span style="font-size:.7rem;color:var(--tx3)">Code : <b>'+data.code+'</b></span>';
+  h+='<button class="btn btnsm btnrd" onclick="lroomQuit()">✕ Quitter</button>';
+  h+='</div>';
+  if(hasPicked){
+    h+='<div style="padding:9px 11px;background:rgba(91,140,245,.08);border-left:2px solid #5b8cf5;border-radius:0 6px 6px 0;font-size:.84rem;color:#8ab0ff;margin-bottom:8px">⏳ Pick enregistré, en attente des autres joueurs…</div>';
+  }else if(myPack.length){
+    h+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:5px">Clique une carte pour la prendre :</div>';
+    h+=_draftCardGrid(myPack,'_lroomDraftPick');
+  }else{
+    h+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">En attente du prochain pack…</div>';
+  }
+  if(myPicks.length){
+    h+='<details style="margin-top:10px"><summary style="cursor:pointer;font-size:.78rem;color:var(--tx3);list-style:none">📋 Tes cartes draftées ('+myPicks.length+') ▾</summary><div style="margin-top:6px">'+_draftCardGrid(myPicks,null)+'</div></details>';
+  }
+  h+='</div>';host.innerHTML=h;
+}
+function _lroomRenderSealedOpening(host,data){
+  var seat=String(_lroom.mySeat);
+  var ready=(data.sealedReady&&data.sealedReady[seat])||false;
+  var h='<div class="card">';
+  h+='<div class="lbl">📦 Scellé en ligne — '+esc(data.setName||data.set)+'</div>';
+  h+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.78rem">';
+  h+='<span style="color:var(--tx3)">Code : <b>'+data.code+'</b></span>';
+  h+='<span style="flex:1"></span>';
+  h+='<button class="btn btnsm btnrd" onclick="lroomQuit()">✕ Quitter</button>';
+  h+='</div>';
+  if(!ready){
+    h+='<div style="text-align:center;padding:14px 0">';
+    h+='<div style="font-size:.86rem;color:var(--tx2);margin-bottom:10px">L\'hôte a lancé la partie ! Ouvre ton scellé de 6 boosters.</div>';
+    h+='<button class="btn btnp" onclick="_lroomSealedOpenMyPool()">📦 Ouvrir mon scellé</button>';
+    h+='</div>';
+  }
+  h+='<div style="display:flex;flex-direction:column;gap:4px;margin-top:10px;font-size:.78rem">';
+  for(var i=1;i<=data.seats;i++){
+    var p=data.players[String(i)]||{};
+    var pReady=(data.sealedReady&&data.sealedReady[String(i)])||false;
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,.03);border-radius:6px">';
+    h+='<b style="color:var(--gold2);min-width:22px">J'+i+'</b>';
+    h+='<span style="flex:1;color:var(--tx2)">'+esc(p.name||'?')+(p.uid===userId?' (toi)':'')+'</span>';
+    h+='<span style="color:'+(pReady?'var(--gr2)':'var(--tx3)')+';font-size:.72rem">'+(pReady?'✓ Pool ouvert':'⏳ En attente')+'</span>';
+    h+='</div>';
+  }
+  h+='</div>';
+  h+='<div id="lroom-builder"></div>';
+  h+='</div>';host.innerHTML=h;
+}
+function _lroomRenderDone(host,data){
+  var seat=String(_lroom.mySeat);
+  var myPicks=(data.picks&&data.picks[seat])||[];
+  var h='<div class="card">';
+  h+='<div class="lbl">✓ Draft terminé — '+esc(data.setName||data.set)+'</div>';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.78rem">';
+  h+='<span style="color:var(--tx2)">Tu as drafté <b style="color:var(--gold2)">'+myPicks.length+'</b> cartes. Construis ton 40-cartes ci-dessous.</span>';
+  h+='<span style="flex:1"></span>';
+  h+='<button class="btn btnsm btnrd" onclick="lroomQuit()">✕ Quitter le salon</button>';
+  h+='</div>';
+  h+='<div id="lroom-builder"></div>';
+  h+='</div>';host.innerHTML=h;
+  setTimeout(function(){_limShowBuilderIn('lroom-builder',myPicks,'Draft '+(data.setName||data.set),'draft');},100);
 }
 function loadScryfallSets(){
   if(_setsLoaded)return;
