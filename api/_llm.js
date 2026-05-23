@@ -91,10 +91,13 @@ async function callGeminiText(systemPrompt, contents, opts) {
 }
 
 // Identification de carte. base64Image = data sans prefix data:..., mime = "image/jpeg"
+// Retourne maintenant un objet { name, set, collector_number } parsé du JSON renvoyé
+// par le LLM. Permet à scan-card.js de retrouver la VERSION exacte sur Scryfall.
 async function identifyCard(base64Image, mime) {
-  var prompt = 'You are a Magic: The Gathering card identification expert. Identify the card in this image. Respond with ONLY the EXACT ENGLISH NAME of the card as it appears on Scryfall, nothing else — no quotes, no explanation, no commentary. If you cannot identify it confidently, respond with "UNKNOWN".';
+  var prompt = 'You are a Magic: The Gathering card identification expert. Identify the card in this image. Return ONLY a JSON object with this exact format, no other text:\n\n{"name":"<exact English name>","set":"<3-letter set code or empty>","collector_number":"<number or empty>"}\n\nDetails:\n- name: EXACT English name as on Scryfall (no quotes inside, no extra info)\n- set: 3-letter set code visible bottom-left (e.g. "LCI", "LTR", "DMU", "MID"). Empty string "" if not legible.\n- collector_number: the number visible bottom-left (e.g. "234", "012", "0356"). Empty string "" if not legible.\n\nIf you cannot identify the card confidently, return {"name":"UNKNOWN","set":"","collector_number":""}.\n\nReturn JSON only, no markdown fences, no commentary.';
   var dataUrl = 'data:' + mime + ';base64,' + base64Image;
 
+  var raw = '';
   if (process.env.GITHUB_TOKEN) {
     var messages = [{
       role: 'user',
@@ -103,9 +106,8 @@ async function identifyCard(base64Image, mime) {
         { type: 'image_url', image_url: { url: dataUrl } }
       ]
     }];
-    return callGithubChat(messages, { model: GITHUB_MODEL_VISION, maxTokens: 60, temperature: 0.1 });
-  }
-  if (process.env.GEMINI_API_KEY) {
+    raw = await callGithubChat(messages, { model: GITHUB_MODEL_VISION, maxTokens: 120, temperature: 0.1 });
+  } else if (process.env.GEMINI_API_KEY) {
     var contents = [{
       role: 'user',
       parts: [
@@ -113,9 +115,29 @@ async function identifyCard(base64Image, mime) {
         { inline_data: { mime_type: mime, data: base64Image } }
       ]
     }];
-    return callGeminiText(null, contents, { maxTokens: 60, temperature: 0.1 });
+    raw = await callGeminiText(null, contents, { maxTokens: 120, temperature: 0.1 });
+  } else {
+    throw new Error('No LLM configured');
   }
-  throw new Error('No LLM configured');
+
+  // Nettoyage : enlève d'éventuels code fences ```json … ```
+  var clean = String(raw || '').trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
+  // Tente JSON.parse, sinon retombe sur le texte brut comme name
+  try {
+    var obj = JSON.parse(clean);
+    if (obj && typeof obj.name === 'string') {
+      return {
+        name: obj.name.trim(),
+        set: (typeof obj.set === 'string' ? obj.set.trim().toLowerCase() : '').slice(0, 5),
+        collector_number: (typeof obj.collector_number === 'string' ? obj.collector_number.trim() : '').slice(0, 12)
+      };
+    }
+  } catch (e) { /* fallback ci-dessous */ }
+  // Fallback : LLM a renvoyé juste un nom brut
+  return { name: clean.replace(/^["'`]+|["'`]+$/g, ''), set: '', collector_number: '' };
 }
 
 // Chat règles. history = [{role:'user'|'model', text}], card = {name, oracle_text, type_line}|null

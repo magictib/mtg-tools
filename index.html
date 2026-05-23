@@ -15635,8 +15635,8 @@ function _renderCardScanner(view){
     html+='<button onclick="_scanStartCamera()" style="padding:14px;background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;text-align:left"><span style="font-size:1.5rem;flex-shrink:0">🎥</span> <span style="flex:1">Caméra avec viseur <span style="font-size:.7rem;color:var(--tx3);display:block;font-family:inherit">Recommandé sur PC. Peut nécessiter une autorisation Web.</span></span></button>';
     // Option 2 : app caméra native (capture="environment") — fonctionne même si Web bloqué
     html+='<label style="padding:14px;background:rgba(100,200,120,.12);border:.5px solid var(--gr);color:var(--gr2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;text-align:left;position:relative;overflow:hidden"><span style="font-size:1.5rem;flex-shrink:0">📷</span> <span style="flex:1">Prendre une photo <span style="font-size:.7rem;color:var(--tx3);display:block;font-family:inherit">Recommandé sur mobile. Ouvre directement ton app photo.</span></span><input type="file" accept="image/*" capture="environment" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="_scanFromFile(this.files[0])"></label>';
-    // Option 3 : galerie / fichier existant
-    html+='<label style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;text-align:left;position:relative;overflow:hidden"><span style="font-size:1.5rem;flex-shrink:0">📁</span> <span style="flex:1">Choisir depuis la galerie <span style="font-size:.7rem;color:var(--tx3);display:block;font-family:inherit">Photo déjà prise / screenshot / fichier image.</span></span><input type="file" accept="image/*" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="_scanFromFile(this.files[0])"></label>';
+    // Option 3 : galerie / fichier existant — supporte la sélection multiple
+    html+='<label style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center;text-align:left;position:relative;overflow:hidden"><span style="font-size:1.5rem;flex-shrink:0">📁</span> <span style="flex:1">Choisir depuis la galerie <span style="font-size:.7rem;color:var(--tx3);display:block;font-family:inherit">Une ou plusieurs photos / screenshots. Multi-sélection possible pour scanner toute une pile.</span></span><input type="file" accept="image/*" multiple style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer" onchange="_scanFromFiles(this.files)"></label>';
     html+='</div>';
     html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Cadre bien la carte (face avant uniquement, sans reflets) pour de meilleurs résultats. Le scan utilise Gemini Vision via GitHub Models.</div>';
   } else if(view==='camera'){
@@ -15647,6 +15647,36 @@ function _renderCardScanner(view){
     html+='</div>';
   } else if(view==='loading'){
     html+='<div style="text-align:center;padding:32px 12px"><div style="font-size:2rem;margin-bottom:10px">⏳</div><div style="color:var(--gold2);font-family:\'Cinzel\',serif">Analyse en cours…</div><div style="color:var(--tx3);font-size:.78rem;margin-top:6px">Gemini Vision identifie la carte.</div></div>';
+  } else if(view==='batch'){
+    var b=_scanBatch||{total:0,done:0,results:[],stopped:false};
+    var pct=b.total?Math.round((b.done/b.total)*100):0;
+    var running=!b.stopped&&b.done<b.total;
+    html+='<div style="text-align:center;margin-bottom:12px">';
+    html+='<div style="font-family:\'Cinzel\',serif;color:var(--gold2);font-size:1.05rem">'+b.done+' / '+b.total+' analysées</div>';
+    html+='<div style="height:8px;background:var(--s3);border-radius:4px;margin-top:8px;overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));width:'+pct+'%;transition:width .3s"></div></div>';
+    if(running)html+='<div style="color:var(--tx3);font-size:.74rem;margin-top:6px;font-style:italic">⏳ Scan en cours… (≈ 1 carte/sec)</div>';
+    html+='</div>';
+    if(b.results.length){
+      html+='<div style="max-height:300px;overflow-y:auto;border:.5px solid var(--bd2);border-radius:8px;padding:8px;background:var(--s3)">';
+      b.results.forEach(function(r,i){
+        if(r.ok){
+          html+='<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:3px;background:rgba(100,200,120,.06);border-radius:5px;font-size:.78rem"><span style="color:var(--gr2);flex-shrink:0">✓</span><span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.name)+'</span>'+(r.set_name?'<span style="color:var(--tx3);font-size:.66rem">'+esc(r.set_name)+'</span>':'')+'</div>';
+        } else {
+          html+='<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:3px;background:rgba(255,140,40,.06);border-radius:5px;font-size:.78rem"><span style="color:var(--am);flex-shrink:0">⚠</span><span style="flex:1;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Photo '+(i+1)+' — '+esc(r.error||'non identifiée')+'</span></div>';
+        }
+      });
+      html+='</div>';
+    }
+    html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap">';
+    if(running){
+      html+='<button onclick="_scanBatchStop()" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">⏸ Stopper</button>';
+    } else {
+      var added=b.results.filter(function(r){return r.added;}).length;
+      var skipped=b.results.filter(function(r){return !r.ok;}).length;
+      html+='<button onclick="_scanBatchFinish()" style="background:rgba(100,200,120,.18);border:.5px solid var(--gr);color:var(--gr2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">✓ Terminer ('+added+' ajoutée'+(added>1?'s':'')+(skipped?', '+skipped+' ignorée'+(skipped>1?'s':''):'')+')</button>';
+      html+='<button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Scanner d\'autres</button>';
+    }
+    html+='</div>';
   } else if(view==='result'){
     var res=_scanLastResult;
     if(!res){html+='<div style="text-align:center;color:var(--rd2)">Aucun résultat.</div>';}
@@ -15680,6 +15710,14 @@ function _renderCardScanner(view){
       html+='<div style="font-family:\'Cinzel\',serif;color:var(--gold2);font-size:1.05rem;text-align:center">'+esc(res.name)+'</div>';
       if(s){
         html+='<div style="font-size:.72rem;color:var(--tx3);text-align:center">'+esc(s.set_name||'')+' · '+esc(s.rarity||'')+(s.collector_number?' · #'+esc(s.collector_number):'')+'</div>';
+      }
+      // Indicateur d'édition : exacte (lue sur la photo) ou par défaut (Scryfall fuzzy)
+      if(res.exact_version_matched){
+        html+='<div style="font-size:.68rem;color:var(--gr2);text-align:center;background:rgba(100,200,120,.10);padding:3px 10px;border-radius:6px;border:.5px solid rgba(100,200,120,.3)">✓ Édition exacte détectée depuis la photo</div>';
+      } else if(res.detected_set||res.detected_collector){
+        html+='<div style="font-size:.68rem;color:var(--am);text-align:center">⚠ Édition détectée ('+esc(res.detected_set||'?')+(res.detected_collector?' #'+esc(res.detected_collector):'')+') introuvable sur Scryfall — version par défaut affichée</div>';
+      } else {
+        html+='<div style="font-size:.68rem;color:var(--tx3);text-align:center;font-style:italic">ℹ Édition non lue sur la photo — version par défaut affichée. Si tu veux une version précise, modifie après ajout dans la collection.</div>';
       }
       html+='</div>';
       html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap">';
@@ -15736,22 +15774,97 @@ function _scanSnap(){
 }
 function _scanFromFile(file){
   if(!file)return;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    // Redimensionne via image + canvas
-    var img=new Image();
-    img.onload=function(){
-      var maxSide=900;
-      var scale=Math.min(1,maxSide/Math.max(img.width,img.height));
-      var cw=Math.round(img.width*scale),ch=Math.round(img.height*scale);
-      var canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
-      canvas.getContext('2d').drawImage(img,0,0,cw,ch);
-      _scanSubmit(canvas.toDataURL('image/jpeg',0.85));
+  _scanFileToDataUrl(file).then(function(dataUrl){
+    _scanSubmit(dataUrl);
+  }).catch(function(){
+    _scanLastResult={error:'Image illisible.'};_renderCardScanner('result');
+  });
+}
+function _scanFileToDataUrl(file){
+  return new Promise(function(resolve,reject){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var img=new Image();
+      img.onload=function(){
+        var maxSide=900;
+        var scale=Math.min(1,maxSide/Math.max(img.width,img.height));
+        var cw=Math.round(img.width*scale),ch=Math.round(img.height*scale);
+        var canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
+        canvas.getContext('2d').drawImage(img,0,0,cw,ch);
+        resolve(canvas.toDataURL('image/jpeg',0.85));
+      };
+      img.onerror=reject;
+      img.src=e.target.result;
     };
-    img.onerror=function(){_scanLastResult={error:'Image illisible.'};_renderCardScanner('result');};
-    img.src=e.target.result;
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+  });
+}
+// Mode batch : scanne plusieurs photos en série, ajoute chaque carte
+// identifiée à la collection au fil de l'eau. Affiche un récap progressif.
+var _scanBatch=null;
+function _scanFromFiles(fileList){
+  if(!fileList||!fileList.length)return;
+  if(fileList.length===1)return _scanFromFile(fileList[0]);
+  _scanBatch={
+    total:fileList.length,
+    done:0,
+    results:[],   // [{ok, name, set_name, error}]
+    files:Array.prototype.slice.call(fileList),
+    stopped:false
   };
-  reader.readAsDataURL(file);
+  _renderCardScanner('batch');
+  _scanBatchNext();
+}
+function _scanBatchNext(){
+  if(!_scanBatch||_scanBatch.stopped)return;
+  if(_scanBatch.done>=_scanBatch.total){
+    _renderCardScanner('batch');
+    return;
+  }
+  var file=_scanBatch.files[_scanBatch.done];
+  _scanFileToDataUrl(file).then(function(dataUrl){
+    return fetch('/api/scan-card',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image:dataUrl})
+    }).then(function(r){return r.json().then(function(d){return {status:r.status,data:d};});});
+  }).then(function(o){
+    var entry={ok:false,name:null,error:null,set_name:'',added:false};
+    if(o.status!==200){
+      entry.error=o.data.error||'Erreur '+o.status;
+    } else if(!o.data.name){
+      entry.error=o.data.message||'Non identifiée';
+    } else {
+      entry.ok=true;
+      entry.name=o.data.name;
+      var s=o.data.scryfall||{};
+      entry.set_name=s.set_name||'';
+      // Ajout direct à la collection
+      var card={name:entry.name,qty:1,set:(s.set||'').toUpperCase(),num:s.collector_number||'',cond:'NM',finish:'nonfoil',price:(s.prices&&parseFloat(s.prices.eur))||0,lang:'en'};
+      if(typeof addCardToProf==='function'){addCardToProf(0,card);entry.added=true;}
+    }
+    _scanBatch.results.push(entry);
+    _scanBatch.done++;
+    _renderCardScanner('batch');
+    // Throttle léger pour éviter de saturer le free tier
+    setTimeout(_scanBatchNext,400);
+  }).catch(function(e){
+    _scanBatch.results.push({ok:false,error:'Erreur fichier : '+(e.message||'inconnue')});
+    _scanBatch.done++;
+    _renderCardScanner('batch');
+    setTimeout(_scanBatchNext,200);
+  });
+}
+function _scanBatchStop(){
+  if(_scanBatch)_scanBatch.stopped=true;
+}
+function _scanBatchFinish(){
+  // Persiste la collection une seule fois à la fin
+  if(typeof saveProfs==='function')saveProfs();
+  var added=(_scanBatch&&_scanBatch.results||[]).filter(function(r){return r.added;}).length;
+  if(added&&typeof toastSuccess==='function')toastSuccess('✓ '+added+' carte'+(added>1?'s':'')+' ajoutée'+(added>1?'s':'')+' à la collection');
+  closeCardScanner();
 }
 function _scanSubmit(dataUrl){
   _renderCardScanner('loading');
