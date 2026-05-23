@@ -20461,6 +20461,15 @@ function arNextTurn(){
   (_ar.lands||[]).forEach(function(c){c.tapped=false;});
   _ar.attackers=[];_ar.blockers=[];
   _ar.turn++;_ar.phase=1;
+  // Triggers de début de tour : pour chaque permanent en jeu, on vérifie si l'oracle
+  // déclare un effet « at the beginning of » → affiche un rappel toast.
+  setTimeout(function(){
+    var checked={};
+    _ar.field.forEach(function(c){
+      if(checked[c.name])return;checked[c.name]=1;
+      _arCheckTriggers(c.name,'upkeep');
+    });
+  },300);
   // Mana pool : vide en fin de tour (règle MTG)
   _arMana={W:0,U:0,B:0,R:0,G:0,C:0};
   if(_ar.ss)_ar.ss.turns++;
@@ -20946,9 +20955,10 @@ function arPlayCard(id,x,y){
     var card=_ar.hand[idx];
     var data=_arCardDataCache[(card.name||'').toLowerCase()];
     if(data&&data.type_line&&data.type_line.includes('Land')){
-      // Lands bypass the stack
+      // Lands bypass the stack — auto-tap si « enters tapped »
       _ar.hand.splice(idx,1);
-      var lc={id:_arMakeId(),name:card.name,x:Math.max(0,x),y:Math.max(0,y),tapped:false,counters:0};
+      var entersTapped=/enters (the battlefield )?tapped(?!\s+unless)/i.test((data.oracle_text)||'');
+      var lc={id:_arMakeId(),name:card.name,x:Math.max(0,x),y:Math.max(0,y),tapped:!!entersTapped,counters:0};
       (_ar.lands=_ar.lands||[]).push(lc);
       _ar.fieldUsed=true;arRenderLands();arRenderHand();
     }else{
@@ -20982,14 +20992,27 @@ function _arPlayCardActual(id,x,y){
   var idx=_ar.hand.findIndex(function(c){return c.id===id;});
   if(idx<0)return;
   var card=_ar.hand[idx];
+  var d=_arCardDataCache[(card.name||'').toLowerCase()];
+  var tl=(d&&d.type_line)||'';
+  var oracle=(d&&d.oracle_text)||'';
+  var isInstantOrSorcery=/Instant|Sorcery/i.test(tl);
   // Online + toggle Pile ON : pousse en pile partagée au lieu d'aller directement en jeu
   if(_arRoom&&_arUseStack&&!_arBot){
-    var d=_arCardDataCache[(card.name||'').toLowerCase()];
-    var isLand=d&&d.type_line&&/Land/i.test(d.type_line);
-    if(!isLand){arPushSharedStack(card,x,y);return;}
+    if(!/Land/i.test(tl)){arPushSharedStack(card,x,y);return;}
+  }
+  // Éphémères / Rituels : ne vont JAMAIS au champ de bataille. Ils déclenchent un
+  // panneau de résolution avec l'oracle text et finissent au cimetière (style MTGA).
+  if(isInstantOrSorcery&&!_arBot){
+    _ar.hand.splice(idx,1);
+    _arOpenSpellResolver(card,oracle,tl);
+    return;
   }
   _ar.hand.splice(idx,1);
-  card.x=x;card.y=y;card.tapped=false;card.counters=0;card.owner=_arRoom?_arRoom.playerNum:0;
+  card.x=x;card.y=y;card.counters=0;card.owner=_arRoom?_arRoom.playerNum:0;
+  // Auto-tap : si la carte précise « enters the battlefield tapped », on l'engage
+  // immédiatement (Triomes, Gates, Refuges, ETB-tapped manlands…).
+  var entersTapped=/enters (the battlefield )?tapped(?!\s+unless)/i.test(oracle);
+  card.tapped=!!entersTapped;
   _ar.field.push(card);
   _ar.fieldUsed=true;
   _arSyncToRoom();
@@ -20998,31 +21021,112 @@ function _arPlayCardActual(id,x,y){
   _arCheckTriggers(card.name,'etb');
 }
 
+// Modale de résolution pour éphémères et rituels — affiche le texte oracle, laisse
+// l'utilisateur appliquer manuellement l'effet (cibles, etc.), puis envoie au cimetière.
+function _arOpenSpellResolver(card,oracle,typeLine){
+  var ov=document.getElementById('ar-spell-resolver');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='ar-spell-resolver';
+    ov.style.cssText='position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)';
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  var isInstant=/Instant/i.test(typeLine||'');
+  var imgUrl='https://api.scryfall.com/cards/named?exact='+encodeURIComponent(card.name)+'&format=image&version=normal';
+  var html='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:18px 20px;max-width:540px;width:100%;box-shadow:0 12px 48px rgba(0,0,0,.7)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px">';
+  html+='<div><h3 style="margin:0;color:'+(isInstant?'#5b8cf5':'#c9a84c')+';font-family:\'Cinzel\',serif;font-size:1.05rem">'+(isInstant?'⚡ Éphémère':'🌀 Rituel')+' — résolution</h3>';
+  html+='<div style="font-size:.78rem;color:var(--tx2);margin-top:3px">'+esc(card.name)+'</div></div>';
+  html+='<button onclick="_arCancelSpell(\''+escJs(card.id)+'\',\''+escJs(card.name)+'\')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.3rem;padding:0 6px;line-height:1" title="Annuler (retour en main)">✕</button>';
+  html+='</div>';
+  html+='<div style="display:flex;gap:14px;flex-wrap:wrap">';
+  html+='<img src="'+esc(imgUrl)+'" alt="" style="width:180px;max-width:40%;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.5);cursor:zoom-in" onclick="cardLightbox(\''+escJs(card.name)+'\')">';
+  html+='<div style="flex:1;min-width:200px">';
+  html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.06em;margin-bottom:5px">EFFET</div>';
+  html+='<div style="font-size:.84rem;color:var(--tx);line-height:1.55;white-space:pre-wrap;padding:10px 12px;background:var(--s3);border-radius:8px;border:.5px solid var(--bd2);max-height:240px;overflow-y:auto">'+esc(oracle||'(pas de texte oracle disponible — applique l\'effet manuellement)')+'</div>';
+  html+='</div>';
+  html+='</div>';
+  html+='<div style="margin-top:14px;font-size:.72rem;color:var(--tx3);font-style:italic;text-align:center">Applique l\'effet manuellement (cibles, gain de vie, etc.), puis valide.</div>';
+  html+='<div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">';
+  html+='<button onclick="_arCancelSpell(\''+escJs(card.id)+'\',\''+escJs(card.name)+'\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↩ Annuler</button>';
+  html+='<button onclick="_arResolveSpell(\''+escJs(card.id)+'\',\''+escJs(card.name)+'\')" style="background:rgba(100,200,120,.18);border:.5px solid var(--gr);color:var(--gr2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">✓ Résolu (au cimetière)</button>';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+  // Stocke la carte pour pouvoir l'annuler ou la résoudre
+  ov._arSpellCard=card;
+}
+function _arResolveSpell(id,name){
+  var ov=document.getElementById('ar-spell-resolver');
+  var card=ov&&ov._arSpellCard;
+  if(!card)return;
+  card.tapped=false;delete card.x;delete card.y;delete card.counters;
+  _ar.grave.push(card);
+  ov.style.display='none';ov.innerHTML='';ov._arSpellCard=null;
+  if(typeof _arSyncToRoom==='function')_arSyncToRoom();
+  if(typeof arLogAction==='function')arLogAction('play',{name:name});
+  arRender();
+  _arCheckTriggers(name,'cast');
+}
+function _arCancelSpell(id,name){
+  var ov=document.getElementById('ar-spell-resolver');
+  var card=ov&&ov._arSpellCard;
+  if(!card)return;
+  // Retour en main
+  _ar.hand.push(card);
+  ov.style.display='none';ov.innerHTML='';ov._arSpellCard=null;
+  arRender();
+}
+
 // ===== TRIGGERS REMINDER =====
+// Détecte les capacités déclenchées de l'oracle et affiche un rappel à l'utilisateur
+// au bon moment (style Magic Arena : tu vois la trigger, tu valides ou tu annules).
+// Events : etb (entrée en jeu), upkeep (début de tour), cast (à l'incantation),
+// attack (à l'attaque), endTurn (fin de tour).
 function _arCheckTriggers(cardName,eventType){
   var d=_arCardDataCache[(cardName||'').toLowerCase()];
   if(!d||!d.oracle_text)return;
   var text=d.oracle_text;
   var triggers=[];
-  var lc=text.toLowerCase();
-  // Détecte les patterns courants de déclenchement
   if(eventType==='etb'){
     if(/when (this|~|enchanted creature) enters the battlefield|when ([\w ,'-]+) enters the battlefield|enters the battlefield, /i.test(text)){
       var m=text.match(/(When [^.]+(enters the battlefield)[^.]*\.)/i);
       if(m)triggers.push({when:'ETB',text:m[0]});
       else triggers.push({when:'ETB',text:'Capacité d\'entrée en jeu'});
     }
-  }
-  // Autres triggers visibles dans l'oracle (génériques)
-  ['Whenever','At the beginning'].forEach(function(kw){
-    if(text.indexOf(kw)>=0&&eventType==='etb'){
-      var rx=new RegExp(kw+'\\s[^.]+\\.','g');
-      var matches=text.match(rx)||[];
-      matches.slice(0,2).forEach(function(m){
-        triggers.push({when:kw==='Whenever'?'TRG':'BEGIN',text:m});
-      });
+  } else if(eventType==='upkeep'){
+    // « At the beginning of your upkeep » / « your draw step » / « each upkeep »
+    var rxUp=/at the beginning of (your |each (player'?s)? |the )?(upkeep|draw step|combat|first main phase)[^.]+\./gi;
+    var matches=text.match(rxUp)||[];
+    matches.slice(0,3).forEach(function(m){triggers.push({when:'UPKEEP',text:m});});
+  } else if(eventType==='cast'){
+    // « When you cast this spell » / « Whenever you cast » triggered abilities
+    if(/when you cast this spell|whenever you cast this spell|prowess|storm/i.test(text)){
+      var c=text.match(/(When (?:ever )?you cast[^.]+\.|prowess[^.]*\.)/i);
+      if(c)triggers.push({when:'CAST',text:c[0]});
     }
-  });
+  } else if(eventType==='attack'){
+    var rxAtk=/whenever (?:this|~|[\w ,'\-]+) attacks?[^.]+\./i;
+    var ma=text.match(rxAtk);
+    if(ma)triggers.push({when:'ATTACK',text:ma[0]});
+  } else if(eventType==='endTurn'){
+    var rxEnd=/at the beginning of (your |each |the )?(end step|next end step)[^.]+\./gi;
+    var matches=text.match(rxEnd)||[];
+    matches.slice(0,2).forEach(function(m){triggers.push({when:'END',text:m});});
+  }
+  // Triggers génériques (ETB) — on liste aussi Whenever / At the beginning
+  if(eventType==='etb'){
+    ['Whenever','At the beginning'].forEach(function(kw){
+      if(text.indexOf(kw)>=0){
+        var rx=new RegExp(kw+'\\s[^.]+\\.','g');
+        var matches=text.match(rx)||[];
+        matches.slice(0,2).forEach(function(m){
+          triggers.push({when:kw==='Whenever'?'TRG':'BEGIN',text:m});
+        });
+      }
+    });
+  }
   if(triggers.length)_arShowTriggerToast(cardName,triggers);
 }
 function _arShowTriggerToast(cardName,triggers){
