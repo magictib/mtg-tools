@@ -5602,9 +5602,50 @@ function wishlistSuggest(){
 // ===== Alertes de prix de la wishlist =====
 var _wishlistPrices={};   // nameLower -> {eur,usd}
 var _wishlistPricesTs=0;
+var _wishlistPriceHist={}; // nameLower -> [{ts, eur}, ...] (max 30 entrées, ~30 jours)
+var _wishlistNotifiedAlerts={}; // nameLower -> ts du dernier déclenchement (évite le spam)
 try{var __wp=JSON.parse(localStorage.getItem('mtg_wishlist_prices')||'{}');if(__wp&&__wp.map){_wishlistPrices=__wp.map;_wishlistPricesTs=__wp.ts||0;}}catch(e){}
+try{_wishlistPriceHist=JSON.parse(localStorage.getItem('mtg_wishlist_price_hist')||'{}');}catch(e){_wishlistPriceHist={};}
+try{_wishlistNotifiedAlerts=JSON.parse(localStorage.getItem('mtg_wishlist_notified')||'{}');}catch(e){_wishlistNotifiedAlerts={};}
 function _wishlistSavePrices(){
   try{localStorage.setItem('mtg_wishlist_prices',JSON.stringify({map:_wishlistPrices,ts:_wishlistPricesTs}));}catch(e){}
+}
+function _wishlistSaveHist(){
+  try{localStorage.setItem('mtg_wishlist_price_hist',JSON.stringify(_wishlistPriceHist));}catch(e){}
+}
+function _wishlistSaveNotified(){
+  try{localStorage.setItem('mtg_wishlist_notified',JSON.stringify(_wishlistNotifiedAlerts));}catch(e){}
+}
+function _wishlistPriceTrend(nameLower){
+  // Renvoie la variation en % vs le plus ancien snapshot conservé (max 30j).
+  // Renvoie null si moins de 2 snapshots.
+  var hist=_wishlistPriceHist[nameLower];
+  if(!hist||hist.length<2)return null;
+  var oldest=hist[0],newest=hist[hist.length-1];
+  if(!oldest.eur||!newest.eur)return null;
+  var pct=((newest.eur-oldest.eur)/oldest.eur)*100;
+  return {pct:pct,days:Math.round((newest.ts-oldest.ts)/(86400000))};
+}
+function _wishlistAskNotifPerm(){
+  if(!('Notification' in window))return;
+  if(Notification.permission==='default'){
+    Notification.requestPermission().then(function(){});
+  }
+}
+function _wishlistSendNotif(card,price,target){
+  if(!('Notification' in window))return;
+  if(Notification.permission!=='granted')return;
+  var key=card.toLowerCase();
+  var last=_wishlistNotifiedAlerts[key]||0;
+  if(Date.now()-last<24*3600*1000)return; // anti-spam : 1 notif / 24h max par carte
+  _wishlistNotifiedAlerts[key]=Date.now();_wishlistSaveNotified();
+  try{
+    new Notification('💰 '+card+' à '+price.toFixed(2)+'€',{
+      body:'Prix cible '+target.toFixed(2)+'€ atteint sur Scryfall. C\'est le bon moment !',
+      icon:'./icon.svg',
+      tag:'mtg-wishlist-'+key
+    });
+  }catch(e){}
 }
 function _wishlistTargetHits(){
   var n=0;
@@ -5624,7 +5665,10 @@ function wishlistSetTarget(nLow){
   if(v===''){delete w.target;}
   else{var n=parseFloat(v);if(isNaN(n)||n<0){toastError('Prix invalide');return;}w.target=n;}
   _wishlistSave();renderWishlist();
-  if(w.target!=null)wishlistCheckPrices(true);
+  if(w.target!=null){
+    _wishlistAskNotifPerm();
+    wishlistCheckPrices(true);
+  }
 }
 function wishlistCheckPrices(force){
   var names=_wishlist.map(function(w){return w.name;});
@@ -5639,21 +5683,48 @@ function wishlistCheckPrices(force){
       body:JSON.stringify({identifiers:ch.map(function(n){return {name:n};})})
     }).then(function(r){return r.json();}).catch(function(){return {data:[]};});
   })).then(function(results){
+    var now=Date.now();
     results.forEach(function(res){
       (res&&res.data||[]).forEach(function(card){
         var pr=card.prices||{};
-        _wishlistPrices[(card.name||'').toLowerCase()]={
-          eur:pr.eur?parseFloat(pr.eur):null,
+        var nLow=(card.name||'').toLowerCase();
+        var eur=pr.eur?parseFloat(pr.eur):null;
+        _wishlistPrices[nLow]={
+          eur:eur,
           usd:pr.usd?parseFloat(pr.usd):null
         };
+        // Historique : un snapshot par jour max, max 30 entrées
+        if(eur!=null){
+          _wishlistPriceHist[nLow]=_wishlistPriceHist[nLow]||[];
+          var hist=_wishlistPriceHist[nLow];
+          var last=hist[hist.length-1];
+          if(!last||(now-last.ts)>20*3600*1000){
+            hist.push({ts:now,eur:eur});
+            if(hist.length>30)hist.shift();
+          } else {
+            // Mise à jour du snapshot du jour (prix le plus récent)
+            last.ts=now;last.eur=eur;
+          }
+        }
       });
     });
-    _wishlistPricesTs=Date.now();
+    _wishlistPricesTs=now;
     _wishlistSavePrices();
+    _wishlistSaveHist();
     if(btn){btn.disabled=false;btn.textContent='💰 Prix';}
     renderWishlist();
     var hit=_wishlistTargetHits();
-    if(hit>0&&typeof showToast==='function')showToast('💰 '+hit+' carte'+(hit>1?'s':'')+' de ta wishlist au prix cible !');
+    if(hit>0){
+      if(typeof showToast==='function')showToast('💰 '+hit+' carte'+(hit>1?'s':'')+' de ta wishlist au prix cible !');
+      // Notifications système (une par carte, anti-spam 24h)
+      _wishlist.forEach(function(w){
+        if(w.target==null)return;
+        var p=_wishlistPrices[w.name.toLowerCase()];
+        if(p&&p.eur!=null&&p.eur<=w.target){
+          _wishlistSendNotif(w.name,p.eur,w.target);
+        }
+      });
+    }
   }).catch(function(){if(btn){btn.disabled=false;btn.textContent='💰 Prix';}});
 }
 function renderWishlist(){
@@ -5683,9 +5754,17 @@ function renderWishlist(){
     var bd=atTarget?'rgba(100,200,120,.4)':'rgba(255,80,100,.18)';
     var priceBit=curEur!=null?'<span style="font-size:.7rem;color:'+(atTarget?'var(--gr2)':'var(--tx3)')+'">'+curEur.toFixed(2)+'€</span>':'';
     var targetBit=hasTarget?'<span style="font-size:.66rem;color:'+(atTarget?'var(--gr2)':'var(--am)')+'">🔔'+w.target.toFixed(2)+'€'+(atTarget?' ✓':'')+'</span>':'';
+    // Tendance sur 7-30j
+    var trendBit='';
+    var trend=_wishlistPriceTrend(w.name.toLowerCase());
+    if(trend&&Math.abs(trend.pct)>=2){
+      var trendIco=trend.pct>0?'↑':'↓';
+      var trendCol=trend.pct>0?'var(--rd2)':'var(--gr2)';
+      trendBit='<span title="Variation sur '+trend.days+' jour'+(trend.days>1?'s':'')+'" style="font-size:.65rem;color:'+trendCol+'">'+trendIco+Math.abs(trend.pct).toFixed(0)+'%</span>';
+    }
     return '<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:'+bg+';border:.5px solid '+bd+';border-radius:6px;margin-bottom:3px">'
       +'<span style="flex:1;color:var(--tx);font-size:.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(atTarget?'💰':'❤')+' '+esc(w.name)+'</span>'
-      +priceBit+targetBit
+      +priceBit+trendBit+targetBit
       +'<button class="btn btnsm" onclick="wishlistSetTarget(\''+escJs(w.name.toLowerCase())+'\')" title="Définir un prix cible" style="padding:2px 6px;font-size:.7rem">🔔</button>'
       +'<button class="btn btnsm btnrd" onclick="wishlistRemove(\''+escJs(w.name.toLowerCase())+'\')" style="padding:2px 7px;font-size:.7rem">✕</button>'
       +'</div>';
