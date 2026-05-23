@@ -2396,6 +2396,7 @@ details > summary::-webkit-details-marker{display:none}
             <button class="um-btn" id="um-admin-btn" onclick="openAdminPanel();closeHub()" style="display:none">⚙ Panneau admin</button>
             <button class="um-btn" onclick="openAvatarPicker()">🎭 Choisir mon avatar</button>
             <button class="um-btn" onclick="openFriendModal();closeHub()">👥 Mes amis</button>
+            <button class="um-btn" onclick="openMyPublicProfile()">🔗 Mon profil public</button>
             <button class="um-btn" onclick="umShowRename()">✎ Modifier le nom</button>
             <div class="um-rename-wrap" id="um-rename-wrap">
               <input type="text" id="um-rename-input" placeholder="Nouveau prénom / pseudo" onkeydown="if(event.key==='Enter')authRenameUser()">
@@ -14469,6 +14470,160 @@ function _checkSharedDeckUrl(){
     try{history.replaceState(null,'',window.location.pathname);}catch(e){}
   }).catch(function(e){mlAlert('Erreur','Impossible de charger : '+e.message);});
 }
+
+// ===== Profil public partageable =====
+// URL : ?u=UID  →  ouvre l'overlay de profil public au chargement
+function _checkPublicProfileUrl(){
+  try{
+    var p=new URLSearchParams(location.search);
+    var u=p.get('u');
+    if(!u||!/^[A-Za-z0-9_-]{6,128}$/.test(u))return;
+    if(!window.db)return;
+    openPublicProfile(u);
+    try{history.replaceState(null,'',location.pathname+location.hash);}catch(e){}
+  }catch(e){}
+}
+function openMyPublicProfile(){
+  if(!userId){if(typeof toastError==='function')toastError('Connecte-toi d\'abord.');return;}
+  closeHub();
+  openPublicProfile(userId);
+}
+function shareMyProfile(){
+  if(!userId){if(typeof toastError==='function')toastError('Connecte-toi d\'abord.');return;}
+  var url=location.origin+location.pathname+'?u='+encodeURIComponent(userId);
+  if(navigator.share){
+    navigator.share({title:'Mon profil ManaLAB',url:url}).catch(function(){});
+  } else if(navigator.clipboard){
+    navigator.clipboard.writeText(url).then(function(){
+      if(typeof toastSuccess==='function')toastSuccess('🔗 Lien du profil copié !');
+    }).catch(function(){
+      mlAlert('Lien du profil',url);
+    });
+  } else {
+    mlAlert('Lien du profil',url);
+  }
+}
+function openPublicProfile(uid){
+  if(!window.db||!uid)return;
+  var ov=document.getElementById('public-profile-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='public-profile-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9991;background:rgba(6,3,1,.96);overflow-y:auto;padding:20px 14px;backdrop-filter:blur(3px)';
+    ov.onclick=function(ev){if(ev.target===ov)closePublicProfile();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='block';
+  ov.innerHTML='<div style="max-width:720px;margin:30px auto;text-align:center;color:var(--tx3);font-style:italic;padding:40px 0">⏳ Chargement du profil…</div>';
+  // Charge le doc user + ses decks publics en parallèle
+  var pUser=db.collection('users').doc(uid).get();
+  var pDecks=db.collection('public_decks').where('createdBy','==',uid).get();
+  Promise.all([pUser,pDecks]).then(function(res){
+    var uDoc=res[0],dSnap=res[1];
+    if(!uDoc.exists){
+      ov.innerHTML='<div style="max-width:520px;margin:60px auto;text-align:center;padding:30px;background:var(--s2);border:.5px solid var(--bd2);border-radius:12px">'
+        +'<div style="font-size:2rem;margin-bottom:10px">🪞</div>'
+        +'<div style="color:var(--gold2);font-family:\'Cinzel\',serif;font-size:1.05rem;margin-bottom:8px">Profil introuvable</div>'
+        +'<div style="color:var(--tx3);font-size:.85rem;margin-bottom:16px">Ce joueur n\'existe pas ou a supprimé son compte.</div>'
+        +'<button onclick="closePublicProfile()" style="padding:6px 16px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer">Fermer</button>'
+        +'</div>';
+      return;
+    }
+    var u=uDoc.data()||{};
+    var decksList=[];
+    dSnap.forEach(function(d){var dat=d.data()||{};dat._pubId=d.id;decksList.push(dat);});
+    // Tri par likes desc
+    decksList.sort(function(a,b){
+      var la=(a.likes&&a.likes.length)||0;
+      var lb=(b.likes&&b.likes.length)||0;
+      return lb-la;
+    });
+    _renderPublicProfile(uid,u,decksList);
+  }).catch(function(e){
+    ov.innerHTML='<div style="max-width:520px;margin:60px auto;text-align:center;padding:30px;background:var(--s2);border:.5px solid var(--bd2);border-radius:12px">'
+      +'<div style="color:var(--rd2);font-size:.9rem;margin-bottom:12px">❌ Erreur de chargement</div>'
+      +'<div style="color:var(--tx3);font-size:.78rem;margin-bottom:16px">'+esc(e.message||'')+'</div>'
+      +'<button onclick="closePublicProfile()" style="padding:6px 16px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer">Fermer</button>'
+      +'</div>';
+  });
+}
+function closePublicProfile(){
+  var ov=document.getElementById('public-profile-ov');
+  if(ov){ov.style.display='none';ov.innerHTML='';}
+}
+function _renderPublicProfile(uid,u,decksList){
+  var ov=document.getElementById('public-profile-ov');if(!ov)return;
+  var isMe=(uid===userId);
+  var isFriend=!!(_friends&&_friends.some(function(f){return f.uid===uid;}));
+  var pending=(typeof _isPendingOut==='function')&&_isPendingOut(uid);
+  var totalLikes=0,totalComments=0;
+  decksList.forEach(function(d){
+    if(d.likes&&d.likes.length)totalLikes+=d.likes.length;
+    if(d.comments&&d.comments.length)totalComments+=d.comments.length;
+  });
+  var displayName=u.name||u.email||'Joueur';
+  var avatarHtml=_avatarHtml(u.avatar,displayName,82);
+  var html='';
+  html+='<div style="max-width:760px;margin:24px auto 60px;background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:22px 24px;box-shadow:0 12px 48px rgba(0,0,0,.6)">';
+  // Header
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px">';
+  html+='<button onclick="closePublicProfile()" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.85rem;padding:4px 8px">← Retour</button>';
+  if(isMe){
+    html+='<button onclick="shareMyProfile()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:5px 12px;border-radius:7px;cursor:pointer;font-size:.78rem">🔗 Partager mon profil</button>';
+  } else {
+    if(!isFriend&&!pending){
+      html+='<button onclick="sendFriendRequest(\''+escJs(uid)+'\',\''+escJs(displayName)+'\');closePublicProfile()" style="background:rgba(100,200,120,.18);border:.5px solid var(--gr);color:var(--gr2);padding:5px 12px;border-radius:7px;cursor:pointer;font-size:.78rem">+ Ajouter en ami</button>';
+    } else if(isFriend){
+      html+='<span style="color:var(--gr2);font-size:.78rem;font-family:\'Goudy Mediaeval\',serif;padding:5px 10px">✓ Déjà ami</span>';
+    } else if(pending){
+      html+='<span style="color:var(--gold2);font-size:.78rem;font-family:\'Goudy Mediaeval\',serif;padding:5px 10px">⏳ Demande envoyée</span>';
+    }
+  }
+  html+='</div>';
+  // Avatar + nom
+  html+='<div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:20px">';
+  html+=avatarHtml;
+  html+='<h2 style="margin:0;font-family:\'Cinzel\',serif;color:var(--gold2);font-size:1.4rem;letter-spacing:.04em">'+esc(displayName)+'</h2>';
+  if(isMe)html+='<div style="font-size:.7rem;color:var(--tx3);font-style:italic">— C\'est toi —</div>';
+  html+='</div>';
+  // Stats
+  html+='<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:22px">';
+  html+=_pubProfStat(decksList.length,'deck'+(decksList.length>1?'s':'')+' public'+(decksList.length>1?'s':''),'📚');
+  html+=_pubProfStat(totalLikes,'like'+(totalLikes>1?'s':''),'❤');
+  html+=_pubProfStat(totalComments,'commentaire'+(totalComments>1?'s':''),'💬');
+  html+='</div>';
+  // Liste de decks
+  html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:8px">📚 DECKS PUBLICS</div>';
+  if(!decksList.length){
+    html+='<div style="color:var(--tx3);font-style:italic;text-align:center;padding:24px;background:var(--s3);border-radius:10px;border:.5px dashed var(--bd2)">Aucun deck publié pour le moment.</div>';
+  } else {
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">';
+    decksList.forEach(function(d){
+      var lk=(d.likes&&d.likes.length)||0;
+      var cm=(d.comments&&d.comments.length)||0;
+      var nbCards=(d.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+      var cmdr=d.commanderName||(d.cards&&d.cards[0]&&d.cards[0].name)||'';
+      html+='<div onclick="closePublicProfile();db.collection(\'public_decks\').doc(\''+escJs(d._pubId)+'\').get().then(function(doc){if(doc.exists)openSharedDeckView(doc.data(),\''+escJs(d._pubId)+'\');})" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:10px;padding:11px 12px;cursor:pointer;transition:border-color .15s,transform .1s" onmouseover="this.style.borderColor=\'var(--gold)\'" onmouseout="this.style.borderColor=\'var(--bd2)\'">';
+      html+='<div style="font-family:\'Cinzel\',serif;color:var(--tx);font-size:.92rem;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.name||'(deck)')+'</div>';
+      if(cmdr)html+='<div style="font-size:.7rem;color:var(--gold2);font-style:italic;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(cmdr)+'</div>';
+      html+='<div style="display:flex;gap:10px;font-size:.7rem;color:var(--tx3)">';
+      html+='<span>'+nbCards+' cartes</span>';
+      if(lk)html+='<span>❤ '+lk+'</span>';
+      if(cm)html+='<span>💬 '+cm+'</span>';
+      html+='</div>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _pubProfStat(n,lbl,ico){
+  return '<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:10px;padding:10px 16px;min-width:90px;text-align:center">'
+    +'<div style="font-size:1.4rem;color:var(--gold2);font-family:\'Cinzel\',serif;line-height:1">'+ico+' '+n+'</div>'
+    +'<div style="font-size:.68rem;color:var(--tx3);margin-top:3px">'+esc(lbl)+'</div>'
+    +'</div>';
+}
 var _sharedDeckCur=null;
 function openSharedDeckView(d,pubId){
   _sharedDeckCur={d:d,pubId:pubId};
@@ -14719,6 +14874,7 @@ function renderPresentationMode(){
 // Trigger l'auto-check au démarrage
 if(typeof window!=='undefined'){
   setTimeout(function(){if(typeof _checkSharedDeckUrl==='function')_checkSharedDeckUrl();},2000);
+  setTimeout(function(){if(typeof _checkPublicProfileUrl==='function')_checkPublicProfileUrl();},2100);
 }
 
 // ===== SOCIAL-1 : Wishlist matching cross-listes =====
