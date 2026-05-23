@@ -3630,6 +3630,7 @@ details > summary::-webkit-details-marker{display:none}
           <div class="ar-cmenu-sep"></div>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldOpenVersions();bldCloseToolsMenu()">🕰 Versions — historique &amp; comparaison</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShareCurrent();bldCloseToolsMenu()">🔗 Partager — URL lecture seule</button>
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShareImageCurrent();bldCloseToolsMenu()">📸 Image — PNG pour Discord/Twitter</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldPresentMode();bldCloseToolsMenu()">🎲 Mode table — vie & jetons</button>
         </div>
       </div>
@@ -14624,6 +14625,294 @@ function _pubProfStat(n,lbl,ico){
     +'<div style="font-size:.68rem;color:var(--tx3);margin-top:3px">'+esc(lbl)+'</div>'
     +'</div>';
 }
+
+// ===== Image de deck partageable (canvas → PNG) =====
+// Génère une « carte d'identité » 1200x630 (ratio Open Graph) du deck pour
+// partage sur Discord/Twitter. Inclut le nom, le commandant (si dispo), la
+// courbe de mana, les couleurs, le bracket de puissance et la signature ManaLAB.
+function _deckImgColors(deck){
+  var dist={W:0,U:0,B:0,R:0,G:0,C:0};
+  (deck.cards||[]).forEach(function(c){
+    if(Array.isArray(c.colors)&&c.colors.length){
+      c.colors.forEach(function(col){if(dist[col]!==undefined)dist[col]+=(c.qty||1);});
+    } else if(c.colors&&!c.colors.length){dist.C+=(c.qty||1);}
+  });
+  return dist;
+}
+function _deckImgCurve(deck){
+  var c={0:0,1:0,2:0,3:0,4:0,5:0,6:0,7:0};
+  (deck.cards||[]).forEach(function(card){
+    if(typeof card.cmc!=='number')return;
+    // Exclure les terrains
+    var tl=(card.type_line||card.type||'').toLowerCase();
+    if(tl.indexOf('land')>=0||tl.indexOf('terrain')>=0)return;
+    var k=card.cmc>=7?7:Math.floor(card.cmc);
+    c[k]=(c[k]||0)+(card.qty||1);
+  });
+  return c;
+}
+function _deckImgCmdImageUrl(deck){
+  if(deck.commander){
+    var im=deck.commander.image_uris||(deck.commander.card_faces&&deck.commander.card_faces[0]&&deck.commander.card_faces[0].image_uris);
+    if(im)return im.normal||im.large||im.small||'';
+  }
+  // Sinon, première carte avec image
+  var cards=deck.cards||[];
+  for(var i=0;i<cards.length;i++){
+    var c=cards[i];
+    var im2=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris);
+    if(im2)return im2.normal||im2.large||im2.small||'';
+  }
+  return '';
+}
+function _deckImgLoadImage(url){
+  return new Promise(function(resolve){
+    if(!url)return resolve(null);
+    var img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=function(){resolve(img);};
+    img.onerror=function(){resolve(null);};
+    img.src=url;
+  });
+}
+function _deckImgRoundedRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+function _deckImgDrawColorPip(ctx,x,y,r,color){
+  var fill={W:'#f8f4ec',U:'#3d77c4',B:'#2a2030',R:'#c84838',G:'#4a8848',C:'#909098'}[color]||'#888';
+  var stroke={W:'#c8b878',U:'#1a3958',B:'#0a0608',R:'#7a1818',G:'#1c4220',C:'#444'}[color]||'#444';
+  ctx.fillStyle=fill;
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();
+  // Lettre au centre
+  ctx.fillStyle=color==='W'?'#5a4a18':'#fff';
+  ctx.font='bold '+Math.round(r*1.15)+'px Cinzel, serif';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(color==='C'?'◇':color,x,y+1);
+}
+function generateDeckImage(deck,pwInfo){
+  return new Promise(function(resolve){
+    var cmdUrl=_deckImgCmdImageUrl(deck);
+    _deckImgLoadImage(cmdUrl).then(function(cmdImg){
+      var W=1200,H=630;
+      var canvas=document.createElement('canvas');
+      canvas.width=W;canvas.height=H;
+      var ctx=canvas.getContext('2d');
+      // Fond dégradé sombre or
+      var bg=ctx.createLinearGradient(0,0,W,H);
+      bg.addColorStop(0,'#0a0604');bg.addColorStop(0.5,'#1a1208');bg.addColorStop(1,'#0e0703');
+      ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+      // Bordure dorée
+      ctx.strokeStyle='#c9a84c';ctx.lineWidth=4;
+      ctx.strokeRect(8,8,W-16,H-16);
+      // Bordure intérieure fine
+      ctx.strokeStyle='rgba(201,168,76,.3)';ctx.lineWidth=1;
+      ctx.strokeRect(20,20,W-40,H-40);
+      var cardX=50,cardY=60,cardW=290,cardH=405;
+      if(cmdImg){
+        // Image du commandant à gauche, coins arrondis
+        ctx.save();
+        _deckImgRoundedRect(ctx,cardX,cardY,cardW,cardH,18);
+        ctx.clip();
+        ctx.drawImage(cmdImg,cardX,cardY,cardW,cardH);
+        ctx.restore();
+        // Cadre or
+        _deckImgRoundedRect(ctx,cardX,cardY,cardW,cardH,18);
+        ctx.strokeStyle='#c9a84c';ctx.lineWidth=3;ctx.stroke();
+      } else {
+        // Pas d'image : carte placeholder
+        _deckImgRoundedRect(ctx,cardX,cardY,cardW,cardH,18);
+        ctx.fillStyle='#2a1810';ctx.fill();
+        ctx.strokeStyle='#7a5218';ctx.lineWidth=3;ctx.stroke();
+        ctx.fillStyle='#c9a84c';
+        ctx.font='italic 24px Cinzel, serif';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText('Magic',cardX+cardW/2,cardY+cardH/2-15);
+        ctx.fillText('the Gathering',cardX+cardW/2,cardY+cardH/2+15);
+      }
+      // Bracket coin haut-gauche
+      if(pwInfo){
+        var brCol=pwInfo.bracket>=5?'#e6543b':pwInfo.bracket>=4?'#e09548':pwInfo.bracket>=3?'#c9a84c':'#7ab882';
+        ctx.fillStyle=brCol;
+        _deckImgRoundedRect(ctx,cardX-8,cardY-8,80,40,10);
+        ctx.fill();
+        ctx.fillStyle='#0a0604';
+        ctx.font='bold 22px Cinzel, serif';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText('B'+pwInfo.bracket+'/5',cardX-8+40,cardY-8+20);
+      }
+      // Colonne de droite
+      var rx=380,ry=70;
+      // Titre : nom du deck
+      ctx.fillStyle='#e8d090';
+      ctx.font='bold 48px Cinzel, serif';
+      ctx.textAlign='left';ctx.textBaseline='top';
+      var deckName=deck.name||'Deck Magic';
+      // Tronquer si trop long
+      var maxW=W-rx-50;
+      var measured=ctx.measureText(deckName);
+      if(measured.width>maxW){
+        while(deckName.length>0&&ctx.measureText(deckName+'…').width>maxW){deckName=deckName.slice(0,-1);}
+        deckName+='…';
+      }
+      ctx.fillText(deckName,rx,ry);
+      // Sous-titre : commandant si dispo
+      var cmdName=(deck.commander&&deck.commander.name)||deck.commanderName||'';
+      if(cmdName){
+        ctx.fillStyle='#c9a84c';
+        ctx.font='italic 26px "Crimson Pro", serif';
+        var cn=cmdName;
+        if(ctx.measureText(cn).width>maxW){while(cn.length>0&&ctx.measureText(cn+'…').width>maxW){cn=cn.slice(0,-1);}cn+='…';}
+        ctx.fillText('👑 '+cn,rx,ry+62);
+      }
+      // Stats : nombre de cartes + format
+      var totalCards=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+      var fmt=deck.format||'';
+      ctx.fillStyle='#a89c80';
+      ctx.font='22px "Crimson Pro", serif';
+      ctx.fillText(totalCards+' cartes'+(fmt?' · '+fmt:''),rx,ry+110);
+      // Pips de couleurs
+      var dist=_deckImgColors(deck);
+      var colOrder=['W','U','B','R','G','C'];
+      var px=rx,py=ry+155;
+      colOrder.forEach(function(col){
+        if(dist[col]>0){
+          _deckImgDrawColorPip(ctx,px+20,py+20,22,col);
+          px+=52;
+        }
+      });
+      // Courbe de mana
+      var cy=ry+220;
+      ctx.fillStyle='#a89c80';
+      ctx.font='600 14px "Crimson Pro", serif';
+      ctx.textAlign='left';
+      ctx.fillText('COURBE DE MANA',rx,cy);
+      var curve=_deckImgCurve(deck);
+      var maxV=0;
+      for(var k in curve)if(curve[k]>maxV)maxV=curve[k];
+      var barX=rx,barY=cy+24,barAreaH=130,barW=42,barGap=8;
+      ctx.font='600 16px "Crimson Pro", serif';
+      ctx.textAlign='center';
+      [0,1,2,3,4,5,6,7].forEach(function(cmc,i){
+        var v=curve[cmc]||0;
+        var h=maxV>0?Math.round((v/maxV)*barAreaH):0;
+        var x=barX+i*(barW+barGap);
+        var y=barY+barAreaH-h;
+        // Barre
+        ctx.fillStyle='rgba(201,168,76,.85)';
+        _deckImgRoundedRect(ctx,x,y,barW,h,4);
+        ctx.fill();
+        // Valeur
+        ctx.fillStyle='#e8d090';
+        ctx.fillText(String(v),x+barW/2,y-8);
+        // Label CMC
+        ctx.fillStyle='#a89c80';
+        ctx.fillText(cmc===7?'7+':String(cmc),x+barW/2,barY+barAreaH+18);
+      });
+      // Footer : signature ManaLAB
+      ctx.fillStyle='#c9a84c';
+      ctx.font='bold 22px Cinzel, serif';
+      ctx.textAlign='right';ctx.textBaseline='alphabetic';
+      ctx.fillText('ManaLAB',W-50,H-50);
+      ctx.fillStyle='#7a6a48';
+      ctx.font='italic 14px "Crimson Pro", serif';
+      ctx.fillText('ton atelier Magic',W-50,H-30);
+      // Auteur en bas-gauche
+      var ownerName=deck.ownerName||(PN&&PN[0])||'';
+      if(ownerName){
+        ctx.fillStyle='#a89c80';
+        ctx.font='18px "Crimson Pro", serif';
+        ctx.textAlign='left';
+        ctx.fillText('par '+ownerName,rx,H-40);
+      }
+      resolve(canvas);
+    });
+  });
+}
+function openDeckImageModal(deck){
+  if(!deck){mlAlert('Image','Deck introuvable.');return;}
+  var ov=document.getElementById('deck-img-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='deck-img-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:20px 12px;overflow-y:auto;backdrop-filter:blur(3px)';
+    ov.onclick=function(ev){if(ev.target===ov)closeDeckImageModal();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  ov.innerHTML='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:24px 28px;max-width:520px;text-align:center"><div style="color:var(--gold2);font-family:\'Cinzel\',serif;margin-bottom:14px">📸 Génération de l\'image…</div><div style="color:var(--tx3);font-size:.82rem">Chargement du commandant…</div></div>';
+  var pw=(typeof _anaDeckPower==='function')?_anaDeckPower(deck):null;
+  generateDeckImage(deck,pw).then(function(canvas){
+    var dataUrl=canvas.toDataURL('image/png');
+    var html='';
+    html+='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:18px 22px;max-width:840px;width:100%;box-shadow:0 12px 48px rgba(0,0,0,.6)">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">';
+    html+='<div><h3 style="margin:0;color:var(--gold2);font-family:\'Cinzel\',serif;font-size:1.05rem">📸 Image partageable</h3>';
+    html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:3px">1200×630 px · format optimal pour Discord/Twitter/Reddit</div></div>';
+    html+='<button onclick="closeDeckImageModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.3rem;padding:0 6px">✕</button>';
+    html+='</div>';
+    html+='<img id="deck-img-preview" src="'+dataUrl+'" style="width:100%;border-radius:8px;border:.5px solid var(--bd2);margin-bottom:12px;display:block">';
+    html+='<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">';
+    html+='<button onclick="_deckImgDownload(this)" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.85rem">💾 Télécharger</button>';
+    html+='<button onclick="_deckImgCopy(this)" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.85rem">📋 Copier</button>';
+    if(navigator.share)html+='<button onclick="_deckImgShare(this)" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.85rem">📤 Partager</button>';
+    html+='</div>';
+    html+='<div id="deck-img-msg" style="text-align:center;margin-top:10px;min-height:18px;font-size:.78rem;color:var(--gr2)"></div>';
+    html+='</div>';
+    ov.innerHTML=html;
+    ov._deckImgCanvas=canvas;
+    ov._deckImgName=(deck.name||'deck').toLowerCase().replace(/[^a-z0-9]+/g,'-').slice(0,50)||'deck';
+  });
+}
+function closeDeckImageModal(){
+  var ov=document.getElementById('deck-img-ov');
+  if(ov){ov.style.display='none';ov.innerHTML='';}
+}
+function _deckImgGetCanvas(){
+  var ov=document.getElementById('deck-img-ov');
+  return ov?ov._deckImgCanvas:null;
+}
+function _deckImgDownload(){
+  var ov=document.getElementById('deck-img-ov');var canvas=ov&&ov._deckImgCanvas;if(!canvas)return;
+  var a=document.createElement('a');
+  a.download='manalab-'+(ov._deckImgName||'deck')+'.png';
+  a.href=canvas.toDataURL('image/png');
+  a.click();
+  var m=document.getElementById('deck-img-msg');if(m)m.textContent='✓ Téléchargée';
+}
+function _deckImgCopy(){
+  var canvas=_deckImgGetCanvas();if(!canvas)return;
+  if(!navigator.clipboard||!window.ClipboardItem){
+    var m=document.getElementById('deck-img-msg');if(m){m.style.color='var(--am)';m.textContent='⚠ Copier image non supporté par ce navigateur.';}
+    return;
+  }
+  canvas.toBlob(function(blob){
+    if(!blob)return;
+    navigator.clipboard.write([new ClipboardItem({'image/png':blob})]).then(function(){
+      var m=document.getElementById('deck-img-msg');if(m){m.style.color='var(--gr2)';m.textContent='✓ Image copiée dans le presse-papier';}
+    }).catch(function(){
+      var m=document.getElementById('deck-img-msg');if(m){m.style.color='var(--rd2)';m.textContent='✗ Échec de la copie';}
+    });
+  });
+}
+function _deckImgShare(){
+  var canvas=_deckImgGetCanvas();if(!canvas||!navigator.share)return;
+  canvas.toBlob(function(blob){
+    if(!blob)return;
+    var file=new File([blob],'manalab-deck.png',{type:'image/png'});
+    if(navigator.canShare&&!navigator.canShare({files:[file]})){
+      navigator.share({title:'Mon deck ManaLAB',text:'Découvre mon deck sur ManaLAB'}).catch(function(){});
+      return;
+    }
+    navigator.share({files:[file],title:'Mon deck ManaLAB'}).catch(function(){});
+  });
+}
 var _sharedDeckCur=null;
 function openSharedDeckView(d,pubId){
   _sharedDeckCur={d:d,pubId:pubId};
@@ -14701,7 +14990,7 @@ function openSharedDeckView(d,pubId){
     +'<div style="font-size:.76rem;color:var(--tx3)">Par <b style="color:var(--tx2)">'+esc(d.ownerName||'?')+'</b>'+(d.format?' · format <b>'+esc(d.format)+'</b>':'')+' · '+totalCards+' cartes</div>'
     +(d.commander?'<div style="font-size:.85rem;color:#c8a8ff;margin-top:4px">👑 Commandant : '+esc(d.commander.name||'?')+'</div>':'')
     +'</div>'
-    +'<div style="display:flex;gap:6px"><button class="btn btnsm" onclick="closeSharedDeckView()">✕ Fermer</button></div>'
+    +'<div style="display:flex;gap:6px"><button class="btn btnsm" onclick="openDeckImageModal(_sharedDeckCur&&_sharedDeckCur.d)" title="Générer une image PNG du deck pour partage Discord/Twitter">📸 Image</button><button class="btn btnsm" onclick="closeSharedDeckView()">✕ Fermer</button></div>'
     +'</div></div>'
     +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;padding:16px 22px;border-bottom:.5px solid var(--bd)">'
     +'<div><div style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-head);letter-spacing:.06em;margin-bottom:4px">COURBE DE MANA</div><div style="display:flex;gap:3px;align-items:flex-end">'+curveHtml+'</div></div>'
@@ -27296,6 +27585,12 @@ function _bldRunMulliganSim(){
 function bldShareCurrent(){
   if(!bldCurDeckId){mlAlert('Partager','Charge ou sauvegarde d\'abord un deck.');return;}
   deckShare(bldCurDeckId);
+}
+function bldShareImageCurrent(){
+  if(!bldCurDeckId){mlAlert('Image','Charge ou sauvegarde d\'abord un deck.');return;}
+  var d=decks[bldCurDeckId];
+  if(!d){mlAlert('Image','Deck introuvable.');return;}
+  openDeckImageModal(d);
 }
 function bldPresentMode(){
   if(!bldCurDeckId){mlAlert('Mode table','Charge ou sauvegarde d\'abord un deck.');return;}
