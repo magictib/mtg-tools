@@ -33438,6 +33438,147 @@ function _anaDeckPower(deck){
   else bracket=1;
   return {bracket:bracket,gc:gc,gcNames:gcNames,fastMana:fastMana,tutors:tutors,extraTurns:extraTurns,landDenial:landDenial,freeSpells:freeSpells,avgCmc:avgCmc,pts:Math.round(pts)};
 }
+// ----- Négociateur de table EDH : comparaison de power levels avant une partie -----
+// Compare jusqu'à 6 decks (les miens via _anaDeckPower + adversaires en saisie manuelle)
+// et alerte si l'écart de brackets risque de gâcher la partie.
+var _pwNego={entries:[]};
+function _pwNegoOpen(seedDeckId){
+  _pwNego.entries=[];
+  if(seedDeckId&&typeof decks==='object'&&decks&&decks[seedDeckId]){
+    _pwNego.entries.push({type:'mine',deckId:seedDeckId,player:(typeof PN!=='undefined'&&PN[0])||'Moi'});
+  }
+  _pwNegoRender();
+}
+function _pwNegoClose(){var ov=document.getElementById('pw-nego-ov');if(ov)ov.remove();}
+function _pwNegoAddMine(){
+  if(_pwNego.entries.length>=6){return;}
+  var sel=document.getElementById('pw-nego-mine-sel');
+  if(!sel||!sel.value)return;
+  var id=sel.value;
+  if(_pwNego.entries.some(function(e){return e.type==='mine'&&e.deckId===id;}))return;
+  _pwNego.entries.push({type:'mine',deckId:id,player:(typeof PN!=='undefined'&&PN[0])||'Moi'});
+  _pwNegoRender();
+}
+function _pwNegoAddAdv(){
+  if(_pwNego.entries.length>=6){return;}
+  _pwNego.entries.push({type:'adv',player:'',bracket:3,notes:''});
+  _pwNegoRender();
+}
+function _pwNegoRemove(idx){_pwNego.entries.splice(idx,1);_pwNegoRender();}
+function _pwNegoSetAdv(idx,field,val){
+  var e=_pwNego.entries[idx];if(!e||e.type!=='adv')return;
+  e[field]=val;_pwNegoUpdateVerdict();
+}
+function _pwNegoCardHtml(e,idx){
+  var html='';
+  if(e.type==='mine'){
+    var d=(typeof decks==='object'&&decks)?decks[e.deckId]:null;
+    if(!d)return '';
+    var pw=_anaDeckPower(d);
+    var br=pw?pw.bracket:1;
+    var lbl=_ANA_POWER_LABELS[br]||'';
+    var col=br>=5?'var(--rd2)':br>=4?'var(--am)':br>=3?'var(--gold2)':'var(--gr2)';
+    var cmdName=d.commanderName||(d.cards&&d.cards[0]&&d.cards[0].name)||'';
+    html+='<div class="pw-nego-card" style="background:var(--s3);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:170px;flex:1 1 200px">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center">';
+    html+='<b style="color:var(--tx);font-size:.85rem">'+esc(e.player||'Moi')+'</b>';
+    html+='<button onclick="_pwNegoRemove('+idx+')" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.85rem;padding:0 4px">✕</button>';
+    html+='</div>';
+    html+='<div style="font-size:.7rem;color:var(--tx3);line-height:1.4">'+esc(d.name||'(deck)')+(cmdName?'<br><i>'+esc(cmdName)+'</i>':'')+'</div>';
+    html+='<div style="margin-top:4px;font-size:1.05rem;color:'+col+';font-weight:700;font-family:\'Goudy Mediaeval\',serif">⚔ Bracket '+br+'/5</div>';
+    html+='<div style="font-size:.72rem;color:'+col+';font-style:italic">'+esc(lbl)+'</div>';
+    if(pw){
+      var bits=[];
+      if(pw.gc)bits.push('· '+pw.gc+' Game Changer'+(pw.gc>1?'s':''));
+      if(pw.fastMana)bits.push('· '+pw.fastMana+' fast mana');
+      if(pw.tutors)bits.push('· '+pw.tutors+' tuteur'+(pw.tutors>1?'s':''));
+      if(pw.extraTurns)bits.push('· '+pw.extraTurns+' tour'+(pw.extraTurns>1?'s':'')+' sup.');
+      if(pw.landDenial)bits.push('· '+pw.landDenial+' destruction terrains');
+      if(pw.freeSpells)bits.push('· '+pw.freeSpells+' sort'+(pw.freeSpells>1?'s':'')+' gratuit'+(pw.freeSpells>1?'s':''));
+      bits.push('· CMC '+pw.avgCmc.toFixed(2));
+      html+='<div style="font-size:.65rem;color:var(--tx3);line-height:1.55;margin-top:3px">'+bits.join('<br>')+'</div>';
+    }
+    html+='</div>';
+  } else {
+    var brA=e.bracket||3;
+    var lblA=_ANA_POWER_LABELS[brA]||'';
+    var colA=brA>=5?'var(--rd2)':brA>=4?'var(--am)':brA>=3?'var(--gold2)':'var(--gr2)';
+    html+='<div class="pw-nego-card" style="background:var(--s3);border:1px dashed var(--bd2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:170px;flex:1 1 200px">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">';
+    html+='<input value="'+esc(e.player||'')+'" placeholder="Adversaire" oninput="_pwNegoSetAdv('+idx+',\'player\',this.value)" style="background:var(--s2);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:3px 7px;font-size:.78rem;flex:1;outline:none;min-width:0">';
+    html+='<button onclick="_pwNegoRemove('+idx+')" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.85rem;padding:0 4px">✕</button>';
+    html+='</div>';
+    html+='<div style="font-size:.7rem;color:var(--tx3)">Estimation manuelle</div>';
+    html+='<div style="margin-top:4px;font-size:1.05rem;color:'+colA+';font-weight:700;font-family:\'Goudy Mediaeval\',serif">⚔ Bracket '+brA+'/5</div>';
+    html+='<input type="range" min="1" max="5" step="1" value="'+brA+'" oninput="_pwNegoSetAdv('+idx+',\'bracket\',parseInt(this.value));_pwNegoRender()" style="width:100%;accent-color:var(--gold2)">';
+    html+='<div style="font-size:.72rem;color:'+colA+';font-style:italic;text-align:center">'+esc(lblA)+'</div>';
+    html+='<textarea placeholder="Notes (combos, tuteurs…)" oninput="_pwNegoSetAdv('+idx+',\'notes\',this.value)" style="background:var(--s2);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx2);padding:4px 6px;font-size:.7rem;width:100%;box-sizing:border-box;resize:vertical;min-height:30px;outline:none;font-family:inherit">'+esc(e.notes||'')+'</textarea>';
+    html+='</div>';
+  }
+  return html;
+}
+function _pwNegoVerdict(){
+  var brackets=_pwNego.entries.map(function(e){
+    if(e.type==='mine'){var pw=_anaDeckPower((typeof decks==='object'&&decks)?decks[e.deckId]:null);return pw?pw.bracket:1;}
+    return e.bracket||3;
+  });
+  if(brackets.length<2)return {kind:'wait',msg:'Ajoute au moins 2 decks pour comparer.'};
+  var mn=Math.min.apply(null,brackets);
+  var mx=Math.max.apply(null,brackets);
+  var diff=mx-mn;
+  if(diff===0)return {kind:'ok',msg:'✓ Tous les decks sont au bracket '+mx+' — table parfaitement homogène.'};
+  if(diff===1)return {kind:'ok',msg:'✓ Écart d\'un seul bracket — la table reste équilibrée, le deck le plus fort aura un léger avantage.'};
+  if(diff===2)return {kind:'warn',msg:'⚠ Écart de 2 brackets — la partie risque de pencher fortement vers le deck le plus puissant.'};
+  return {kind:'bad',msg:'✗ Écart de '+diff+' brackets — table très déséquilibrée, envisage de changer de deck ou de prévenir avant la partie.'};
+}
+function _pwNegoUpdateVerdict(){
+  var el=document.getElementById('pw-nego-verdict');
+  if(!el)return;
+  var v=_pwNegoVerdict();
+  var col=v.kind==='bad'?'var(--rd2)':v.kind==='warn'?'var(--am)':v.kind==='ok'?'var(--gr2)':'var(--tx3)';
+  var bg=v.kind==='bad'?'rgba(255,80,80,.10)':v.kind==='warn'?'rgba(255,140,40,.10)':v.kind==='ok'?'rgba(100,200,120,.10)':'var(--s3)';
+  el.style.borderColor=col;el.style.background=bg;
+  el.innerHTML='<div style="color:'+col+';font-size:.85rem;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.03em">'+esc(v.msg)+'</div>';
+}
+function _pwNegoRender(){
+  var ov=document.getElementById('pw-nego-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='pw-nego-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:3500;background:rgba(0,0,0,.88);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;backdrop-filter:blur(3px)';
+    ov.onclick=function(ev){if(ev.target===ov)_pwNegoClose();};
+    document.body.appendChild(ov);
+  }
+  var mineOptions='<option value="">— Mes decks —</option>';
+  if(typeof decks==='object'&&decks){
+    Object.keys(decks).filter(function(id){
+      return typeof _deckBelongsTo!=='function'||_deckBelongsTo(decks[id],0);
+    }).sort(function(a,b){return ((decks[a].name||'').toLowerCase()).localeCompare((decks[b].name||'').toLowerCase());}).forEach(function(id){
+      var taken=_pwNego.entries.some(function(e){return e.type==='mine'&&e.deckId===id;});
+      if(!taken)mineOptions+='<option value="'+esc(id)+'">'+esc(decks[id].name||'(deck)')+'</option>';
+    });
+  }
+  var cardsHtml=_pwNego.entries.map(function(e,i){return _pwNegoCardHtml(e,i);}).join('');
+  if(!cardsHtml)cardsHtml='<div style="color:var(--tx3);font-style:italic;padding:18px;text-align:center;width:100%">Aucun deck ajouté. Sélectionne un de tes decks ou ajoute un adversaire ci-dessous.</div>';
+  var html='';
+  html+='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;max-width:920px;width:100%;padding:18px 20px;box-shadow:0 12px 48px rgba(0,0,0,.6)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:12px">';
+  html+='<div><h3 style="margin:0;color:var(--gold2);font-family:\'Cinzel\',serif;font-size:1.05rem;letter-spacing:.05em">⚖ Vérificateur de table EDH</h3>';
+  html+='<div style="font-size:.72rem;color:var(--tx3);margin-top:3px">Compare jusqu\'à 6 decks pour repérer les écarts de bracket avant une partie.</div></div>';
+  html+='<button onclick="_pwNegoClose()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.3rem;padding:0 6px;line-height:1">✕</button>';
+  html+='</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">'+cardsHtml+'</div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">';
+  html+='<select id="pw-nego-mine-sel" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:5px 8px;font-size:.78rem;flex:1;min-width:140px;outline:none">'+mineOptions+'</select>';
+  html+='<button onclick="_pwNegoAddMine()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.78rem">+ Mon deck</button>';
+  html+='<button onclick="_pwNegoAddAdv()" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.78rem">+ Adversaire</button>';
+  html+='</div>';
+  html+='<div id="pw-nego-verdict" style="padding:10px 14px;border-radius:8px;border:1px solid var(--bd2);background:var(--s3);text-align:center"></div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:10px;line-height:1.5;text-align:center;font-style:italic">Brackets WotC : 1·Exhibition · 2·Cœur · 3·Amélioré · 4·Optimisé · 5·cEDH. Estimation indicative basée sur Game Changers, fast mana, tuteurs, tours supplémentaires, destruction de terrains et CMC moyen.</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+  _pwNegoUpdateVerdict();
+}
 // ----- Guide de mulligan par matchup (heuristique, pensé pour les novices) -----
 function _anaMulliganGuide(deck){
   if(!deck||!deck.cards||!deck.cards.length)return null;
@@ -35959,6 +36100,7 @@ function anaRender(deckId){
       _hdr+='<div style="margin-top:6px;font-size:10px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em">';
       _hdr+='⚔ NIVEAU : <span title="'+esc(_pwTip)+'" style="color:'+_pwCol+';cursor:help">Bracket '+_pw.bracket+'/5 — '+esc(_pwLbl)+'</span>';
       if(_pw.gcNames&&_pw.gcNames.length)_hdr+=' <span style="color:var(--tx3)">· '+esc(_pw.gcNames.slice(0,4).join(', '))+(_pw.gcNames.length>4?'…':'')+'</span>';
+      _hdr+=' <button onclick="_pwNegoOpen(\''+escJs(deckId)+'\')" title="Comparer ce deck avec d\'autres pour vérifier l\'équilibre de la table avant une partie" style="margin-left:8px;font-size:9px;padding:1px 8px;border-radius:8px;border:.5px solid var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;vertical-align:middle">⚖ Vérifier la table</button>';
       _hdr+='</div>';
     }
     // Notes / primer du deck (saisies dans l'éditeur)
