@@ -16638,6 +16638,7 @@ function _limRenderBuilder(){
   h+='<span style="font-size:.86rem;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif">🛠 '+esc(_limBuilderName)+'</span>';
   h+='<span style="font-size:.74rem;color:var(--tx3)">Pool : '+pool.length+' visibles · Deck : <b style="color:var(--gold2)">'+deck.length+'</b></span>';
   h+='<span style="flex:1"></span>';
+  h+='<button class="btn btnsm" onclick="_limAutoBuild()" title="L\'app sélectionne automatiquement les 23 cartes les plus fortes dans la meilleure paire de couleurs">🤖 Auto-build</button>';
   h+='<button class="btn btnsm btnp" onclick="limSaveToDecks()" title="Ajoute ce deck à ta liste pour l\'analyser et le jouer pour de vrai">💾 Sauvegarder dans mes decks</button>';
   if(deck.length)h+='<button class="btn btnsm btnrd" onclick="_limClearDeck()" title="Vide le deck (renvoie les cartes au pool)">↩ Tout dans le pool</button>';
   h+='</div>';
@@ -16983,16 +16984,80 @@ function draftPick(idx){
   }
   _draftRender();
 }
-function _draftCardGrid(cards,pickFn){
+function _draftCardGrid(cards,pickFn,suggestedIdx){
   return '<div style="display:flex;flex-wrap:wrap;gap:6px">'+cards.map(function(c,i){
     var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||{};
     var img=iu.small||iu.normal||'';
     var bc={mythic:'#e07030',rare:'#d4a017',uncommon:'#b0c4de',common:'var(--bd2)'}[c.rarity]||'var(--bd2)';
-    var attr=pickFn?(' onclick="'+pickFn+'('+i+')" style="width:100px;cursor:pointer"'):' style="width:84px"';
+    var isSugg=(suggestedIdx!=null&&i===suggestedIdx);
+    var bw=isSugg?'3px':'1.5px';
+    var bcol=isSugg?'#5be090':bc;
+    var attr=pickFn?(' onclick="'+pickFn+'('+i+')" style="width:100px;cursor:pointer;position:relative"'):' style="width:84px;position:relative"';
+    var badge=isSugg?'<span style="position:absolute;top:-7px;right:-7px;background:#5be090;color:#0a2f15;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.6);z-index:5" title="Suggestion">✓</span>':'';
     return '<div'+attr+' title="'+esc(c.name||'')+'">'
-      +(img?'<img src="'+esc(img)+'" loading="lazy" data-no-localize="1" style="width:100%;border-radius:5px;display:block;border:1.5px solid '+bc+'">':'<div style="font-size:.62rem;color:var(--tx2);border:1.5px solid '+bc+';border-radius:5px;padding:4px">'+esc(c.name||'?')+'</div>')
+      +badge
+      +(img?'<img src="'+esc(img)+'" loading="lazy" data-no-localize="1" style="width:100%;border-radius:5px;display:block;border:'+bw+' solid '+bcol+'">':'<div style="font-size:.62rem;color:var(--tx2);border:'+bw+' solid '+bcol+';border-radius:5px;padding:4px">'+esc(c.name||'?')+'</div>')
       +'</div>';
   }).join('')+'</div>';
+}
+// Suggestion de pick : choisit la meilleure carte du pack
+// en fonction du score + engagement de couleurs après ~4 picks.
+function _draftSuggestPick(pack,myPicks){
+  if(!pack||!pack.length)return null;
+  var colors={W:0,U:0,B:0,R:0,G:0};
+  (myPicks||[]).forEach(function(c){
+    var s=_limCardEval(c).score;
+    (c.colors||[]).forEach(function(col){if(colors[col]!=null)colors[col]+=s;});
+  });
+  var ordered=Object.keys(colors).sort(function(a,b){return colors[b]-colors[a];}).filter(function(c){return colors[c]>0;});
+  var committed=ordered.slice(0,2);
+  var hasCommit=(myPicks||[]).length>=4&&committed.length>=2;
+  var bestIdx=0,bestScore=-Infinity,bestNote='',bestCard=null;
+  pack.forEach(function(c,i){
+    var ev=_limCardEval(c);
+    var s=ev.score;
+    var cs=c.colors||[];
+    if(hasCommit&&cs.length){
+      var inCommit=cs.every(function(col){return committed.indexOf(col)>=0;});
+      if(!inCommit)s-=2.5;
+    }
+    if(s>bestScore){bestScore=s;bestIdx=i;bestCard=c;bestNote=ev.notes.join(', ');}
+  });
+  var reason=bestNote||(bestCard?(bestCard.rarity+' '+((bestCard.colors||[]).join('')||'incolore')):'');
+  if(hasCommit)reason+=' · engagement '+committed.join('');
+  else if((myPicks||[]).length<4)reason+=' · premiers picks (prends la plus forte)';
+  return {bestIdx:bestIdx,reason:reason,committedColors:committed,score:bestScore};
+}
+// Auto-build : sélectionne la meilleure paire 2 couleurs du pool puis pick les 23 cartes les plus fortes
+function _limAutoBuild(){
+  if(!_limAll.length){if(typeof toastError==='function')toastError('Pool vide');return;}
+  var combos=['WU','WB','WR','WG','UB','UR','UG','BR','BG','RG'];
+  var best=null;
+  combos.forEach(function(p){
+    var cols=p.split('');
+    var inPair=_limAll.filter(function(c){
+      if(c.type_line&&/Land/.test(c.type_line))return false;
+      var cs=c.colors||[];
+      if(!cs.length)return true;
+      return cs.every(function(col){return cols.indexOf(col)>=0;});
+    });
+    var ranked=inPair.slice().sort(function(a,b){return _limCardEval(b).score-_limCardEval(a).score;}).slice(0,23);
+    var tot=ranked.reduce(function(s,c){return s+_limCardEval(c).score;},0);
+    if(!best||tot>best.score){best={pair:p,cards:ranked,score:tot,cols:cols};}
+  });
+  if(!best){if(typeof toastError==='function')toastError('Aucune paire viable trouvée');return;}
+  var duals=_limAll.filter(function(c){
+    if(!c.type_line||!/Land/.test(c.type_line))return false;
+    if(!_limCardEval(c).roles.fixing)return false;
+    var cs=c.colors||[];
+    if(!cs.length)return true;
+    return cs.every(function(col){return best.cols.indexOf(col)>=0;});
+  });
+  _limDeckIds={};
+  best.cards.forEach(function(c){_limDeckIds[c._id]=true;});
+  duals.forEach(function(c){_limDeckIds[c._id]=true;});
+  _limRenderBuilder();
+  if(typeof toastSuccess==='function')toastSuccess('🤖 Auto-build en '+best.pair+' — '+(best.cards.length+duals.length)+' cartes. Ajoute ~17 terrains de base pour atteindre 40.');
 }
 function _draftRender(){
   var area=document.getElementById('draft-area');if(!area||!_draft)return;
@@ -17008,7 +17073,9 @@ function _draftRender(){
   h+='<span style="font-size:.74rem;color:var(--tx3)">'+_draft.seats+' joueurs · '+_draft.myPicks.length+' cartes draftées</span>';
   h+='<span style="flex:1"></span><span style="font-size:.74rem;color:var(--tx2)">Clique une carte pour la prendre</span>';
   h+='</div>';
-  h+=_draftCardGrid(myPack,'draftPick');
+  var sugg=_draftSuggestPick(myPack,_draft.myPicks);
+  if(sugg)h+='<div style="padding:6px 10px;background:rgba(91,224,144,.08);border-left:2px solid #5be090;border-radius:0 5px 5px 0;font-size:.74rem;color:#9be0b0;margin-bottom:8px">💡 Suggestion : <b>'+esc(myPack[sugg.bestIdx].name)+'</b> — '+esc(sugg.reason)+'</div>';
+  h+=_draftCardGrid(myPack,'draftPick',sugg?sugg.bestIdx:null);
   if(_draft.myPicks.length){
     h+='<details style="margin-top:10px"><summary style="cursor:pointer;font-size:.78rem;color:var(--tx3);list-style:none">📋 Mes cartes draftées ('+_draft.myPicks.length+') ▾</summary><div style="margin-top:6px">'+_draftCardGrid(_draft.myPicks,null)+'</div></details>';
   }
@@ -17278,8 +17345,10 @@ function _lroomRenderDrafting(host,data){
   if(hasPicked){
     h+='<div style="padding:9px 11px;background:rgba(91,140,245,.08);border-left:2px solid #5b8cf5;border-radius:0 6px 6px 0;font-size:.84rem;color:#8ab0ff;margin-bottom:8px">⏳ Pick enregistré, en attente des autres joueurs…</div>';
   }else if(myPack.length){
+    var suggL=_draftSuggestPick(myPack,myPicks);
+    if(suggL)h+='<div style="padding:6px 10px;background:rgba(91,224,144,.08);border-left:2px solid #5be090;border-radius:0 5px 5px 0;font-size:.74rem;color:#9be0b0;margin-bottom:8px">💡 Suggestion : <b>'+esc(myPack[suggL.bestIdx].name)+'</b> — '+esc(suggL.reason)+'</div>';
     h+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:5px">Clique une carte pour la prendre :</div>';
-    h+=_draftCardGrid(myPack,'_lroomDraftPick');
+    h+=_draftCardGrid(myPack,'_lroomDraftPick',suggL?suggL.bestIdx:null);
   }else{
     h+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">En attente du prochain pack…</div>';
   }
