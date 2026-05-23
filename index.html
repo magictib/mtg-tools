@@ -3653,6 +3653,7 @@ details > summary::-webkit-details-marker{display:none}
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldOpenVersions();bldCloseToolsMenu()">🕰 Versions — historique &amp; comparaison</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShareCurrent();bldCloseToolsMenu()">🔗 Partager — URL lecture seule</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldShareImageCurrent();bldCloseToolsMenu()">📸 Image — PNG pour Discord/Twitter</button>
+          <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldBuyCurrent();bldCloseToolsMenu()">💰 Acheter — Cardmarket Wants Builder</button>
           <button class="ar-cmenu-btn ar-cmenu-mv" onclick="bldPresentMode();bldCloseToolsMenu()">🎲 Mode table — vie & jetons</button>
         </div>
       </div>
@@ -15502,6 +15503,96 @@ function _deckImgShare(){
     navigator.share({files:[file],title:'Mon deck ManaLAB'}).catch(function(){});
   });
 }
+
+// ===== Acheter ce deck — Cardmarket Wants Builder + estimation du prix =====
+// Affiche un récap des cartes du deck avec leur prix Scryfall, le total et un
+// bouton pour copier la liste au format Cardmarket Wants Builder. Le tag
+// d'affiliation (CARDMARKET_AFFILIATE_TAG) est appliqué aux liens sortants
+// dès qu'il est défini en haut du fichier.
+function openBuyDeckModal(deck){
+  if(!deck){if(typeof mlAlert==='function')mlAlert('Acheter','Deck introuvable.');return;}
+  var ov=document.getElementById('buy-deck-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='buy-deck-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,.90);overflow-y:auto;padding:20px 12px;backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center';
+    ov.onclick=function(ev){if(ev.target===ov)closeBuyDeckModal();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  // Calcul du prix : utilise les prices.eur des cartes (Scryfall) si présents
+  var cards=deck.cards||[];
+  var rows=cards.map(function(c){
+    var price=null;
+    if(c.prices&&c.prices.eur)price=parseFloat(c.prices.eur);
+    return {name:c.name||'?',qty:c.qty||1,price:price};
+  });
+  var withPrice=rows.filter(function(r){return r.price!=null;});
+  var noPrice=rows.length-withPrice.length;
+  var total=0;rows.forEach(function(r){if(r.price)total+=r.price*r.qty;});
+  // Liste Cardmarket
+  var listText=rows.map(function(r){return r.qty+' '+r.name;}).join('\n');
+  // Tri d'affichage : plus cher d'abord
+  var sorted=rows.slice().sort(function(a,b){return (b.price||0)*b.qty-(a.price||0)*a.qty;});
+  var html='';
+  html+='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;max-width:760px;width:100%;padding:20px 22px;margin:20px auto;box-shadow:0 12px 48px rgba(0,0,0,.6)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:12px">';
+  html+='<div><h3 style="margin:0;color:var(--gold2);font-family:\'Cinzel\',serif;font-size:1.1rem;letter-spacing:.04em">💰 Acheter ce deck</h3>';
+  html+='<div style="font-size:.72rem;color:var(--tx3);margin-top:3px">Prix Scryfall (EUR) + lien direct vers Cardmarket Wants Builder.</div></div>';
+  html+='<button onclick="closeBuyDeckModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.3rem;padding:0 6px;line-height:1">✕</button>';
+  html+='</div>';
+  // Stats
+  html+='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">';
+  html+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:10px;padding:10px 16px;flex:1;min-width:140px;text-align:center"><div style="font-size:1.4rem;color:var(--gold2);font-family:\'Cinzel\',serif;line-height:1">'+rows.length+'</div><div style="font-size:.68rem;color:var(--tx3);margin-top:3px">carte'+(rows.length>1?'s':'')+' unique'+(rows.length>1?'s':'')+'</div></div>';
+  html+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:10px;padding:10px 16px;flex:1;min-width:140px;text-align:center"><div style="font-size:1.4rem;color:var(--gold2);font-family:\'Cinzel\',serif;line-height:1">'+total.toFixed(2)+'€</div><div style="font-size:.68rem;color:var(--tx3);margin-top:3px">total estimé</div></div>';
+  if(noPrice>0){
+    html+='<div style="background:rgba(255,140,40,.08);border:.5px solid var(--am);border-radius:10px;padding:10px 16px;flex:1;min-width:140px;text-align:center"><div style="font-size:1.4rem;color:var(--am);font-family:\'Cinzel\',serif;line-height:1">'+noPrice+'</div><div style="font-size:.68rem;color:var(--tx3);margin-top:3px">sans prix dispo</div></div>';
+  }
+  html+='</div>';
+  // Actions principales
+  var cmListUrl='https://www.cardmarket.com/en/Magic/Wants/Builder';
+  html+='<div style="display:flex;gap:8px;justify-content:center;margin-bottom:12px;flex-wrap:wrap">';
+  html+='<button onclick="_buyDeckCopyList()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.85rem">📋 Copier la liste Cardmarket</button>';
+  html+='<a href="'+_withAffiliate(cmListUrl)+'" target="_blank" rel="noopener" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);padding:7px 16px;border-radius:8px;text-decoration:none;font-size:.85rem">🌐 Ouvrir Cardmarket Wants Builder</a>';
+  html+='</div>';
+  // Textarea cachée pour la liste (utilisée pour la copie)
+  html+='<textarea id="buy-deck-list" readonly style="position:absolute;left:-9999px">'+esc(listText)+'</textarea>';
+  // Détail des cartes
+  html+='<details style="margin-top:10px;background:var(--s3);border:.5px solid var(--bd2);border-radius:8px;padding:10px 14px">';
+  html+='<summary style="cursor:pointer;font-size:.78rem;color:var(--gold2);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;list-style:none">📋 Détail par carte (cliquer pour déplier)</summary>';
+  html+='<div style="margin-top:10px;max-height:340px;overflow-y:auto">';
+  sorted.forEach(function(r){
+    var unit=r.price!=null?r.price.toFixed(2)+'€':'—';
+    var line=r.price!=null?(r.price*r.qty).toFixed(2)+'€':'—';
+    var cmUrl=_withAffiliate('https://www.cardmarket.com/en/Magic/Products/Search?searchString='+encodeURIComponent(r.name));
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:4px 0;border-bottom:.5px dashed var(--bd2);font-size:.78rem">';
+    html+='<span style="color:var(--tx3);min-width:22px;text-align:right">'+r.qty+'×</span>';
+    html+='<a href="'+cmUrl+'" target="_blank" rel="noopener" style="flex:1;color:var(--tx);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Ouvrir sur Cardmarket">'+esc(r.name)+'</a>';
+    html+='<span style="color:var(--tx3);font-size:.7rem">'+unit+'</span>';
+    html+='<span style="color:'+(r.price?'var(--gold2)':'var(--tx3)')+';min-width:55px;text-align:right;font-weight:'+(r.price?'600':'400')+'">'+line+'</span>';
+    html+='</div>';
+  });
+  html+='</div></details>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Prix indicatifs (Scryfall · marché Cardmarket). Le total réel dépend des vendeurs choisis. Le bouton « Copier la liste » te permet de coller directement dans <b>Cardmarket Wants Builder</b> pour ajouter tout le deck à ton panier en quelques clics.</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function closeBuyDeckModal(){
+  var ov=document.getElementById('buy-deck-ov');
+  if(ov){ov.style.display='none';ov.innerHTML='';}
+}
+function _buyDeckCopyList(){
+  var ta=document.getElementById('buy-deck-list');if(!ta)return;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(ta.value).then(function(){
+      if(typeof mlToast==='function')mlToast('📋 Liste copiée — colle-la dans Cardmarket Wants Builder');
+    });
+  } else {
+    ta.style.position='static';ta.select();
+    try{document.execCommand('copy');if(typeof mlToast==='function')mlToast('📋 Liste copiée');}catch(e){}
+    ta.style.position='absolute';
+  }
+}
 var _sharedDeckCur=null;
 function openSharedDeckView(d,pubId){
   _sharedDeckCur={d:d,pubId:pubId};
@@ -15579,7 +15670,7 @@ function openSharedDeckView(d,pubId){
     +'<div style="font-size:.76rem;color:var(--tx3)">Par <b style="color:var(--tx2)">'+esc(d.ownerName||'?')+'</b>'+(d.format?' · format <b>'+esc(d.format)+'</b>':'')+' · '+totalCards+' cartes</div>'
     +(d.commander?'<div style="font-size:.85rem;color:#c8a8ff;margin-top:4px">👑 Commandant : '+esc(d.commander.name||'?')+'</div>':'')
     +'</div>'
-    +'<div style="display:flex;gap:6px"><button class="btn btnsm" onclick="openDeckImageModal(_sharedDeckCur&&_sharedDeckCur.d)" title="Générer une image PNG du deck pour partage Discord/Twitter">📸 Image</button><button class="btn btnsm" onclick="closeSharedDeckView()">✕ Fermer</button></div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btnsm" onclick="openBuyDeckModal(_sharedDeckCur&&_sharedDeckCur.d)" title="Voir le prix et acheter ce deck sur Cardmarket">💰 Acheter</button><button class="btn btnsm" onclick="openDeckImageModal(_sharedDeckCur&&_sharedDeckCur.d)" title="Générer une image PNG du deck pour partage Discord/Twitter">📸 Image</button><button class="btn btnsm" onclick="closeSharedDeckView()">✕ Fermer</button></div>'
     +'</div></div>'
     +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;padding:16px 22px;border-bottom:.5px solid var(--bd)">'
     +'<div><div style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-head);letter-spacing:.06em;margin-bottom:4px">COURBE DE MANA</div><div style="display:flex;gap:3px;align-items:flex-end">'+curveHtml+'</div></div>'
@@ -26478,6 +26569,14 @@ function _getWorkerUrl(){
 // Lien d'achat — modèle d'URL configurable, {q} = nom de carte. On peut y mettre
 // un lien affilié (Cardmarket / TCGplayer) une fois le programme d'affiliation rejoint.
 var _BUYLINK_DEFAULT='https://www.cardmarket.com/en/Magic/Products/Search?searchString={q}';
+// Tag d'affiliation Cardmarket (vide tant que le compte n'est pas validé).
+// Quand activé, sera ajouté à toutes les URL Cardmarket sortantes via _withAffiliate().
+// Format attendu : '?utm_source=manalab&aff_id=XXXX' ou format propre du programme.
+var CARDMARKET_AFFILIATE_TAG='';
+function _withAffiliate(url){
+  if(!CARDMARKET_AFFILIATE_TAG)return url;
+  return url+(url.indexOf('?')>=0?'&':'?')+CARDMARKET_AFFILIATE_TAG.replace(/^[?&]/,'');
+}
 var _buyLinkTpl=_BUYLINK_DEFAULT;
 function _buyLink(name){return _buyLinkTpl.replace('{q}',encodeURIComponent(name||''));}
 function _loadSharedWorkerUrl(){
@@ -28373,6 +28472,12 @@ function bldShareImageCurrent(){
   var d=decks[bldCurDeckId];
   if(!d){mlAlert('Image','Deck introuvable.');return;}
   openDeckImageModal(d);
+}
+function bldBuyCurrent(){
+  if(!bldCurDeckId){mlAlert('Acheter','Charge ou sauvegarde d\'abord un deck.');return;}
+  var d=decks[bldCurDeckId];
+  if(!d){mlAlert('Acheter','Deck introuvable.');return;}
+  openBuyDeckModal(d);
 }
 function bldPresentMode(){
   if(!bldCurDeckId){mlAlert('Mode table','Charge ou sauvegarde d\'abord un deck.');return;}
