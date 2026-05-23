@@ -2419,6 +2419,8 @@ details > summary::-webkit-details-marker{display:none}
             <button class="um-btn" onclick="openYearbook();closeHub()">📖 Mon livre de l'année</button>
             <button class="um-btn" onclick="openPodMatcher();closeHub()">🎯 Pod Matcher — quoi jouer ?</button>
             <button class="um-btn" onclick="openCubeManager();closeHub()">🎲 Cubes — créer / drafter</button>
+            <button class="um-btn" onclick="openCardScanner();closeHub()">📷 Scanner une carte (OCR)</button>
+            <button class="um-btn" onclick="openRulesChat();closeHub()">⚖ Juge IA — Règles MTG</button>
             <button class="um-btn" onclick="umShowRename()">✎ Modifier le nom</button>
             <div class="um-rename-wrap" id="um-rename-wrap">
               <input type="text" id="um-rename-input" placeholder="Nouveau prénom / pseudo" onkeydown="if(event.key==='Enter')authRenameUser()">
@@ -15592,6 +15594,255 @@ function _buyDeckCopyList(){
     try{document.execCommand('copy');if(typeof mlToast==='function')mlToast('📋 Liste copiée');}catch(e){}
     ta.style.position='absolute';
   }
+}
+
+// ===== Scanner de carte (OCR via Vercel /api/scan-card → Gemini Vision) =====
+var _scanStream=null,_scanLastResult=null;
+function openCardScanner(){
+  _scanLastResult=null;
+  var ov=document.getElementById('card-scan-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='card-scan-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9996;background:rgba(0,0,0,.94);overflow-y:auto;padding:20px 12px;backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center';
+    ov.onclick=function(ev){if(ev.target===ov)closeCardScanner();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  _renderCardScanner('choice');
+}
+function closeCardScanner(){
+  _scanStopCamera();
+  var ov=document.getElementById('card-scan-ov');
+  if(ov){ov.style.display='none';ov.innerHTML='';}
+}
+function _scanStopCamera(){
+  if(_scanStream){try{_scanStream.getTracks().forEach(function(t){t.stop();});}catch(e){}}
+  _scanStream=null;
+}
+function _renderCardScanner(view){
+  var ov=document.getElementById('card-scan-ov');if(!ov)return;
+  var html='';
+  html+='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;max-width:560px;width:100%;padding:20px 22px;margin:20px auto;box-shadow:0 12px 48px rgba(0,0,0,.6)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:12px">';
+  html+='<div><h3 style="margin:0;color:var(--gold2);font-family:\'Cinzel\',serif;font-size:1.1rem;letter-spacing:.04em">📷 Scanner une carte</h3>';
+  html+='<div style="font-size:.72rem;color:var(--tx3);margin-top:3px">Photo ou upload — Gemini Vision identifie la carte automatiquement.</div></div>';
+  html+='<button onclick="closeCardScanner()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.3rem;padding:0 6px;line-height:1">✕</button>';
+  html+='</div>';
+  if(view==='choice'){
+    html+='<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">';
+    html+='<button onclick="_scanStartCamera()" style="padding:14px;background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📷</span> Utiliser la caméra</button>';
+    html+='<button onclick="document.getElementById(\'scan-file-in\').click()" style="padding:14px;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx);border-radius:10px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif;display:flex;align-items:center;gap:10px;justify-content:center"><span style="font-size:1.5rem">📁</span> Choisir un fichier</button>';
+    html+='<input type="file" id="scan-file-in" accept="image/*" style="display:none" onchange="_scanFromFile(this.files[0])">';
+    html+='</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Cadre bien la carte (face avant uniquement, sans reflets) pour de meilleurs résultats. Le scan utilise Google Gemini 1.5 Flash (gratuit, 15 req/min).</div>';
+  } else if(view==='camera'){
+    html+='<div style="position:relative;background:#000;border-radius:10px;overflow:hidden;margin-bottom:10px;aspect-ratio:3/4"><video id="scan-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video><div style="position:absolute;inset:8% 6%;border:2px dashed rgba(201,168,76,.7);border-radius:14px;pointer-events:none"></div></div>';
+    html+='<div style="display:flex;gap:8px;justify-content:center">';
+    html+='<button onclick="_scanSnap()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:8px 20px;border-radius:8px;cursor:pointer;font-size:.92rem;font-family:\'Goudy Mediaeval\',serif">📸 Capturer</button>';
+    html+='<button onclick="_renderCardScanner(\'choice\');_scanStopCamera()" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem">← Retour</button>';
+    html+='</div>';
+  } else if(view==='loading'){
+    html+='<div style="text-align:center;padding:32px 12px"><div style="font-size:2rem;margin-bottom:10px">⏳</div><div style="color:var(--gold2);font-family:\'Cinzel\',serif">Analyse en cours…</div><div style="color:var(--tx3);font-size:.78rem;margin-top:6px">Gemini Vision identifie la carte.</div></div>';
+  } else if(view==='result'){
+    var res=_scanLastResult;
+    if(!res){html+='<div style="text-align:center;color:var(--rd2)">Aucun résultat.</div>';}
+    else if(res.error){
+      html+='<div style="background:rgba(255,80,80,.10);border:.5px solid var(--rd2);border-radius:10px;padding:14px 16px;color:var(--rd2);font-size:.85rem;text-align:center">❌ '+esc(res.error)+'</div>';
+      if(res.hint)html+='<div style="margin-top:8px;color:var(--tx3);font-size:.74rem;text-align:center;line-height:1.5">'+esc(res.hint)+'</div>';
+      html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Réessayer</button></div>';
+    } else if(!res.name){
+      html+='<div style="background:rgba(255,140,40,.10);border:.5px solid var(--am);border-radius:10px;padding:14px 16px;color:var(--am);font-size:.85rem;text-align:center">⚠ '+esc(res.message||'Carte non identifiée.')+'</div>';
+      html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Réessayer</button></div>';
+    } else {
+      var s=res.scryfall;
+      var img=s&&s.image_uris?(s.image_uris.normal||s.image_uris.large||s.image_uris.small):null;
+      html+='<div style="display:flex;flex-direction:column;align-items:center;gap:10px">';
+      if(img)html+='<img src="'+esc(img)+'" alt="" style="max-width:220px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.5)">';
+      html+='<div style="font-family:\'Cinzel\',serif;color:var(--gold2);font-size:1.05rem;text-align:center">'+esc(res.name)+'</div>';
+      if(s){
+        html+='<div style="font-size:.72rem;color:var(--tx3);text-align:center">'+esc(s.set_name||'')+' · '+esc(s.rarity||'')+(s.collector_number?' · #'+esc(s.collector_number):'')+'</div>';
+      }
+      html+='</div>';
+      html+='<div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap">';
+      html+='<button onclick="_scanAddToCollection()" style="background:rgba(100,200,120,.18);border:.5px solid var(--gr);color:var(--gr2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">+ Ajouter à ma collection</button>';
+      html+='<button onclick="_renderCardScanner(\'choice\')" style="background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.82rem">↻ Scanner une autre</button>';
+      html+='</div>';
+    }
+  }
+  html+='</div>';
+  ov.innerHTML=html;
+  if(view==='camera'){
+    setTimeout(function(){
+      var v=document.getElementById('scan-video');if(v&&_scanStream)v.srcObject=_scanStream;
+    },20);
+  }
+}
+function _scanStartCamera(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    _scanLastResult={error:'Caméra non supportée par ce navigateur.',hint:'Utilise « Choisir un fichier » pour téléverser une photo.'};
+    _renderCardScanner('result');return;
+  }
+  navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false}).then(function(stream){
+    _scanStream=stream;
+    _renderCardScanner('camera');
+  }).catch(function(e){
+    _scanLastResult={error:'Impossible d\'accéder à la caméra : '+(e.message||e.name||'permission refusée.'),hint:'Utilise « Choisir un fichier » à la place.'};
+    _renderCardScanner('result');
+  });
+}
+function _scanSnap(){
+  var v=document.getElementById('scan-video');if(!v)return;
+  var w=v.videoWidth,h=v.videoHeight;if(!w||!h)return;
+  // Redimensionne pour ne pas envoyer 5MB inutilement
+  var maxSide=900;
+  var scale=Math.min(1,maxSide/Math.max(w,h));
+  var cw=Math.round(w*scale),ch=Math.round(h*scale);
+  var canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
+  var ctx=canvas.getContext('2d');ctx.drawImage(v,0,0,cw,ch);
+  _scanStopCamera();
+  var dataUrl=canvas.toDataURL('image/jpeg',0.85);
+  _scanSubmit(dataUrl);
+}
+function _scanFromFile(file){
+  if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    // Redimensionne via image + canvas
+    var img=new Image();
+    img.onload=function(){
+      var maxSide=900;
+      var scale=Math.min(1,maxSide/Math.max(img.width,img.height));
+      var cw=Math.round(img.width*scale),ch=Math.round(img.height*scale);
+      var canvas=document.createElement('canvas');canvas.width=cw;canvas.height=ch;
+      canvas.getContext('2d').drawImage(img,0,0,cw,ch);
+      _scanSubmit(canvas.toDataURL('image/jpeg',0.85));
+    };
+    img.onerror=function(){_scanLastResult={error:'Image illisible.'};_renderCardScanner('result');};
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function _scanSubmit(dataUrl){
+  _renderCardScanner('loading');
+  fetch('/api/scan-card',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({image:dataUrl})
+  }).then(function(r){return r.json().then(function(d){return {status:r.status,data:d};});}).then(function(o){
+    if(o.status!==200){
+      _scanLastResult={error:o.data.error||'Erreur '+o.status,hint:o.data.hint||''};
+    } else {
+      _scanLastResult=o.data;
+    }
+    _renderCardScanner('result');
+  }).catch(function(e){
+    _scanLastResult={error:'Réseau : '+(e.message||'')};
+    _renderCardScanner('result');
+  });
+}
+function _scanAddToCollection(){
+  if(!_scanLastResult||!_scanLastResult.name)return;
+  var n=_scanLastResult.name;
+  var s=_scanLastResult.scryfall||{};
+  var card={name:n,qty:1,set:(s.set||'').toUpperCase(),num:s.collector_number||'',cond:'NM',finish:'nonfoil',price:(s.prices&&parseFloat(s.prices.eur))||0,lang:'en'};
+  if(typeof addCardToProf==='function'){
+    addCardToProf(0,card);
+    if(typeof saveProfs==='function')saveProfs();
+    if(typeof toastSuccess==='function')toastSuccess('✓ « '+n+' » ajoutée à ta collection');
+    closeCardScanner();
+  } else {
+    if(typeof toastError==='function')toastError('Impossible d\'ajouter — recharge la page.');
+  }
+}
+
+// ===== Chatbot règles MTG (FR) via /api/rules → Gemini =====
+var _rulesHistory=[];  // [{role:'user'|'model', text:'...'}]
+var _rulesCardCtx=null; // {name, oracle_text, type_line}
+function openRulesChat(cardCtx){
+  _rulesHistory=[];_rulesCardCtx=cardCtx||null;
+  var ov=document.getElementById('rules-chat-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='rules-chat-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9996;background:rgba(0,0,0,.92);overflow-y:auto;padding:20px 12px;backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center';
+    ov.onclick=function(ev){if(ev.target===ov)closeRulesChat();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  _renderRulesChat();
+}
+function closeRulesChat(){
+  var ov=document.getElementById('rules-chat-ov');
+  if(ov){ov.style.display='none';ov.innerHTML='';}
+}
+function _renderRulesChat(){
+  var ov=document.getElementById('rules-chat-ov');if(!ov)return;
+  var msgs='';
+  _rulesHistory.forEach(function(h){
+    var isUser=h.role==='user';
+    var bg=isUser?'rgba(201,168,76,.10)':'rgba(255,255,255,.04)';
+    var bd=isUser?'rgba(201,168,76,.35)':'var(--bd2)';
+    var col=isUser?'var(--gold2)':'var(--tx)';
+    var label=isUser?'Toi':'Juge IA';
+    msgs+='<div style="background:'+bg+';border:.5px solid '+bd+';border-radius:10px;padding:9px 12px;margin-bottom:8px"><div style="font-size:.66rem;color:'+col+';font-family:\'Goudy Mediaeval\',serif;letter-spacing:.06em;margin-bottom:3px">'+label+'</div><div style="font-size:.84rem;color:var(--tx);line-height:1.55;white-space:pre-wrap">'+esc(h.text)+'</div></div>';
+  });
+  if(!_rulesHistory.length){
+    msgs+='<div style="text-align:center;color:var(--tx3);font-style:italic;font-size:.82rem;padding:20px">';
+    if(_rulesCardCtx)msgs+='Pose ta question sur <b style="color:var(--gold2)">'+esc(_rulesCardCtx.name)+'</b>.<br>';
+    else msgs+='Pose ta question de règles MTG.<br>';
+    msgs+='Le juge IA répondra en français en citant les règles officielles.</div>';
+  }
+  var html='';
+  html+='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;max-width:720px;width:100%;padding:20px 22px;margin:20px auto;display:flex;flex-direction:column;max-height:88vh">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:12px;flex-shrink:0">';
+  html+='<div><h3 style="margin:0;color:var(--gold2);font-family:\'Cinzel\',serif;font-size:1.1rem;letter-spacing:.04em">⚖ Juge IA — Règles MTG</h3>';
+  html+='<div style="font-size:.72rem;color:var(--tx3);margin-top:3px">Pose une question sur une règle, une interaction, un mot-clé.';
+  if(_rulesCardCtx)html+=' Contexte : <b style="color:var(--gold2)">'+esc(_rulesCardCtx.name)+'</b>';
+  html+='</div></div>';
+  html+='<button onclick="closeRulesChat()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.3rem;padding:0 6px;line-height:1">✕</button>';
+  html+='</div>';
+  html+='<div id="rules-msgs" style="flex:1;overflow-y:auto;padding-right:4px;min-height:200px">'+msgs+'</div>';
+  html+='<div style="display:flex;gap:6px;margin-top:12px;flex-shrink:0">';
+  html+='<textarea id="rules-input" placeholder="Ex : Si je joue Counterspell sur un sort avec storm, ça contre tout ?" style="flex:1;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);padding:7px 9px;font-size:.84rem;outline:none;resize:none;height:64px;font-family:inherit"></textarea>';
+  html+='<button onclick="_rulesAsk()" id="rules-send-btn" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:8px 14px;border-radius:7px;cursor:pointer;font-size:.85rem;align-self:stretch">▶ Envoyer</button>';
+  html+='</div>';
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:8px;line-height:1.5;text-align:center;font-style:italic;flex-shrink:0">Powered by Google Gemini 1.5 Flash · Les réponses sont indicatives — en cas de doute, consulte un juge ou les règles officielles WotC.</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+  // Auto-scroll
+  setTimeout(function(){var m=document.getElementById('rules-msgs');if(m)m.scrollTop=m.scrollHeight;},20);
+}
+function _rulesAsk(){
+  var inp=document.getElementById('rules-input');
+  var btn=document.getElementById('rules-send-btn');
+  if(!inp)return;
+  var q=inp.value.trim();
+  if(!q)return;
+  _rulesHistory.push({role:'user',text:q});
+  inp.value='';if(btn){btn.disabled=true;btn.textContent='⏳ …';}
+  _renderRulesChat();
+  fetch('/api/rules',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      question:q,
+      history:_rulesHistory.slice(0,-1),
+      card:_rulesCardCtx
+    })
+  }).then(function(r){return r.json().then(function(d){return {status:r.status,data:d};});}).then(function(o){
+    if(o.status!==200){
+      _rulesHistory.push({role:'model',text:'❌ '+(o.data.error||'Erreur '+o.status)+(o.data.hint?'\n\n💡 '+o.data.hint:'')});
+    } else {
+      _rulesHistory.push({role:'model',text:o.data.answer||'(pas de réponse)'});
+    }
+    if(btn){btn.disabled=false;btn.textContent='▶ Envoyer';}
+    _renderRulesChat();
+  }).catch(function(e){
+    _rulesHistory.push({role:'model',text:'❌ Erreur réseau : '+(e.message||'')});
+    if(btn){btn.disabled=false;btn.textContent='▶ Envoyer';}
+    _renderRulesChat();
+  });
 }
 var _sharedDeckCur=null;
 function openSharedDeckView(d,pubId){
