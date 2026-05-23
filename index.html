@@ -2417,6 +2417,7 @@ details > summary::-webkit-details-marker{display:none}
             <button class="um-btn" onclick="openFriendModal();closeHub()">👥 Mes amis</button>
             <button class="um-btn" onclick="openMyPublicProfile()">🔗 Mon profil public</button>
             <button class="um-btn" onclick="openYearbook();closeHub()">📖 Mon livre de l'année</button>
+            <button class="um-btn" onclick="openPodMatcher();closeHub()">🎯 Pod Matcher — quoi jouer ?</button>
             <button class="um-btn" onclick="umShowRename()">✎ Modifier le nom</button>
             <div class="um-rename-wrap" id="um-rename-wrap">
               <input type="text" id="um-rename-input" placeholder="Nouveau prénom / pseudo" onkeydown="if(event.key==='Enter')authRenameUser()">
@@ -7065,6 +7066,205 @@ var _CHALLENGE_WEEKLY=[
   {id:'noland',  ico:'🌪', name:'Semaine Sans Bâton-Terre',desc:'Joue une partie avec un deck qui contient 0 % de boost de mana classique (Sol Ring, Arcane Signet, etc.) — juste les terrains et les sorts.'},
   {id:'oldframe',ico:'📜', name:'Semaine Ancien Cadre',   desc:'Joue une partie avec au moins 60 % de cartes en cadre pré-moderne (avant Mirrodin 2003).'}
 ];
+// ===== Pod Matcher : « quoi jouer ce soir ? » =====
+// Sélectionne des joueurs (toi + amis cochés), charge leurs decks publics
+// avec leur power level pré-calculé, et trouve la meilleure combinaison
+// pour une table équilibrée (minimise l'écart de brackets entre les decks
+// choisis, bonus si variété de couleurs en EDH).
+var _podMatchSel=[];   // [{uid,name}]
+var _podMatchData={};  // {uid: [{pubId,name,format,bracket,colors,commanderName}]}
+var _podMatchResult=null;
+function openPodMatcher(){
+  if(!userId){if(typeof toastError==='function')toastError('Connecte-toi d\'abord.');return;}
+  if(!window.db)return;
+  _podMatchSel=[{uid:userId,name:(PN&&PN[0])||'Moi'}];
+  _podMatchData={};_podMatchResult=null;
+  var ov=document.getElementById('pod-matcher-ov');
+  if(!ov){
+    ov=document.createElement('div');
+    ov.id='pod-matcher-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9994;background:rgba(0,0,0,.88);overflow-y:auto;padding:20px 12px;backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center';
+    ov.onclick=function(ev){if(ev.target===ov)closePodMatcher();};
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  _renderPodMatcher();
+}
+function closePodMatcher(){
+  var ov=document.getElementById('pod-matcher-ov');
+  if(ov){ov.style.display='none';ov.innerHTML='';}
+}
+function _podMatchTogglePlayer(uid,name){
+  var idx=-1;for(var i=0;i<_podMatchSel.length;i++)if(_podMatchSel[i].uid===uid){idx=i;break;}
+  if(idx>=0){if(_podMatchSel[idx].uid!==userId)_podMatchSel.splice(idx,1);}
+  else{if(_podMatchSel.length>=6)return;_podMatchSel.push({uid:uid,name:name});}
+  _podMatchResult=null;
+  _renderPodMatcher();
+}
+function _podMatchLoadAndRun(){
+  // Charge les decks publics de chaque joueur sélectionné, puis résout.
+  var needed=_podMatchSel.filter(function(p){return !_podMatchData[p.uid];});
+  if(!needed.length){_podMatchSolve();return;}
+  var statusEl=document.getElementById('pod-match-status');
+  if(statusEl)statusEl.textContent='⏳ Chargement des decks publics… ('+needed.length+' joueur'+(needed.length>1?'s':'')+')';
+  Promise.all(needed.map(function(p){
+    return db.collection('public_decks').where('createdBy','==',p.uid).get().then(function(snap){
+      var list=[];
+      snap.forEach(function(d){
+        var dat=d.data()||{};
+        var pw=dat.pw||null;
+        var bracket=pw?pw.bracket:0;
+        // Couleurs : union des couleurs des cartes
+        var cset={};
+        (dat.cards||[]).forEach(function(c){
+          if(Array.isArray(c.colors))c.colors.forEach(function(co){cset[co]=1;});
+        });
+        var colors=Object.keys(cset);
+        list.push({
+          pubId:d.id,
+          name:dat.name||'(deck)',
+          format:dat.format||'',
+          bracket:bracket,
+          pwAvailable:!!pw,
+          colors:colors,
+          commanderName:(dat.commander&&dat.commander.name)||''
+        });
+      });
+      _podMatchData[p.uid]=list;
+    });
+  })).then(function(){
+    _podMatchSolve();
+  }).catch(function(e){
+    if(statusEl)statusEl.textContent='❌ Erreur de chargement : '+(e.message||'');
+  });
+}
+function _podMatchSolve(){
+  // Cherche la meilleure combinaison de decks. Si un joueur a 0 deck public,
+  // on le compte comme « bracket inconnu » (utilise 3 par défaut).
+  var seln=_podMatchSel;
+  var lists=seln.map(function(p){
+    var dks=_podMatchData[p.uid]||[];
+    if(!dks.length)return [{pubId:null,name:'(aucun deck public)',bracket:3,colors:[],format:'',commanderName:'',pwAvailable:false,empty:true}];
+    return dks;
+  });
+  // Énumération naive (max ~6^6 = 46k combos, OK)
+  var best=null;
+  function score(combo){
+    var brs=combo.map(function(c){return c.bracket||3;});
+    var mn=Math.min.apply(null,brs);
+    var mx=Math.max.apply(null,brs);
+    var diff=mx-mn;
+    var sc=-diff*100; // pénalité forte pour écart
+    // Bonus variété de couleurs (EDH) : compte les couleurs uniques
+    var cset={};
+    combo.forEach(function(c){(c.colors||[]).forEach(function(co){cset[co]=1;});});
+    sc+=Object.keys(cset).length*3;
+    // Pénalité si un joueur n'a pas de deck du tout
+    combo.forEach(function(c){if(c.empty)sc-=50;});
+    // Légère préférence pour les decks avec pw connu
+    combo.forEach(function(c){if(!c.pwAvailable&&!c.empty)sc-=5;});
+    return sc;
+  }
+  function recurse(idx,acc){
+    if(idx>=lists.length){
+      var sc=score(acc);
+      if(!best||sc>best.sc){best={sc:sc,combo:acc.slice()};}
+      return;
+    }
+    lists[idx].forEach(function(d){acc.push(d);recurse(idx+1,acc);acc.pop();});
+  }
+  recurse(0,[]);
+  _podMatchResult=best?best.combo:null;
+  _renderPodMatcher();
+}
+function _podMatchVerdict(combo){
+  if(!combo)return {kind:'wait',msg:''};
+  var brs=combo.map(function(c){return c.bracket||3;});
+  var mn=Math.min.apply(null,brs);
+  var mx=Math.max.apply(null,brs);
+  var diff=mx-mn;
+  var anyEmpty=combo.some(function(c){return c.empty;});
+  if(anyEmpty)return {kind:'warn',msg:'⚠ Un ou plusieurs joueurs n\'ont aucun deck public — invite-les à publier leurs decks pour un meilleur matching.'};
+  if(diff===0)return {kind:'ok',msg:'✓ Table parfaitement homogène — tous au bracket '+mx+'.'};
+  if(diff===1)return {kind:'ok',msg:'✓ Écart d\'un seul bracket — table équilibrée.'};
+  if(diff===2)return {kind:'warn',msg:'⚠ Écart de 2 brackets — partie possiblement déséquilibrée. C\'est la meilleure combinaison trouvée.'};
+  return {kind:'bad',msg:'✗ Écart de '+diff+' brackets — combinaison la moins déséquilibrée possible avec ces decks.'};
+}
+function _renderPodMatcher(){
+  var ov=document.getElementById('pod-matcher-ov');if(!ov)return;
+  var friends=(typeof _friends!=='undefined'&&_friends)||[];
+  // Liste cochable des joueurs
+  var allPlayers=[{uid:userId,name:(PN&&PN[0])||'Moi',isMe:true}].concat(friends.map(function(f){return {uid:f.uid,name:f.name||f.uid};}));
+  var html='';
+  html+='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;max-width:780px;width:100%;padding:20px 22px;margin:20px auto;box-shadow:0 12px 48px rgba(0,0,0,.6)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:12px">';
+  html+='<div><h3 style="margin:0;color:var(--gold2);font-family:\'Cinzel\',serif;font-size:1.1rem;letter-spacing:.04em">🎯 Pod Matcher</h3>';
+  html+='<div style="font-size:.72rem;color:var(--tx3);margin-top:3px">Trouve la meilleure combinaison de decks pour une table équilibrée.</div></div>';
+  html+='<button onclick="closePodMatcher()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:1.3rem;padding:0 6px;line-height:1">✕</button>';
+  html+='</div>';
+  // Sélection des joueurs
+  html+='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.08em;margin-bottom:8px">👥 JOUEURS ('+_podMatchSel.length+'/6)</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">';
+  allPlayers.forEach(function(p){
+    var picked=_podMatchSel.some(function(s){return s.uid===p.uid;});
+    var disabled=p.isMe;
+    html+='<button onclick="_podMatchTogglePlayer(\''+escJs(p.uid)+'\',\''+escJs(p.name)+'\')"'+(disabled?' disabled title="Toi (toujours dans le pod)"':'')+' style="padding:5px 12px;border-radius:8px;border:1.5px solid '+(picked?'var(--gold)':'var(--bd2)')+';background:'+(picked?'rgba(201,168,76,.15)':'var(--s3)')+';color:'+(picked?'var(--gold2)':'var(--tx2)')+';cursor:'+(disabled?'default':'pointer')+';font-size:.78rem;'+(disabled?'opacity:.7':'')+'">'+(picked?'✓ ':'+ ')+esc(p.name)+'</button>';
+  });
+  if(!friends.length)html+='<span style="color:var(--tx3);font-size:.72rem;font-style:italic;padding:5px 0">Ajoute des amis pour pouvoir matcher avec eux.</span>';
+  html+='</div>';
+  html+='<div style="display:flex;gap:8px;margin-bottom:12px">';
+  html+='<button onclick="_podMatchLoadAndRun()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.84rem;font-family:\'Goudy Mediaeval\',serif">🔍 Trouver la meilleure config</button>';
+  html+='<div id="pod-match-status" style="color:var(--tx3);font-size:.78rem;align-self:center;flex:1"></div>';
+  html+='</div>';
+  // Résultat
+  if(_podMatchResult){
+    var v=_podMatchVerdict(_podMatchResult);
+    var col=v.kind==='bad'?'var(--rd2)':v.kind==='warn'?'var(--am)':v.kind==='ok'?'var(--gr2)':'var(--tx3)';
+    var bg=v.kind==='bad'?'rgba(255,80,80,.10)':v.kind==='warn'?'rgba(255,140,40,.10)':'rgba(100,200,120,.10)';
+    html+='<div style="background:'+bg+';border:1px solid '+col+';border-radius:10px;padding:10px 14px;margin-bottom:14px;text-align:center"><div style="color:'+col+';font-size:.85rem;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em">'+esc(v.msg)+'</div></div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px">';
+    _podMatchResult.forEach(function(d,i){
+      var p=_podMatchSel[i];
+      var br=d.bracket||0;
+      var lbl=(typeof _ANA_POWER_LABELS!=='undefined'&&_ANA_POWER_LABELS[br])||'';
+      var brCol=br>=5?'var(--rd2)':br>=4?'var(--am)':br>=3?'var(--gold2)':br>=1?'var(--gr2)':'var(--tx3)';
+      html+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:10px;padding:10px 12px">';
+      html+='<div style="font-size:.72rem;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.06em;margin-bottom:4px">'+esc(p.name)+'</div>';
+      html+='<div style="font-family:\'Cinzel\',serif;color:var(--tx);font-size:.92rem;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.name)+'</div>';
+      if(d.commanderName)html+='<div style="font-size:.7rem;color:var(--gold2);font-style:italic;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👑 '+esc(d.commanderName)+'</div>';
+      if(d.empty){
+        html+='<div style="color:var(--tx3);font-size:.72rem;font-style:italic">Aucun deck public — bracket estimé 3</div>';
+      } else {
+        html+='<div style="display:flex;align-items:center;gap:6px;font-size:.74rem"><span style="color:'+brCol+';font-weight:700">⚔ B'+br+'/5</span><span style="color:'+brCol+';font-style:italic">'+esc(lbl)+'</span></div>';
+        if(d.format)html+='<div style="font-size:.66rem;color:var(--tx3);margin-top:2px">'+esc(d.format)+'</div>';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+    // Bouton créer pod
+    html+='<div style="text-align:center"><button onclick="_podMatchCreatePod()" style="background:rgba(100,200,120,.18);border:.5px solid var(--gr);color:var(--gr2);padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.82rem;font-family:\'Goudy Mediaeval\',serif">📅 Créer un pod avec cette config</button></div>';
+  } else {
+    html+='<div style="text-align:center;color:var(--tx3);font-style:italic;font-size:.82rem;padding:18px 0">Coche les joueurs et lance la recherche.</div>';
+  }
+  html+='<div style="font-size:10px;color:var(--tx3);margin-top:14px;line-height:1.5;text-align:center;font-style:italic">Le matcher minimise l\'écart de brackets et favorise la variété de couleurs (EDH). Les decks doivent être publiés (bouton « 🔗 Partager publiquement ») pour être pris en compte.</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _podMatchCreatePod(){
+  closePodMatcher();
+  // Ouvre le créateur de pod et pré-coche les amis sélectionnés
+  if(typeof _podOpenCreate==='function'){
+    _podOpenCreate();
+    setTimeout(function(){
+      _podMatchSel.forEach(function(p){
+        if(p.uid===userId)return;
+        var cb=document.querySelector('.pod-friend-cb[value="'+p.uid+'"]');
+        if(cb)cb.checked=true;
+      });
+    },50);
+  }
+}
+
 function _challengeWeekKey(){
   var now=new Date();
   var d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()));
@@ -14728,6 +14928,10 @@ function deckShare(deckId){
   mlConfirm('🔗 Partager publiquement','Va générer une URL publique en lecture seule du deck "'+dk.name+'".\n\nN\'importe qui avec le lien pourra voir les cartes (pas modifier). Tu peux supprimer le partage à tout moment.',{okLabel:'Publier',cancelLabel:'Annuler'}).then(function(ok){
     if(!ok)return;
     var pubId=dk.publicId||(deckId+'_'+Math.random().toString(36).slice(2,8));
+    // Pré-calcule le power level pour que le Pod Matcher puisse comparer
+    // sans recharger le moteur d'analyse côté receveur.
+    var pwSnap=null;
+    try{if(typeof _anaDeckPower==='function')pwSnap=_anaDeckPower(dk);}catch(e){}
     var payload={
       name:dk.name||'Deck partagé',
       ownerName:PN[0]||'?',
@@ -14737,6 +14941,7 @@ function deckShare(deckId){
       cards:dk.cards||[],
       commander:dk.commander||null,
       notes:dk.notes||'',
+      pw:pwSnap,
       sharedAt:Date.now()
     };
     db.collection('public_decks').doc(pubId).set(payload).then(function(){
