@@ -16716,6 +16716,95 @@ function _limArchetypeHtml(){
   h+='</div></details>';
   return h;
 }
+// ===== Moteur d'évaluation de carte limité =====
+// Score 0-10+ via texte oracle + types + stats. Détecte les rôles
+// (removal, card advantage, evasion, fixing, combat trick) — base
+// de l'analyse, des suggestions de pick et des bots intelligents.
+function _limCardEval(c){
+  var o=(c.oracle_text||'').toLowerCase();
+  var tl=(c.type_line||'').toLowerCase();
+  var cmc=c.cmc!=null?c.cmc:0;
+  var pw=parseInt(c.power)||0,tg=parseInt(c.toughness)||0;
+  var isCreature=tl.indexOf('creature')>=0;
+  var isLand=tl.indexOf('land')>=0;
+  var isInstant=tl.indexOf('instant')>=0;
+  var isSorcery=tl.indexOf('sorcery')>=0;
+  var isArtifact=tl.indexOf('artifact')>=0;
+  var score={mythic:3.5,rare:2.5,uncommon:1.5,common:0.7}[c.rarity]||0.5;
+  var roles={},notes=[];
+  // Removal créature
+  if(!isLand){
+    if(/destroy target (?:tapped )?(?:creature|nonland permanent|permanent)/i.test(o)||/exile target (?:tapped )?(?:creature|nonland permanent|permanent)/i.test(o)){
+      roles.removal=true;score+=2.0;notes.push('Removal solide');
+    }else{
+      var dm=o.match(/deals? (\d+) damage to (?:any target|target creature|target creature or planeswalker)/i);
+      if(dm){
+        var d=parseInt(dm[1]);
+        if(d>=4){roles.removal=true;score+=1.8;notes.push('Removal '+d+' dmg');}
+        else if(d===3){roles.removal=true;score+=1.5;notes.push('Removal 3 dmg');}
+        else if(d===2){roles.removal=true;score+=0.9;notes.push('Removal 2 dmg (cond.)');}
+      }
+      var pt=o.match(/target creature gets ?-(\d+)\/-(\d+)/i);
+      if(pt){var rt=parseInt(pt[2]);if(rt>=3){roles.removal=true;score+=1.3;notes.push('Kill via -X/-X');}}
+    }
+  }
+  // Card advantage
+  if(!isLand){
+    var dr=o.match(/draw (\d+|a|two|three|four) cards?/i);
+    if(dr){
+      var n=({a:1,two:2,three:3,four:4})[dr[1]]||parseInt(dr[1])||1;
+      if(n>=3){roles.cardAdvantage=true;score+=2.0;notes.push('Pioche '+n);}
+      else if(n===2){roles.cardAdvantage=true;score+=1.3;notes.push('Pioche 2');}
+      else if(n===1&&(isInstant||isSorcery)&&cmc<=2){roles.cardAdvantage=true;score+=0.5;notes.push('Cantrip');}
+      else if(n===1&&isCreature){score+=0.5;notes.push('ETB pioche');}
+    }
+    if(/investigate/i.test(o)){roles.cardAdvantage=true;score+=0.7;notes.push('Investigate');}
+    if(/scry (\d)/i.test(o))score+=0.2;
+    if(/create (?:a|\w+) treasure token/i.test(o))score+=0.5;
+  }
+  // Evasion / mots-clés créature
+  if(isCreature){
+    var ev=0;
+    if(/\bflying\b/i.test(o))ev+=0.8;
+    if(/\btrample\b/i.test(o))ev+=0.4;
+    if(/\bmenace\b/i.test(o))ev+=0.3;
+    if(/can'?t be blocked/i.test(o))ev+=1.0;
+    if(/\blifelink\b/i.test(o))ev+=0.5;
+    if(/\bdeathtouch\b/i.test(o))ev+=0.6;
+    if(/\bhexproof\b/i.test(o))ev+=0.7;
+    if(/\bvigilance\b/i.test(o))ev+=0.3;
+    if(/\bhaste\b/i.test(o))ev+=0.3;
+    if(/\bfirst strike\b/i.test(o))ev+=0.4;
+    if(/\bdouble strike\b/i.test(o))ev+=0.8;
+    if(/\breach\b/i.test(o))ev+=0.2;
+    if(ev>0){roles.evasion=true;score+=ev;}
+    // Efficacité corps / coût
+    var expected=cmc*2+1;
+    if(pw+tg>expected+1)score+=0.5;
+    else if(pw+tg<expected-2)score-=0.4;
+    if(pw>=4&&cmc<=4)score+=0.5;
+    if(pw>=5&&cmc<=5)score+=0.4;
+  }
+  // Combat trick
+  if((isInstant||isSorcery)&&/target creature gets \+\d+\/\+\d+/i.test(o)){roles.combatTrick=true;score+=0.5;}
+  // Fixing mana
+  if(isLand){
+    if(/add (?:\{[WUBRG]\} ?or ?\{[WUBRG]\}|\{[WUBRG]\}.{0,5}\{[WUBRG]\}|one mana of any)/i.test(o)){
+      roles.fixing=true;score+=1.5;notes.push('Terrain dual');
+    }
+  }else if(isArtifact&&cmc<=3){
+    if(/add (?:\{[WUBRG]\} ?or ?\{[WUBRG]\}|\{[WUBRG]\}.{0,5}\{[WUBRG]\}|one mana of any|\{[WUBRG]\})/i.test(o)){
+      roles.fixing=true;score+=0.8;notes.push('Roc de mana');
+    }
+  }
+  if(isCreature&&/search your library for a (?:basic )?land/i.test(o)){roles.fixing=true;score+=0.4;notes.push('Ramp créature');}
+  // Ajustements CMC
+  if(!isLand){
+    if(cmc>=1&&cmc<=3)score+=0.3;
+    if(cmc>=7)score-=0.5;
+  }
+  return {score:score,roles:roles,notes:notes,cmc:cmc,isLand:isLand,isCreature:isCreature};
+}
 // Analyse du deck limité : couleurs, courbe, terrains, et « meilleure version » du pool
 function _limAnalyzeDeck(){
   var deck=_limAll.filter(function(c){return _limDeckIds[c._id];});
@@ -16723,38 +16812,34 @@ function _limAnalyzeDeck(){
   var lands=0,nonLand=0,creatures=0,cmcSum=0;
   var colorCount={W:0,U:0,B:0,R:0,G:0};
   var curve={0:0,1:0,2:0,3:0,4:0,5:0,6:0,'7+':0};
+  var removalN=0,fixingN=0,evasionN=0,advN=0;
   deck.forEach(function(c){
+    var ev=_limCardEval(c);
     var tl=(c.type_line||'').toLowerCase();
-    if(tl.indexOf('land')>=0){lands++;return;}
+    if(ev.isLand){lands++;if(ev.roles.fixing)fixingN++;return;}
     nonLand++;
     var cmc=c.cmc||0;cmcSum+=cmc;
     var k=cmc>=7?'7+':String(Math.floor(cmc));curve[k]=(curve[k]||0)+1;
-    if(tl.indexOf('creature')>=0)creatures++;
+    if(ev.isCreature)creatures++;
     (c.colors||[]).forEach(function(col){if(colorCount[col]!=null)colorCount[col]++;});
+    if(ev.roles.removal)removalN++;
+    if(ev.roles.fixing)fixingN++;
+    if(ev.roles.evasion)evasionN++;
+    if(ev.roles.cardAdvantage)advN++;
   });
   var avgCmc=nonLand?cmcSum/nonLand:0;
   var ordered=Object.keys(colorCount).sort(function(a,b){return colorCount[b]-colorCount[a];}).filter(function(c){return colorCount[c]>0;});
   var top2=ordered.slice(0,2);
-  function score(c){
-    var s={mythic:3.5,rare:2.5,uncommon:1.2,common:0.5}[c.rarity]||0;
-    var tl=(c.type_line||'').toLowerCase();
-    if(tl.indexOf('creature')>=0)s+=0.3;
-    var cmc=c.cmc||0;
-    if(cmc>=1&&cmc<=4)s+=0.4;
-    if(cmc>=7)s-=0.3;
-    return s;
-  }
   var poolInColors=_limAll.filter(function(c){
     if(c.type_line&&/Land/.test(c.type_line))return false;
     var cs=c.colors||[];
     if(!cs.length)return true;
     return cs.every(function(col){return top2.indexOf(col)>=0;});
   });
-  var ranked=poolInColors.slice().sort(function(a,b){return score(b)-score(a);});
+  var ranked=poolInColors.slice().sort(function(a,b){return _limCardEval(b).score-_limCardEval(a).score;});
   var best23=ranked.slice(0,23);
   var bestIds={};best23.forEach(function(c){bestIds[c._id]=1;});
   var deckMatchBest=deck.filter(function(c){return bestIds[c._id];}).length;
-  // Recommandations
   var recs=[];
   if(lands<16)recs.push({sev:'warn',txt:'Seulement '+lands+' terrains — vise 17 pour un deck limité de 40 cartes.'});
   else if(lands>18)recs.push({sev:'warn',txt:lands+' terrains, c\'est élevé ; 17 suffit sauf courbe très haute.'});
@@ -16767,13 +16852,24 @@ function _limAnalyzeDeck(){
   if(creatures<13)recs.push({sev:'warn',txt:creatures+' créatures seulement — vise 14-18 pour soutenir l\'attaque.'});
   else if(creatures>20)recs.push({sev:'info',txt:creatures+' créatures — pense aussi à de l\'interaction (removal, contre).'});
   else recs.push({sev:'ok',txt:creatures+' créatures — bon équilibre.'});
+  // Removal
+  if(removalN<3)recs.push({sev:'warn',txt:'Seulement '+removalN+' removal — vise 4-6 pour gérer les menaces adverses.'});
+  else if(removalN>7)recs.push({sev:'info',txt:removalN+' removal — beaucoup ; assure-toi d\'avoir assez de menaces.'});
+  else recs.push({sev:'ok',txt:removalN+' removal — interaction correcte.'});
+  // Fixing si 3+ couleurs
+  if(ordered.length>=3){
+    if(fixingN<2)recs.push({sev:'warn',txt:'3+ couleurs et seulement '+fixingN+' source(s) de fixing — ajoute des terrains duaux ou rocs de mana.'});
+    else recs.push({sev:'ok',txt:fixingN+' sources de fixing pour ta manabase multicolore.'});
+  }
+  // Évasion
+  if(creatures>=10&&evasionN<3)recs.push({sev:'info',txt:'Peu d\'évasion ('+evasionN+' créatures) — pense au volant / inblocable pour percer.'});
   if(ordered.length>=4)recs.push({sev:'warn',txt:ordered.length+' couleurs jouées — en limité, reste sur 2 + splash léger.'});
   else if(ordered.length===3){
     var c3=ordered[2];
     if(colorCount[c3]<=3)recs.push({sev:'info',txt:'Splash de '+c3+' ('+colorCount[c3]+' carte(s)) — assure-toi du mana pour.'});
     else recs.push({sev:'warn',txt:'3 couleurs sérieusement jouées — manabase fragile.'});
   } else if(ordered.length===2)recs.push({sev:'ok',txt:'2 couleurs ('+top2.join('')+') — base solide pour la manabase.'});
-  return {lands:lands,nonLand:nonLand,creatures:creatures,avgCmc:avgCmc,deckSize:deck.length,curve:curve,colorCount:colorCount,primary:ordered,top2:top2,deckMatchBest:deckMatchBest,bestTotal:best23.length,recs:recs};
+  return {lands:lands,nonLand:nonLand,creatures:creatures,avgCmc:avgCmc,deckSize:deck.length,curve:curve,colorCount:colorCount,primary:ordered,top2:top2,deckMatchBest:deckMatchBest,bestTotal:best23.length,recs:recs,removalN:removalN,fixingN:fixingN,evasionN:evasionN,advN:advN};
 }
 function _limAnalysisHtml(){
   var a=_limAnalyzeDeck();if(!a)return '';
@@ -16785,6 +16881,13 @@ function _limAnalysisHtml(){
   h+='<summary style="cursor:pointer;list-style:none;font-size:.84rem;color:var(--gold2)">🔍 Analyse du deck <span style="font-size:.7rem;color:var(--tx3);margin-left:6px">'+a.deckSize+' cartes · '+a.lands+' terrains · couleurs '+topColors+'</span> ▾</summary>';
   h+='<div style="margin-top:8px;font-size:.78rem;line-height:1.7">';
   a.recs.forEach(function(r){h+='<div style="color:'+(sevCol[r.sev]||'var(--tx2)')+'">'+sevIco[r.sev]+' '+esc(r.txt)+'</div>';});
+  h+='</div>';
+  // Rôles détectés
+  h+='<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;font-size:.72rem;color:var(--tx3)">';
+  h+='<span>⚔ Removal : <b style="color:var(--tx)">'+a.removalN+'</b></span>';
+  h+='<span>🌍 Fixing : <b style="color:var(--tx)">'+a.fixingN+'</b></span>';
+  h+='<span>🪽 Évasion : <b style="color:var(--tx)">'+a.evasionN+'</b></span>';
+  h+='<span>📜 Pioche : <b style="color:var(--tx)">'+a.advN+'</b></span>';
   h+='</div>';
   // Courbe visuelle
   var maxCurve=0;Object.keys(a.curve).forEach(function(k){if(a.curve[k]>maxCurve)maxCurve=a.curve[k];});
@@ -16937,7 +17040,8 @@ var _lroom=null,_lroomUnsub=null,_lroomCommitting=false;
 function _cardCompact(c){
   if(!c)return null;
   var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||{};
-  return {id:c.id||'',name:c.name||'',cmc:c.cmc!=null?c.cmc:0,colors:c.colors||[],type_line:c.type_line||'',rarity:c.rarity||'common',image_uris:{small:iu.small||'',normal:iu.normal||''}};
+  var ot=c.oracle_text||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].oracle_text)||'';
+  return {id:c.id||'',name:c.name||'',cmc:c.cmc!=null?c.cmc:0,colors:c.colors||[],type_line:c.type_line||'',rarity:c.rarity||'common',oracle_text:ot.slice(0,400),power:c.power||null,toughness:c.toughness||null,image_uris:{small:iu.small||'',normal:iu.normal||''}};
 }
 function lroomCreate(mode){
   if(!userId){toastError('Connecte-toi pour créer un salon');return;}
