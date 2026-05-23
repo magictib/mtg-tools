@@ -7050,6 +7050,97 @@ function _homeTasks(){
   }catch(e){}
   return tasks;
 }
+// ===== Défis hebdomadaires de format =====
+// Un défi tourne chaque lundi (basé sur la semaine ISO). Récompenses :
+// +20 Pétales pour rejoindre, +50 Pétales par partie déclarée (cap à 3),
+// +100 Pétales bonus si on complète les 3 parties dans la semaine.
+var _CHALLENGE_WEEKLY=[
+  {id:'pauper',  ico:'🪙', name:'Semaine Pauper',         desc:'Joue une partie où chaque carte est une commune. Aucune carte n\'a jamais été imprimée au-dessus de la rareté commune.'},
+  {id:'monored', ico:'🔥', name:'Semaine Mono-Rouge',     desc:'Joue une partie avec un deck strictement mono-rouge. Tempo, dommages directs, et arme-toi de patience.'},
+  {id:'edhbud',  ico:'💸', name:'Semaine EDH Budget',     desc:'Joue une partie en Commander avec un deck dont chaque carte coûte moins de 5 € sur Scryfall.'},
+  {id:'tribal',  ico:'🐺', name:'Semaine Tribal',         desc:'Joue une partie avec un deck tribal : au moins 18 créatures partageant le même type.'},
+  {id:'precon',  ico:'📦', name:'Semaine Precon',         desc:'Joue une partie avec un Commander Precon sans aucune modification de la liste d\'origine.'},
+  {id:'jank',    ico:'🎲', name:'Semaine Jank',           desc:'Joue une partie avec un deck « jank » (zinzin, contrôlé, weird) — pas l\'optimal, juste pour le fun.'},
+  {id:'noland',  ico:'🌪', name:'Semaine Sans Bâton-Terre',desc:'Joue une partie avec un deck qui contient 0 % de boost de mana classique (Sol Ring, Arcane Signet, etc.) — juste les terrains et les sorts.'},
+  {id:'oldframe',ico:'📜', name:'Semaine Ancien Cadre',   desc:'Joue une partie avec au moins 60 % de cartes en cadre pré-moderne (avant Mirrodin 2003).'}
+];
+function _challengeWeekKey(){
+  var now=new Date();
+  var d=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()));
+  d.setUTCDate(d.getUTCDate()+4-(d.getUTCDay()||7));
+  var yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  var weekNo=Math.ceil((((d-yearStart)/86400000)+1)/7);
+  return d.getUTCFullYear()+'-W'+(weekNo<10?'0':'')+weekNo;
+}
+function _challengeCurrent(){
+  var k=_challengeWeekKey();
+  // Hash stable de la clé de semaine pour rotation déterministe
+  var h=0;for(var i=0;i<k.length;i++){h=(h*31+k.charCodeAt(i))%9973;}
+  return _CHALLENGE_WEEKLY[h%_CHALLENGE_WEEKLY.length];
+}
+function _challengeState(){
+  if(!_progState)return null;
+  _progState.challenges=_progState.challenges||{};
+  var k=_challengeWeekKey();
+  if(!_progState.challenges[k])_progState.challenges[k]={joined:false,played:0,claimed:false};
+  return _progState.challenges[k];
+}
+function _challengeJoin(){
+  if(!_progState){if(typeof toastError==='function')toastError('Charge ton profil d\'abord.');return;}
+  var st=_challengeState();if(!st||st.joined)return;
+  st.joined=true;
+  _progState.coins+=20;
+  if(typeof _progSave==='function')_progSave();
+  if(typeof toastSuccess==='function')toastSuccess('🎯 Défi rejoint ! +20 Pétales');
+  if(typeof renderHome==='function')renderHome();
+}
+function _challengeLogGame(){
+  if(!_progState)return;
+  var st=_challengeState();if(!st||!st.joined||st.played>=3)return;
+  st.played++;
+  _progState.coins+=50;
+  var msg='+50 Pétales pour ta partie !';
+  if(st.played>=3&&!st.claimed){
+    st.claimed=true;
+    _progState.coins+=100;
+    msg='🏆 Défi complété ! +100 Pétales bonus !';
+  }
+  if(typeof _progSave==='function')_progSave();
+  if(typeof toastSuccess==='function')toastSuccess(msg);
+  if(typeof renderHome==='function')renderHome();
+}
+function _challengeHtml(){
+  if(!_progState||!_progLoaded)return '';
+  var ch=_challengeCurrent();
+  var st=_challengeState();if(!st)return '';
+  var played=st.played||0;
+  var open=false;try{open=localStorage.getItem('mtg_challenge_open')==='1';}catch(e){}
+  var h='<details class="home-section"'+(open?' open':'')+' ontoggle="try{localStorage.setItem(\'mtg_challenge_open\',this.open?\'1\':\'0\')}catch(e){}" style="background:linear-gradient(135deg,rgba(201,168,76,.07),rgba(201,168,76,.01));border:.5px solid var(--gold)">';
+  h+='<summary class="home-sec-title" style="cursor:pointer;list-style:none;margin-bottom:0;display:flex;align-items:center">🎯 Défi de la semaine <span class="home-sec-count" style="background:rgba(201,168,76,.18);color:var(--gold2)">'+played+'/3</span>';
+  if(st.claimed)h+='<span style="margin-left:8px;color:var(--gr2);font-size:.7rem;font-family:\'Goudy Mediaeval\',serif">🏆 Complété</span>';
+  h+='<span style="color:var(--tx3);font-size:.8rem;margin-left:auto">▾</span></summary>';
+  h+='<div style="margin-top:10px;padding:11px 12px;background:rgba(0,0,0,.18);border-radius:8px">';
+  h+='<div style="display:flex;align-items:flex-start;gap:10px">';
+  h+='<div style="font-size:2rem;flex-shrink:0">'+ch.ico+'</div>';
+  h+='<div style="flex:1;min-width:0">';
+  h+='<div style="color:var(--gold2);font-family:\'Cinzel\',serif;font-size:.95rem;letter-spacing:.04em">'+esc(ch.name)+'</div>';
+  h+='<div style="font-size:.75rem;color:var(--tx2);margin-top:4px;line-height:1.5">'+esc(ch.desc)+'</div>';
+  h+='</div></div>';
+  h+='<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+  if(!st.joined){
+    h+='<button onclick="_challengeJoin()" style="background:rgba(201,168,76,.18);border:.5px solid var(--gold);color:var(--gold2);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:.82rem;font-family:\'Goudy Mediaeval\',serif">✓ Rejoindre (+20 '+_petaleIcon(13)+')</button>';
+    h+='<span style="color:var(--tx3);font-size:.72rem;font-style:italic">+50 par partie, +100 bonus en complétant les 3</span>';
+  } else if(!st.claimed){
+    h+='<button onclick="_challengeLogGame()" style="background:rgba(100,200,120,.18);border:.5px solid var(--gr);color:var(--gr2);padding:6px 14px;border-radius:7px;cursor:pointer;font-size:.82rem;font-family:\'Goudy Mediaeval\',serif">🎴 J\'ai joué une partie (+50 '+_petaleIcon(13)+')</button>';
+    var remaining=3-played;
+    if(remaining>0)h+='<span style="color:var(--tx3);font-size:.72rem">Encore '+remaining+' partie'+(remaining>1?'s':'')+' pour compléter</span>';
+  } else {
+    h+='<span style="color:var(--gr2);font-size:.82rem;font-family:\'Goudy Mediaeval\',serif">🏆 Défi de la semaine complété — reviens lundi !</span>';
+  }
+  h+='</div>';
+  h+='</div></details>';
+  return h;
+}
 function _homeTasksHtml(){
   var tasks=_homeTasks();
   if(!tasks.length)return '';
@@ -7104,6 +7195,8 @@ function renderHome(){
   try{html+=_progHomeBanner();}catch(e){}
   // ── Tâches en cours ──
   try{html+=_homeTasksHtml();}catch(e){}
+  // ── Défi de la semaine ──
+  try{html+=_challengeHtml();}catch(e){}
   // ── Premiers pas (nouvel utilisateur) ──
   var hasColl=totalCards>0,hasDeck=myDeckIds.length>0;
   var hasFriend=((typeof _friends!=='undefined'&&_friends)||[]).length>0;
