@@ -16594,9 +16594,47 @@ function _limShowBuilderIn(targetId,cards,baseName,source,setCode){
   _limBuilderTarget=targetId;
   _limBuilderSource=source||'sealed';
   _limCurrentSetCode=setCode||'';
-  // Pré-charge les données de l'extension pour les archétypes (silencieux)
   if(setCode&&!_LIM_SET_CACHE[setCode])_limFetchSetCards(setCode,function(){_limRenderBuilder();});
+  if(setCode)_lim17LandsFetch(setCode,function(){_limRenderBuilder();});
   _limRenderBuilder();
+}
+// ===== Données 17lands (tier limited réel) =====
+// Tentative côté client : peut échouer pour CORS. En cas d'échec,
+// l'app retombe silencieusement sur l'heuristique locale.
+var _LIM_17LANDS_CACHE={};
+function _lim17LandsFetch(setCode,cb){
+  if(!setCode)return cb&&cb(null);
+  if(_LIM_17LANDS_CACHE[setCode]!=null)return cb&&cb(_LIM_17LANDS_CACHE[setCode]);
+  // Cache localStorage 7 jours
+  try{
+    var raw=localStorage.getItem('mtg_17lands_'+setCode);
+    if(raw){var d=JSON.parse(raw);if(d&&Date.now()-d.ts<7*86400000){_LIM_17LANDS_CACHE[setCode]=d.map;return cb&&cb(d.map);}}
+  }catch(e){}
+  var url='https://www.17lands.com/card_ratings/data?expansion='+encodeURIComponent(setCode.toUpperCase())+'&format=PremierDraft&start_date=2023-01-01';
+  fetch(url).then(function(r){return r.ok?r.json():Promise.reject(r.status);}).then(function(arr){
+    var map={};
+    (arr||[]).forEach(function(row){
+      if(row&&row.name&&row.ever_drawn_win_rate!=null){
+        map[(row.name||'').toLowerCase()]={wr:parseFloat(row.ever_drawn_win_rate)||0,n:row.ever_drawn_game_count||0};
+      }
+    });
+    if(Object.keys(map).length){
+      _LIM_17LANDS_CACHE[setCode]=map;
+      try{localStorage.setItem('mtg_17lands_'+setCode,JSON.stringify({ts:Date.now(),map:map}));}catch(e){}
+      cb&&cb(map);
+    } else {
+      _LIM_17LANDS_CACHE[setCode]=null;cb&&cb(null);
+    }
+  }).catch(function(){_LIM_17LANDS_CACHE[setCode]=null;cb&&cb(null);});
+}
+function _lim17LandsScore(card){
+  if(!_limCurrentSetCode)return 0;
+  var m=_LIM_17LANDS_CACHE[_limCurrentSetCode];
+  if(!m)return 0;
+  var d=m[(card.name||'').toLowerCase()];
+  if(!d||!d.wr||d.n<50)return 0; // pas assez de données
+  // WR ~ 0.45-0.62 en limité. Centre 0.53, échelle ±2 pts.
+  return Math.max(-2,Math.min(2,(d.wr-0.53)*16));
 }
 function _limAddToDeck(id){_limDeckIds[id]=true;_limRenderBuilder();}
 function _limRemoveFromDeck(id){delete _limDeckIds[id];_limRenderBuilder();}
@@ -16849,6 +16887,11 @@ function _limCardEval(c){
     if(cmc>=1&&cmc<=3)score+=0.3;
     if(cmc>=7)score-=0.5;
   }
+  // Bonus / malus selon 17lands (si données chargées)
+  if(typeof _lim17LandsScore==='function'){
+    var l17=_lim17LandsScore(c);
+    if(l17){score+=l17;if(l17>=1.2)notes.push('17lands top tier');else if(l17<=-1.2)notes.push('17lands faible WR');}
+  }
   return {score:score,roles:roles,notes:notes,cmc:cmc,isLand:isLand,isCreature:isCreature};
 }
 // Analyse du deck limité : couleurs, courbe, terrains, et « meilleure version » du pool
@@ -16953,7 +16996,8 @@ function _limAnalysisHtml(){
     var col=pct>=70?'var(--gr2)':pct>=50?'var(--gold2)':'var(--am)';
     h+='<div style="margin-top:10px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:6px;font-size:.78rem;color:var(--tx2);line-height:1.5">';
     h+='<b>Meilleure version possible</b> du pool dans tes couleurs dominantes ('+(a.top2.join('')||'?')+') : ton deck contient <b style="color:'+col+'">'+a.deckMatchBest+'/'+a.bestTotal+'</b> (<b style="color:'+col+'">'+pct+' %</b>) des cartes les plus fortes selon une heuristique de rareté + courbe.';
-    h+='<div style="font-size:.7rem;color:var(--tx3);margin-top:4px;font-style:italic">Heuristique indicative — pas un classement officiel de limited.</div>';
+    var has17=_limCurrentSetCode&&_LIM_17LANDS_CACHE[_limCurrentSetCode];
+    h+='<div style="font-size:.7rem;color:var(--tx3);margin-top:4px;font-style:italic">'+(has17?'✓ Score enrichi par les données 17lands (win rate réel)':'Heuristique locale (oracle + rareté + courbe) — 17lands indisponible pour ce set ou CORS bloqué')+'.</div>';
     h+='</div>';
   }
   h+='</details>';
