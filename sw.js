@@ -38,6 +38,37 @@ self.addEventListener('activate', function(e) {
   self.clients.claim();
 });
 
+// === Push notifications ===
+self.addEventListener('push', function(e) {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (err) { data = { title: 'ManaLAB', body: e.data ? e.data.text() : '' }; }
+  const title = data.title || 'ManaLAB';
+  const opts = {
+    body: data.body || '',
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    data: { url: data.url || '/' },
+    tag: data.tag || 'manalab-notif',
+    requireInteraction: false
+  };
+  e.waitUntil(self.registration.showNotification(title, opts));
+});
+
+self.addEventListener('notificationclick', function(e) {
+  e.notification.close();
+  const targetUrl = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {
+      for (const c of list) {
+        if (c.url.includes(self.registration.scope) && 'focus' in c) {
+          c.navigate(targetUrl); return c.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
 self.addEventListener('fetch', function(e) {
   var url;
   try { url = new URL(e.request.url); } catch(err) { return; }

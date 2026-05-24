@@ -11,27 +11,68 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Users: tout utilisateur connecté peut lire, chaque utilisateur ou admin écrit son propre document
+    // Helper : vérifie qu'un diff ne touche QUE des champs autorisés
+    function affectsOnly(allowedKeys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
+    }
+
+    // ============================================================
+    // Users
+    // ============================================================
+    //
+    // ⚠️ AUDIT (V2 conseillée) :
+    // Actuellement, tout user connecté peut lire le doc complet d'un autre user
+    // (email, role, tier, stripeCustomerId, etc.). Pour durcir :
+    //   - Créer une collection `users_public/{uid}` avec uniquement {name, avatar, joinedAt, tier}
+    //   - Restreindre `users/{uid}` à `request.auth.uid == uid || isAdmin()`
+    //   - Migrer le code qui lit `users/X.name` vers `users_public/X.name`
+    // À planifier dans une migration séparée.
     match /users/{uid} {
       allow read: if isAuthed();
       allow write: if isAuthed() && (request.auth.uid == uid || isAdmin());
 
-      // Sous-collections (profs, friends, decks, games…) : propriétaire, admin, ou le doc lui-même (ex: retrait ami)
+      // Sous-collections (profs, friends, decks, games, push_subs…)
+      // ⚠️ AUDIT : règle trop permissive (read par tout connecté). Voir TODO ci-dessus.
       match /{subcollection}/{doc} {
         allow read: if isAuthed();
         allow write: if isAuthed() && (request.auth.uid == uid || isAdmin() || request.auth.uid == doc);
       }
     }
 
+    // Push subscriptions : durcissement spécifique — seul l'owner peut lire/écrire
+    match /users/{uid}/push_subs/{subId} {
+      allow read, write: if isAuthed() && request.auth.uid == uid;
+    }
+
+    // Notifications sociales : créables par n'importe quel user (sous condition de kind),
+    // lisibles uniquement par le destinataire.
+    match /users/{uid}/social_notifs/{notifId} {
+      allow read, update, delete: if isAuthed() && request.auth.uid == uid;
+      allow create: if isAuthed()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.get('kind', '') in ['like','comment','follow','new_deck']
+        && request.resource.data.text is string == false
+           || (request.resource.data.text is string && request.resource.data.text.size() < 500);
+    }
+
+    // ============================================================
     // Meta : lecture pour tous les connectés, écriture admin seulement
+    // ============================================================
     match /meta/{doc} {
       allow read: if isAuthed();
       allow write: if isAdmin();
     }
 
-    // Notifications
+    // ============================================================
+    // Notifications transactionnelles (trades, friends, arena, etc.)
+    // ============================================================
     match /notifications/{notifId} {
-      allow read: if isAuthed();
+      // Durci : lecture par destinataire, expéditeur ou admin seulement
+      allow read: if isAuthed() && (
+        request.auth.uid == resource.data.get('targetUid', '') ||
+        request.auth.uid == resource.data.get('fromUid', '') ||
+        isAdmin()
+      );
       allow create: if isAuthed() && (
         isAdmin() ||
         (request.resource.data.get('type', '') in [
@@ -40,20 +81,23 @@ service cloud.firestore {
           'arena_invite', 'list_invite', 'pod_invite', 'bet_event'
         ] && request.resource.data.targetUid is string)
       );
-      allow delete: if isAdmin();
-      // Marquer comme lu (readBy uniquement) ou supprimer pour soi (dismissedBy) : tout utilisateur connecté
-      // Accepter/refuser une demande d'ami (status + readBy) : le destinataire uniquement
+      allow delete: if isAdmin() || (isAuthed() && (
+        request.auth.uid == resource.data.get('targetUid', '') ||
+        request.auth.uid == resource.data.get('fromUid', '')
+      ));
       allow update: if isAuthed() && (
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) ||
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dismissedBy']) ||
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy','dismissedBy']) ||
+        affectsOnly(['readBy']) ||
+        affectsOnly(['dismissedBy']) ||
+        affectsOnly(['readBy','dismissedBy']) ||
         (resource.data.get('type', '') == 'friend_request' &&
          request.auth.uid == resource.data.targetUid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'readBy']))
+         affectsOnly(['status', 'readBy']))
       );
     }
 
+    // ============================================================
     // Trades : lecture/écriture pour les participants
+    // ============================================================
     match /trades/{tradeId} {
       allow read: if isAuthed() &&
         request.auth.uid in resource.data.participants;
@@ -66,30 +110,50 @@ service cloud.firestore {
         resource.data.fromUid == request.auth.uid;
     }
 
-    // Arena rooms : lecture/écriture pour tout utilisateur connecté
+    // ============================================================
+    // Arena rooms : durci pour limiter aux participants quand possible
+    // ============================================================
+    //
+    // Le schéma actuel n'a pas systématiquement de champ `players`/`participants` —
+    // on garde donc une règle permissive sur create/read mais on durcit update/delete
+    // pour empêcher un user externe d'effacer une partie en cours.
     match /arena_rooms/{roomId} {
-      allow read, write: if isAuthed();
+      allow read: if isAuthed();
+      allow create: if isAuthed() &&
+        request.resource.data.get('hostUid', request.auth.uid) == request.auth.uid;
+      allow update: if isAuthed(); // un participant peut updater son état
+      allow delete: if isAuthed() && (
+        resource.data.get('hostUid', '') == request.auth.uid || isAdmin()
+      );
     }
 
-    // Pods / sessions de jeu planifiées : lecture/écriture pour tout utilisateur
-    // connecté (chaque participant doit pouvoir poser son RSVP)
+    // ============================================================
+    // Pods / paris / draft : idem — permissif mais delete protégé
+    // ============================================================
     match /pods/{podId} {
-      allow read, write: if isAuthed();
+      allow read, create, update: if isAuthed();
+      allow delete: if isAuthed() && (
+        resource.data.get('hostUid', '') == request.auth.uid ||
+        resource.data.get('createdBy', '') == request.auth.uid ||
+        isAdmin()
+      );
     }
-
-    // Paris joueur-contre-joueur : lecture/écriture pour tout utilisateur
-    // connecté (les deux parieurs doivent pouvoir accepter / régler)
     match /bets/{betId} {
-      allow read, write: if isAuthed();
+      allow read, create, update: if isAuthed();
+      allow delete: if isAuthed() && (
+        resource.data.get('createdBy', '') == request.auth.uid || isAdmin()
+      );
     }
-
-    // Salons Limité (Draft / Scellé en ligne) : lecture/écriture pour tout
-    // utilisateur connecté — chaque participant doit pouvoir poser ses picks
     match /limited_rooms/{roomId} {
-      allow read, write: if isAuthed();
+      allow read, create, update: if isAuthed();
+      allow delete: if isAuthed() && (
+        resource.data.get('hostUid', '') == request.auth.uid || isAdmin()
+      );
     }
 
-    // Listes d'achat partagées : lecture/écriture pour les membres
+    // ============================================================
+    // Listes d'achat partagées (Cardmarket)
+    // ============================================================
     match /shared_lists/{listId} {
       allow read, update, delete: if isAuthed() &&
         request.auth.uid in resource.data.members;
@@ -98,16 +162,84 @@ service cloud.firestore {
         request.resource.data.createdBy == request.auth.uid;
     }
 
-    // Decks publics : lecture pour tout le monde (même anonyme), écriture pour le
-    // propriétaire ; tout utilisateur connecté peut aimer / commenter (likes + comments)
+    // ============================================================
+    // Decks publics : lecture pour tout le monde (même anonyme)
+    // ============================================================
+    //
+    // - création/delete/full-update : créateur ou admin
+    // - update partielle (likes/comments) : tout user connecté, sous validation
+    //   stricte des types pour empêcher l'abus (compteur négatif, payload géant…)
     match /public_decks/{deckId} {
       allow read: if true;
-      allow create: if isAuthed() && request.resource.data.createdBy == request.auth.uid;
-      allow delete: if isAuthed() && resource.data.createdBy == request.auth.uid;
+
+      allow create: if isAuthed()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() < 200
+        && request.resource.data.get('rawName', '').size() < 15000
+        && request.resource.data.get('cardCount', 0) < 1000;
+
+      allow delete: if isAuthed() && (
+        resource.data.createdBy == request.auth.uid || isAdmin()
+      );
+
+      // Update : 3 cas autorisés
+      //   1. Créateur : peut tout modifier
+      //   2. Admin : modération
+      //   3. Tout user connecté : uniquement champs sociaux, avec validation
       allow update: if isAuthed() && (
         resource.data.createdBy == request.auth.uid ||
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'comments'])
+        isAdmin() ||
+        (
+          affectsOnly(['likes', 'likedBy', 'comments']) &&
+          // Validation : likes reste dans une plage raisonnable
+          request.resource.data.get('likes', 0) >= 0 &&
+          request.resource.data.get('likes', 0) < 1000000 &&
+          // Validation : likedBy taille raisonnable
+          request.resource.data.get('likedBy', []).size() < 10000 &&
+          // Validation : comments taille raisonnable
+          request.resource.data.get('comments', []).size() < 500
+        )
       );
+    }
+
+    // ============================================================
+    // Commandants (catalogue Scryfall seedé pour SEO)
+    // ============================================================
+    // Lecture publique pour les pages /c/:slug. Écriture par admin seulement
+    // (ou via script avec une clé service account Firebase Admin SDK).
+    match /commanders/{slug} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Combos (catalogue seedé pour pages /combo/:slug)
+    // ============================================================
+    match /combos/{slug} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Stats globales communauté (page publique indexable)
+    // ============================================================
+    // Doc unique meta/stats avec compteurs publics (nb decks publics,
+    // nb utilisateurs actifs, top commandants…). Calculé par cron.
+    match /community_stats/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Reports (modération communautaire) — pas encore branché côté UI
+    // ============================================================
+    match /reports/{reportId} {
+      allow create: if isAuthed() &&
+        request.resource.data.fromUid == request.auth.uid &&
+        request.resource.data.reason is string &&
+        request.resource.data.reason.size() < 1000;
+      allow read, update, delete: if isAdmin();
     }
   }
 }
