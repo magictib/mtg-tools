@@ -40,7 +40,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  var origin = 'https://' + (req.headers.host || 'manalab.app');
+  var origin = 'https://' + (req.headers.host || 'valebro-bhce.vercel.app');
   var appUrl = origin + '/#shareddeck=' + encodeURIComponent(id);
 
   // Defaults (fallback si la requête Firestore échoue : on redirige quand même)

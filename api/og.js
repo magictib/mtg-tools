@@ -104,7 +104,7 @@ export default async function handler(req) {
     <text x="0" y="0" font-family="Georgia, serif" font-size="22" fill="#a8997b">
       ${format ? esc(format) : 'Commander'}${cardCount ? ` · ${esc(cardCount)} cartes` : ''}${author ? ` · par ${esc(author)}` : ''}
     </text>
-    <text x="0" y="32" font-family="Georgia, serif" font-size="16" fill="#857b65" letter-spacing="1">manalab.app · analyse · partage · communauté</text>
+    <text x="0" y="32" font-family="Georgia, serif" font-size="16" fill="#857b65" letter-spacing="1">ManaLAB · analyse · partage · communauté</text>
   </g>
 
   <!-- Bordure dorée -->
