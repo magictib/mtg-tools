@@ -34961,8 +34961,10 @@ function anaCardScore(meta){
   if(t.deathtouch_grant&&(th.sweeper||0)>1)base+=t.deathtouch_grant*4.0*((th.sweeper||0)-1);
   // Bonus lifelink grant — en contexte sweeper, chaque créature/joueur piqué = gain de vie
   if(t.lifelink_grant&&(th.sweeper||0)>1)base+=t.lifelink_grant*3.0*((th.sweeper||0)-1);
-  // Synergies thématiques (utilisées aussi dans l'optimiseur, poids 0.4 pour normaliser l'échelle)
-  base+=_anaThemeSynergyScore(meta,th)*0.4;
+  // Synergies thématiques (utilisées aussi dans l'optimiseur).
+  // Poids 0.65 pour que les bonus thématiques (storm, tribal, voltron, spellslinger…)
+  // aient un vrai impact sur le tri top/bottom — auparavant 0.4 → trop écrasé.
+  base+=_anaThemeSynergyScore(meta,th)*0.65;
   // Anti-synergies : pénalise les cartes dont les prérequis sont absents
   base+=_anaAntiSynergyPenalty(meta,th);
   // Plancher mana rocks : infrastructure toujours utile, jamais en-dessous de ce seuil
@@ -37398,7 +37400,10 @@ function _anaSynergyWeight(cardMeta,themes){
   if(!cardMeta||!cardMeta.oracleText)return 1.0;
   var antiP=_anaAntiSynergyPenalty(cardMeta,themes);
   var synP=_anaThemeSynergyScore(cardMeta,themes);
-  return Math.max(0.1,Math.min(1.5,1.0+synP*0.06+antiP*0.053));
+  // Cap élargi : 1.7 (au lieu de 1.5) pour que les cartes très synergiques
+  // (Mitraille en deck Gelectrode, lord tribal en deck tribal pur…) puissent
+  // vraiment remonter, et le min reste à 0.1 pour pénaliser les cartes hors-thème.
+  return Math.max(0.1,Math.min(1.7,1.0+synP*0.07+antiP*0.053));
 }
 
 // Score de synergie carte↔thèmes du commandant (utilisé dans l'optimiseur)
@@ -38487,9 +38492,20 @@ function anaRender(deckId){
   var deckCi=_anaDeckCi(deck);
 
   // Per-card data (UN SEUL DECK)
+  // Le score utilisé pour le tri top/bottom intègre le synergy weight des thèmes
+  // — sinon une carte comme Mitraille (excellente en deck spellslinger) reste
+  // dans les "moins efficaces" car son score brut est faible.
   var rows=cards.map(function(c){
     var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
-    return {card:c,meta:meta||{},roles:anaRoles(meta),score:meta?anaCardScore(meta):0,inCache:!!meta};
+    var baseScore=meta?anaCardScore(meta):0;
+    var synWeight=meta?_anaSynergyWeight(meta,_anaCurrentThemes||{}):1;
+    return {
+      card:c, meta:meta||{}, roles:anaRoles(meta),
+      score:baseScore*synWeight, // score AFFICHÉ et trié — intègre synergie deck
+      baseScore:baseScore,        // score brut (sans thèmes du deck) — pour debug/comparaison
+      synWeight:synWeight,
+      inCache:!!meta
+    };
   });
 
   // Counts par categorie
