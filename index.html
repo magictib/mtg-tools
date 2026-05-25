@@ -35138,14 +35138,16 @@ var _COMMANDER_THEME_RULES=[
   {p:/draw step.*draw an additional/i,                         m:{draw:1.6},              label:'Card advantage'},
   // Spellslinger — l'effet varie selon le commandant : pioche, dégâts, jetons, untap, +1/+1, etc.
   // Distinguer ces sous-types pour ne pas bump 'draw' à tort (Gelectrode, Guttersnipe…).
-  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\bdraw[s]?\b[^.]*card/i,                m:{draw:2.0},                  label:'Spellslinger-draw'},     // Niv-Mizzet, Mizzix, Edric-like
-  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\bdeal[s]?\s+\d+\s+damage/i,           m:{wincon:1.5},                label:'Spellslinger-damage'},   // Guttersnipe, Firebrand Archer
-  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\bcreate[s]? .* token/i,                m:{wincon:1.6},                label:'Spellslinger-tokens'},   // Talrand, Murmuring Mystic
-  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\b(?:untap|may untap)\b/i,              m:{},                          label:'Spellslinger-untap'},    // Gelectrode — pas de bump (effet de cumul d'activations)
-  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\+1\/\+1 counter/i,                     m:{wincon:1.4,counters:1.4},   label:'Spellslinger-counters'}, // Adeliz, Mentor of the Meek-like
-  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*(?:scry|surveil|reveal|exile)/i,        m:{draw:1.2},                  label:'Spellslinger-filtration'},
-  // Fallback générique : si aucun sous-type identifié, on garde juste le label, sans bump draw
-  {p:/whenever you cast (an )?(instant|sorcery|noncreature)/i,                                          m:{},                          label:'Spellslinger'},
+  // Toutes les variantes bumpent aussi le thème 'spellslinger' qui valorise les éphémères/rituels
+  // dans le scoring de synergie des cartes (voir _anaThemeSynergyScore).
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\bdraw[s]?\b[^.]*card/i,                m:{spellslinger:2.0,draw:2.0},                  label:'Spellslinger-draw'},     // Niv-Mizzet, Mizzix, Edric-like
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\bdeal[s]?\s+\d+\s+damage/i,           m:{spellslinger:2.2,wincon:1.5},                label:'Spellslinger-damage'},   // Guttersnipe, Firebrand Archer
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\bcreate[s]? .* token/i,                m:{spellslinger:2.0,wincon:1.6},                label:'Spellslinger-tokens'},   // Talrand, Murmuring Mystic
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\b(?:untap|may untap)\b/i,              m:{spellslinger:2.2},                           label:'Spellslinger-untap'},    // Gelectrode — bump spellslinger pour valoriser les sorts qui untap
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*\+1\/\+1 counter/i,                     m:{spellslinger:1.8,wincon:1.4,counters:1.4},   label:'Spellslinger-counters'}, // Adeliz, Mentor of the Meek-like
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)[^.]*(?:scry|surveil|reveal|exile)/i,        m:{spellslinger:1.6,draw:1.2},                  label:'Spellslinger-filtration'},
+  // Fallback générique : pas de sous-type clair, on bump quand même spellslinger légèrement
+  {p:/whenever you cast (an )?(instant|sorcery|noncreature)/i,                                          m:{spellslinger:1.5},                           label:'Spellslinger'},
   {p:/copy that (spell|instant|sorcery)/i,                     m:{draw:1.4},              label:'Spell-copy'},
   {p:/prowess/i,                                               m:{wincon:1.3},            label:'Prowess'},
   // ETB matters
@@ -35220,8 +35222,10 @@ var _COMMANDER_THEME_RULES=[
   // Tap-damage commander (Gelectrode, Niv-Mizzet Firemind…) : {T} deals damage = wincon principal
   // → protection critique (garder le commander en vie), wincon faible (il EST le wincon)
   {p:/\{t\}[^.]*deals? \d+ damage|deals? \d+ damage[^.{]*\{t\}/i, m:{protection:2.5,wincon:1.5}, label:'Tap-damage'},
-  // Untap-on-cast (Gelectrode, Goblin Flectomancer…) : instants/rituels = répéter le tap
-  {p:/whenever you cast (an )?(instant|sorcery)[^.]*untap/i,    m:{draw:1.8,protection:1.6},   label:'Untap-spellslinger'},
+  // Untap-on-cast (Gelectrode, Goblin Flectomancer…) : instants/rituels = répéter le tap.
+  // Bump spellslinger (pour valoriser les sorts) + protection (commandant fragile à protéger),
+  // mais PAS draw — l'effet n'est pas une pioche.
+  {p:/whenever you cast (an )?(instant|sorcery)[^.]*untap/i,    m:{spellslinger:2.2,protection:1.6},   label:'Untap-spellslinger'},
   // Commandant avec ability de tap générique (untap et protection synergy)
   {p:/\{t\}:/i,                                                m:{protection:1.5},              label:'Tap-ability'},
   // Whenever you draw your Nth card (Voracious Tome Skimmer, Jolrael…) : draw cadencé = wincon
@@ -36229,7 +36233,7 @@ function _anaApplyDeckThemeSignals(deck,bump,labels){
   axis('tokens',sig.tokens,9,5,'Tokens');
 }
 function _anaCommanderThemes(deck){
-  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,mill:0};
+  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,mill:0,spellslinger:1};
   var labels=[];
   function bump(key,val){if((m[key]||1)<val)m[key]=val;}
   if(!deck)return Object.assign(m,{labels:labels,_debug:'no-deck'});
@@ -37233,6 +37237,24 @@ function _anaThemeSynergyScore(cardMeta,themes){
   var o=cardMeta.oracleText.toLowerCase();
   var t=(cardMeta.typeLine||'').toLowerCase();
   var s=0;var th=themes||{};
+  // Spellslinger — valorise les éphémères/rituels quand le commandant a un trigger
+  // sur instant/sorcery (Gelectrode, Guttersnipe, Niv-Mizzet, Mizzix, Talrand…).
+  // Indispensable pour que des cartes comme Mitraille, Twincast, Past in Flames
+  // remontent au lieu de couler dans le scoring.
+  if((th.spellslinger||1)>1.3){
+    var ssMult=(th.spellslinger||1)-1; // 0.3-1.5 selon intensité
+    if(/^instant\b|^sorcery\b|—\s*instant|—\s*sorcery/.test(t)||t.indexOf('instant')>=0||t.indexOf('sorcery')>=0){
+      s+=4*ssMult; // tout éphémère/rituel a une valeur de base
+      if(/deals? \d+ damage/.test(o))s+=4*ssMult;          // sort de dégâts (Mitraille, Lightning Bolt)
+      if(/storm\b/.test(o))s+=6*ssMult;                    // storm scale avec le spell count (Mitraille = Grapeshot)
+      if(/copy that (spell|instant|sorcery)|copy target instant or sorcery/.test(o))s+=5*ssMult; // Twincast, Reverberate
+      if(/return target instant or sorcery card from your graveyard/.test(o))s+=4*ssMult; // recyclage spells (Snapcaster-like)
+      if(/cascade/.test(o))s+=3*ssMult;
+    }
+    if(/cost (?:\{?\d?\}?\s*)?less to cast/.test(o)&&(t.indexOf('creature')>=0||t.indexOf('enchantment')>=0))s+=3*ssMult; // Goblin Electromancer, Baral
+    if(/prowess/.test(o)&&t.indexOf('creature')>=0)s+=2*ssMult;
+    if(/whenever you cast (an )?(instant|sorcery)/.test(o))s+=3*ssMult; // créatures qui scale avec spells
+  }
   // Défausse
   if((th.discard||1)>1){
     if(/madness/.test(o))s+=4;
