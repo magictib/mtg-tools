@@ -35226,6 +35226,57 @@ var _COMMANDER_THEME_RULES=[
   // Bump spellslinger (pour valoriser les sorts) + protection (commandant fragile à protéger),
   // mais PAS draw — l'effet n'est pas une pioche.
   {p:/whenever you cast (an )?(instant|sorcery)[^.]*untap/i,    m:{spellslinger:2.2,protection:1.6},   label:'Untap-spellslinger'},
+  // ─── STORM / FREE SPELLS ───
+  // Storm count, ritual chain, free spells matter
+  {p:/\bstorm\b(?:\W|$)/i,                                     m:{storm:2.5,spellslinger:1.8},        label:'Storm-payoff'},
+  {p:/whenever you cast your second spell|second spell each turn/i, m:{storm:1.8,spellslinger:1.6}, label:'Second-spell'},
+  {p:/cast.*without paying (its|their) mana cost/i,            m:{storm:1.5},                          label:'Free-cast'},
+  // ─── TRIBAL ───
+  // Détection des tribus principales (lord / anthem / payoff)
+  {p:/other (goblin|elf|elves|merfolk|zombie|vampire|dragon|sliver|knight|soldier|wizard|warrior|spirit|angel|demon|beast|cat|wolf|werewolf|spider|cleric|rogue|shaman|pirate|samurai|ninja|elemental|dwarf|treefolk|human)s? you control/i,
+   m:{tribal:2.5,wincon:1.4}, label:'Tribal-lord'},
+  {p:/(?:goblin|elf|merfolk|zombie|vampire|dragon|sliver|knight|soldier|wizard|warrior|spirit|angel|demon|beast)s? you control (?:get|have)/i,
+   m:{tribal:2.0,wincon:1.3}, label:'Tribal-anthem'},
+  // ─── WHEEL ───
+  // Wheel effects (Wheel of Fortune, Windfall, Echo of Eons, Magus of the Wheel)
+  {p:/each player discards (?:their|his or her) hand[^.]*draws? (?:seven|that many|cards equal)/i, m:{wheel:2.5,draw:1.6}, label:'Wheel-effect'},
+  {p:/whenever (?:you|an opponent|a player) draws? (?:a |their |the )?(?:second|third)/i, m:{wheel:1.8,draw:1.5}, label:'Draw-trigger-mass'},
+  // ─── STAX / LOCK ───
+  // Cartes qui empêchent les adversaires de jouer / forcent des taxes
+  {p:/(?:spells?|creatures?) cost \{?\w+\}? more to cast|each (?:creature|noncreature) (?:spell )?costs?/i,
+   m:{stax:2.0,protection:1.4}, label:'Stax-tax'},
+  {p:/skip (?:their|his or her|your) (?:untap|draw|combat) step|don't untap during|can't untap/i,
+   m:{stax:2.5,protection:1.5}, label:'Stax-skip-step'},
+  {p:/sacrifice (?:a|an) (?:creature|artifact|land|permanent) at the beginning of (?:each|your)/i,
+   m:{stax:1.8,sacrifice:1.6}, label:'Stax-sac-engine'},
+  // ─── POLITICS / GOAD ───
+  {p:/\bgoad\b|goaded/i,                                       m:{politics:2.5,interaction:1.4},      label:'Goad'},
+  {p:/the monarch|become the monarch|you're the monarch/i,     m:{politics:2.0,draw:1.4},             label:'Monarch'},
+  {p:/each player votes|(?:will|wills) of the council|council's dilemma/i, m:{politics:2.2}, label:'Vote'},
+  {p:/(?:must|target opponent (?:has|chooses)) attack|attacks each combat if able/i, m:{politics:1.6,interaction:1.3}, label:'Forced-attack'},
+  // ─── GROUP HUG ───
+  {p:/each player draws? (?:a|two|three|\d+) cards?|each opponent draws? (?:a|two|three|\d+) cards?/i,
+   m:{group_hug:2.5,draw:1.3}, label:'Group-Hug'},
+  {p:/each player (?:may )?(?:adds?|gains?)/i,                 m:{group_hug:1.6},                      label:'Group-resource'},
+  // ─── VOLTRON ───
+  // Commandant fait des dégâts directement, équipement-heavy
+  {p:/(?:double strike|infect|trample)[^.]*(?:this creature|target commander|equipped creature)/i,
+   m:{voltron:2.0,wincon:1.6,protection:1.4}, label:'Voltron-evasion'},
+  {p:/whenever (?:this creature|equipped creature|commander)[^.]*deals (?:combat )?damage to a player/i,
+   m:{voltron:2.2,wincon:1.6}, label:'Voltron-damage-trigger'},
+  // ─── TREASURE ───
+  {p:/create (?:a|two|three|\d+|x) treasure tokens?/i,         m:{treasure:2.2,ramp:1.4},             label:'Treasure-create'},
+  {p:/whenever (?:you|a treasure)[^.]*(?:treasure|sacrifice an artifact)/i, m:{treasure:1.8,wincon:1.4}, label:'Treasure-payoff'},
+  // ─── VEHICLE ───
+  {p:/\bvehicle\b|\bcrew \d/i,                                 m:{vehicle:2.0,artifact:1.4},          label:'Vehicle-tribal'},
+  // ─── MANA DOUBLERS ───
+  // (Mana Reflection, Doubling Cube, Mirari's Wake, Vorinclex…)
+  {p:/whenever (?:you tap|a land you control is tapped) for mana, (?:add|it produces) (?:an additional|twice)/i,
+   m:{ramp:2.2}, label:'Mana-doubler'},
+  // ─── PILLOWFORT renforcé (variantes) ───
+  {p:/(?:propaganda|ghostly prison)-like|attacking creatures? cost \{?\d?\}? more|no creature can attack you/i,
+   m:{interaction:2.0,protection:1.8}, label:'Pillowfort-extended'},
+  {p:/maximum (?:hand size|number of cards)/i,                 m:{interaction:1.3,protection:1.2},    label:'Hand-size-control'},
   // Commandant avec ability de tap générique (untap et protection synergy)
   {p:/\{t\}:/i,                                                m:{protection:1.5},              label:'Tap-ability'},
   // Whenever you draw your Nth card (Voracious Tome Skimmer, Jolrael…) : draw cadencé = wincon
@@ -35378,6 +35429,40 @@ var _ANTI_SYNERGY_RULES=[
   {p:/enchant creature an opponent controls/i,
    requires:null, penalty:-2,
    label:'aura sur cible adverse (2-for-1 si bouncée)'},
+  // ─── Nouvelles anti-synergies (mai 2026) ───
+  // Vehicles sans crew enablers (deck sans petites créatures)
+  {p:/\bcrew \d/i, requires:'vehicle', requiresMin:1.3, penalty:-8,
+   label:'Vehicle sans crew habitable (peu de créatures)'},
+  // Treasure payoff sans treasure generator
+  {p:/whenever you sacrifice an artifact[^.]*(?:treasure|create)/i, requires:'treasure', requiresMin:1.3, penalty:-8,
+   label:'payoff treasure sans générateur'},
+  // Lord tribal hors thème tribal (pénalise les lords seuls)
+  {p:/other (?:goblin|elf|elves|merfolk|zombie|vampire|dragon|sliver|knight|soldier|wizard|warrior|spirit|angel|demon)s? you control (?:get|have)/i,
+   requires:'tribal', requiresMin:1.3, penalty:-7,
+   label:'Lord tribal sans tribe (<5 cartes)'},
+  // Stax pieces dans deck non-stax (Smokestack, Sphere of Resistance, Winter Orb…)
+  // Pénalise modérément car ces cartes punissent aussi le joueur
+  {p:/(?:each|all) (?:players?|creatures?) (?:must )?sacrifice|each upkeep[^.]*sacrifice|sphere of resistance/i,
+   requires:'stax', requiresMin:1.3, penalty:-6,
+   label:'stax symétrique pénalise sans engine'},
+  // Wheel payoff (Nekusar, Waste Not) sans wheels dans le deck
+  {p:/whenever (?:an opponent|a player) draws a card[^.]*loses? \d+ life/i,
+   requires:'wheel', requiresMin:1.3, penalty:-10,
+   label:'payoff wheel sans wheels dans le deck'},
+  // Politics : Goad target seul sans engine (Disrupt Decorum-like) — utile mais pas central
+  {p:/goad all creatures|goad each creature/i,
+   requires:'politics', requiresMin:1.3, penalty:-4,
+   label:'goad de masse sans engine politique'},
+  // Voltron requirement : équipement coûteux sans commandant qui en bénéficie
+  // (équipement à 4+ mana qui demande un commandant qui veut être boosté)
+  {p:/^artifact[^—]*—\s*equipment[^.]*equip \{?[4-9]/i,
+   requires:'voltron', requiresMin:1.3, penalty:-6,
+   label:'équipement coûteux sans focus voltron'},
+  // Group Hug pur dans un deck cEDH/wincon agressif : contre-productif
+  // (on aide les adversaires à gagner s'ils ne sont pas punis)
+  {p:/each opponent draws? (?:a|two|three|\d+) cards?/i,
+   requires:'group_hug', requiresMin:1.3, penalty:-7, antiTheme:false,
+   label:'donne pioche adverse sans payoff (Howling-like)'},
 ];
 
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
@@ -36211,7 +36296,11 @@ function _anaMulliganGuide(deck){
 function _anaApplyDeckThemeSignals(deck,bump,labels){
   if(!deck||!deck.cards)return;
   function lbl(x){if(labels&&labels.indexOf(x)<0)labels.push(x);}
-  var sig={lifegain:0,draw:0,discard:0,sacrifice:0,counters:0,mill:0,graveyard:0,enchantment:0,artifact:0,tokens:0};
+  var sig={lifegain:0,draw:0,discard:0,sacrifice:0,counters:0,mill:0,graveyard:0,enchantment:0,artifact:0,tokens:0,
+    storm:0,wheel:0,stax:0,politics:0,group_hug:0,voltron:0,treasure:0,vehicle:0,instant_sorcery:0};
+  // Tribal : compteur dynamique par type
+  var tribeCount={};
+  var KNOWN_TRIBES=['goblin','elf','elves','merfolk','zombie','vampire','dragon','sliver','knight','soldier','wizard','warrior','spirit','angel','demon','beast','cat','wolf','spider','cleric','rogue','shaman','pirate','samurai','ninja','elemental','dwarf','treefolk','human','dinosaur','hydra','phoenix'];
   deck.cards.forEach(function(c){
     var meta=_anaData[c.nl];if(!meta)return;
     var o=(meta.oracleText||'').toLowerCase();var tl=(meta.typeLine||'').toLowerCase();var q=c.qty||1;
@@ -36222,8 +36311,8 @@ function _anaApplyDeckThemeSignals(deck,bump,labels){
     // un effet secondaire d'un looter, ou une attaque défausse adverse mineure).
     if(/whenever (?:you |an opponent |a player |any player )?discards?/.test(o))sig.discard+=q;
     if(/madness|hellbent/.test(o))sig.discard+=q;
-    if(/discard (?:a card|your hand|all the cards|cards equal)[^.]*(?:draw|put|return|add)/.test(o))sig.discard+=q; // looters (Faithless Looting)
-    if(/target (opponent|player|each opponent|each player) discards?/.test(o))sig.discard+=q*0.4; // attaque défausse (moins central)
+    if(/discard (?:a card|your hand|all the cards|cards equal)[^.]*(?:draw|put|return|add)/.test(o))sig.discard+=q;
+    if(/target (opponent|player|each opponent|each player) discards?/.test(o))sig.discard+=q*0.4;
     if(/sacrifice (?:a|an|another|two|three|x|that)/.test(o))sig.sacrifice+=q;
     if(/\+1\/\+1 counter/.test(o))sig.counters+=q;
     if(/\bmill\b/.test(o))sig.mill+=q;
@@ -36231,7 +36320,45 @@ function _anaApplyDeckThemeSignals(deck,bump,labels){
     if(tl.indexOf('enchantment')>=0||/constellation/.test(o))sig.enchantment+=q;
     if(tl.indexOf('artifact')>=0)sig.artifact+=q;
     if(/create .{0,30}\btokens?\b|populate/.test(o))sig.tokens+=q;
+    // ─── Nouveaux signaux ───
+    // Storm : storm cards + free spells + cost reducers + rituals
+    if(/\bstorm\b/.test(o))sig.storm+=q*2; // double poids pour les vraies storm cards
+    if(/cast (?:this spell|it) without paying (its|their) mana cost/.test(o))sig.storm+=q;
+    if(/cost (?:\{?\d?\}?\s*)?less to cast/.test(o)&&tl.indexOf('creature')>=0)sig.storm+=q;
+    if(/add (?:three|two|\{[wubrgcxs]\}\{[wubrgcxs]\}\{[wubrgcxs]\})/.test(o)&&tl.indexOf('instant')>=0)sig.storm+=q; // rituals
+    // Spellslinger : compte instants/sorceries du deck
+    if(tl.indexOf('instant')>=0||tl.indexOf('sorcery')>=0)sig.instant_sorcery+=q;
+    // Wheel
+    if(/each player discards (?:their|his or her) hand[^.]*draws/.test(o))sig.wheel+=q;
+    if(/draws? cards equal to the number of cards|draws? seven cards/.test(o))sig.wheel+=q;
+    // Stax
+    if(/spells? cost \{?\w+\}? more|each (?:creature|noncreature) spell costs|skip (?:their|your) (?:untap|draw|combat) step/.test(o))sig.stax+=q;
+    if(/sacrifice (?:a|an) (?:creature|artifact|land|permanent) at the beginning of (?:each|your)/.test(o))sig.stax+=q;
+    if(/can't (?:attack|cast|untap|search)/.test(o))sig.stax+=q;
+    // Politics
+    if(/\bgoad\b|goaded|the monarch|each player votes|will of the council/.test(o))sig.politics+=q;
+    if(/attacks each combat if able|must attack/.test(o))sig.politics+=q*0.5;
+    // Group hug
+    if(/each player draws|each opponent draws|each player may (?:add|gain)|play with the top card.*revealed/.test(o))sig.group_hug+=q;
+    // Voltron : équipements, auras qui boost, évasion
+    if(/^artifact[^—]*—\s*equipment|\bequip\b/.test(tl))sig.voltron+=q;
+    if(tl.indexOf('aura')>=0&&/enchant creature/.test(o)&&/\+\d+\/\+\d+|gains?/.test(o))sig.voltron+=q*0.7;
+    // Treasure
+    if(/create (?:a|two|three|\d+|x) treasure tokens?/.test(o))sig.treasure+=q;
+    if(/treasure tokens? (?:you control )?(?:add|are|enter)/.test(o))sig.treasure+=q;
+    // Vehicle
+    if(/\bvehicle\b/.test(tl))sig.vehicle+=q;
+    // Tribal : compter par type
+    KNOWN_TRIBES.forEach(function(tr){
+      var re=new RegExp('\\b'+tr+'\\b','i');
+      if(re.test(tl))tribeCount[tr]=(tribeCount[tr]||0)+q;
+    });
   });
+  // Tribal : si une tribu dépasse 8 cartes, c'est un thème
+  var topTribe='';var topTribeN=0;
+  Object.keys(tribeCount).forEach(function(t){if(tribeCount[t]>topTribeN){topTribeN=tribeCount[t];topTribe=t;}});
+  if(topTribeN>=8){bump('tribal',2.0);lbl('Tribal — '+topTribe);}
+  else if(topTribeN>=5){bump('tribal',1.5);lbl('Tribal — '+topTribe);}
   // Seuils en valeur absolue : un deck à thème dépasse facilement ces compteurs
   function axis(key,count,strong,mid,label){
     if(count>=strong){bump(key,2.0);lbl(label);}
@@ -36244,12 +36371,39 @@ function _anaApplyDeckThemeSignals(deck,bump,labels){
   axis('counters',sig.counters,10,6,'Marqueurs +1/+1');
   axis('mill',sig.mill,8,5,'Mill');
   axis('graveyard',sig.graveyard,10,6,'Cimetière');
+  // Nouveaux thèmes
+  axis('storm',sig.storm,10,5,'Storm / Free spells');
+  axis('wheel',sig.wheel,5,3,'Wheel effects');
+  axis('stax',sig.stax,8,5,'Stax / Lock');
+  axis('politics',sig.politics,6,3,'Politique');
+  axis('group_hug',sig.group_hug,6,3,'Group Hug');
+  axis('voltron',sig.voltron,10,6,'Voltron / Équipements');
+  axis('treasure',sig.treasure,8,5,'Treasure');
+  axis('vehicle',sig.vehicle,5,3,'Vehicles');
+  // Spellslinger : déjà détecté via le commandant, mais on peut aussi bump depuis le deck
+  if(sig.instant_sorcery>=30)bump('spellslinger',2.0),lbl('Spellslinger');
+  else if(sig.instant_sorcery>=20)bump('spellslinger',1.5);
   axis('enchantment',sig.enchantment,18,11,'Enchantements');
   axis('artifact',sig.artifact,20,13,'Artefacts');
   axis('tokens',sig.tokens,9,5,'Tokens');
 }
 function _anaCommanderThemes(deck){
-  var m={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,mill:0,spellslinger:1};
+  var m={
+    // Core (existants)
+    draw:1,removal:1,ramp:1,interaction:1,wincon:1,
+    discard:1,counters:1,lifegain:1,graveyard:1,
+    enchantment:1,artifact:1,mill:0,spellslinger:1,
+    // Nouveaux thèmes (mai 2026)
+    storm:1,           // sorts gratuits + storm payoffs (Aetherflux, Grapeshot)
+    tribal:1,          // valoriser les payoffs tribaux (Lord, anthem tribal)
+    wheel:1,           // wheel effects (Wheel of Fortune, Windfall, Echo of Eons)
+    stax:1,            // stax/lock pieces (Sphere of Resistance, Winter Orb…)
+    politics:1,        // goad/vote/monarch/deals (Edric, Marisi, Queen Marchesa)
+    group_hug:1,       // donne des ressources à tous (Howling Mine, Phelddagrif)
+    voltron:1,         // commander damage focus (équipements/auras boost)
+    treasure:1,        // treasure tokens engine (Goldspan, Old Gnawbone, Dockside)
+    vehicle:1          // vehicles + crew (Heart of Kiran, Smuggler's Copter)
+  };
   var labels=[];
   function bump(key,val){if((m[key]||1)<val)m[key]=val;}
   if(!deck)return Object.assign(m,{labels:labels,_debug:'no-deck'});
@@ -37279,6 +37433,90 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/when.*you discard|whenever.*discard/.test(o))s+=3;
     if(/\bdiscard\b/.test(o))s+=1;
   }
+  // Storm / Free spells
+  if((th.storm||1)>1.3){
+    var stMult=(th.storm||1)-1;
+    if(/\bstorm\b/.test(o))s+=8*stMult;
+    if(/without paying (its|their) mana cost/.test(o))s+=5*stMult;
+    if(/cost (?:\{?\d?\}?\s*)?less to cast/.test(o)&&(t.indexOf('creature')>=0))s+=4*stMult; // cost reducers
+    if(/add \{[wubrg]\}\{[wubrg]\}\{[wubrg]\}|add three mana/.test(o))s+=4*stMult; // ritual triple mana
+    if(/copy.*spell|copy target (instant|sorcery)/.test(o))s+=5*stMult;
+    // Coût zéro (Manamorphose, Petal-like)
+    if(/^[^.]*\{0\}|cost \{0\}/.test(o)&&t.indexOf('instant')>=0)s+=4*stMult;
+  }
+  // Tribal — boost les lord/anthem/payoff
+  if((th.tribal||1)>1.3){
+    var trMult=(th.tribal||1)-1;
+    if(/other (?:goblin|elf|elves|merfolk|zombie|vampire|dragon|sliver|knight|soldier|wizard|warrior|spirit|angel|demon|beast|cat|wolf|spider|cleric|rogue|shaman|pirate|samurai|ninja|elemental|dwarf|treefolk|human)s? you control/.test(o))s+=6*trMult;
+    if(/\bcreature type/.test(o))s+=3*trMult;
+    if(/changeling|all creature types/.test(o))s+=4*trMult;
+    if(/search your library for (?:a |an |up to)[^.]*creature card/.test(o))s+=3*trMult;
+  }
+  // Wheel — boost les mass discard/draw
+  if((th.wheel||1)>1.3){
+    var whMult=(th.wheel||1)-1;
+    if(/each player discards (?:their|his or her) hand[^.]*draws/.test(o))s+=8*whMult;
+    if(/each opponent (?:loses life|discards)/.test(o))s+=5*whMult;
+    if(/whenever (?:an opponent|a player) draws/.test(o))s+=5*whMult; // Nekusar-payoff
+    if(/double the (?:cards|number)/.test(o))s+=3*whMult;
+  }
+  // Stax — boost les lock pieces et anti-stax
+  if((th.stax||1)>1.3){
+    var sxMult=(th.stax||1)-1;
+    if(/spells? cost \{?\w+\}? more|each (?:creature|noncreature) spell costs/.test(o))s+=6*sxMult;
+    if(/skip (?:their|your) (?:untap|draw|combat) step|don't untap during/.test(o))s+=7*sxMult;
+    if(/can't (?:attack|cast|untap|search)/.test(o))s+=5*sxMult;
+    if(/sacrifice (?:a|an) (?:creature|artifact|land|permanent) at the beginning/.test(o))s+=5*sxMult;
+    if(/cumulative upkeep/.test(o))s+=4*sxMult;
+    // Removal d'artefact/enchant adverse (clé pour casser leur stax retour)
+    if(/destroy (?:target|all) artifacts?/.test(o))s+=3*sxMult;
+  }
+  // Politics — boost goad/monarch/vote
+  if((th.politics||1)>1.3){
+    var poMult=(th.politics||1)-1;
+    if(/\bgoad\b/.test(o))s+=6*poMult;
+    if(/the monarch|become the monarch/.test(o))s+=5*poMult;
+    if(/each player votes|will of the council|council's dilemma/.test(o))s+=5*poMult;
+    if(/(?:must|target opponent (?:has|chooses)) attack|attacks each combat if able/.test(o))s+=4*poMult;
+    if(/whenever a creature attacks one of your opponents/.test(o))s+=4*poMult; // Marisi-like
+  }
+  // Group Hug — boost les effets de ressource mass + anti-hug
+  if((th.group_hug||1)>1.3){
+    var ghMult=(th.group_hug||1)-1;
+    if(/each player draws/.test(o))s+=5*ghMult;
+    if(/each opponent draws/.test(o))s+=4*ghMult;
+    if(/each player (?:may )?(?:add|gain)/.test(o))s+=3*ghMult;
+    if(/play with the top card.*revealed/.test(o))s+=3*ghMult;
+    // Combo group-hug → win : Howling Mine + Geier Reach Sanitarium-like wincons
+  }
+  // Voltron — boost équipement/aura/évasion sur commandant
+  if((th.voltron||1)>1.3){
+    var vMult=(th.voltron||1)-1;
+    if(/\bequip\b|equipment/.test(t)||/^artifact[^—]*—\s*equipment/.test(t))s+=4*vMult;
+    if(/enchant creature[^.]*(?:get|gain|have)/.test(o))s+=3*vMult;
+    if(/double strike|trample|menace|infect/.test(o))s+=3*vMult;
+    if(/(?:can't be blocked|unblockable)/.test(o))s+=4*vMult;
+    if(/hexproof|indestructible|protection from/.test(o)&&t.indexOf('aura')>=0)s+=4*vMult;
+    if(/\+\d+\/\+\d+ (?:and|or)|deals double damage/.test(o))s+=3*vMult;
+  }
+  // Treasure — boost création/sacrifice de treasures
+  if((th.treasure||1)>1.3){
+    var tMult=(th.treasure||1)-1;
+    if(/create (?:a|two|three|\d+|x) treasure tokens?/.test(o))s+=5*tMult;
+    if(/sacrifice an artifact|sacrifice a treasure/.test(o))s+=3*tMult;
+    if(/whenever you sacrifice an artifact/.test(o))s+=4*tMult;
+    if(/treasure tokens? you control (?:add|are)/.test(o))s+=4*tMult; // Goldspan Dragon-like
+    if(/whenever an artifact (?:you control )?(?:enters|leaves)/.test(o))s+=3*tMult;
+  }
+  // Vehicle — boost vehicles + crew enablers + petites créatures
+  if((th.vehicle||1)>1.3){
+    var veMult=(th.vehicle||1)-1;
+    if(/\bvehicle\b/.test(t))s+=5*veMult;
+    if(/\bcrew \d/.test(o))s+=4*veMult;
+    // Petites créatures bon-marché aident le crew
+    var pow=parseInt(cardMeta.power)||0;
+    if(t.indexOf('creature')>=0&&(cardMeta.cmc||0)<=2&&pow>=1)s+=2*veMult;
+  }
   // Défausse-compteurs (Lotleth Troll type) : créatures avec rejouabilité GY sont idéales à défausser
   if((th.discard||1)>1.3){
     if(/madness/.test(o)&&t.indexOf('creature')>=0)s+=8;  // Madness creature = discard + jouer gratuitement
@@ -37322,6 +37560,18 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/for each counter/.test(o))s+=2;
     if(/distribut.*counter|doubl.*counter/.test(o))s+=2;
   }
+  // Sub-wincons explicites (boost intrinsèque indépendant des thèmes ci-dessus)
+  // Combat damage doublers (City's Blessing, Atarka's Command, Embercleave-like) :
+  // valorisés quand commandant joue le combat
+  if(/(?:double|twice) (?:that much|the damage|combat damage)/.test(o)) s+=3;
+  // Commander damage payoffs (commander damage devient une wincon claire)
+  if(/commander damage|deals damage to a player.*equal to/.test(o)) s+=2;
+  // Mill wincons (Bruvac, Maddening Cacophony, Traumatize)
+  if(/(?:exiles?|put) the top (?:half|\d+) cards of (?:that player's|target player's) library/.test(o)) s+=2;
+  if(/(?:double|twice) the number of cards (?:milled|put into)/.test(o)) s+=3;
+  // Coût mana réduit pour les commandants (Jeweled Lotus, Mox Amber-like) :
+  // accélère la win condition par commandant
+  if((cardMeta.name||'').toLowerCase()==='jeweled lotus'||(cardMeta.name||'').toLowerCase()==='mox amber') s+=2;
   // Tokens — générateurs + payoffs (anthems, « for each », doublement)
   if((th.tokens||1)>1){
     if(/create .{0,30}\btokens?\b|populate/.test(o))s+=3;
