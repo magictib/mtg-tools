@@ -7985,11 +7985,18 @@ function renderHome(){
       var fmt=d.format||d.fmt||'';
       var cmd=d.commander?d.commander.name:'';
       var _cov=null;try{_cov=_deckCoverage(id);}catch(e){}
-      html+='<div class="home-deck" onclick="goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(id)+'\')" title="Ouvrir '+esc(d.name||'')+'">'
+      html+='<div class="home-deck" style="position:relative" title="Ouvrir '+esc(d.name||'')+'">'
+        +'<div onclick="openDeckFocus(\''+escJs(id)+'\')" style="cursor:pointer">'
         +'<div class="home-deck-name">'+esc(d.name||'(sans nom)')+'</div>'
         +(cmd?'<div class="home-deck-cmd">👑 '+esc(cmd)+'</div>':'')
         +'<div class="home-deck-meta">'+(fmt?'<span class="home-deck-fmt">'+esc(fmt)+'</span>':'')+'<span>'+nbC+' cartes</span></div>'
         +_coverageBar(_cov,id)
+        +'</div>'
+        +'<div style="display:flex;gap:4px;margin-top:6px;padding-top:6px;border-top:.5px solid var(--bd)">'
+        +'<button class="btn btnsm" onclick="event.stopPropagation();goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(id)+'\')" title="Éditer" style="flex:1;padding:3px 5px;font-size:.7rem">✎</button>'
+        +'<button class="btn btnsm" onclick="event.stopPropagation();openMulliganTrainer(\''+escJs(id)+'\')" title="Tester main" style="flex:1;padding:3px 5px;font-size:.7rem">🎴</button>'
+        +'<button class="btn btnsm" onclick="event.stopPropagation();openDeckFocus(\''+escJs(id)+'\')" title="Vue focus" style="flex:1;padding:3px 5px;font-size:.7rem">🎯</button>'
+        +'</div>'
         +'</div>';
     });
     html+='</div>';
@@ -32870,6 +32877,8 @@ function _cmdPalBuild(){
   items.push({key:'act:pod',ico:'👥',lbl:'Pod Optimizer (préparation de table EDH)',cat:'Action',act:function(){if(typeof openPodOptimizer==='function')openPodOptimizer();}});
   items.push({key:'act:mulligan',ico:'🎴',lbl:'Mulligan Trainer (verdict garde/mull)',cat:'Action',act:function(){if(typeof openMulliganTrainer==='function')openMulliganTrainer();}});
   items.push({key:'act:tournament',ico:'⏱',lbl:'Mode Tournoi (timer + life tracker)',cat:'Action',act:function(){if(typeof openTournamentMode==='function')openTournamentMode();}});
+  items.push({key:'act:focus',ico:'🎯',lbl:'Focus deck (vue unifiée du dernier deck)',cat:'Action',act:function(){if(typeof openDeckFocus!=='function')return;var sorted=Object.keys(decks||{}).filter(function(id){return _deckBelongsTo?_deckBelongsTo(decks[id],0):true;}).map(function(id){return{id:id,t:decks[id].updatedAt||0};}).sort(function(a,b){return b.t-a.t;});if(sorted.length)openDeckFocus(sorted[0].id);}});
+  items.push({key:'act:discover',ico:'🔮',lbl:'Découvrir des decks/commandants',cat:'Action',act:function(){if(typeof openDiscover==='function')openDiscover();}});
   items.push({key:'act:referral',ico:'🎁',lbl:'Mon programme de parrainage',cat:'Action',act:function(){if(typeof openReferrals==='function')openReferrals();}});
   items.push({key:'act:pursearch',ico:'🔍',lbl:'Chercher une carte dans mes listes partagées',cat:'Action',act:function(){if(typeof openPurchaseSearch==='function')openPurchaseSearch();}});
   items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
@@ -46671,6 +46680,227 @@ function openDiscover(initTab){
 function closeDiscover(){var ov=document.getElementById('disc-ov');if(ov)ov.style.display='none';}
 
 // ════════════════════════════════════════════════════════════════════════
+// FOCUS DECK — vue unifiée par deck (info + analyse résumée + actions + sideboard plan + liste)
+// Workflow vertical : tout pour ce deck dans un seul scroll, pas de switch d'onglet
+// ════════════════════════════════════════════════════════════════════════
+function openDeckFocus(deckId){
+  var d=decks[deckId];if(!d){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  var ov=document.getElementById('df-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='df-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5400;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeDeckFocus();});
+  }
+  _dfCurId=deckId;
+  _dfRender();
+  ov.style.display='flex';
+}
+var _dfCurId=null;
+function closeDeckFocus(){var ov=document.getElementById('df-ov');if(ov)ov.style.display='none';_dfCurId=null;}
+function _dfRender(){
+  var id=_dfCurId;var d=decks[id];if(!d)return;
+  var ov=document.getElementById('df-ov');if(!ov)return;
+  // Stats du deck
+  var totalQty=(d.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+  var fmt=d.format||'';
+  var cmdNm=(d.commander&&d.commander.name)||'';
+  var cmdImg='';try{var meta=_anaData[stripDFC(cmdNm).toLowerCase()];if(meta&&meta.imgUri)cmdImg=meta.imgUri;}catch(e){}
+  // Mini analyse (réutilise les helpers)
+  var mini=_dfComputeMiniAnalysis(d);
+  // Sideboard plan stocké dans deck.sidePlan
+  var sidePlan=d.sidePlan||'';
+  // Games logged pour ce deck
+  var gamesForDeck=(typeof _games!=='undefined'?_games:[]).filter(function(g){return g.deckId===id;});
+  var wrPct=0;
+  if(gamesForDeck.length){
+    var w=gamesForDeck.filter(function(g){return g.result==='W';}).length;
+    wrPct=Math.round((w/gamesForDeck.length)*100);
+  }
+  var legalityHits=(typeof _legalityCheck==='function')?_legalityCheck(d):[];
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:980px;width:100%;padding:22px 26px">';
+  // Header
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus();goTab(\'build\')" title="Retour aux decks">← Decks</button>';
+  html+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🎯 '+esc(d.name||'(sans nom)')+'</div>';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus()">✕</button>';
+  html+='</div>';
+  // Bandeau métadonnées
+  html+='<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;background:rgba(0,0,0,.22);border:.5px solid var(--bd2);border-radius:10px;padding:12px 14px;margin-bottom:14px">';
+  if(cmdImg)html+='<img src="'+esc(cmdImg)+'" alt="" style="width:80px;height:112px;border-radius:6px;object-fit:cover;flex-shrink:0">';
+  html+='<div style="flex:1;min-width:200px">';
+  if(cmdNm)html+='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:2px">👑 Commandant</div><div style="font-size:1.05rem;color:var(--tx);margin-bottom:8px">'+esc(cmdNm)+'</div>';
+  html+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.86rem;color:var(--tx2)">';
+  html+='<span><b style="color:var(--gold2)">'+totalQty+'</b> cartes</span>';
+  if(fmt)html+='<span>📋 '+esc(fmt)+'</span>';
+  if(mini.bracket)html+='<span style="color:'+mini.bracketCol+'"><b>Bracket '+mini.bracket+'</b></span>';
+  if(gamesForDeck.length)html+='<span><b style="color:'+(wrPct>=50?'#7fb069':'#dc5050')+'">'+wrPct+'%</b> WR ('+gamesForDeck.length+'p)</span>';
+  html+='</div>';
+  html+='</div>';
+  html+='</div>';
+  // Warning legalité
+  if(legalityHits.length){
+    html+='<div style="background:rgba(220,80,80,.10);border:.5px solid #dc5050;border-radius:8px;padding:8px 12px;margin-bottom:12px"><div style="font-size:.84rem;color:#dc5050;font-weight:600">⚠ Cartes bannies en '+esc(fmt)+'</div><div style="font-size:.78rem;color:var(--tx2);margin-top:2px">'+legalityHits.map(esc).join(' · ')+'</div></div>';
+  }
+  // Actions rapides (les + utilisées)
+  html+='<div style="font-size:.72rem;color:var(--tx3);letter-spacing:.05em;margin-bottom:6px">⚡ ACTIONS</div>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';
+  html+='<button class="btn btnsm btnp" onclick="closeDeckFocus();openMulliganTrainer(\''+escJs(id)+'\')">🎴 Tester main</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus();openTournamentMode()">⏱ Mode tournoi</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus();openMatchTracker();setTimeout(function(){var s=document.getElementById(\'mt-deck\');if(s)s.value=\''+escJs(id)+'\';},120)">📓 Logger</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus();goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit();setTimeout(function(){var s=document.getElementById(\'ana-deck-sel\');if(s){s.value=\''+escJs(id)+'\';if(typeof anaRender===\'function\')anaRender(\''+escJs(id)+'\');}},150)">📊 Analyse détaillée</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus();goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(id)+'\')">✎ Modifier</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus();openDeckCompare()">⚖ Comparer</button>';
+  html+='<button class="btn btnsm" onclick="openPrintDeck(\''+escJs(id)+'\')">🖨 Imprimer</button>';
+  html+='</div>';
+  // Analyse résumée
+  html+='<div style="background:rgba(0,0,0,.18);border:.5px solid var(--bd2);border-radius:10px;padding:12px 14px;margin-bottom:14px">';
+  html+='<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem">📊 Analyse rapide</div>';
+  if(mini.error)html+='<span style="font-size:.74rem;color:var(--tx3);font-style:italic">'+esc(mini.error)+'</span>';
+  html+='</div>';
+  if(!mini.error){
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:8px">';
+    if(mini.overall!=null){
+      html+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:.66rem;color:var(--tx3)">SCORE</div><div style="font-size:1.4rem;font-weight:700;color:'+mini.gradeCol+'">'+mini.grade+' <span style="font-size:.78rem;color:var(--tx3)">'+mini.overall+'/100</span></div></div>';
+    }
+    if(mini.plan){
+      html+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:.66rem;color:var(--tx3)">PLAN A</div><div style="font-size:.95rem;color:var(--ac2);font-weight:600">'+esc(mini.planLabel)+'</div><div style="font-size:.7rem;color:var(--tx3)">'+mini.coherence+'% cohérent</div></div>';
+    }
+    if(mini.speedTurn){
+      html+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:.66rem;color:var(--tx3)">VITESSE</div><div style="font-size:1.2rem;font-weight:700;color:var(--gold2)">T'+mini.speedTurn+'</div></div>';
+    }
+    if(mini.interaction!=null){
+      var iCol=mini.interaction>=8?'#7fb069':mini.interaction>=4?'#e8c96e':'#dc5050';
+      html+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:.66rem;color:var(--tx3)">INTERACTION</div><div style="font-size:1.2rem;font-weight:700;color:'+iCol+'">'+mini.interaction+'</div></div>';
+    }
+    if(mini.avgCmc){
+      html+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:.66rem;color:var(--tx3)">CMC MOYEN</div><div style="font-size:1.2rem;font-weight:700;color:var(--tx)">'+mini.avgCmc+'</div></div>';
+    }
+    html+='</div>';
+    // Quotas mini-bar
+    if(mini.quotas){
+      html+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--tx2)">';
+      var qIcos={ramp:'🌱',draw:'📖',removal:'🗡',interaction:'🛡',wincon:'🏆'};
+      Object.keys(mini.quotas).forEach(function(k){
+        var q=mini.quotas[k];var col=q.ok?'#7fb069':'#dc5050';
+        html+='<span><span style="color:'+col+';font-weight:700">'+q.n+'</span><span style="color:var(--tx3)">/'+q.target+'</span> '+qIcos[k]+'</span>';
+      });
+      html+='</div>';
+    }
+  }
+  html+='</div>';
+  // Sideboard plan (notes libres par matchup)
+  html+='<div style="background:rgba(0,0,0,.18);border:.5px solid var(--bd2);border-radius:10px;padding:12px 14px;margin-bottom:14px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem">📝 Plan de sideboard / Notes</div><span style="font-size:.7rem;color:var(--tx3);font-style:italic">vs Aggro : -2 Counterspell, +2 Lightning Bolt…</span></div>';
+  html+='<textarea id="df-sideplan" style="width:100%;min-height:90px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);padding:8px 10px;font-family:monospace;font-size:.84rem;resize:vertical" placeholder="vs Aggro : -2 X, +2 Y\nvs Combo : -3 X, +3 Y">'+esc(sidePlan)+'</textarea>';
+  html+='<div style="text-align:right;margin-top:6px"><button class="btn btnsm" onclick="_dfSavePlan()">💾 Enregistrer</button></div>';
+  html+='</div>';
+  // Liste des cartes (collapsed par défaut)
+  html+='<details style="background:rgba(0,0,0,.14);border:.5px solid var(--bd2);border-radius:10px;padding:8px 14px;margin-bottom:14px">';
+  html+='<summary style="cursor:pointer;font-family:var(--ff-head);color:var(--gold2);font-size:.95rem;padding:4px 0">📋 Liste des cartes ('+totalQty+')</summary>';
+  // Group by section
+  var bySec={};(d.cards||[]).forEach(function(c){var s=c.sec||'Autres';if(!bySec[s])bySec[s]=[];bySec[s].push(c);});
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:10px">';
+  Object.keys(bySec).forEach(function(s){
+    var sq=bySec[s].reduce(function(ss,c){return ss+(c.qty||1);},0);
+    html+='<div><div style="font-size:.78rem;color:var(--gold2);border-bottom:.5px solid var(--bd);padding-bottom:3px;margin-bottom:5px">'+esc(s)+' ('+sq+')</div>';
+    bySec[s].forEach(function(c){
+      html+='<div style="display:flex;gap:6px;font-size:.8rem;padding:2px 0"><span style="color:var(--tx3);width:24px;text-align:right">'+(c.qty||1)+'×</span><span style="color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span></div>';
+    });
+    html+='</div>';
+  });
+  html+='</div></details>';
+  // Historique des parties (3 dernières)
+  if(gamesForDeck.length){
+    var recent=gamesForDeck.slice().sort(function(a,b){return b.ts-a.ts;}).slice(0,5);
+    html+='<div style="background:rgba(0,0,0,.14);border:.5px solid var(--bd2);border-radius:10px;padding:10px 14px;margin-bottom:14px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem;margin-bottom:6px">📓 Dernières parties</div>';
+    recent.forEach(function(g){
+      var dt=new Date(g.ts);var dtStr=dt.getDate()+'/'+(dt.getMonth()+1);
+      var rico=g.result==='W'?'<span style="color:#7fb069">✓</span>':g.result==='L'?'<span style="color:#dc5050">✗</span>':'<span>⊕</span>';
+      html+='<div style="font-size:.82rem;color:var(--tx2);padding:3px 0">'+rico+' <span style="color:var(--tx3);font-size:.74rem">'+dtStr+'</span> vs '+esc(g.oppDeck||g.oppArch||'?')+(g.turnWin?' <span style="color:var(--gold2);font-size:.74rem">T'+g.turnWin+'</span>':'')+'</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _dfSavePlan(){
+  if(!_dfCurId||!decks[_dfCurId])return;
+  var v=document.getElementById('df-sideplan').value||'';
+  decks[_dfCurId].sidePlan=v.slice(0,4000);
+  if(typeof saveDecks==='function')saveDecks();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Plan enregistré');
+}
+function _dfComputeMiniAnalysis(d){
+  try{
+    if(!d||!(d.cards||[]).length)return {error:'Deck vide'};
+    // Réutilise les thèmes du commandant si défini
+    var themes={};try{themes=_anaCommanderThemes(d)||{};}catch(e){}
+    var counts={ramp:0,draw:0,removal:0,interaction:0,wincon:0};
+    var nonLand=0,cmcSum=0,instCount=0;
+    var planScore={combo:0,commander_dmg:0,combat:0,control:0,drain:0,reanimate:0,mill:0,storm:0};
+    var fastManaCnt=0,tutorCnt=0,rampLow=0;
+    (d.cards||[]).forEach(function(c){
+      var qty=c.qty||1;
+      var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
+      if(!meta||!meta.tags)return;
+      var roles=anaRoles(meta);
+      if(roles.land)return;
+      nonLand+=qty;cmcSum+=(meta.cmc||0)*qty;
+      if(roles.ramp){counts.ramp+=qty;if((meta.cmc||0)<=2)rampLow+=qty;}
+      if(roles.draw)counts.draw+=qty;
+      if(roles.removal)counts.removal+=qty;
+      if(roles.interaction)counts.interaction+=qty;
+      if(roles.wincon)counts.wincon+=qty;
+      var nm=(meta.name||'').toLowerCase();
+      if(typeof _DGEN_FAST_MANA!=='undefined'&&_DGEN_FAST_MANA.has(nm))fastManaCnt+=qty;
+      if(typeof _DGEN_TUTORS!=='undefined'&&_DGEN_TUTORS.has(nm))tutorCnt+=qty;
+      if(typeof _dgenIsInstantSpeedInteraction==='function'&&_dgenIsInstantSpeedInteraction(meta))instCount+=qty;
+      var o=(meta.oracleText||'').toLowerCase();var tl=(meta.typeLine||'').toLowerCase();
+      if(roles.interaction)planScore.control+=qty;
+      if(/commander damage|deals damage to a player.*equal/.test(o))planScore.commander_dmg+=qty*2;
+      if(/equip\b/.test(tl))planScore.commander_dmg+=qty;
+      if(/mill|put.*top.*cards.*graveyard/.test(o))planScore.mill+=qty;
+      if(/each opponent loses|life equal to/.test(o))planScore.drain+=qty;
+      if(/return.*creature.*from.*graveyard.*battlefield/.test(o))planScore.reanimate+=qty;
+      if(/\bstorm\b/.test(o))planScore.storm+=qty;
+      if(tl.indexOf('creature')>=0&&(meta.cmc||0)<=3)planScore.combat+=qty;
+    });
+    // Plan A
+    var planEntries=Object.keys(planScore).map(function(k){return {k:k,v:planScore[k]};}).sort(function(a,b){return b.v-a.v;});
+    var plan=planEntries[0].v>0?planEntries[0].k:null;
+    var total=planEntries.reduce(function(s,e){return s+e.v;},0);
+    var coherence=total>0?Math.round((planEntries[0].v/total)*100):0;
+    var planLabels={combo:'🎯 Combo',commander_dmg:'⚔ Dégâts cmd',combat:'🪖 Combat',control:'🛡 Contrôle',drain:'🩸 Drain',reanimate:'💀 Réanimateur',mill:'📚 Mill',storm:'🌪 Storm'};
+    // Speed
+    var pkgCount=0; // packages non détectés ici, simple approx
+    var tEst=12 - 0.4*rampLow*0.4 - 0.5*fastManaCnt - 0.3*tutorCnt;
+    var speedTurn=Math.max(3,Math.round(tEst*10)/10);
+    // CMC moy
+    var avgCmc=nonLand?Math.round(cmcSum/nonLand*10)/10:0;
+    // Bracket auto
+    var br=2,bracketScore=fastManaCnt*1.2+tutorCnt*0.8;
+    if(bracketScore<2)br=2;else if(bracketScore<6)br=3;else if(bracketScore<14)br=4;else br=5;
+    var bracketCol={2:'#7fb069',3:'#e8c96e',4:'#f08c4e',5:'#dc5050'}[br];
+    // Quotas
+    var quotas={ramp:{n:counts.ramp,target:10,ok:counts.ramp>=8},draw:{n:counts.draw,target:10,ok:counts.draw>=8},removal:{n:counts.removal,target:8,ok:counts.removal>=6},interaction:{n:counts.interaction,target:6,ok:counts.interaction>=4}};
+    // Overall (estim rapide : moyenne pondérée des sous-scores)
+    var grade='C',gradeCol='#e8c96e',overall=null;
+    var qSum=0,qTot=0;
+    Object.keys(quotas).forEach(function(k){qSum+=quotas[k].ok?100:60;qTot++;});
+    if(qTot)overall=Math.round(qSum/qTot);
+    if(overall>=90){grade='A';gradeCol='#7fb069';}
+    else if(overall>=80){grade='A-';gradeCol='#7fb069';}
+    else if(overall>=70){grade='B+';gradeCol='#e8c96e';}
+    else if(overall>=60){grade='B';gradeCol='#e8c96e';}
+    else if(overall>=50){grade='C';gradeCol='#f08c4e';}
+    else {grade='D';gradeCol='#dc5050';}
+    return {plan:plan,planLabel:planLabels[plan]||plan,coherence:coherence,speedTurn:speedTurn,avgCmc:avgCmc,bracket:br,bracketCol:bracketCol,quotas:quotas,interaction:instCount,grade:grade,gradeCol:gradeCol,overall:overall};
+  }catch(e){console.warn('mini',e);return {error:'Analyse rapide indisponible'};}
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // FIL ROUGE — cross-links contextuels en fin de chaque feature
 // ════════════════════════════════════════════════════════════════════════
 // Helper : génère un bloc de "next actions" cohérent en fin d'overlay
@@ -46813,6 +47043,8 @@ function _flNextActions(context,opts){
     <div class="kbd-row"><span class="kbd-label">Mode tournoi</span><kbd>t</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Logger une partie</span><kbd>l</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Pod Optimizer</span><kbd>p</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Focus deck (vue unifiée)</span><kbd>f</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Découvrir</span><kbd>d</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Outils Pro</span><kbd>g</kbd> <kbd>p</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Générer un deck</span><kbd>g</kbd> <kbd>g</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Fermer un overlay</span><kbd>Esc</kbd></div>
@@ -46933,6 +47165,17 @@ function closeKbdHelp(){var el=document.getElementById('kbd-help');if(el)el.clas
       case 't':if(typeof openTournamentMode==='function')openTournamentMode();e.preventDefault();return;
       case 'l':if(typeof openMatchTracker==='function')openMatchTracker();e.preventDefault();return;
       case 'p':if(typeof openPodOptimizer==='function')openPodOptimizer();e.preventDefault();return;
+      case 'f':
+        // Focus mode sur le dernier deck modifié
+        if(typeof openDeckFocus==='function'&&typeof decks!=='undefined'){
+          var sorted=Object.keys(decks||{}).filter(function(id){return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):true;}).map(function(id){return{id:id,t:decks[id].updatedAt||0};}).sort(function(a,b){return b.t-a.t;});
+          if(sorted.length){openDeckFocus(sorted[0].id);e.preventDefault();return;}
+        }
+        return;
+      case 'd':
+        // Découvrir
+        if(typeof openDiscover==='function'){openDiscover();e.preventDefault();return;}
+        return;
     }
   });
 })();
