@@ -34189,11 +34189,14 @@ function anaInferTags(meta){
   var infect=(kws.indexOf('infect')>=0||/\btoxic [1-9]/i.test(oracle))?1:0;
   var etb_trigger=/when(ever)? [^.]*enters the battlefield/i.test(oracle)?1:0;
   // Equipement/Aura conférant hexproof ou shroud (ex: Whispersilk Cloak, Swiftfoot Boots, Clout of Dominus)
-  if(/equipped creature (?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.2;
-  if(/enchanted creature[^.]*(?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.0;
+  // Renforcés : la protection du commandant est cruciale pour les commandants fragiles (1-3 endurance)
+  if(/equipped creature (?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.8;
+  if(/enchanted creature[^.]*(?:has|gains?) (?:hexproof|shroud)/.test(oracle))protection+=1.6;
+  // Hexproof + can't be blocked (Whispersilk Cloak) : bonus combiné (évasion + protection)
+  if(/equipped creature (?:has|gains?) (?:hexproof|shroud)[^.]*can.t be blocked/.test(oracle))protection+=0.7;
   // Equipement/Aura conférant l'indestructible
-  if(/equipped creature (?:has|gains?) indestructible/.test(oracle))protection+=0.8;
-  if(/enchanted creature[^.]*(?:has|gains?) indestructible/.test(oracle))protection+=0.7;
+  if(/equipped creature (?:has|gains?) indestructible/.test(oracle))protection+=1.2;
+  if(/enchanted creature[^.]*(?:has|gains?) indestructible/.test(oracle))protection+=1.1;
   // Régénération — empêche la destruction (pas l'exil), protège des pings répétés et des suppression ordinaires
   if(/target creature (gains? )?regenerate|grants? regenerate to target/.test(oracle))protection+=0.8;
   if(/creatures (you control )?(have|gain|can) regenerate/.test(oracle))protection+=1.0;
@@ -35399,7 +35402,9 @@ var _ANTI_SYNERGY_RULES=[
   // Prérequis thématiques stricts
   {p:/whenever you gain life|whenever.*life.*gained|whenever.*gain.*life/i,           requires:'lifegain',   penalty:-15, label:'nécessite gain de vie'},
   {p:/whenever.*you discard\b|whenever.*(?:a player |opponent )?discards/i,           requires:'discard',    penalty:-15, label:'nécessite moteur de défausse'},
-  {p:/\bstorm\b/i,                                                                    requires:'sorts',      penalty:-15, label:'nécessite beaucoup de sorts'},
+  // Storm cards (Grapeshot/Mitraille, Tendrils of Agony, Empty the Warrens) :
+  // nécessitent un deck spellslinger/storm pour scaler. Sans ça, c'est un sort à 1 effet faible.
+  {p:/\bstorm\b/i,                                                                    requires:'storm',      requiresMin:1.3, penalty:-15, label:'nécessite beaucoup de sorts'},
   {p:/landfall/i,                                                                     requires:'ramp',       penalty:-12, label:'peu utile sans Landfall'},
   // Main illimitée — utile seulement si on pioche souvent > 7 (Queza, Voracious, Nekusar…)
   {p:/no maximum hand size|whenever.*would draw.*hand.*full/i,                        requires:'draw', requiresMin:1.3, penalty:-12, label:'main rarement pleine sans deck pioche'},
@@ -35478,6 +35483,21 @@ var _ANTI_SYNERGY_RULES=[
   {p:/each opponent draws? (?:a|two|three|\d+) cards?/i,
    requires:'group_hug', requiresMin:1.3, penalty:-7, antiTheme:false,
    label:'donne pioche adverse sans payoff (Howling-like)'},
+  // ─── COMMANDANT FRAGILE — AoE damage tue le commandant (Blasphemous Act, Fiery Cannonade,
+  // Anger of the Gods, Pyroclasm, Sweltering Suns…)
+  // antiTheme:true → pénalise SI fragile_commander est actif. Ces cartes seraient OK dans
+  // un deck avec sweeper-payoff ou créatures indestructibles, mais ici elles tuent l'engin.
+  {p:/deals? (?:\d+|x) damage to each creature(?! you control)/i,
+   requires:'fragile_commander', requiresMin:1.3, penalty:-10, antiTheme:true,
+   label:'AoE damage tue le commandant fragile'},
+  {p:/deals? (?:\d+|x) damage to each (?:creature and (?:each )?player|creature and player)/i,
+   requires:'fragile_commander', requiresMin:1.3, penalty:-8, antiTheme:true,
+   label:'AoE damage symétrique tue le commandant'},
+  // Wrath-style qui détruit toutes les créatures (Wrath of God, Damnation) — moins pire car
+  // on peut souvent rejouer le commandant (taxe +2). Pénalité légère seulement.
+  {p:/destroy all creatures/i,
+   requires:'fragile_commander', requiresMin:1.5, penalty:-3, antiTheme:true,
+   label:'wrath détruit aussi le commandant (taxe +2)'},
 ];
 
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
@@ -36417,7 +36437,8 @@ function _anaCommanderThemes(deck){
     group_hug:1,       // donne des ressources à tous (Howling Mine, Phelddagrif)
     voltron:1,         // commander damage focus (équipements/auras boost)
     treasure:1,        // treasure tokens engine (Goldspan, Old Gnawbone, Dockside)
-    vehicle:1          // vehicles + crew (Heart of Kiran, Smuggler's Copter)
+    vehicle:1,         // vehicles + crew (Heart of Kiran, Smuggler's Copter)
+    fragile_commander:1 // commandant créature avec toughness ≤ 3 (Gelectrode, Sram, Edric…)
   };
   var labels=[];
   function bump(key,val){if((m[key]||1)<val)m[key]=val;}
@@ -36452,6 +36473,19 @@ function _anaCommanderThemes(deck){
         }
       });
       _anaApplyCommanderSignals(oracle,bump,labels);
+      // Commandant fragile : créature à toughness ≤ 3, sans hexproof/indestructible natifs
+      // → bump fragile_commander pour activer les anti-synergies AoE damage et bumper la protection
+      try{
+        var tou=parseInt(meta&&meta.toughness);
+        var typeIsCreature=(meta&&meta.typeLine||'').toLowerCase().indexOf('creature')>=0;
+        var nativeProt=/(?:hexproof|indestructible|shroud|protection from)/i.test(oracle);
+        if(typeIsCreature&&!isNaN(tou)&&tou<=3&&!nativeProt){
+          bump('fragile_commander',tou<=2?2.2:1.7);
+          // Bump aussi protection : plus le commandant est fragile, plus la protection est cruciale
+          bump('protection',Math.max(m.protection||0,tou<=2?1.8:1.5));
+          if(labels.indexOf('Commander fragile')<0)labels.push('Commander fragile');
+        }
+      }catch(e){}
     }else{dbg=meta?'no-oracle':'commander-not-cached:'+nl;}
   }else{dbg='no-commander';}
   // — Thèmes inférés du deck (robuste, indépendant de l'identification du commandant) —
