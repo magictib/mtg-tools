@@ -461,6 +461,14 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 .sub-tab.active{background:rgba(201,168,76,.16);color:var(--gold2);border-color:var(--bd2)}
 body.has-subtabs #wrap-main{padding-top:86px}
 @media(max-width:680px){.sub-tabs{top:36px;padding:4px 8px;overflow-x:auto;flex-wrap:nowrap}body.has-subtabs #wrap-main{padding-top:72px}}
+/* Breadcrumb dans la barre de sous-tabs */
+.bc-wrap{display:flex;align-items:center;gap:6px;padding:0 12px 0 0;border-right:.5px solid var(--bd);margin-right:10px;font-size:.74rem;white-space:nowrap}
+.bc-crumb{color:var(--tx3);cursor:pointer;transition:color .12s}
+.bc-crumb:hover{color:var(--gold2)}
+.bc-sep{color:var(--tx3);opacity:.5}
+.bc-cur{color:var(--tx);font-weight:600}
+.sub-tabs-inner{display:flex;gap:4px;align-items:center;flex-wrap:wrap;flex:1;min-width:0}
+@media(max-width:680px){.bc-wrap{display:none}.sub-tabs-inner{flex-wrap:nowrap;overflow-x:auto}}
 /* ===== HUB ===== */
 #hub-wrap{position:relative;flex-shrink:0;margin-left:auto}
 #hub-btn{width:32px;height:32px;border-radius:6px;background:rgba(201,168,76,.1);border:.5px solid rgba(201,168,76,.3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem;transition:background .15s,border-color .15s;color:var(--gold2);position:relative;padding:0}
@@ -2492,6 +2500,7 @@ details > summary::-webkit-details-marker{display:none}
   <button class="tab-btn" id="sp-collection" onclick="goSpace('collection')" data-i18n="space.collection">🃏 Collection</button>
   <button class="tab-btn" id="sp-decks" onclick="goSpace('decks')" data-i18n="space.decks">🛠 Decks</button>
   <button class="tab-btn" id="sp-play" onclick="goSpace('play')" data-i18n="space.play">⚔ Jouer</button>
+  <button class="tab-btn" id="sp-pro" onclick="goSpace('pro')" data-i18n="space.pro" title="Outils pour joueurs compétitifs : match tracker, mulligan, pod, tournoi">🏆 Pro</button>
   <button class="tab-btn" id="sp-social" onclick="goSpace('social')" data-i18n="space.social">🤝 Social</button>
   <button class="tab-btn" id="sp-tools" onclick="goSpace('tools')" data-i18n="space.tools">⚙ Outils</button>
   <button class="tab-btn" id="tb-cmdpal" onclick="cmdPalOpen()" title="Palette de commandes (Ctrl+K)" aria-label="Palette de commandes" style="padding-left:10px;padding-right:10px">🔍<span style="font-size:.62rem;margin-left:5px;opacity:.7">Ctrl+K</span></button>
@@ -7002,8 +7011,9 @@ function closeKbdHelp(){var o=document.getElementById('kbd-help-overlay');if(o)o
 var _NAV_SPACES=[
   {id:'home',pages:[{id:'home',label:'🏠 Accueil'}]},
   {id:'collection',pages:[{id:'coll',label:'◈ Ma collection'},{id:'scry',label:'🔮 Bibliothèque'}]},
-  {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{label:'🛠 Modifier',action:'deckOpenInBuilder()'},{id:'analyse',label:'📊 Analyse'}]},
-  {id:'play',pages:[{id:'arena',label:'⚡ Arène'},{id:'limited',label:'🎴 Draft & Scellé'},{id:'meta',label:'🌐 Méta'}]},
+  {id:'decks',pages:[{id:'build',label:'♠ Mes decks'},{id:'deck',label:'📋 Éditeur'},{id:'analyse',label:'📊 Analyse'}]},
+  {id:'play',pages:[{id:'arena',label:'⚡ Partie en cours'},{id:'limited',label:'🎴 Draft & Scellé'},{id:'meta',label:'🌐 Méta'}]},
+  {id:'pro',pages:[{label:'📓 Journal de parties',action:'openMatchTracker()'},{label:'🎴 Mulligan trainer',action:'openMulliganTrainer()'},{label:'👥 Pod Optimizer',action:'openPodOptimizer()'},{label:'⏱ Mode tournoi',action:'openTournamentMode()'},{label:'🏆 Hub outils pro',action:'openProToolsHub()'}]},
   {id:'social',pages:[{id:'trade',label:'🤝 Échanges'},{id:'lists',label:'🛒 Listes partagées'}]},
   {id:'tools',pages:[{id:'conv',label:'⇄ Convertisseur'},{id:'rules',label:'📜 Règles'},{id:'glossary',label:'📖 Lexique'},{id:'proxy',label:'🖨 Proxys'},{id:'banlist',label:'🚫 Banlists'}]}
 ];
@@ -7011,16 +7021,40 @@ var _navPageToSpace={};
 _NAV_SPACES.forEach(function(s){s.pages.forEach(function(p){if(p.id)_navPageToSpace[p.id]=s.id;});});
 function goSpace(spaceId){
   var sp=_NAV_SPACES.find(function(s){return s.id===spaceId;});
-  if(sp&&sp.pages.length)goTab(sp.pages[0].id);
+  if(!sp||!sp.pages.length)return;
+  // Cas spécial : space "pro" → toutes les pages sont des actions (overlays).
+  // On ouvre directement le hub des outils pro pour donner un point d'entrée visuel.
+  if(spaceId==='pro'){
+    if(typeof openProToolsHub==='function')openProToolsHub();
+    // Marque visuellement le bouton actif
+    document.querySelectorAll('.tab-btn').forEach(function(el){el.classList.remove('active');});
+    var btn=document.getElementById('sp-pro');if(btn)btn.classList.add('active');
+    return;
+  }
+  // Première page = sous-tab par défaut. Si c'est une action (pas d'id), on exécute.
+  var first=sp.pages[0];
+  if(first.id)goTab(first.id);
+  else if(first.action){try{eval(first.action);}catch(e){console.warn(e);}}
 }
 function _renderSubTabs(pageId){
   var bar=document.getElementById('nav-subtabs');if(!bar)return;
   var sp=_NAV_SPACES.find(function(s){return s.id===_navPageToSpace[pageId];});
   if(!sp||sp.pages.length<2){bar.style.display='none';bar.innerHTML='';document.body.classList.remove('has-subtabs');return;}
-  bar.innerHTML=sp.pages.map(function(p){
+  // Breadcrumb (à gauche, avant les sous-tabs)
+  var spaceLabels={home:'🏠 Accueil',collection:'🃏 Collection',decks:'🛠 Decks',play:'⚔ Jouer',pro:'🏆 Pro',social:'🤝 Social',tools:'⚙ Outils'};
+  var curPg=sp.pages.find(function(p){return p.id===pageId;});
+  var curLbl=curPg?curPg.label:pageId;
+  var crumb='<span class="bc-crumb" onclick="goTab(\'home\')" title="Accueil">🏠</span>'
+    +'<span class="bc-sep">›</span>'
+    +'<span class="bc-crumb" onclick="goSpace(\''+sp.id+'\')">'+esc(spaceLabels[sp.id]||sp.id)+'</span>'
+    +'<span class="bc-sep">›</span>'
+    +'<span class="bc-cur">'+esc(curLbl)+'</span>';
+  // Sous-tabs
+  var tabs=sp.pages.map(function(p){
     if(p.action)return '<button class="sub-tab" onclick="'+p.action+'">'+p.label+'</button>';
     return '<button class="sub-tab'+(p.id===pageId?' active':'')+'" onclick="goTab(\''+p.id+'\')">'+p.label+'</button>';
   }).join('');
+  bar.innerHTML='<div class="bc-wrap">'+crumb+'</div>'+'<div class="sub-tabs-inner">'+tabs+'</div>';
   bar.style.display='flex';
   document.body.classList.add('has-subtabs');
 }
@@ -7038,6 +7072,12 @@ function goTab(id, fromHistory) {
   var spaceId=_navPageToSpace[id];
   if(spaceId){var spBtn=document.getElementById('sp-'+spaceId);if(spBtn)spBtn.classList.add('active');}
   _renderSubTabs(id);
+  // Sync bottom nav mobile
+  try{
+    document.querySelectorAll('#bot-nav .bn-item').forEach(function(b){b.classList.remove('active');});
+    var bnMap={home:'bn-home',build:'bn-decks',deck:'bn-decks',analyse:'bn-decks',arena:'bn-play',limited:'bn-play',meta:'bn-play'};
+    var bnId=bnMap[id];if(bnId){var bnBtn=document.getElementById(bnId);if(bnBtn)bnBtn.classList.add('active');}
+  }catch(e){}
   // Sync profiles for the new context
   var ctxMap={coll:'coll',deck:'deck',build:'build',arena:'game',trade:'trade'};
   var ctx=ctxMap[id];
@@ -7870,28 +7910,68 @@ function renderHome(){
   try{html+=_homeActivityHtml();}catch(e){}
   // ── Commandants suggérés depuis ta collection ──
   try{html+=_homeRecoHtml();}catch(e){}
-  // ── Actions rapides ──
+  // ── 🎯 Continue où tu en étais (dernier deck modifié) ──
+  var _lastDeck=null;
+  try{
+    var _myDecksSorted=myDeckIds.map(function(id){return {id:id,t:decks[id].updatedAt||0};}).sort(function(a,b){return b.t-a.t;});
+    if(_myDecksSorted.length&&_myDecksSorted[0].t)_lastDeck=_myDecksSorted[0];
+  }catch(e){}
+  if(_lastDeck){
+    var _ld=decks[_lastDeck.id];var _ldNm=_ld.name||'(sans nom)';
+    var _ldDate=new Date(_lastDeck.t);var _ldRel=(function(d){
+      var diff=Date.now()-d.getTime();var min=Math.floor(diff/60000);
+      if(min<1)return 'à l\'instant';if(min<60)return 'il y a '+min+' min';
+      var h=Math.floor(min/60);if(h<24)return 'il y a '+h+' h';
+      var dd=Math.floor(h/24);if(dd<7)return 'il y a '+dd+' j';
+      return d.toLocaleDateString('fr-FR');
+    })(_ldDate);
+    html+='<div class="home-section" style="background:linear-gradient(135deg,rgba(201,168,76,.07),rgba(201,168,76,.01));border:.5px solid rgba(201,168,76,.3);border-radius:10px;padding:13px 16px;margin-bottom:14px">';
+    html+='<div style="font-size:.7rem;color:var(--gold2);letter-spacing:.06em;margin-bottom:6px">🎯 '+t('home.continue','REPRENDRE LÀ OÙ TU EN ÉTAIS')+'</div>';
+    html+='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+    html+='<div style="flex:1;min-width:180px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--tx);font-size:1.05rem">'+esc(_ldNm)+'</div>';
+    html+='<div style="font-size:.74rem;color:var(--tx3)">'+(_ld.format?esc(_ld.format)+' · ':'')+'modifié '+_ldRel+'</div>';
+    html+='</div>';
+    html+='<button class="btn btnsm btnp" onclick="goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(_lastDeck.id)+'\')">✎ '+t('home.continue.edit','Reprendre')+'</button>';
+    html+='<button class="btn btnsm" onclick="goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit();setTimeout(function(){var s=document.getElementById(\'ana-deck-sel\');if(s){s.value=\''+escJs(_lastDeck.id)+'\';if(typeof anaRender===\'function\')anaRender(\''+escJs(_lastDeck.id)+'\');}},120)">📊 '+t('home.continue.analyse','Analyser')+'</button>';
+    html+='<button class="btn btnsm" onclick="openMulliganTrainer(\''+escJs(_lastDeck.id)+'\')">🎴 '+t('home.continue.test','Tester main')+'</button>';
+    html+='</div></div>';
+  }
+  // ── ⚡ Actions essentielles (5 max — les vraies actions principales) ──
   html+='<div class="home-section"><div class="home-sec-title">⚡ '+t('home.actions','Actions rapides')+'</div>';
   html+='<div class="home-actions">'
     +'<button class="home-action" onclick="goTab(\'build\')"><span>➕</span>'+t('home.action.newdeck','Nouveau deck')+'</button>'
-    +'<button class="home-action" onclick="goTab(\'arena\')"><span>⚔</span>'+t('home.action.arena','Lancer l\'Arène')+'</button>'
+    +'<button class="home-action" onclick="openDeckGenerator()"><span>🧙</span>'+t('home.action.generator','Générer un deck')+'</button>'
     +'<button class="home-action" onclick="goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit()"><span>📊</span>'+t('home.action.analyse','Analyser un deck')+'</button>'
+    +'<button class="home-action" onclick="goTab(\'arena\')"><span>⚔</span>'+t('home.action.arena','Partie en cours')+'</button>'
+    +'<button class="home-action" onclick="openMatchTracker()"><span>📓</span>'+t('home.action.matches','Logger une partie')+'</button>'
+    +'</div></div>';
+  // ── 🏆 Outils pro (collapsible) ──
+  var _proOpen=false;try{_proOpen=localStorage.getItem('mtg_home_pro_open')==='1';}catch(e){}
+  html+='<details class="home-section"'+(_proOpen?' open':'')+' ontoggle="try{localStorage.setItem(\'mtg_home_pro_open\',this.open?\'1\':\'0\')}catch(e){}">';
+  html+='<summary class="home-sec-title" style="cursor:pointer;list-style:none">🏆 '+t('home.pro','Outils Pro')+' <span style="font-size:.7rem;color:var(--tx3);font-weight:normal;margin-left:4px">▾</span></summary>';
+  html+='<div class="home-actions" style="margin-top:8px">'
+    +'<button class="home-action" onclick="openMulliganTrainer()"><span>🎴</span>'+t('home.action.mull','Mulligan trainer')+'</button>'
+    +'<button class="home-action" onclick="openPodOptimizer()"><span>👥</span>'+t('home.action.pod','Pod Optimizer')+'</button>'
+    +'<button class="home-action" onclick="openTournamentMode()"><span>⏱</span>'+t('home.action.tournament','Mode tournoi')+'</button>'
+    +'<button class="home-action" onclick="openProToolsHub()"><span>🏆</span>'+t('home.action.prohub','Hub outils pro')+'</button>'
+    +'</div></details>';
+  // ── 🔧 Boîte à outils (collapsible — le reste) ──
+  var _toolsOpen=false;try{_toolsOpen=localStorage.getItem('mtg_home_tools_open')==='1';}catch(e){}
+  html+='<details class="home-section"'+(_toolsOpen?' open':'')+' ontoggle="try{localStorage.setItem(\'mtg_home_tools_open\',this.open?\'1\':\'0\')}catch(e){}">';
+  html+='<summary class="home-sec-title" style="cursor:pointer;list-style:none">🔧 '+t('home.tools','Boîte à outils')+' <span style="font-size:.7rem;color:var(--tx3);font-weight:normal;margin-left:4px">▾</span></summary>';
+  html+='<div class="home-actions" style="margin-top:8px">'
     +'<button class="home-action" onclick="goTab(\'coll\')"><span>◈</span>'+t('home.action.coll','Ma collection')+'</button>'
     +'<button class="home-action" onclick="goTab(\'trade\');if(typeof renderTradePage===\'function\')renderTradePage()"><span>🤝</span>'+t('home.action.trade','Échanges')+'</button>'
     +'<button class="home-action" onclick="openWishlist()"><span>🎁</span>'+t('home.action.wishlist','Wishlist')+'</button>'
     +'<button class="home-action" onclick="openExplorer()"><span>🌐</span>'+t('home.action.explore','Explorer')+'</button>'
-    +'<button class="home-action" onclick="openDeckGenerator()"><span>🧙</span>'+t('home.action.generator','Générer un deck')+'</button>'
-    +'<button class="home-action" onclick="openProToolsHub()"><span>🏆</span>'+t('home.action.pro','Outils Pro')+'</button>'
-    +'<button class="home-action" onclick="openMatchTracker()"><span>📓</span>'+t('home.action.matches','Journal parties')+'</button>'
-    +'<button class="home-action" onclick="openMulliganTrainer()"><span>🎴</span>'+t('home.action.mull','Mulligan trainer')+'</button>'
-    +'<button class="home-action" onclick="openTournamentMode()"><span>⏱</span>'+t('home.action.tournament','Mode tournoi')+'</button>'
-    +'<button class="home-action" onclick="openReferrals()"><span>🎁</span>'+t('home.action.referral','Parrainage')+'</button>'
     +'<button class="home-action" onclick="openPurchaseMgr()"><span>🛒</span>'+t('home.action.lists','Listes partagées')+'</button>'
-    +'<button class="home-action" onclick="openProfile()"><span>👤</span>'+t('home.action.profile','Profil')+'</button>'
-    +'<button class="home-action" onclick="openTrophies()"><span>🏆</span>'+t('home.action.trophies','Trophées')+'</button>'
     +'<button class="home-action" onclick="openPlaygroup()"><span>👥</span>'+t('home.action.playgroup','Playgroup')+'</button>'
-    +'<button class="home-action" onclick="cmdPalOpen()"><span>🔍</span>'+t('home.action.search','Recherche rapide')+'</button>'
-    +'</div></div>';
+    +'<button class="home-action" onclick="openProfile()"><span>👤</span>'+t('home.action.profile','Profil')+'</button>'
+    +'<button class="home-action" onclick="openTrophies()"><span>🏅</span>'+t('home.action.trophies','Trophées')+'</button>'
+    +'<button class="home-action" onclick="openReferrals()"><span>🎁</span>'+t('home.action.referral','Parrainage')+'</button>'
+    +'<button class="home-action" onclick="cmdPalOpen()"><span>🔍</span>'+t('home.action.search','Recherche rapide (Ctrl+K)')+'</button>'
+    +'</div></details>';
   // ── Mes decks ──
   html+='<div class="home-section"><div class="home-sec-title">♠ '+t('home.mydecks','Mes decks')+' <span class="home-sec-count">'+myDeckIds.length+'</span></div>';
   if(!myDeckIds.length){
@@ -45934,8 +46014,10 @@ function _renderMatchTracker(){
     });
     html+='</div>';
   }
+  // Fil rouge (cross-link vers analyse / pod)
+  if(_games.length)html+=_flNextActions('matchlogged');
   // Historique
-  html+='<div style="font-size:.86rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:8px">📜 Historique ('+_games.length+' partie'+(_games.length>1?'s':'')+')</div>';
+  html+='<div style="font-size:.86rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:8px;margin-top:14px">📜 Historique ('+_games.length+' partie'+(_games.length>1?'s':'')+')</div>';
   if(!_games.length){
     html+='<div style="padding:20px;text-align:center;color:var(--tx3);font-style:italic">Aucune partie loggée. Commence à remplir le formulaire ci-dessus.</div>';
   }else{
@@ -46195,6 +46277,7 @@ function _muDraw(){
     var stats={Garde:0,Mull:0,'Marginal':0};_muHistory.forEach(function(h){stats[h.verdict]++;});
     html+='<div style="margin-top:10px;font-size:.78rem;color:var(--tx3);text-align:center">Sur '+_muHistory.length+' tirages : '+stats.Garde+' gardes · '+stats.Marginal+' marginales · '+stats.Mull+' mulligans</div>';
   }
+  html+=_flNextActions('mulligan');
   res.innerHTML=html;
 }
 function _muEvaluate(hand,deck){
@@ -46308,10 +46391,8 @@ function _tmRender(){
     html+='</div></div>';
   });
   html+='</div>';
-  // Quick log result
-  html+='<div style="margin-top:18px;padding-top:14px;border-top:.5px solid var(--bd);text-align:center">';
-  html+='<button class="btn btnsm" onclick="closeTournamentMode();openMatchTracker()">📓 Logger ce match</button>';
-  html+='</div>';
+  // Fil rouge
+  html+=_flNextActions('tournament');
   html+='</div>';
   ov.innerHTML=html;
 }
@@ -46549,6 +46630,88 @@ function openProToolsHub(){
   ov.innerHTML=html;ov.style.display='flex';
 }
 function closeProToolsHub(){var ov=document.getElementById('pth-ov');if(ov)ov.style.display='none';}
+
+// ════════════════════════════════════════════════════════════════════════
+// DÉCOUVRIR — hub unifié des 4 features de découverte de cartes/decks
+// (Constructeur, Decks réalisables, Recos commandants, Recos communauté)
+// ════════════════════════════════════════════════════════════════════════
+function openDiscover(initTab){
+  var ov=document.getElementById('disc-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='disc-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5400;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeDiscover();});
+  }
+  var tabs=[
+    {k:'generator',ico:'🧙',n:'Par commandant',d:'Génère un deck complet depuis un commandant'},
+    {k:'buildable',ico:'🔨',n:'Depuis ma collection',d:'Decks que tu peux monter avec tes cartes'},
+    {k:'commreco',ico:'📊',n:'Recos communauté',d:'Cartes les plus jouées par commandant (EDHREC)'},
+    {k:'cmdreco',ico:'🎲',n:'Commandants suggérés',d:'Commandants pour lesquels tu as déjà du matériel'}
+  ];
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🔮 Découvrir</div><button class="btn btnsm" onclick="closeDiscover()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:14px">4 façons de trouver ton prochain deck. Choisis ton angle d\'attaque.</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">';
+  tabs.forEach(function(t){
+    var action='';
+    if(t.k==='generator')action='closeDiscover();openDeckGenerator();';
+    else if(t.k==='buildable')action='closeDiscover();if(typeof openBuildable===\'function\')openBuildable();';
+    else if(t.k==='commreco')action='closeDiscover();if(typeof openCommReco===\'function\')openCommReco();';
+    else if(t.k==='cmdreco')action='closeDiscover();goTab(\'home\');try{var x=document.querySelector(\'.home-reco-section\');if(x)x.scrollIntoView({behavior:\'smooth\'});}catch(e){}';
+    html+='<button onclick="'+action+'" style="background:var(--s2);border:.5px solid var(--bd2);border-radius:10px;padding:16px;text-align:left;cursor:pointer;font-family:inherit;color:var(--tx);transition:all .12s" onmouseover="this.style.borderColor=\'var(--gold2)\';this.style.background=\'var(--s3)\'" onmouseout="this.style.borderColor=\'var(--bd2)\';this.style.background=\'var(--s2)\'">';
+    html+='<div style="font-size:1.8rem;margin-bottom:6px">'+t.ico+'</div>';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1rem;margin-bottom:5px">'+esc(t.n)+'</div>';
+    html+='<div style="font-size:.78rem;color:var(--tx3);line-height:1.5">'+esc(t.d)+'</div>';
+    html+='</button>';
+  });
+  html+='</div></div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeDiscover(){var ov=document.getElementById('disc-ov');if(ov)ov.style.display='none';}
+
+// ════════════════════════════════════════════════════════════════════════
+// FIL ROUGE — cross-links contextuels en fin de chaque feature
+// ════════════════════════════════════════════════════════════════════════
+// Helper : génère un bloc de "next actions" cohérent en fin d'overlay
+function _flNextActions(context,opts){
+  opts=opts||{};
+  // context = 'mulligan' | 'tournament' | 'matchlogged' | 'analyse' | 'generator'
+  var actions={
+    mulligan:[
+      {ico:'⏱',l:'Lancer le mode tournoi',a:'closeMulliganTrainer();openTournamentMode();'},
+      {ico:'📓',l:'Logger une partie',a:'closeMulliganTrainer();openMatchTracker();'},
+      {ico:'📊',l:'Analyser ce deck',a:'closeMulliganTrainer();goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit();'}
+    ],
+    tournament:[
+      {ico:'📓',l:'Logger ce match',a:'closeTournamentMode();openMatchTracker();'},
+      {ico:'🎴',l:'Mulligan trainer',a:'closeTournamentMode();openMulliganTrainer();'}
+    ],
+    matchlogged:[
+      {ico:'📊',l:'Analyser ton deck',a:'closeMatchTracker();goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit();'},
+      {ico:'👥',l:'Préparer le prochain pod',a:'closeMatchTracker();openPodOptimizer();'},
+      {ico:'🎴',l:'Tester une main',a:'closeMatchTracker();openMulliganTrainer();'}
+    ],
+    generator:[
+      {ico:'📊',l:'Analyser le deck créé',a:'goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit();'},
+      {ico:'🎴',l:'Tester la main',a:'openMulliganTrainer();'},
+      {ico:'⚖',l:'Comparer à un autre',a:'openDeckCompare();'}
+    ],
+    analyse:[
+      {ico:'🎴',l:'Tester la main',a:'openMulliganTrainer(\''+(opts.deckId||'')+'\');'},
+      {ico:'⏱',l:'Mode tournoi',a:'openTournamentMode();'},
+      {ico:'📓',l:'Logger une partie',a:'openMatchTracker();'}
+    ]
+  };
+  var list=actions[context];if(!list)return '';
+  var h='<div style="margin-top:14px;padding-top:12px;border-top:.5px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
+  h+='<span style="font-size:.74rem;color:var(--tx3);letter-spacing:.04em">→ ENSUITE :</span>';
+  list.forEach(function(a){
+    h+='<button class="btn btnsm" onclick="'+a.a+'" style="padding:5px 11px;font-size:.78rem">'+a.ico+' '+esc(a.l)+'</button>';
+  });
+  h+='</div>';
+  return h;
+}
 </script>
 <style>
 /* === Vue partagée === */
@@ -46595,5 +46758,184 @@ function closeProToolsHub(){var ov=document.getElementById('pth-ov');if(ov)ov.st
 .pt-card:hover .pt-card-act{opacity:1}
 </style>
 <div id="shared-deck-overlay"><div class="shared-deck-wrap" id="shared-deck-body"></div></div>
+
+<!-- ════ FAB Mobile : recherche rapide + bottom nav ════ -->
+<style>
+#fab-search{position:fixed;right:14px;bottom:64px;z-index:1300;display:none;width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--gold2),var(--gold));color:#0a0a0a;border:1.5px solid rgba(0,0,0,.3);box-shadow:0 6px 24px rgba(0,0,0,.55),0 0 0 1px rgba(201,168,76,.4);font-size:1.3rem;cursor:pointer;align-items:center;justify-content:center;transition:transform .15s}
+#fab-search:hover{transform:scale(1.08)}
+#fab-search:active{transform:scale(0.95)}
+#fab-help{position:fixed;right:14px;bottom:120px;z-index:1300;display:none;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,.7);color:var(--gold2);border:.5px solid var(--bd2);font-size:.9rem;cursor:pointer;align-items:center;justify-content:center;font-family:'Goudy Mediaeval',serif;font-weight:bold}
+@media (max-width:760px){#fab-search,#fab-help{display:flex}body{padding-bottom:56px}}
+/* Bottom nav mobile (ergonomie pouce) */
+#bot-nav{position:fixed;bottom:0;left:0;right:0;z-index:1290;display:none;background:linear-gradient(180deg,#1a0e04,#0a0502);border-top:1.5px solid #7a5218;box-shadow:0 -3px 14px rgba(0,0,0,.7);padding:4px 0 max(4px,env(safe-area-inset-bottom)) 0}
+#bot-nav-row{display:flex;justify-content:space-around;align-items:center;max-width:600px;margin:0 auto}
+#bot-nav .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:rgba(178,140,70,.6);font-size:.62rem;font-family:'Goudy Mediaeval',serif;letter-spacing:.04em;padding:5px 2px;-webkit-tap-highlight-color:transparent;transition:color .12s}
+#bot-nav .bn-item .bn-ico{font-size:1.2rem;line-height:1;margin-bottom:2px}
+#bot-nav .bn-item.active{color:var(--gold2)}
+#bot-nav .bn-item:hover{color:#c4a460}
+@media (max-width:760px){#bot-nav{display:block}}
+#fab-search:focus,#fab-help:focus{outline:2px solid var(--gold2);outline-offset:2px}
+/* Cheatsheet raccourcis clavier */
+#kbd-help{position:fixed;inset:0;z-index:6200;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;padding:1rem}
+#kbd-help.open{display:flex}
+#kbd-help .kbd-box{background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:560px;width:100%;padding:22px 26px;max-height:88vh;overflow-y:auto}
+#kbd-help kbd{display:inline-block;padding:2px 8px;background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;font-family:monospace;font-size:.84rem;color:var(--tx);box-shadow:inset 0 -1px 0 var(--bd)}
+#kbd-help .kbd-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)}
+#kbd-help .kbd-row:last-child{border-bottom:none}
+#kbd-help .kbd-label{flex:1;color:var(--tx2);font-size:.86rem}
+</style>
+<button id="fab-search" onclick="cmdPalOpen()" title="Recherche rapide" aria-label="Recherche rapide">🔍</button>
+<button id="fab-help" onclick="openKbdHelp()" title="Raccourcis clavier" aria-label="Raccourcis clavier">?</button>
+
+<!-- Bottom nav mobile (ergonomie pouce) -->
+<nav id="bot-nav" aria-label="Navigation mobile">
+  <div id="bot-nav-row">
+    <button class="bn-item" id="bn-home" onclick="goTab('home')"><span class="bn-ico">🏠</span>Accueil</button>
+    <button class="bn-item" id="bn-decks" onclick="goSpace('decks')"><span class="bn-ico">🛠</span>Decks</button>
+    <button class="bn-item" id="bn-play" onclick="goSpace('play')"><span class="bn-ico">⚔</span>Jouer</button>
+    <button class="bn-item" id="bn-pro" onclick="openProToolsHub()"><span class="bn-ico">🏆</span>Pro</button>
+    <button class="bn-item" id="bn-search" onclick="cmdPalOpen()"><span class="bn-ico">🔍</span>Cherche</button>
+  </div>
+</nav>
+
+<!-- Cheatsheet raccourcis clavier (touche ?) -->
+<div id="kbd-help" onclick="if(event.target===this)closeKbdHelp()">
+  <div class="kbd-box">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:'Goudy Mediaeval',serif;font-size:1.4rem;color:var(--gold2);flex:1">⌨ Raccourcis clavier</div><button class="btn btnsm" onclick="closeKbdHelp()">✕</button></div>
+    <div style="font-size:.84rem;color:var(--tx2);margin-bottom:12px">Active la touche n'importe où sauf dans un champ de saisie.</div>
+    <div class="kbd-row"><span class="kbd-label">Recherche rapide / Palette de commandes</span><kbd>Ctrl</kbd> + <kbd>K</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Cette aide</span><kbd>?</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Accueil</span><kbd>g</kbd> <kbd>h</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Mes decks</span><kbd>g</kbd> <kbd>d</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Analyse</span><kbd>a</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Nouveau deck</span><kbd>n</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Mulligan trainer</span><kbd>m</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Mode tournoi</span><kbd>t</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Logger une partie</span><kbd>l</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Pod Optimizer</span><kbd>p</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Outils Pro</span><kbd>g</kbd> <kbd>p</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Générer un deck</span><kbd>g</kbd> <kbd>g</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">Fermer un overlay</span><kbd>Esc</kbd></div>
+    <div style="margin-top:14px;font-size:.76rem;color:var(--tx3);font-style:italic">Astuce : Tape <kbd>g</kbd> puis une lettre pour naviguer (g+h = go home).</div>
+  </div>
+</div>
+
+<script>
+// ════ Onboarding contextuel : tooltips one-shot au 1er usage d'une feature ════
+// Stocke les flags dans localStorage 'mtg_tips_seen' (objet) — affiche un toast 1 fois
+var _tipsSeen={};
+try{var __ts=localStorage.getItem('mtg_tips_seen');if(__ts)_tipsSeen=JSON.parse(__ts)||{};}catch(e){_tipsSeen={};}
+function _saveTipsSeen(){try{localStorage.setItem('mtg_tips_seen',JSON.stringify(_tipsSeen));}catch(e){}}
+function showTipOnce(key,html,opts){
+  if(_tipsSeen[key])return;
+  _tipsSeen[key]=Date.now();_saveTipsSeen();
+  opts=opts||{};
+  // Création toast persistant (clic pour fermer)
+  var t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:6500;background:linear-gradient(135deg,rgba(40,30,10,.96),rgba(20,12,4,.96));border:1px solid var(--gold2);border-radius:12px;padding:14px 18px;max-width:440px;box-shadow:0 12px 40px rgba(0,0,0,.7);color:var(--tx);font-size:.86rem;line-height:1.5;cursor:pointer;animation:_tipSlide .4s ease-out';
+  t.innerHTML='<div style="display:flex;gap:10px;align-items:flex-start"><span style="font-size:1.3rem">💡</span><div style="flex:1">'+html+'</div><span style="color:var(--tx3);font-size:.78rem">✕</span></div>';
+  t.addEventListener('click',function(){if(t.parentNode)t.parentNode.removeChild(t);});
+  document.body.appendChild(t);
+  if(!opts.persistent)setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},opts.duration||8000);
+}
+// Petite animation slide-in
+(function(){
+  var s=document.createElement('style');
+  s.textContent='@keyframes _tipSlide{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+  document.head.appendChild(s);
+})();
+
+// Hook les tips sur les fonctions principales
+(function(){
+  // Patch openMatchTracker : tip "loguer ses parties"
+  if(typeof openMatchTracker==='function'){
+    var orig=openMatchTracker;
+    window.openMatchTracker=function(){
+      orig.apply(this,arguments);
+      showTipOnce('mt_first','<b style="color:var(--gold2)">Journal de parties</b><br>Loggue chaque partie : adversaire, archétype, win/lose, mulligans. Après 5-10 parties, tu verras ton vrai winrate par matchup.');
+    };
+  }
+  if(typeof openMulliganTrainer==='function'){
+    var orig2=openMulliganTrainer;
+    window.openMulliganTrainer=function(){
+      orig2.apply(this,arguments);
+      showTipOnce('mu_first','<b style="color:var(--gold2)">Mulligan Trainer</b><br>Tire 7 cartes, l\'algo te donne un verdict <b>Garde / Marginale / Mull</b> chiffré. Idéal pour entraîner ton instinct avant un tournoi.');
+    };
+  }
+  if(typeof openPodOptimizer==='function'){
+    var orig3=openPodOptimizer;
+    window.openPodOptimizer=function(){
+      orig3.apply(this,arguments);
+      showTipOnce('po_first','<b style="color:var(--gold2)">Pod Optimizer</b><br>Entre les 3 commandants adverses. L\'algo identifie le threat #1 et te suggère des tech-cards spécifiques au pod.');
+    };
+  }
+  if(typeof openTournamentMode==='function'){
+    var orig4=openTournamentMode;
+    window.openTournamentMode=function(){
+      orig4.apply(this,arguments);
+      showTipOnce('tm_first','<b style="color:var(--gold2)">Mode Tournoi</b><br>Timer 50min + life tracker. À la fin, "Logger ce match" pour l\'ajouter au journal.');
+    };
+  }
+  if(typeof openDeckGenerator==='function'){
+    var orig5=openDeckGenerator;
+    window.openDeckGenerator=function(){
+      orig5.apply(this,arguments);
+      showTipOnce('dgen_first','<b style="color:var(--gold2)">Constructeur de deck</b><br>Tape un commandant, choisis ton niveau (Casual → cEDH). Le deck respecte quotas + courbe + manabase intelligente.');
+    };
+  }
+  if(typeof openProToolsHub==='function'){
+    var orig6=openProToolsHub;
+    window.openProToolsHub=function(){
+      orig6.apply(this,arguments);
+      showTipOnce('pth_first','<b style="color:var(--gold2)">Hub Outils Pro</b><br>Astuce : tape <kbd style="background:var(--s3);padding:1px 5px;border-radius:3px">?</kbd> n\'importe où pour voir les raccourcis clavier.');
+    };
+  }
+})();
+
+// ════ Raccourcis clavier globaux + cheatsheet ════
+function openKbdHelp(){var el=document.getElementById('kbd-help');if(el)el.classList.add('open');}
+function closeKbdHelp(){var el=document.getElementById('kbd-help');if(el)el.classList.remove('open');}
+(function(){
+  var pendingG=false,pendingGTimer=null;
+  function inInput(e){
+    var t=e.target;if(!t)return false;
+    var tag=(t.tagName||'').toUpperCase();
+    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return true;
+    if(t.isContentEditable)return true;
+    return false;
+  }
+  function isModified(e){return e.ctrlKey||e.metaKey||e.altKey;}
+  document.addEventListener('keydown',function(e){
+    // Esc = ferme la cheatsheet
+    if(e.key==='Escape'){var kh=document.getElementById('kbd-help');if(kh&&kh.classList.contains('open')){kh.classList.remove('open');e.preventDefault();return;}}
+    if(inInput(e))return;
+    if(isModified(e))return;
+    // Combo "g + lettre"
+    if(pendingG){
+      pendingG=false;clearTimeout(pendingGTimer);pendingGTimer=null;
+      switch(e.key.toLowerCase()){
+        case 'h':if(typeof goTab==='function')goTab('home');e.preventDefault();return;
+        case 'd':if(typeof goTab==='function')goTab('build');e.preventDefault();return;
+        case 'a':if(typeof goTab==='function'){goTab('analyse');if(typeof anaInit==='function')anaInit();}e.preventDefault();return;
+        case 'c':if(typeof goTab==='function')goTab('coll');e.preventDefault();return;
+        case 'p':if(typeof openProToolsHub==='function')openProToolsHub();e.preventDefault();return;
+        case 'g':if(typeof openDeckGenerator==='function')openDeckGenerator();e.preventDefault();return;
+        case 's':if(typeof openExplorer==='function')openExplorer();e.preventDefault();return;
+      }
+      return;
+    }
+    switch(e.key){
+      case '?':if(!e.shiftKey)return;openKbdHelp();e.preventDefault();return;
+      case 'g':pendingG=true;pendingGTimer=setTimeout(function(){pendingG=false;},900);e.preventDefault();return;
+      case 'a':if(typeof goTab==='function'){goTab('analyse');if(typeof anaInit==='function')anaInit();}e.preventDefault();return;
+      case 'n':if(typeof goTab==='function')goTab('build');e.preventDefault();return;
+      case 'm':if(typeof openMulliganTrainer==='function')openMulliganTrainer();e.preventDefault();return;
+      case 't':if(typeof openTournamentMode==='function')openTournamentMode();e.preventDefault();return;
+      case 'l':if(typeof openMatchTracker==='function')openMatchTracker();e.preventDefault();return;
+      case 'p':if(typeof openPodOptimizer==='function')openPodOptimizer();e.preventDefault();return;
+    }
+  });
+})();
+</script>
 </body>
 </html>
