@@ -7927,6 +7927,8 @@ function renderHome(){
   html+='<summary class="home-sec-title" style="cursor:pointer;list-style:none">🔧 '+t('home.tools','Boîte à outils')+' <span style="font-size:.7rem;color:var(--tx3);font-weight:normal;margin-left:4px">▾</span></summary>';
   html+='<div class="home-actions" style="margin-top:8px">'
     +'<button class="home-action" onclick="goTab(\'coll\')"><span>◈</span>'+t('home.action.coll','Ma collection')+'</button>'
+    +'<button class="home-action" onclick="openCollStats()"><span>📊</span>'+t('home.action.collstats','Stats collection')+'</button>'
+    +'<button class="home-action" onclick="openEdhStaples()"><span>⚔</span>'+t('home.action.staples','Staples EDH')+'</button>'
     +'<button class="home-action" onclick="goTab(\'trade\');if(typeof renderTradePage===\'function\')renderTradePage()"><span>🤝</span>'+t('home.action.trade','Échanges')+'</button>'
     +'<button class="home-action" onclick="openWishlist()"><span>🎁</span>'+t('home.action.wishlist','Wishlist')+'</button>'
     +'<button class="home-action" onclick="openExplorer()"><span>🌐</span>'+t('home.action.explore','Explorer')+'</button>'
@@ -32850,6 +32852,8 @@ function _cmdPalBuild(){
   items.push({key:'act:discover',ico:'🔮',lbl:'Découvrir des decks/commandants',cat:'Action',act:function(){if(typeof openDiscover==='function')openDiscover();}});
   items.push({key:'act:coach',ico:'💡',lbl:'Coach IA — pose une question sur un deck',cat:'Action',act:function(){if(typeof openCoach==='function')openCoach();}});
   items.push({key:'act:brup',ico:'⬆',lbl:'Cibler un bracket supérieur (cartes à ajouter)',cat:'Action',act:function(){if(typeof openBracketUpgrade!=='function')return;var sorted=Object.keys(decks||{}).filter(function(id){return _deckBelongsTo?_deckBelongsTo(decks[id],0):true;}).map(function(id){return{id:id,t:decks[id].updatedAt||0};}).sort(function(a,b){return b.t-a.t;});if(sorted.length)openBracketUpgrade(sorted[0].id,4);}});
+  items.push({key:'act:staples',ico:'⚔',lbl:'Staples EDH — état de ma collection',cat:'Action',act:function(){if(typeof openEdhStaples==='function')openEdhStaples();}});
+  items.push({key:'act:collstats',ico:'📊',lbl:'Statistiques de collection détaillées',cat:'Action',act:function(){if(typeof openCollStats==='function')openCollStats();}});
   items.push({key:'act:referral',ico:'🎁',lbl:'Mon programme de parrainage',cat:'Action',act:function(){if(typeof openReferrals==='function')openReferrals();}});
   items.push({key:'act:pursearch',ico:'🔍',lbl:'Chercher une carte dans mes listes partagées',cat:'Action',act:function(){if(typeof openPurchaseSearch==='function')openPurchaseSearch();}});
   items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
@@ -47545,6 +47549,409 @@ function _flNextActions(context,opts){
   h+='</div>';
   return h;
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// PHASE 1A — DÉTAILS CARTE (finish, condition, location, language)
+// Champs optionnels sur chaque ligne de carte de profil : c.finish, c.condition, c.location, c.lang
+// Compatibles avec les données existantes (les champs sont juste ajoutés).
+// ════════════════════════════════════════════════════════════════════════
+var _CARD_FINISHES=[
+  {k:'normal',l:'Normal',ico:''},
+  {k:'foil',l:'Foil',ico:'✨'},
+  {k:'etched',l:'Etched',ico:'⚡'},
+  {k:'textured',l:'Textured',ico:'🌊'},
+  {k:'fullart',l:'Full Art',ico:'🖼'},
+  {k:'retro',l:'Retro Frame',ico:'📜'}
+];
+var _CARD_CONDITIONS=[
+  {k:'NM',l:'Near Mint',col:'#7fb069'},
+  {k:'LP',l:'Lightly Played',col:'#a8d8a0'},
+  {k:'MP',l:'Moderately Played',col:'#e8c96e'},
+  {k:'HP',l:'Heavily Played',col:'#f08c4e'},
+  {k:'DMG',l:'Damaged',col:'#dc5050'}
+];
+var _CARD_LANGS=[
+  {k:'EN',l:'English'},{k:'FR',l:'Français'},{k:'DE',l:'Deutsch'},{k:'IT',l:'Italiano'},
+  {k:'ES',l:'Español'},{k:'PT',l:'Português'},{k:'JP',l:'日本語'},{k:'KO',l:'한국어'},
+  {k:'RU',l:'Русский'},{k:'ZH',l:'中文'}
+];
+function openCardDetails(profIdx,cardIdx){
+  if(typeof profs==='undefined'||!profs[profIdx])return;
+  var c=profs[profIdx][cardIdx];if(!c)return;
+  var ov=document.getElementById('cd-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='cd-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5800;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;padding:1rem';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeCardDetails();});
+  }
+  _cdCur={pi:profIdx,ci:cardIdx};
+  _cdRender();
+  ov.style.display='flex';
+}
+function closeCardDetails(){var ov=document.getElementById('cd-ov');if(ov)ov.style.display='none';_cdCur=null;}
+var _cdCur=null;
+function _cdRender(){
+  var ov=document.getElementById('cd-ov');if(!ov||!_cdCur)return;
+  var c=profs[_cdCur.pi][_cdCur.ci];if(!c)return;
+  var finish=c.finish||'normal';
+  var cond=c.condition||'NM';
+  var lang=c.lang||'EN';
+  var loc=c.location||'';
+  var meta=_anaData[(c.name||'').toLowerCase()]||null;
+  var img=meta&&meta.imgUri?meta.imgUri:'';
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:680px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.4rem;color:var(--gold2);flex:1">📦 '+esc(c.name||'')+'</div><button class="btn btnsm" onclick="closeCardDetails()">✕</button></div>';
+  html+='<div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">';
+  if(img)html+='<img src="'+esc(img)+'" alt="" style="width:140px;height:196px;border-radius:8px;object-fit:cover;flex-shrink:0">';
+  html+='<div style="flex:1;min-width:200px">';
+  // Quantité
+  html+='<div style="margin-bottom:10px"><label style="display:block;font-size:.72rem;color:var(--tx3);margin-bottom:3px;letter-spacing:.04em">QUANTITÉ</label>';
+  html+='<input id="cd-qty" type="number" min="0" value="'+(c.qty||1)+'" style="width:100%;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)"></div>';
+  // Finish
+  html+='<div style="margin-bottom:10px"><label style="display:block;font-size:.72rem;color:var(--tx3);margin-bottom:3px;letter-spacing:.04em">FINITION</label>';
+  html+='<div style="display:flex;gap:4px;flex-wrap:wrap">';
+  _CARD_FINISHES.forEach(function(f){
+    html+='<button class="dm'+(f.k===finish?' active':'')+'" onclick="_cdSet(\'finish\',\''+f.k+'\')" style="padding:4px 9px;font-size:.74rem">'+(f.ico?f.ico+' ':'')+esc(f.l)+'</button>';
+  });
+  html+='</div></div>';
+  // Condition
+  html+='<div style="margin-bottom:10px"><label style="display:block;font-size:.72rem;color:var(--tx3);margin-bottom:3px;letter-spacing:.04em">ÉTAT</label>';
+  html+='<div style="display:flex;gap:4px;flex-wrap:wrap">';
+  _CARD_CONDITIONS.forEach(function(co){
+    var act=co.k===cond?'background:'+co.col+';color:#0a0a0a;border-color:'+co.col:'';
+    html+='<button onclick="_cdSet(\'condition\',\''+co.k+'\')" style="padding:4px 9px;font-size:.74rem;border-radius:5px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-family:inherit;'+act+'" title="'+esc(co.l)+'">'+co.k+'</button>';
+  });
+  html+='</div></div>';
+  // Langue
+  html+='<div style="margin-bottom:10px"><label style="display:block;font-size:.72rem;color:var(--tx3);margin-bottom:3px;letter-spacing:.04em">LANGUE</label>';
+  html+='<select id="cd-lang" onchange="_cdSet(\'lang\',this.value)" style="width:100%;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)">';
+  _CARD_LANGS.forEach(function(la){html+='<option value="'+la.k+'"'+(la.k===lang?' selected':'')+'>'+esc(la.l)+'</option>';});
+  html+='</select></div>';
+  // Location
+  html+='<div style="margin-bottom:10px"><label style="display:block;font-size:.72rem;color:var(--tx3);margin-bottom:3px;letter-spacing:.04em">EMPLACEMENT PHYSIQUE</label>';
+  html+='<input id="cd-loc" type="text" placeholder="ex: Binder A, page 7 · Box rouge slot 12" value="'+esc(loc)+'" style="width:100%;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)"></div>';
+  html+='</div>';
+  html+='</div>';
+  html+='<div style="display:flex;gap:8px;justify-content:flex-end">';
+  html+='<button class="btn btnsm btnrd" onclick="_cdDelete()">🗑 Supprimer</button>';
+  html+='<button class="btn btnsm" onclick="closeCardDetails()">Annuler</button>';
+  html+='<button class="btn btnp" onclick="_cdSave()">💾 Enregistrer</button>';
+  html+='</div></div>';
+  ov.innerHTML=html;
+}
+function _cdSet(field,val){
+  if(!_cdCur)return;
+  profs[_cdCur.pi][_cdCur.ci][field]=val;
+  _cdRender();
+}
+function _cdSave(){
+  if(!_cdCur)return;
+  var qty=parseInt(document.getElementById('cd-qty').value)||1;
+  var loc=document.getElementById('cd-loc').value.trim().slice(0,120);
+  profs[_cdCur.pi][_cdCur.ci].qty=Math.max(0,qty);
+  profs[_cdCur.pi][_cdCur.ci].location=loc;
+  if(qty<=0)profs[_cdCur.pi].splice(_cdCur.ci,1);
+  if(typeof saveProf==='function')saveProf(_cdCur.pi);
+  else if(typeof saveProfs==='function')saveProfs();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Carte mise à jour');
+  closeCardDetails();
+  // Refresh collection si visible
+  try{if(typeof renderCollList==='function')renderCollList();}catch(e){}
+  try{if(typeof renderHome==='function')renderHome();}catch(e){}
+}
+function _cdDelete(){
+  if(!_cdCur)return;
+  if(!confirm('Supprimer cette carte de la collection ?'))return;
+  profs[_cdCur.pi].splice(_cdCur.ci,1);
+  if(typeof saveProf==='function')saveProf(_cdCur.pi);
+  else if(typeof saveProfs==='function')saveProfs();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Carte supprimée');
+  closeCardDetails();
+  try{if(typeof renderCollList==='function')renderCollList();}catch(e){}
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PHASE 1B — EDH STAPLES CHECKER (cartes que tout deck EDH devrait avoir)
+// ════════════════════════════════════════════════════════════════════════
+var _EDH_STAPLES={
+  'all':[
+    {nm:'Sol Ring',cat:'Ramp',why:'Le mana rock universel'},
+    {nm:'Arcane Signet',cat:'Ramp',why:'2 mana → 1 mana de ton commandant'},
+    {nm:'Command Tower',cat:'Manabase',why:'Land qui produit toutes tes couleurs'}
+  ],
+  'W':[
+    {nm:'Swords to Plowshares',cat:'Removal',why:'Le meilleur removal blanc 1-CMC'},
+    {nm:'Path to Exile',cat:'Removal',why:'Exile target creature'},
+    {nm:'Smothering Tithe',cat:'Ramp',why:'Trésors massifs en multi'},
+    {nm:'Generous Gift',cat:'Removal',why:'Remove tout permanent'},
+    {nm:'Teferi\'s Protection',cat:'Protection',why:'Save vs board wipe + commander damage'}
+  ],
+  'U':[
+    {nm:'Counterspell',cat:'Interaction',why:'Le counter classique'},
+    {nm:'Cyclonic Rift',cat:'Board wipe',why:'One-sided bounce overload'},
+    {nm:'Rhystic Study',cat:'Pioche',why:'Pioche massive en multi'},
+    {nm:'Mystic Remora',cat:'Pioche',why:'Pioche T1 explosif'},
+    {nm:'Brainstorm',cat:'Pioche',why:'Filtration 1-CMC'},
+    {nm:'Swan Song',cat:'Interaction',why:'1-mana counter'}
+  ],
+  'B':[
+    {nm:'Demonic Tutor',cat:'Tutor',why:'Cherche n\'importe quelle carte'},
+    {nm:'Vampiric Tutor',cat:'Tutor',why:'Tutor sur le top'},
+    {nm:'Toxic Deluge',cat:'Board wipe',why:'Wipe scalable'},
+    {nm:'Damnation',cat:'Board wipe',why:'Wrath noir'},
+    {nm:'Necropotence',cat:'Pioche',why:'Pioche illimitée pour 1 vie'}
+  ],
+  'R':[
+    {nm:'Dockside Extortionist',cat:'Ramp',why:'Génère 4-8 trésors en multi'},
+    {nm:'Chaos Warp',cat:'Removal',why:'Le seul removal hexproof-proof rouge'},
+    {nm:'Blasphemous Act',cat:'Board wipe',why:'9 dmg pour 1 mana souvent'},
+    {nm:'Anger',cat:'Utility',why:'Haste depuis le cimetière'}
+  ],
+  'G':[
+    {nm:'Cultivate',cat:'Ramp',why:'Ramp classique 3-CMC'},
+    {nm:'Three Visits',cat:'Ramp',why:'2-CMC ramp tier 1'},
+    {nm:'Nature\'s Lore',cat:'Ramp',why:'2-CMC fixe dual + basic land'},
+    {nm:'Sylvan Library',cat:'Pioche',why:'Filtration de top deck'},
+    {nm:'Eternal Witness',cat:'Recursion',why:'Recyclage universel'}
+  ]
+};
+function _edhStaplesCheck(){
+  if(typeof profs==='undefined')return null;
+  var coll=getProfCards(0)||[];
+  var owned={};coll.forEach(function(c){owned[(c.name||'').toLowerCase().trim()]=1;});
+  // Detect color identity used dans les decks
+  var colorsUsed={};
+  if(typeof decks!=='undefined'){
+    Object.keys(decks).forEach(function(id){
+      var d=decks[id];
+      if(!d||(d.format!=='commander'&&d.format!=='paupercmd'))return;
+      var ci=(d.commander&&d.commander.colors)||d.colors||[];
+      ci.forEach(function(c){colorsUsed[c]=1;});
+    });
+  }
+  if(!Object.keys(colorsUsed).length){colorsUsed={W:1,U:1,B:1,R:1,G:1};}
+  // Aggrège staples nécessaires
+  var needed=[];
+  _EDH_STAPLES.all.forEach(function(s){needed.push(s);});
+  Object.keys(colorsUsed).forEach(function(col){
+    (_EDH_STAPLES[col]||[]).forEach(function(s){s.color=col;needed.push(s);});
+  });
+  var missing=needed.filter(function(s){return !owned[s.nm.toLowerCase()];});
+  var have=needed.filter(function(s){return owned[s.nm.toLowerCase()];});
+  return {missing:missing,have:have,total:needed.length,coverage:Math.round((have.length/needed.length)*100)};
+}
+function openEdhStaples(){
+  var result=_edhStaplesCheck();if(!result){if(typeof toastError==='function')toastError('Pas de données');return;}
+  var ov=document.getElementById('edhs-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='edhs-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeEdhStaples();});
+  }
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:780px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.4rem;color:var(--gold2);flex:1">⚔ Staples EDH — état de ta collection</div><button class="btn btnsm" onclick="closeEdhStaples()">✕</button></div>';
+  // Score global
+  var cov=result.coverage;
+  var col=cov>=70?'#7fb069':cov>=40?'#e8c96e':'#dc5050';
+  html+='<div style="background:rgba(0,0,0,.20);border-radius:9px;padding:11px 14px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">';
+  html+='<div style="font-size:2rem;font-weight:700;color:'+col+'">'+cov+'%</div>';
+  html+='<div style="flex:1;min-width:200px"><div style="font-size:.84rem;color:var(--tx)">'+result.have.length+' / '+result.total+' staples possédés</div><div style="font-size:.72rem;color:var(--tx3);font-style:italic">Calculé selon les couleurs de tes commandants EDH actuels</div></div>';
+  html+='</div>';
+  // Manquantes par catégorie
+  if(result.missing.length){
+    var byCol={};result.missing.forEach(function(s){var k=s.color||'all';if(!byCol[k])byCol[k]=[];byCol[k].push(s);});
+    var colNames={all:'⚪ Universel',W:'⚪ Blanc',U:'🟦 Bleu',B:'⚫ Noir',R:'🟥 Rouge',G:'🟩 Vert'};
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1rem;margin-bottom:8px">❌ Manquantes ('+result.missing.length+')</div>';
+    Object.keys(byCol).forEach(function(c){
+      html+='<div style="margin-bottom:10px"><div style="font-size:.78rem;color:var(--tx3);margin-bottom:4px">'+esc(colNames[c]||c)+'</div>';
+      byCol[c].forEach(function(s){
+        html+='<div style="display:flex;gap:8px;padding:5px 9px;background:var(--s2);border-radius:5px;margin-bottom:2px;font-size:.84rem">';
+        html+='<span style="color:var(--tx);min-width:160px"><b>'+esc(s.nm)+'</b></span>';
+        html+='<span style="color:var(--tx3);font-size:.74rem;min-width:80px">'+esc(s.cat)+'</span>';
+        html+='<span style="color:var(--tx2);font-size:.78rem;font-style:italic;flex:1">'+esc(s.why)+'</span>';
+        html+='<button class="btn btnsm" onclick="openWishlist&&openWishlist();_wlAdd&&_wlAdd('+JSON.stringify(s.nm).replace(/"/g,'&quot;')+')" title="Ajouter à la wishlist" style="padding:2px 7px;font-size:.7rem">+ wishlist</button>';
+        html+='</div>';
+      });
+      html+='</div>';
+    });
+  }else{
+    html+='<div style="text-align:center;padding:30px;color:#7fb069;font-family:var(--ff-head);font-size:1.1rem">🏆 Tu as tous les staples EDH de tes couleurs. Excellent.</div>';
+  }
+  // Possédées
+  if(result.have.length){
+    html+='<details style="margin-top:14px"><summary style="cursor:pointer;color:var(--tx3);font-size:.84rem">✓ Voir les '+result.have.length+' staples que tu as déjà</summary>';
+    html+='<div style="margin-top:6px;font-size:.78rem;color:var(--tx2)">';
+    result.have.forEach(function(s){html+='<div>✓ '+esc(s.nm)+'</div>';});
+    html+='</div></details>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeEdhStaples(){var ov=document.getElementById('edhs-ov');if(ov)ov.style.display='none';}
+
+// ════════════════════════════════════════════════════════════════════════
+// PHASE 1C — STATISTIQUES DE COLLECTION AVANCÉES
+// ════════════════════════════════════════════════════════════════════════
+function openCollStats(){
+  if(typeof profs==='undefined'){if(typeof toastError==='function')toastError('Pas de données');return;}
+  var coll=getProfCards(0)||[];
+  if(!coll.length){if(typeof toastError==='function')toastError('Collection vide');return;}
+  var ov=document.getElementById('cs-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='cs-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeCollStats();});
+  }
+  // Calculs
+  var stats={
+    total:0,uniques:coll.length,
+    byColor:{W:0,U:0,B:0,R:0,G:0,C:0,M:0,land:0},
+    byRarity:{common:0,uncommon:0,rare:0,mythic:0,unknown:0},
+    bySet:{},byType:{Creature:0,Instant:0,Sorcery:0,Artifact:0,Enchantment:0,Planeswalker:0,Land:0,Other:0},
+    byCmc:[0,0,0,0,0,0,0,0],
+    byCondition:{NM:0,LP:0,MP:0,HP:0,DMG:0,unknown:0},
+    byFinish:{normal:0,foil:0,etched:0,other:0},
+    totalValue:0,topValueCards:[]
+  };
+  coll.forEach(function(c){
+    var qty=c.qty||1;stats.total+=qty;
+    var meta=_anaData[(c.name||'').toLowerCase()]||null;
+    // Couleur
+    if(meta&&meta.colorIdentity){
+      var ci=meta.colorIdentity;
+      if(meta.tags&&meta.tags.isLand)stats.byColor.land+=qty;
+      else if(ci.length===0)stats.byColor.C+=qty;
+      else if(ci.length===1)stats.byColor[ci[0]]+=qty;
+      else stats.byColor.M+=qty;
+    }
+    // Rareté
+    var r=meta&&meta.rarity?meta.rarity:'unknown';
+    if(stats.byRarity.hasOwnProperty(r))stats.byRarity[r]+=qty;
+    else stats.byRarity.unknown+=qty;
+    // Type
+    var tl=(meta&&meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('land')>=0)stats.byType.Land+=qty;
+    else if(tl.indexOf('creature')>=0)stats.byType.Creature+=qty;
+    else if(tl.indexOf('instant')>=0)stats.byType.Instant+=qty;
+    else if(tl.indexOf('sorcery')>=0)stats.byType.Sorcery+=qty;
+    else if(tl.indexOf('artifact')>=0)stats.byType.Artifact+=qty;
+    else if(tl.indexOf('enchantment')>=0)stats.byType.Enchantment+=qty;
+    else if(tl.indexOf('planeswalker')>=0)stats.byType.Planeswalker+=qty;
+    else stats.byType.Other+=qty;
+    // CMC
+    if(meta&&typeof meta.cmc==='number'&&tl.indexOf('land')<0){
+      var b=Math.min(7,Math.floor(meta.cmc));stats.byCmc[b]+=qty;
+    }
+    // Set
+    var s=meta&&meta.set?meta.set.toUpperCase():'';
+    if(s)stats.bySet[s]=(stats.bySet[s]||0)+qty;
+    // Condition
+    var cd=c.condition||'unknown';
+    if(stats.byCondition.hasOwnProperty(cd))stats.byCondition[cd]+=qty;
+    else stats.byCondition.unknown+=qty;
+    // Finish
+    var f=c.finish||'normal';
+    if(stats.byFinish.hasOwnProperty(f))stats.byFinish[f]+=qty;
+    else stats.byFinish.other+=qty;
+    // Valeur top
+    var price=meta&&meta.price?meta.price:null;
+    if(price){
+      stats.totalValue+=price*qty;
+      stats.topValueCards.push({name:c.name,qty:qty,price:price,total:price*qty});
+    }
+  });
+  stats.topValueCards.sort(function(a,b){return b.total-a.total;});
+  // Render
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:900px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.4rem;color:var(--gold2);flex:1">📊 Statistiques de collection</div><button class="btn btnsm" onclick="closeCollStats()">✕</button></div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px">';
+  html+='<div style="background:rgba(0,0,0,.20);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">TOTAL</div><div style="font-size:1.3rem;font-weight:700;color:var(--gold2)">'+stats.total.toLocaleString('fr-FR')+'</div></div>';
+  html+='<div style="background:rgba(0,0,0,.20);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">UNIQUES</div><div style="font-size:1.3rem;font-weight:700;color:var(--tx)">'+stats.uniques.toLocaleString('fr-FR')+'</div></div>';
+  if(stats.totalValue)html+='<div style="background:rgba(0,0,0,.20);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">VALEUR</div><div style="font-size:1.3rem;font-weight:700;color:#7fb069">'+stats.totalValue.toFixed(0)+'€</div></div>';
+  html+='</div>';
+  // Distribution couleur
+  html+='<div style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+  html+='<div style="font-size:.78rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:6px">Par couleur</div>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:.82rem">';
+  var colMap={W:{l:'Blanc',c:'#f5f0d8'},U:{l:'Bleu',c:'#8fc4eb'},B:{l:'Noir',c:'#888'},R:{l:'Rouge',c:'#f08c4e'},G:{l:'Vert',c:'#7fb069'},C:{l:'Incolore',c:'#aaa'},M:{l:'Multi',c:'#e8c96e'},land:{l:'Terrain',c:'#cdb87a'}};
+  Object.keys(colMap).forEach(function(k){
+    if(!stats.byColor[k])return;
+    var pct=Math.round((stats.byColor[k]/stats.total)*100);
+    html+='<span style="background:rgba(0,0,0,.25);padding:3px 9px;border-radius:5px"><span style="color:'+colMap[k].c+';font-weight:700">'+stats.byColor[k]+'</span> <span style="color:var(--tx3)">'+colMap[k].l+' ('+pct+'%)</span></span>';
+  });
+  html+='</div></div>';
+  // Type
+  html+='<div style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+  html+='<div style="font-size:.78rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:6px">Par type</div>';
+  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:.82rem">';
+  Object.keys(stats.byType).forEach(function(k){
+    if(!stats.byType[k])return;
+    html+='<span style="background:rgba(0,0,0,.25);padding:3px 9px;border-radius:5px"><b style="color:var(--ac2)">'+stats.byType[k]+'</b> <span style="color:var(--tx3)">'+esc(k)+'</span></span>';
+  });
+  html+='</div></div>';
+  // Rareté + Condition + Finish (compact)
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-bottom:10px">';
+  function mkPanel(title,data,rariCol){
+    var h='<div style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px">';
+    h+='<div style="font-size:.74rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:6px">'+title+'</div>';
+    Object.keys(data).forEach(function(k){
+      if(!data[k])return;
+      h+='<div style="display:flex;justify-content:space-between;font-size:.78rem;padding:1px 0"><span style="color:var(--tx2)">'+esc(k)+'</span><span style="color:'+(rariCol?rariCol[k]||'var(--tx)':'var(--tx)')+';font-weight:600">'+data[k]+'</span></div>';
+    });
+    h+='</div>';
+    return h;
+  }
+  html+=mkPanel('Rareté',stats.byRarity,{common:'#aaa',uncommon:'#c0c4d4',rare:'#e8c96e',mythic:'#f08c4e'});
+  html+=mkPanel('État',stats.byCondition,{NM:'#7fb069',LP:'#a8d8a0',MP:'#e8c96e',HP:'#f08c4e',DMG:'#dc5050'});
+  html+=mkPanel('Finition',stats.byFinish,null);
+  html+='</div>';
+  // Courbe CMC
+  html+='<div style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+  html+='<div style="font-size:.78rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:6px">Courbe de mana (hors terrains)</div>';
+  var maxBucket=Math.max.apply(null,stats.byCmc);
+  html+='<div style="display:flex;gap:5px;align-items:flex-end;height:50px">';
+  stats.byCmc.forEach(function(v,i){
+    var h=maxBucket?Math.round(v/maxBucket*100):0;
+    html+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="font-size:.7rem;color:var(--tx2);font-weight:600">'+v+'</div><div style="width:100%;background:var(--gold2);height:'+h+'%;min-height:2px;border-radius:3px 3px 0 0;opacity:.7"></div><div style="font-size:.6rem;color:var(--tx3)">'+(i===7?'7+':i)+'</div></div>';
+  });
+  html+='</div></div>';
+  // Top sets
+  var topSets=Object.keys(stats.bySet).map(function(s){return {s:s,n:stats.bySet[s]};}).sort(function(a,b){return b.n-a.n;}).slice(0,12);
+  if(topSets.length){
+    html+='<div style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+    html+='<div style="font-size:.78rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:6px">Top extensions</div>';
+    html+='<div style="display:flex;gap:5px;flex-wrap:wrap;font-size:.78rem">';
+    topSets.forEach(function(t){
+      html+='<span style="background:var(--s2);padding:3px 8px;border-radius:4px"><b style="color:var(--ac2)">'+t.s+'</b> <span style="color:var(--tx3)">'+t.n+'</span></span>';
+    });
+    html+='</div></div>';
+  }
+  // Top valeur
+  if(stats.topValueCards.length){
+    html+='<details style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px"><summary style="cursor:pointer;font-size:.78rem;color:var(--gold2);font-family:var(--ff-head)">💰 Top 10 cartes les plus chères ('+stats.topValueCards.slice(0,10).reduce(function(s,c){return s+c.total;},0).toFixed(0)+'€)</summary>';
+    html+='<div style="margin-top:6px">';
+    stats.topValueCards.slice(0,10).forEach(function(c){
+      html+='<div style="display:flex;gap:8px;padding:3px 0;font-size:.82rem;border-bottom:.5px solid var(--bd)"><span style="color:var(--tx);flex:1">'+esc(c.name)+'</span><span style="color:var(--tx3)">×'+c.qty+'</span><span style="color:#7fb069;font-weight:600;min-width:60px;text-align:right">'+c.total.toFixed(0)+'€</span></div>';
+    });
+    html+='</div></details>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeCollStats(){var ov=document.getElementById('cs-ov');if(ov)ov.style.display='none';}
+
+// Boutons d'accès depuis le hub Pro et Ctrl+K (intégrations légères)
+function _registerPhase1Items(){
+  // Ajouts Ctrl+K (si l'inits a déjà eu lieu, ces items s'ajoutent au tableau global)
+  if(typeof _cmdPalItems!=='undefined'&&Array.isArray(_cmdPalItems)){
+    _cmdPalItems.push({key:'act:staples',ico:'⚔',lbl:'Staples EDH — état de ma collection',cat:'Action',act:openEdhStaples});
+    _cmdPalItems.push({key:'act:collstats',ico:'📊',lbl:'Statistiques de collection détaillées',cat:'Action',act:openCollStats});
+  }
+}
+try{_registerPhase1Items();}catch(e){}
 </script>
 <style>
 /* === Vue partagée === */
