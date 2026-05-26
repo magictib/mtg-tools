@@ -7880,6 +7880,7 @@ function renderHome(){
     +'<button class="home-action" onclick="goTab(\'trade\');if(typeof renderTradePage===\'function\')renderTradePage()"><span>🤝</span>'+t('home.action.trade','Échanges')+'</button>'
     +'<button class="home-action" onclick="openWishlist()"><span>🎁</span>'+t('home.action.wishlist','Wishlist')+'</button>'
     +'<button class="home-action" onclick="openExplorer()"><span>🌐</span>'+t('home.action.explore','Explorer')+'</button>'
+    +'<button class="home-action" onclick="openDeckGenerator()"><span>🧙</span>'+t('home.action.generator','Générer un deck')+'</button>'
     +'<button class="home-action" onclick="openReferrals()"><span>🎁</span>'+t('home.action.referral','Parrainage')+'</button>'
     +'<button class="home-action" onclick="openPurchaseMgr()"><span>🛒</span>'+t('home.action.lists','Listes partagées')+'</button>'
     +'<button class="home-action" onclick="openProfile()"><span>👤</span>'+t('home.action.profile','Profil')+'</button>'
@@ -8004,6 +8005,9 @@ function _homeRecoHtml(){
   return html;
 }
 function _startDeckFromCmd(name){
+  // Ouvre directement le constructeur de deck avec ce commandant pré-rempli
+  if(typeof openDeckGenerator==='function'){openDeckGenerator(name);return;}
+  // Fallback : copie le nom dans le presse-papiers et bascule sur le builder
   if(typeof toastSuccess==='function')toastSuccess('Commander : '+name+' — colle-le dans le builder');
   if(typeof goTab==='function')goTab('build');
   if(navigator.clipboard&&navigator.clipboard.writeText){
@@ -32776,6 +32780,7 @@ function _cmdPalBuild(){
   items.push({key:'act:push',ico:'🔔',lbl:'Notifications push (activer/désactiver)',cat:'Action',act:function(){if(typeof pushTogglePrompt==='function')pushTogglePrompt();}});
   if(typeof _userRole!=='undefined'&&_userRole==='admin')items.push({key:'act:modqueue',ico:'🛡',lbl:'File de modération (admin)',cat:'Admin',act:function(){if(typeof openModerationQueue==='function')openModerationQueue();}});
   items.push({key:'act:cmpdecks',ico:'⚖',lbl:'Comparer 2 decks',cat:'Action',act:function(){if(typeof openDeckCompare==='function')openDeckCompare();}});
+  items.push({key:'act:generator',ico:'🧙',lbl:'Générer un deck depuis un commandant',cat:'Action',act:function(){if(typeof openDeckGenerator==='function')openDeckGenerator();}});
   items.push({key:'act:referral',ico:'🎁',lbl:'Mon programme de parrainage',cat:'Action',act:function(){if(typeof openReferrals==='function')openReferrals();}});
   items.push({key:'act:pursearch',ico:'🔍',lbl:'Chercher une carte dans mes listes partagées',cat:'Action',act:function(){if(typeof openPurchaseSearch==='function')openPurchaseSearch();}});
   items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
@@ -42968,7 +42973,7 @@ var _I18N_EN={
   'home.sub':'Your Magic HQ — collection, decks, games and shared lists.',
   'home.weekly':'This week','home.weekly.last7':'last 7 days',
   'home.weekly.cards':'cards added','home.weekly.value':'collection value','home.weekly.decks':'deck modified','home.weekly.games':'games (W/P)','home.weekly.pending':'to receive',
-  'home.actions':'Quick actions','home.action.newdeck':'New deck','home.action.arena':'Start Arena','home.action.analyse':'Analyse a deck','home.action.coll':'My collection','home.action.trade':'Trades','home.action.lists':'Shared lists','home.action.wishlist':'Wishlist','home.action.explore':'Explore','home.action.profile':'Profile','home.action.trophies':'Trophies','home.action.playgroup':'Playgroup','home.action.search':'Quick search','home.action.referral':'Refer a friend',
+  'home.actions':'Quick actions','home.action.newdeck':'New deck','home.action.arena':'Start Arena','home.action.analyse':'Analyse a deck','home.action.coll':'My collection','home.action.trade':'Trades','home.action.lists':'Shared lists','home.action.wishlist':'Wishlist','home.action.explore':'Explore','home.action.profile':'Profile','home.action.trophies':'Trophies','home.action.playgroup':'Playgroup','home.action.search':'Quick search','home.action.referral':'Refer a friend','home.action.generator':'Generate a deck',
   'home.mydecks':'My decks','home.recent':'Last games','home.friends':'Friend activity','home.reco':'Decks suggested from your collection','home.reco.hint':'Legendary creatures you own with the most compatible cards available.',
   'home.deck.cards':'cards','home.deck.playable':'% playable','home.deck.friends':'friends',
   // === Auth / landing ===
@@ -44224,6 +44229,247 @@ function glossaryFilter(){
 function glossaryInit(){
   if(!document.getElementById('glossary-list'))return;
   glossaryFilter();
+}
+// ════════════════════════════════════════════════════════════════════════
+// CONSTRUCTEUR DE DECK — génère un deck depuis un commandant
+// ════════════════════════════════════════════════════════════════════════
+// 3 modes :
+//   1. Source : ma collection (filter par cartes possédées) OU toutes les cartes
+//   2. Niveau : casual (bracket 2-3) / balanced (3-4) / méta (4-5)
+//   3. Format : commander par défaut, 99 cartes + commandant + 37 lands
+//
+// Données : EDHREC freqMap pour le commandant (cartes les plus jouées globalement)
+// → pondéré par notre _anaThemeSynergyScore + filtres collection/bracket.
+
+var _DECK_LEVEL_PRESETS={
+  casual:    {label:'Casual',      desc:'Synergies maison, peu de tutors/fast mana. Bracket 2-3.',  edhrecMin:0.05, maxGameChangers:1, maxTutors:2, preferThematic:true},
+  balanced:  {label:'Équilibré',   desc:'Mix synergies + cartes solides. Bracket 3.',                edhrecMin:0.10, maxGameChangers:3, maxTutors:5, preferThematic:true},
+  optimised: {label:'Optimisé',    desc:'Cartes méta + interaction + win cons rapides. Bracket 4.', edhrecMin:0.15, maxGameChangers:8, maxTutors:10, preferThematic:false},
+  cedh:      {label:'cEDH',        desc:'Compétitif : tutors, fast mana, game changers. Bracket 5.', edhrecMin:0.20, maxGameChangers:99, maxTutors:99, preferThematic:false}
+};
+
+function openDeckGenerator(presetCommander){
+  var ov=document.getElementById('dgen-overlay');
+  if(!ov){
+    ov=document.createElement('div');ov.id='dgen-overlay';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeDeckGenerator();});
+  }
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:880px;width:100%;padding:24px 28px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">';
+  html+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🧙 Constructeur de deck</div>';
+  html+='<button class="btn btnsm" onclick="closeDeckGenerator()">✕</button></div>';
+  html+='<div style="font-size:.86rem;color:var(--tx2);line-height:1.6;margin-bottom:18px">Génère une décliste complète à partir d\'un commandant. Données EDHREC + scoring synergie + filtres collection/bracket.</div>';
+  // 1) Commandant
+  html+='<div style="margin-bottom:14px"><label style="display:block;font-size:.78rem;color:var(--tx3);margin-bottom:5px;letter-spacing:.04em">COMMANDANT</label>';
+  html+='<input id="dgen-cmd" type="text" placeholder="ex: Atraxa, Praetors\' Voice" value="'+esc(presetCommander||'')+'" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem">';
+  html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:4px;font-style:italic">Saisir le nom exact (anglais ou français)</div></div>';
+  // 2) Source
+  html+='<div style="margin-bottom:14px"><label style="display:block;font-size:.78rem;color:var(--tx3);margin-bottom:5px;letter-spacing:.04em">SOURCE DES CARTES</label>';
+  html+='<div style="display:flex;gap:6px">';
+  html+='<button class="btn btnsm" id="dgen-src-coll" onclick="_dgenSetSource(\'coll\')" style="flex:1">🃏 Ma collection uniquement</button>';
+  html+='<button class="btn btnsm btnp" id="dgen-src-all" onclick="_dgenSetSource(\'all\')" style="flex:1">🌐 Toutes les cartes</button>';
+  html+='</div></div>';
+  // 3) Niveau
+  html+='<div style="margin-bottom:18px"><label style="display:block;font-size:.78rem;color:var(--tx3);margin-bottom:5px;letter-spacing:.04em">NIVEAU DE PUISSANCE</label>';
+  html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
+  Object.keys(_DECK_LEVEL_PRESETS).forEach(function(k){
+    var p=_DECK_LEVEL_PRESETS[k];
+    var active=k==='balanced';
+    html+='<button class="btn btnsm'+(active?' btnp':'')+'" id="dgen-lvl-'+k+'" onclick="_dgenSetLevel(\''+k+'\')" title="'+esc(p.desc)+'" style="padding:8px 4px;flex-direction:column">'
+      +'<div>'+esc(p.label)+'</div>'
+      +'</button>';
+  });
+  html+='</div>';
+  html+='<div id="dgen-lvl-desc" style="font-size:.74rem;color:var(--tx3);margin-top:6px;font-style:italic">'+esc(_DECK_LEVEL_PRESETS.balanced.desc)+'</div>';
+  html+='</div>';
+  // 4) Bouton générer
+  html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:14px">';
+  html+='<button class="btn btnsm" onclick="closeDeckGenerator()">Annuler</button>';
+  html+='<button class="btn btnp" id="dgen-go" onclick="_dgenGenerate()" style="padding:10px 24px">⚡ Générer le deck</button>';
+  html+='</div>';
+  // 5) Résultat (vide initialement)
+  html+='<div id="dgen-result"></div>';
+  // 6) Outils liés
+  html+='<div style="margin-top:24px;padding-top:16px;border-top:.5px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap;font-size:.78rem">';
+  html+='<span style="color:var(--tx3);align-self:center">Voir aussi :</span>';
+  html+='<button class="btn btnsm" onclick="closeDeckGenerator();if(typeof renderHome===\'function\')renderHome();" title="Commandants pour lesquels tu as déjà beaucoup de matériel">🎲 Recos commandants</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckGenerator();if(typeof openBuildable===\'function\')openBuildable()" title="Decks que tu peux monter avec ta collection">🔨 Decks réalisables</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckGenerator();if(typeof openCommReco===\'function\')openCommReco()" title="Cartes les plus jouées avec ce commandant">📊 Recos communauté</button>';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+  ov.style.display='flex';
+  // Init source + level
+  _dgenState={source:'all',level:'balanced'};
+  setTimeout(function(){var i=document.getElementById('dgen-cmd');if(i)i.focus();},50);
+}
+function closeDeckGenerator(){var ov=document.getElementById('dgen-overlay');if(ov)ov.style.display='none';}
+var _dgenState={source:'all',level:'balanced'};
+function _dgenSetSource(s){
+  _dgenState.source=s;
+  ['coll','all'].forEach(function(k){var b=document.getElementById('dgen-src-'+k);if(b)b.classList.toggle('btnp',k===s);});
+}
+function _dgenSetLevel(l){
+  _dgenState.level=l;
+  Object.keys(_DECK_LEVEL_PRESETS).forEach(function(k){var b=document.getElementById('dgen-lvl-'+k);if(b)b.classList.toggle('btnp',k===l);});
+  var d=document.getElementById('dgen-lvl-desc');if(d)d.textContent=_DECK_LEVEL_PRESETS[l].desc;
+}
+function _dgenGenerate(){
+  var cmdInput=document.getElementById('dgen-cmd');
+  var cmdName=cmdInput?cmdInput.value.trim():'';
+  if(!cmdName){if(typeof toastError==='function')toastError('Entre un nom de commandant');return;}
+  var btn=document.getElementById('dgen-go');
+  var res=document.getElementById('dgen-result');
+  if(btn)btn.disabled=true;
+  if(res)res.innerHTML='<div style="padding:30px;text-align:center;color:var(--tx3)"><div style="width:32px;height:32px;border:3px solid var(--bd2);border-top-color:var(--gold2);border-radius:50%;animation:_anaSpin .85s linear infinite;margin:0 auto 12px"></div>Récupération EDHREC + analyse des synergies…</div>';
+  // 1) Fetch metadata du commandant via Scryfall pour color identity + oracle
+  fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(cmdName)).then(function(r){return r.json();}).then(function(cmdCard){
+    if(!cmdCard||cmdCard.object==='error'){if(res)res.innerHTML='<div style="color:var(--rd2);padding:20px">Commandant introuvable sur Scryfall</div>';if(btn)btn.disabled=false;return;}
+    var ci=cmdCard.color_identity||[];
+    var officialName=cmdCard.name;
+    // 2) Fetch EDHREC freqMap
+    anaFetchEDHRECCommander(officialName,'commander',function(freqMap){
+      _dgenBuild(officialName,cmdCard,ci,freqMap||{});
+      if(btn)btn.disabled=false;
+    });
+  }).catch(function(){
+    if(res)res.innerHTML='<div style="color:var(--rd2);padding:20px">Erreur Scryfall</div>';
+    if(btn)btn.disabled=false;
+  });
+}
+// _dgenBuild : sélectionne 99 cartes + le commandant
+function _dgenBuild(officialName,cmdCard,ci,freqMap){
+  var res=document.getElementById('dgen-result');if(!res)return;
+  var preset=_DECK_LEVEL_PRESETS[_dgenState.level]||_DECK_LEVEL_PRESETS.balanced;
+  // Pool : pour chaque carte de freqMap, on récupère meta (depuis _anaData ou Scryfall)
+  // Pour le MVP : on prend directement la liste EDHREC triée par fréquence, filtrée par collection si demandé
+  var collOwned={};
+  if(_dgenState.source==='coll'){
+    try{(getProfCards(0)||[]).forEach(function(c){collOwned[(c.name||'').toLowerCase().trim()]=(c.qty||1);});}catch(e){}
+  }
+  // Cartes ciblées à éviter pour casual / bracket bas
+  var GAME_CHANGERS=new Set(['cyclonic rift','fierce guardianship','force of will','mana drain','rhystic study','smothering tithe',"thassa's oracle",'the one ring','drannith magistrate','opposition agent',"bolas's citadel",'necropotence','expropriate','ad nauseam',"yawgmoth's will",'sheoldred, the apocalypse','grand arbiter augustin iv','iona, shield of emeria']);
+  var TUTORS=new Set(['demonic tutor','vampiric tutor','imperial seal','mystical tutor','enlightened tutor','worldly tutor',"green sun's zenith",'gamble','diabolic intent','intuition','tainted pact','natural order','survival of the fittest','entomb','idyllic tutor','fabricate','chord of calling']);
+  var FAST_MANA=new Set(['mana crypt','mana vault','mox diamond','mox opal','chrome mox','lotus petal',"lion's eye diamond",'jeweled lotus','grim monolith','dockside extortionist','ancient tomb']);
+  // Trier par fréquence décroissante
+  var entries=Object.keys(freqMap).map(function(nl){return {nl:nl,freq:freqMap[nl]};});
+  entries.sort(function(a,b){return b.freq-a.freq;});
+  // Filtrage
+  var picks=[];var gcCount=0,tutorCount=0;var seen={};
+  var nameMap={}; // nl → nom officiel (depuis _anaData)
+  entries.forEach(function(e){
+    if(picks.length>=99-37)return; // 62 non-lands cibles
+    var nl=e.nl;
+    var meta=_anaData[nl];
+    var nm=meta?meta.name:nl;
+    var nmLc=nm.toLowerCase();
+    if(seen[nmLc])return;
+    // Filtre EDHREC min
+    if(e.freq<preset.edhrecMin)return;
+    // Skip commandant lui-même
+    if(nmLc===officialName.toLowerCase())return;
+    // Skip terrains (on les choisira séparément)
+    if(meta&&meta.tags&&meta.tags.isLand)return;
+    // Color identity
+    if(meta&&meta.colorIdentity){
+      var ok=true;
+      meta.colorIdentity.forEach(function(c){if(ci.indexOf(c)<0)ok=false;});
+      if(!ok)return;
+    }
+    // Collection only
+    if(_dgenState.source==='coll'){if(!collOwned[nmLc])return;}
+    // Game changers / tutors / fast mana caps
+    if(GAME_CHANGERS.has(nmLc)){if(gcCount>=preset.maxGameChangers)return;gcCount++;}
+    if(TUTORS.has(nmLc)||FAST_MANA.has(nmLc)){if(tutorCount>=preset.maxTutors)return;tutorCount++;}
+    seen[nmLc]=1;
+    nameMap[nl]=nm;
+    picks.push({name:nm,nl:nl,freq:e.freq,meta:meta});
+  });
+  // Terrains : on prend des terrains basiques selon la color identity
+  var BASIC_BY_COLOR={W:'Plains',U:'Island',B:'Swamp',R:'Mountain',G:'Forest'};
+  var nLands=37;
+  var lands=[];
+  if(ci.length===0){lands.push({name:'Wastes',nl:'wastes',qty:nLands});}
+  else{
+    var perColor=Math.floor(nLands/ci.length);
+    var remainder=nLands-perColor*ci.length;
+    ci.forEach(function(col,i){
+      var n=perColor+(i<remainder?1:0);
+      lands.push({name:BASIC_BY_COLOR[col],nl:BASIC_BY_COLOR[col].toLowerCase(),qty:n});
+    });
+  }
+  // Si collection only et l'utilisateur a des terrains spéciaux, on aurait pu les ajouter — pour MVP, basiques.
+  // Affichage
+  if(!picks.length){
+    res.innerHTML='<div style="background:rgba(220,80,80,.10);border:.5px solid var(--rd2);border-radius:9px;padding:14px 18px;margin-top:12px">'
+      +'<b style="color:var(--rd2)">Aucune carte trouvée</b><br>'
+      +'<span style="font-size:.86rem;color:var(--tx2)">Essaye un autre commandant, un niveau plus bas (Casual), ou désactive le filtre collection.</span>'
+      +(Object.keys(freqMap).length===0?'<br><span style="font-size:.78rem;color:var(--tx3);font-style:italic">EDHREC n\'a pas de données pour ce commandant — vérifie l\'orthographe.</span>':'')
+      +'</div>';
+    return;
+  }
+  var totalNonLand=picks.length;
+  var totalLand=lands.reduce(function(s,l){return s+l.qty;},0);
+  var html='<div style="background:rgba(120,200,144,.08);border:.5px solid rgba(120,200,144,.4);border-radius:10px;padding:14px 18px;margin-top:12px">';
+  html+='<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap">';
+  html+='<div style="font-family:var(--ff-head);font-size:1.05rem;color:var(--gold2)">✓ Deck généré</div>';
+  html+='<span style="font-size:.84rem;color:var(--tx2)"><b>'+(totalNonLand+totalLand+1)+'</b> cartes (1 cmd + '+totalNonLand+' sorts + '+totalLand+' terrains)</span>';
+  html+='<button class="btn btnsm btnp" onclick="_dgenCreate()" style="margin-left:auto">📥 Créer ce deck</button>';
+  html+='</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:5px;max-height:50vh;overflow-y:auto;padding-right:4px">';
+  picks.forEach(function(p){
+    var pct=Math.round(p.freq*100);
+    html+='<div style="display:flex;gap:6px;font-size:.8rem;padding:3px 7px;background:var(--s2);border-radius:5px">'
+      +'<span style="color:var(--ac2);min-width:32px;text-align:right;font-variant-numeric:tabular-nums">'+pct+'%</span>'
+      +'<span style="color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.name)+'</span>'
+      +'</div>';
+  });
+  lands.forEach(function(l){
+    html+='<div style="display:flex;gap:6px;font-size:.8rem;padding:3px 7px;background:var(--s3);border-radius:5px">'
+      +'<span style="color:var(--tx3);min-width:32px;text-align:right">×'+l.qty+'</span>'
+      +'<span style="color:var(--tx2)">'+esc(l.name)+'</span>'
+      +'</div>';
+  });
+  html+='</div>';
+  html+='<div style="font-size:.74rem;color:var(--tx3);margin-top:10px;font-style:italic">Sélection basée sur fréquences EDHREC + ton niveau '+esc(preset.label)+'. Pour aller plus loin (manabase non-basique, swaps), crée le deck puis utilise l\'Analyse.</div>';
+  html+='</div>';
+  res.innerHTML=html;
+  // Stocke pour création
+  _dgenLastResult={commander:officialName,cmdCard:cmdCard,picks:picks,lands:lands,ci:ci};
+}
+var _dgenLastResult=null;
+function _dgenCreate(){
+  if(!_dgenLastResult){if(typeof toastError==='function')toastError('Rien à créer');return;}
+  var r=_dgenLastResult;
+  var id='dk_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  var lines=['// Commander','1 '+r.commander,''];
+  r.picks.forEach(function(p){lines.push('1 '+p.name);});
+  r.lands.forEach(function(l){lines.push(l.qty+' '+l.name);});
+  var rawName=lines.join('\n');
+  var parsed=[];
+  try{if(typeof parseList==='function')parsed=parseList(rawName);}catch(e){}
+  decks[id]={
+    name:r.commander+' (généré)',
+    rawName:rawName,
+    cards:parsed,
+    owner:0,
+    ownerUid:(typeof userId!=='undefined'?userId:''),
+    format:'commander',
+    commander:{name:r.commander,colors:r.ci},
+    colors:r.ci,
+    notes:'Généré par 🧙 Constructeur ('+_DECK_LEVEL_PRESETS[_dgenState.level].label+', source: '+(_dgenState.source==='coll'?'ma collection':'toutes cartes')+').',
+    updatedAt:Date.now(),
+    generatedFrom:'commander-builder'
+  };
+  try{saveDecks();}catch(e){}
+  if(typeof toastSuccess==='function')toastSuccess('✓ Deck créé : '+decks[id].name);
+  closeDeckGenerator();
+  setTimeout(function(){
+    if(typeof goTab==='function')goTab('build');
+    if(typeof bldLoadDeck==='function')bldLoadDeck(id);
+  },200);
 }
 // ════════════════════════════════════════════════════════════════════════
 // COMPARATEUR DE DECKS — diff visuel côte à côte
