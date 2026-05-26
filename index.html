@@ -7881,6 +7881,10 @@ function renderHome(){
     +'<button class="home-action" onclick="openWishlist()"><span>🎁</span>'+t('home.action.wishlist','Wishlist')+'</button>'
     +'<button class="home-action" onclick="openExplorer()"><span>🌐</span>'+t('home.action.explore','Explorer')+'</button>'
     +'<button class="home-action" onclick="openDeckGenerator()"><span>🧙</span>'+t('home.action.generator','Générer un deck')+'</button>'
+    +'<button class="home-action" onclick="openProToolsHub()"><span>🏆</span>'+t('home.action.pro','Outils Pro')+'</button>'
+    +'<button class="home-action" onclick="openMatchTracker()"><span>📓</span>'+t('home.action.matches','Journal parties')+'</button>'
+    +'<button class="home-action" onclick="openMulliganTrainer()"><span>🎴</span>'+t('home.action.mull','Mulligan trainer')+'</button>'
+    +'<button class="home-action" onclick="openTournamentMode()"><span>⏱</span>'+t('home.action.tournament','Mode tournoi')+'</button>'
     +'<button class="home-action" onclick="openReferrals()"><span>🎁</span>'+t('home.action.referral','Parrainage')+'</button>'
     +'<button class="home-action" onclick="openPurchaseMgr()"><span>🛒</span>'+t('home.action.lists','Listes partagées')+'</button>'
     +'<button class="home-action" onclick="openProfile()"><span>👤</span>'+t('home.action.profile','Profil')+'</button>'
@@ -32781,6 +32785,11 @@ function _cmdPalBuild(){
   if(typeof _userRole!=='undefined'&&_userRole==='admin')items.push({key:'act:modqueue',ico:'🛡',lbl:'File de modération (admin)',cat:'Admin',act:function(){if(typeof openModerationQueue==='function')openModerationQueue();}});
   items.push({key:'act:cmpdecks',ico:'⚖',lbl:'Comparer 2 decks',cat:'Action',act:function(){if(typeof openDeckCompare==='function')openDeckCompare();}});
   items.push({key:'act:generator',ico:'🧙',lbl:'Générer un deck depuis un commandant',cat:'Action',act:function(){if(typeof openDeckGenerator==='function')openDeckGenerator();}});
+  items.push({key:'act:protools',ico:'🏆',lbl:'Outils Pro (match tracker, pod optimizer…)',cat:'Action',act:function(){if(typeof openProToolsHub==='function')openProToolsHub();}});
+  items.push({key:'act:matches',ico:'📓',lbl:'Journal de parties (winrate par matchup)',cat:'Action',act:function(){if(typeof openMatchTracker==='function')openMatchTracker();}});
+  items.push({key:'act:pod',ico:'👥',lbl:'Pod Optimizer (préparation de table EDH)',cat:'Action',act:function(){if(typeof openPodOptimizer==='function')openPodOptimizer();}});
+  items.push({key:'act:mulligan',ico:'🎴',lbl:'Mulligan Trainer (verdict garde/mull)',cat:'Action',act:function(){if(typeof openMulliganTrainer==='function')openMulliganTrainer();}});
+  items.push({key:'act:tournament',ico:'⏱',lbl:'Mode Tournoi (timer + life tracker)',cat:'Action',act:function(){if(typeof openTournamentMode==='function')openTournamentMode();}});
   items.push({key:'act:referral',ico:'🎁',lbl:'Mon programme de parrainage',cat:'Action',act:function(){if(typeof openReferrals==='function')openReferrals();}});
   items.push({key:'act:pursearch',ico:'🔍',lbl:'Chercher une carte dans mes listes partagées',cat:'Action',act:function(){if(typeof openPurchaseSearch==='function')openPurchaseSearch();}});
   items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
@@ -37821,6 +37830,10 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/rebound/.test(o))s+=4;  // rejouer un sort d'extra-tour = double valeur
     if(/can't cast spells from their hand during other players' turns/i.test(o))s+=5;
   }
+  // Soft cap diminishing returns au-delà de s=15 pour éviter le "buzzword bias"
+  // (une carte qui match 6 regex ne doit pas dominer une carte chirurgicale qui en match 2 très fortes).
+  // Cap naturel autour de ~25 quel que soit le nombre de matches.
+  if(s>15)s=15+Math.log(s-14)*3;
   return s;
 }
 
@@ -39042,6 +39055,94 @@ function anaRender(deckId){
     html+='</div>';
     return html;
   })();
+  // === Métriques pro : Plan A, vitesse, interaction-density, packages combo ===
+  var _proMetricsHtml=(function(){
+    if(!anaIsCommanderFormat(fmt))return '';
+    // Plan A : agrège les signaux par win-condition possible
+    var planScore={combo:0,commander_dmg:0,combat:0,control:0,drain:0,reanimate:0,mill:0,storm:0};
+    var rampLow=0,instCount=0,nonLand=0,cmcSum=0,nCmc=0;
+    var fastManaCnt=0,tutorCnt=0,gcCnt=0;
+    rows.forEach(function(r){
+      if(!r.meta||!r.meta.tags)return;
+      var qty=r.card.qty||1;
+      var nm=(r.meta.name||'').toLowerCase();
+      if(_DGEN_FAST_MANA.has(nm))fastManaCnt+=qty;
+      if(_DGEN_TUTORS.has(nm))tutorCnt+=qty;
+      if(_DGEN_GAME_CHANGERS.has(nm))gcCnt+=qty;
+      if(r.meta.tags.isLand)return;
+      nonLand+=qty;
+      cmcSum+=(r.meta.cmc||0)*qty;nCmc+=qty;
+      if(_dgenIsInstantSpeedInteraction(r.meta))instCount+=qty;
+      if(r.roles&&r.roles.ramp&&(r.meta.cmc||0)<=2)rampLow+=qty;
+      var o=(r.meta.oracleText||'').toLowerCase();
+      var tl=(r.meta.typeLine||'').toLowerCase();
+      if(r.roles&&r.roles.interaction)planScore.control+=qty;
+      if(/commander damage|deals damage to a player.*equal/.test(o))planScore.commander_dmg+=qty*2;
+      if(/equip\b/.test(tl))planScore.commander_dmg+=qty;
+      if(/mill|put.*top.*cards.*graveyard/.test(o))planScore.mill+=qty;
+      if(/each opponent loses|life equal to/.test(o))planScore.drain+=qty;
+      if(/lifelink|gain life/.test(o)&&(_anaCurrentThemes.lifegain||1)>1.5)planScore.drain+=qty;
+      if(/return.*creature.*from.*graveyard.*battlefield/.test(o))planScore.reanimate+=qty;
+      if(/\bstorm\b|copy target (instant|sorcery)/.test(o))planScore.storm+=qty;
+      if(tl.indexOf('creature')>=0&&(r.meta.cmc||0)<=3)planScore.combat+=qty;
+    });
+    // Detect packages combo dans le deck
+    var deckNames={};rows.forEach(function(r){var nm=((r.meta&&r.meta.name)||r.card.name||'').toLowerCase();if(nm)deckNames[nm]=1;});
+    var pkgFound=[];
+    _COMBO_PACKAGES.forEach(function(pkg){
+      var present=pkg.cards.filter(function(c){return deckNames[c.toLowerCase()];});
+      if(present.length>=2)pkgFound.push({pkg:pkg,present:present});
+    });
+    pkgFound.forEach(function(pf){if(planScore.hasOwnProperty(pf.pkg.wincon))planScore[pf.pkg.wincon]+=8;});
+    // Plan A
+    var planEntries=Object.keys(planScore).map(function(k){return {k:k,v:planScore[k]};}).sort(function(a,b){return b.v-a.v;});
+    var plan=planEntries[0].k;
+    var plan2=planEntries[1]&&planEntries[1].v>3?planEntries[1].k:null;
+    var totPlan=planEntries.reduce(function(s,e){return s+e.v;},0);
+    var coherence=totPlan>0?Math.round((planEntries[0].v/totPlan)*100):0;
+    // Speed
+    var pkgCount=pkgFound.length;
+    var tEst=12 - 0.4*rampLow*0.4 - 0.5*fastManaCnt - 0.3*tutorCnt - 0.8*pkgCount;
+    var speedTurn=Math.max(3,Math.round(tEst*10)/10);
+    // CMC moyen
+    var avgCmc=nCmc?Math.round(cmcSum/nCmc*10)/10:0;
+    // Interaction density
+    var instDensity=nonLand>0?Math.round((instCount/nonLand)*100):0;
+    // Render
+    var planLabels={combo:'Combo',commander_dmg:'Dégâts cmd',combat:'Combat',control:'Contrôle',drain:'Drain',reanimate:'Réanimateur',mill:'Mill',storm:'Storm'};
+    var planIcos={combo:'🎯',commander_dmg:'⚔',combat:'🪖',control:'🛡',drain:'🩸',reanimate:'💀',mill:'📚',storm:'🌪'};
+    var cohCol=coherence>=50?'#7fb069':coherence>=30?'#e8c96e':'#dc5050';
+    var idCol=instDensity>=15?'#7fb069':instDensity>=8?'#e8c96e':'#dc5050';
+    var h='<div class="card"><div class="lbl">🏆 Métriques pro — plan A, vitesse, interaction</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:8px">';
+    h+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:9px;color:var(--tx3);letter-spacing:.05em">PLAN A</div><div style="font-size:12.5px;font-weight:600;color:var(--ac2)">'+(planIcos[plan]||'')+' '+(planLabels[plan]||plan)+'</div><div style="font-size:9.5px;color:'+cohCol+'">'+coherence+'% cohérent'+(plan2?' · B: '+(planLabels[plan2]||plan2):'')+'</div></div>';
+    h+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:9px;color:var(--tx3);letter-spacing:.05em">VITESSE</div><div style="font-size:14px;font-weight:700;color:var(--gold2)">T'+speedTurn+'</div><div style="font-size:9px;color:var(--tx3)">turn-of-win estimé</div></div>';
+    h+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:9px;color:var(--tx3);letter-spacing:.05em">INTERACTION (INSTANT)</div><div style="font-size:14px;font-weight:700;color:'+idCol+'">'+instCount+' <span style="font-size:9px;color:var(--tx3)">('+instDensity+'%)</span></div><div style="font-size:9px;color:var(--tx3)">cible: ≥ 8 cartes / 15%</div></div>';
+    h+='<div style="background:rgba(0,0,0,.20);border-radius:7px;padding:7px 9px"><div style="font-size:9px;color:var(--tx3);letter-spacing:.05em">CMC MOYEN (sorts)</div><div style="font-size:14px;font-weight:700;color:var(--tx)">'+avgCmc+'</div></div>';
+    h+='</div>';
+    // Packages combo détectés (informative, ne suggère pas l'ajout)
+    if(pkgFound.length){
+      h+='<div style="background:rgba(232,201,110,.10);border:.5px solid rgba(232,201,110,.3);border-radius:8px;padding:7px 10px;margin-bottom:5px">';
+      h+='<div style="font-size:10px;color:var(--gold2);font-weight:600;letter-spacing:.04em;margin-bottom:3px">🎯 PACKAGES DÉTECTÉS</div>';
+      pkgFound.forEach(function(pf){
+        h+='<div style="font-size:10.5px;color:var(--tx2)">· '+esc(pf.pkg.name)+' <span style="color:var(--tx3)">— '+pf.present.length+'/'+pf.pkg.cards.length+' pièces</span></div>';
+      });
+      h+='</div>';
+    }
+    // Pédagogique
+    var hints=[];
+    if(coherence<30)hints.push('Plan A peu marqué : le deck disperse ses ressources entre plusieurs stratégies. Tranche.');
+    if(instDensity<8&&nonLand>50)hints.push('Trop peu d\'interaction instant-speed : vulnerable face à un deck combo ou aggro.');
+    if(avgCmc>3.8)hints.push('Courbe lourde (CMC moyen '+avgCmc+') : tu passeras des tours sans agir. Réduis ou ajoute du ramp 2-CMC.');
+    if(rampLow<6&&anaIsCommanderFormat(fmt))hints.push('Ramp 2-CMC sous quota : T2-T3 perdus, beaucoup de decks meilleurs.');
+    if(hints.length){
+      h+='<div style="font-size:10.5px;color:var(--tx3);line-height:1.5;padding-top:4px;border-top:.5px solid var(--bd)">';
+      hints.forEach(function(t){h+='<div style="margin-bottom:2px">⚠ '+esc(t)+'</div>';});
+      h+='</div>';
+    }
+    h+='</div>';
+    return h;
+  })();
   // === Détecteur de combos infinis (opt-in) ===
   var _comboHtml=(function(){
     var combos=_anaDetectCombos(deck);
@@ -39557,7 +39658,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_proMetricsHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -39566,7 +39667,7 @@ function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_proMetricsHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
@@ -44242,11 +44343,233 @@ function glossaryInit(){
 // → pondéré par notre _anaThemeSynergyScore + filtres collection/bracket.
 
 var _DECK_LEVEL_PRESETS={
-  casual:    {label:'Casual',      desc:'Synergies maison, peu de tutors/fast mana. Bracket 2-3.',  edhrecMin:0.05, maxGameChangers:1, maxTutors:2, preferThematic:true},
-  balanced:  {label:'Équilibré',   desc:'Mix synergies + cartes solides. Bracket 3.',                edhrecMin:0.10, maxGameChangers:3, maxTutors:5, preferThematic:true},
-  optimised: {label:'Optimisé',    desc:'Cartes méta + interaction + win cons rapides. Bracket 4.', edhrecMin:0.15, maxGameChangers:8, maxTutors:10, preferThematic:false},
-  cedh:      {label:'cEDH',        desc:'Compétitif : tutors, fast mana, game changers. Bracket 5.', edhrecMin:0.20, maxGameChangers:99, maxTutors:99, preferThematic:false}
+  casual:    {label:'Casual',      desc:'Synergies maison, peu de tutors/fast mana. Bracket 2-3.',  edhrecMin:0.05, maxGameChangers:1, maxTutors:2, preferThematic:true,
+              quotas:{ramp:[8,11],draw:[8,11],removal:[6,9],wipes:[2,4],interaction:[3,6]},
+              curve:{1:[6,12],2:[10,16],3:[10,15],4:[7,12],5:[4,8],6:[3,6],7:[2,5]},
+              landMix:{dualETBT:0.40,dualUntap:0.0,utility:0.05,basics:0.55,fetch:0,fastland:0}},
+  balanced:  {label:'Équilibré',   desc:'Mix synergies + cartes solides. Bracket 3.',                edhrecMin:0.10, maxGameChangers:3, maxTutors:5, preferThematic:true,
+              quotas:{ramp:[9,12],draw:[9,12],removal:[7,10],wipes:[3,5],interaction:[5,8]},
+              curve:{1:[6,11],2:[10,15],3:[9,14],4:[7,11],5:[4,7],6:[3,5],7:[2,4]},
+              landMix:{dualETBT:0.35,dualUntap:0.15,utility:0.10,basics:0.40,fetch:0,fastland:0}},
+  optimised: {label:'Optimisé',    desc:'Cartes méta + interaction + win cons rapides. Bracket 4.', edhrecMin:0.15, maxGameChangers:8, maxTutors:10, preferThematic:false,
+              quotas:{ramp:[10,13],draw:[10,13],removal:[7,10],wipes:[2,4],interaction:[8,11]},
+              curve:{1:[9,15],2:[12,17],3:[9,13],4:[6,10],5:[3,6],6:[2,4],7:[1,3]},
+              landMix:{dualETBT:0.20,dualUntap:0.35,utility:0.10,basics:0.20,fetch:0.15,fastland:0}},
+  cedh:      {label:'cEDH',        desc:'Compétitif : tutors, fast mana, game changers. Bracket 5.', edhrecMin:0.20, maxGameChangers:99, maxTutors:99, preferThematic:false,
+              quotas:{ramp:[11,14],draw:[11,14],removal:[6,9],wipes:[1,2],interaction:[10,14]},
+              curve:{1:[14,22],2:[14,20],3:[8,12],4:[4,7],5:[2,4],6:[1,3],7:[0,2]},
+              landMix:{dualETBT:0.05,dualUntap:0.45,utility:0.10,basics:0.10,fetch:0.30,fastland:0}}
 };
+
+// ── Pool de terrains intelligent : ETB-tapped duals (budget) + ETB-untapped (premium)
+//    + utility lands + fetches. Sélectionné par color identity.
+// nm = nom officiel ; ci = couleurs produites (ou [] colorless) ; tags : 't'=ETB tapped, 'u'=ETB untapped, 'f'=fetch, 'util'=utility
+var _DGEN_LAND_POOL=[
+  // ── Bicolores ETB-tapped (Guildgates, Bouncelands, Refuges, Karoos)
+  {nm:'Azorius Guildgate',ci:['W','U'],t:1},{nm:'Dimir Guildgate',ci:['U','B'],t:1},{nm:'Rakdos Guildgate',ci:['B','R'],t:1},
+  {nm:'Gruul Guildgate',ci:['R','G'],t:1},{nm:'Selesnya Guildgate',ci:['G','W'],t:1},{nm:'Orzhov Guildgate',ci:['W','B'],t:1},
+  {nm:'Izzet Guildgate',ci:['U','R'],t:1},{nm:'Golgari Guildgate',ci:['B','G'],t:1},{nm:'Boros Guildgate',ci:['R','W'],t:1},
+  {nm:'Simic Guildgate',ci:['G','U'],t:1},
+  // Painful taplands (Refuges)
+  {nm:'Tranquil Cove',ci:['W','U'],t:1},{nm:'Dismal Backwater',ci:['U','B'],t:1},{nm:'Bloodfell Caves',ci:['B','R'],t:1},
+  {nm:'Rugged Highlands',ci:['R','G'],t:1},{nm:'Blossoming Sands',ci:['G','W'],t:1},{nm:'Scoured Barrens',ci:['W','B'],t:1},
+  {nm:'Swiftwater Cliffs',ci:['U','R'],t:1},{nm:'Jungle Hollow',ci:['B','G'],t:1},{nm:'Wind-Scarred Crag',ci:['R','W'],t:1},
+  {nm:'Thornwood Falls',ci:['G','U'],t:1},
+  // Bouncelands (Ravnica originals)
+  {nm:'Azorius Chancery',ci:['W','U'],t:1},{nm:'Dimir Aqueduct',ci:['U','B'],t:1},{nm:'Rakdos Carnarium',ci:['B','R'],t:1},
+  {nm:'Gruul Turf',ci:['R','G'],t:1},{nm:'Selesnya Sanctuary',ci:['G','W'],t:1},{nm:'Orzhov Basilica',ci:['W','B'],t:1},
+  {nm:'Izzet Boilerworks',ci:['U','R'],t:1},{nm:'Golgari Rot Farm',ci:['B','G'],t:1},{nm:'Boros Garrison',ci:['R','W'],t:1},
+  {nm:'Simic Growth Chamber',ci:['G','U'],t:1},
+  // ── Bicolores ETB-untapped premium (Shocklands, Pathways, Painlands)
+  {nm:'Hallowed Fountain',ci:['W','U'],u:1},{nm:'Watery Grave',ci:['U','B'],u:1},{nm:'Blood Crypt',ci:['B','R'],u:1},
+  {nm:'Stomping Ground',ci:['R','G'],u:1},{nm:'Temple Garden',ci:['G','W'],u:1},{nm:'Godless Shrine',ci:['W','B'],u:1},
+  {nm:'Steam Vents',ci:['U','R'],u:1},{nm:'Overgrown Tomb',ci:['B','G'],u:1},{nm:'Sacred Foundry',ci:['R','W'],u:1},
+  {nm:'Breeding Pool',ci:['G','U'],u:1},
+  // Painlands
+  {nm:'Adarkar Wastes',ci:['W','U'],u:1},{nm:'Underground River',ci:['U','B'],u:1},{nm:'Sulfurous Springs',ci:['B','R'],u:1},
+  {nm:'Karplusan Forest',ci:['R','G'],u:1},{nm:'Brushland',ci:['G','W'],u:1},{nm:'Caves of Koilos',ci:['W','B'],u:1},
+  {nm:'Shivan Reef',ci:['U','R'],u:1},{nm:'Llanowar Wastes',ci:['B','G'],u:1},{nm:'Battlefield Forge',ci:['R','W'],u:1},
+  {nm:'Yavimaya Coast',ci:['G','U'],u:1},
+  // Check lands (M10)
+  {nm:'Glacial Fortress',ci:['W','U'],u:1},{nm:'Drowned Catacomb',ci:['U','B'],u:1},{nm:'Dragonskull Summit',ci:['B','R'],u:1},
+  {nm:'Rootbound Crag',ci:['R','G'],u:1},{nm:'Sunpetal Grove',ci:['G','W'],u:1},{nm:'Isolated Chapel',ci:['W','B'],u:1},
+  {nm:'Sulfur Falls',ci:['U','R'],u:1},{nm:'Woodland Cemetery',ci:['B','G'],u:1},{nm:'Clifftop Retreat',ci:['R','W'],u:1},
+  {nm:'Hinterland Harbor',ci:['G','U'],u:1},
+  // ── Tri-couleurs ETB-tapped (Triomes, Tri-lands)
+  {nm:'Indatha Triome',ci:['W','B','G'],t:1},{nm:'Ketria Triome',ci:['G','U','R'],t:1},{nm:'Raugrin Triome',ci:['U','R','W'],t:1},
+  {nm:'Savai Triome',ci:['R','W','B'],t:1},{nm:'Zagoth Triome',ci:['B','G','U'],t:1},
+  {nm:'Spara\'s Headquarters',ci:['G','W','U'],t:1},{nm:'Raffine\'s Tower',ci:['W','U','B'],t:1},
+  {nm:'Xander\'s Lounge',ci:['U','B','R'],t:1},{nm:'Ziatora\'s Proving Ground',ci:['B','R','G'],t:1},
+  {nm:'Jetmir\'s Garden',ci:['R','G','W'],t:1},
+  // ── Fetches (Onslaught + Zendikar)
+  {nm:'Flooded Strand',ci:['W','U'],f:1},{nm:'Polluted Delta',ci:['U','B'],f:1},{nm:'Bloodstained Mire',ci:['B','R'],f:1},
+  {nm:'Wooded Foothills',ci:['R','G'],f:1},{nm:'Windswept Heath',ci:['G','W'],f:1},{nm:'Marsh Flats',ci:['W','B'],f:1},
+  {nm:'Scalding Tarn',ci:['U','R'],f:1},{nm:'Verdant Catacombs',ci:['B','G'],f:1},{nm:'Arid Mesa',ci:['R','W'],f:1},
+  {nm:'Misty Rainforest',ci:['G','U'],f:1},
+  // Slow fetches (Mirage)
+  {nm:'Flood Plain',ci:['W','U'],f:1,t:1},{nm:'Bad River',ci:['U','B'],f:1,t:1},{nm:'Rocky Tar Pit',ci:['B','R'],f:1,t:1},
+  {nm:'Mountain Valley',ci:['R','G'],f:1,t:1},{nm:'Grasslands',ci:['G','W'],f:1,t:1},
+  // ── Utility lands (incolores, accessibles à tout deck)
+  {nm:'Command Tower',ci:[],util:1,u:1,allColors:1},
+  {nm:'Exotic Orchard',ci:[],util:1,u:1,allColors:1},
+  {nm:'Path of Ancestry',ci:[],util:1,t:1,allColors:1},
+  {nm:'Reflecting Pool',ci:[],util:1,u:1,allColors:1},
+  {nm:'City of Brass',ci:[],util:1,u:1,allColors:1},
+  {nm:'Mana Confluence',ci:[],util:1,u:1,allColors:1},
+  {nm:'Forbidden Orchard',ci:[],util:1,u:1,allColors:1},
+  {nm:'Reliquary Tower',ci:[],util:1,u:1},
+  {nm:'Bojuka Bog',ci:['B'],util:1,t:1},
+  {nm:'Strip Mine',ci:[],util:1,u:1},
+  {nm:'Wasteland',ci:[],util:1,u:1},
+  {nm:'Ghost Quarter',ci:[],util:1,u:1},
+  {nm:'Field of Ruin',ci:[],util:1,u:1},
+  {nm:'Rogue\'s Passage',ci:[],util:1,u:1},
+  {nm:'Maze of Ith',ci:[],util:1,u:1},
+  {nm:'Boseiju, Who Endures',ci:['G'],util:1,u:1},
+  {nm:'Otawara, Soaring City',ci:['U'],util:1,u:1},
+  {nm:'Takenuma, Abandoned Mire',ci:['B'],util:1,u:1},
+  {nm:'Sokenzan, Crucible of Defiance',ci:['R'],util:1,u:1},
+  {nm:'Eiganjo, Seat of the Empire',ci:['W'],util:1,u:1},
+  // Sol Ring-like (technically mana rock, not land, skip)
+  // City lands (penny tribal but stable)
+  {nm:'Unclaimed Territory',ci:[],util:1,u:1,allColors:1},
+  {nm:'Cavern of Souls',ci:[],util:1,u:1,allColors:1}
+];
+
+// ── Combos / packages détectés : si ≥ 2 cartes du package sont jouables, bonus massif.
+// Permet aux deck-generator de proposer Thoracle+Consultation, Food Chain+Eternal Scourge, etc.
+var _COMBO_PACKAGES=[
+  {name:'Thassa\'s Oracle + Consultation', cards:['thassa\'s oracle','demonic consultation','tainted pact'], colors:['U','B'], theme:'combo', bonus:15, wincon:'combo'},
+  {name:'Food Chain + Eternal Scourge', cards:['food chain','eternal scourge','squee, the immortal','misthollow griffin'], colors:['G'], theme:'combo', bonus:14, wincon:'combo'},
+  {name:'Isochron Scepter + Dramatic Reversal', cards:['isochron scepter','dramatic reversal'], colors:['U'], theme:'combo', bonus:12, wincon:'combo'},
+  {name:'Sneak Attack + fatties', cards:['sneak attack','through the breach','emrakul, the aeons torn','griselbrand','blightsteel colossus'], colors:['R'], theme:'reanimator', bonus:10, wincon:'combo'},
+  {name:'Reanimator package', cards:['reanimate','animate dead','exhume','entomb','buried alive','victimize','dread return'], colors:['B'], theme:'graveyard', bonus:8, wincon:'reanimate'},
+  {name:'Cradle to Grave (creatures + tokens)', cards:['cradle of vitality','dross harvester','blood artist','zulaport cutthroat','cruel celebrant','syr konrad, the grim'], colors:['B'], theme:'sacrifice', bonus:6, wincon:'drain'},
+  {name:'Splinter Twin', cards:['splinter twin','kiki-jiki, mirror breaker','pestermite','deceiver exarch','zealous conscripts'], colors:['U','R'], theme:'combo', bonus:12, wincon:'combo'},
+  {name:'Painter\'s + Grindstone', cards:['painter\'s servant','grindstone'], colors:[], theme:'mill', bonus:14, wincon:'mill'},
+  {name:'Worldgorger Dragon + Animate', cards:['worldgorger dragon','animate dead','dance of the dead','necromancy'], colors:['B'], theme:'graveyard', bonus:12, wincon:'combo'},
+  {name:'Heliod + Walking Ballista', cards:['heliod, sun-crowned','walking ballista','spike feeder'], colors:['W'], theme:'lifegain', bonus:11, wincon:'combo'},
+  {name:'Mikaeus + Triskelion', cards:['mikaeus, the unhallowed','triskelion','walking ballista'], colors:['B'], theme:'graveyard', bonus:12, wincon:'combo'},
+  {name:'Kiki-Jiki + Felidar', cards:['kiki-jiki, mirror breaker','felidar guardian','restoration angel'], colors:['R','W'], theme:'tokens', bonus:11, wincon:'combo'},
+  {name:'Sanguine Bond + Exquisite Blood', cards:['sanguine bond','exquisite blood','vito, thorn of the dusk rose'], colors:['B','W'], theme:'lifegain', bonus:13, wincon:'combo'},
+  {name:'Polymorph package', cards:['polymorph','proteus staff','emrakul, the aeons torn','blightsteel colossus','progenitus'], colors:['U'], theme:'combo', bonus:9, wincon:'combo'},
+  {name:'Storm package', cards:['grapeshot','tendrils of agony','aetherflux reservoir','mind\'s desire','past in flames','manamorphose','rite of flame','desperate ritual','pyretic ritual'], colors:['U','R'],theme:'storm',bonus:8,wincon:'combo'},
+  {name:'Voltron equipment', cards:['umezawa\'s jitte','sword of feast and famine','sword of fire and ice','swiftfoot boots','lightning greaves','batterskull','colossus hammer'], colors:[], theme:'voltron', bonus:6, wincon:'commander_dmg'},
+  {name:'Lab Maniac wincon', cards:['laboratory maniac','jace, wielder of mysteries','thassa\'s oracle'], colors:['U'], theme:'mill', bonus:9, wincon:'combo'}
+];
+
+// ── Game changers étendus (au-delà des classiques)
+var _DGEN_GAME_CHANGERS=new Set(['cyclonic rift','fierce guardianship','force of will','force of negation','mana drain','rhystic study','smothering tithe','thassa\'s oracle','the one ring','drannith magistrate','opposition agent','bolas\'s citadel','necropotence','expropriate','ad nauseam','yawgmoth\'s will','sheoldred, the apocalypse','grand arbiter augustin iv','iona, shield of emeria','demonic tutor','vampiric tutor','jeweled lotus','jin-gitaxias, core augur','consecrated sphinx','craterhoof behemoth','natural order','seedborn muse','urza, lord high artificer']);
+var _DGEN_TUTORS=new Set(['demonic tutor','vampiric tutor','imperial seal','mystical tutor','enlightened tutor','worldly tutor','green sun\'s zenith','gamble','diabolic intent','intuition','tainted pact','natural order','survival of the fittest','entomb','idyllic tutor','fabricate','chord of calling','eldritch evolution','finale of devastation','grim tutor','beseech the queen','sterling grove','bring to light','wargate']);
+var _DGEN_FAST_MANA=new Set(['mana crypt','mana vault','mox diamond','mox opal','chrome mox','lotus petal','lion\'s eye diamond','jeweled lotus','grim monolith','dockside extortionist','ancient tomb']);
+
+// ── Helpers de classification (basés sur tags Scryfall + oracle)
+function _dgenRoleOf(meta){
+  if(!meta||!meta.tags)return null;
+  var t=meta.tags,o=(meta.oracleText||'').toLowerCase(),tl=(meta.typeLine||'').toLowerCase();
+  if(t.isLand)return 'land';
+  if(t.wrath>=1||/destroy all|exile all|destroy each (?:creature|nonland)|deals \d+ damage to each creature/i.test(o))return 'wipe';
+  if(t.ramp>=0.6)return 'ramp';
+  if(t.draw>=0.6)return 'draw';
+  if(t.counter>=1)return 'interaction'; // counterspells = interaction instant-speed
+  if(t.removal>=0.6)return 'removal';
+  if(t.interaction>=0.6)return 'interaction';
+  if(t.wincon>=1)return 'wincon';
+  return null;
+}
+function _dgenIsInstantSpeedInteraction(meta){
+  if(!meta||!meta.oracleText)return false;
+  var tl=(meta.typeLine||'').toLowerCase();
+  if(tl.indexOf('instant')<0&&!/flash/i.test(meta.oracleText))return false;
+  var t=meta.tags||{};
+  return t.removal>=0.6||t.counter>=1||t.interaction>=0.6;
+}
+// CMC bucket : 0-1=1, 2=2, 3=3, …, 7+=7
+function _dgenCmcBucket(meta){
+  if(!meta)return 3;
+  if(meta.tags&&meta.tags.isLand)return 0;
+  var c=Math.floor(meta.cmc||0);
+  if(c<=1)return 1;
+  if(c>=7)return 7;
+  return c;
+}
+
+// ── Détecte les packages combo présents dans une liste de noms (lowercase)
+function _dgenDetectPackages(nlNames){
+  var found=[];
+  _COMBO_PACKAGES.forEach(function(pkg){
+    var present=pkg.cards.filter(function(c){return nlNames.indexOf(c)>=0;});
+    if(present.length>=2){
+      found.push({pkg:pkg,present:present,coverage:present.length/pkg.cards.length});
+    }
+  });
+  return found;
+}
+
+// ── Construit la manabase intelligente
+function _dgenBuildManabase(ci,level,totalSlots,collOwned,sourceColl){
+  var preset=_DECK_LEVEL_PRESETS[level]||_DECK_LEVEL_PRESETS.balanced;
+  var mix=preset.landMix||{dualETBT:0.4,dualUntap:0.1,utility:0.1,basics:0.4,fetch:0,fastland:0};
+  var nColors=ci.length;
+  // Cap pour 1 couleur : pas de duals (sauf utility incolores) → mix bascule en basics
+  if(nColors<=1){mix={dualETBT:0,dualUntap:0,utility:0.15,basics:0.85,fetch:0,fastland:0};}
+  // Slots cibles
+  var sUtil=Math.round(totalSlots*mix.utility);
+  var sETBT=Math.round(totalSlots*mix.dualETBT);
+  var sUntap=Math.round(totalSlots*mix.dualUntap);
+  var sFetch=Math.round(totalSlots*(mix.fetch||0));
+  var sBasic=totalSlots-sUtil-sETBT-sUntap-sFetch;
+  // Si nColors==0 → tout en wastes
+  if(nColors===0){return [{nm:'Wastes',qty:totalSlots,nl:'wastes',cat:'basic'}];}
+  // Filtre du pool par color identity du commandant
+  function inCi(landCi){
+    if(!landCi||!landCi.length)return true; // incolore = ok
+    for(var i=0;i<landCi.length;i++){if(ci.indexOf(landCi[i])<0)return false;}
+    return true;
+  }
+  function passColl(nm){
+    if(!sourceColl)return true;
+    return !!collOwned[nm.toLowerCase()];
+  }
+  var pool={util:[],etbt:[],untap:[],fetch:[]};
+  _DGEN_LAND_POOL.forEach(function(L){
+    if(!inCi(L.ci))return;
+    if(!passColl(L.nm))return;
+    if(L.util)pool.util.push(L);
+    else if(L.f)pool.fetch.push(L);
+    else if(L.u)pool.untap.push(L);
+    else if(L.t)pool.etbt.push(L);
+  });
+  var picks=[],used={};
+  function takeFrom(arr,n){
+    var i=0;
+    while(i<arr.length&&picks.filter(function(p){return p.cat===arr.__cat;}).length<n){
+      var L=arr[i++];if(used[L.nm.toLowerCase()])continue;
+      used[L.nm.toLowerCase()]=1;
+      picks.push({nm:L.nm,qty:1,nl:L.nm.toLowerCase(),cat:arr.__cat});
+    }
+  }
+  pool.util.__cat='utility';pool.etbt.__cat='dualETBT';pool.untap.__cat='dualUntap';pool.fetch.__cat='fetch';
+  takeFrom(pool.util,sUtil);
+  takeFrom(pool.untap,sUntap);
+  takeFrom(pool.etbt,sETBT);
+  takeFrom(pool.fetch,sFetch);
+  // Compense les slots non remplis (collection trop limitée) par + de basiques
+  var nonBasic=picks.length;
+  var actualBasic=totalSlots-nonBasic;
+  if(actualBasic<0){actualBasic=0;picks=picks.slice(0,totalSlots);}
+  // Distribute basics par couleur (équilibré)
+  var BASIC_BY_COLOR={W:'Plains',U:'Island',B:'Swamp',R:'Mountain',G:'Forest'};
+  if(actualBasic>0&&nColors>0){
+    var perColor=Math.floor(actualBasic/nColors);
+    var remainder=actualBasic-perColor*nColors;
+    ci.forEach(function(col,i){
+      var n=perColor+(i<remainder?1:0);
+      if(n>0)picks.push({nm:BASIC_BY_COLOR[col],qty:n,nl:BASIC_BY_COLOR[col].toLowerCase(),cat:'basic'});
+    });
+  }
+  return picks;
+}
 
 function openDeckGenerator(presetCommander){
   var ov=document.getElementById('dgen-overlay');
@@ -44340,67 +44663,145 @@ function _dgenGenerate(){
   });
 }
 // _dgenBuild : sélectionne 99 cartes + le commandant
+// Pipeline (mai 2026) : (1) Quotas catégories obligatoires (ramp/draw/removal/wipes/interaction)
+//                       (2) Courbe de mana respectée (caps par bucket CMC)
+//                       (3) Game changers / tutors / fast mana cappés selon bracket
+//                       (4) Packages combo détectés → bonus si ≥2 cartes présentes
+//                       (5) Comblé avec top synergie EDHREC × _anaSynergyWeight
 function _dgenBuild(officialName,cmdCard,ci,freqMap){
   var res=document.getElementById('dgen-result');if(!res)return;
   var preset=_DECK_LEVEL_PRESETS[_dgenState.level]||_DECK_LEVEL_PRESETS.balanced;
-  // Pool : pour chaque carte de freqMap, on récupère meta (depuis _anaData ou Scryfall)
-  // Pour le MVP : on prend directement la liste EDHREC triée par fréquence, filtrée par collection si demandé
+  var quotas=preset.quotas||{ramp:[8,11],draw:[8,11],removal:[6,9],wipes:[2,4],interaction:[5,8]};
+  var curve=preset.curve||{1:[5,12],2:[10,16],3:[10,15],4:[6,12],5:[3,7],6:[2,5],7:[1,4]};
   var collOwned={};
   if(_dgenState.source==='coll'){
     try{(getProfCards(0)||[]).forEach(function(c){collOwned[(c.name||'').toLowerCase().trim()]=(c.qty||1);});}catch(e){}
   }
-  // Cartes ciblées à éviter pour casual / bracket bas
-  var GAME_CHANGERS=new Set(['cyclonic rift','fierce guardianship','force of will','mana drain','rhystic study','smothering tithe',"thassa's oracle",'the one ring','drannith magistrate','opposition agent',"bolas's citadel",'necropotence','expropriate','ad nauseam',"yawgmoth's will",'sheoldred, the apocalypse','grand arbiter augustin iv','iona, shield of emeria']);
-  var TUTORS=new Set(['demonic tutor','vampiric tutor','imperial seal','mystical tutor','enlightened tutor','worldly tutor',"green sun's zenith",'gamble','diabolic intent','intuition','tainted pact','natural order','survival of the fittest','entomb','idyllic tutor','fabricate','chord of calling']);
-  var FAST_MANA=new Set(['mana crypt','mana vault','mox diamond','mox opal','chrome mox','lotus petal',"lion's eye diamond",'jeweled lotus','grim monolith','dockside extortionist','ancient tomb']);
-  // Trier par fréquence décroissante
-  var entries=Object.keys(freqMap).map(function(nl){return {nl:nl,freq:freqMap[nl]};});
-  entries.sort(function(a,b){return b.freq-a.freq;});
-  // Filtrage
-  var picks=[];var gcCount=0,tutorCount=0;var seen={};
-  var nameMap={}; // nl → nom officiel (depuis _anaData)
-  entries.forEach(function(e){
-    if(picks.length>=99-37)return; // 62 non-lands cibles
-    var nl=e.nl;
+  // Manabase : ~37 terrains (Commander). On gardera 62 slots non-land
+  var nLands=37;
+  var nNonLand=99-nLands;
+  // Manabase intelligente
+  var lands=_dgenBuildManabase(ci,_dgenState.level,nLands,collOwned,_dgenState.source==='coll');
+  // Construire la liste des candidats triés par fréquence × synergie thèmes
+  // Récupère les thèmes du commandant pour pondérer la synergie
+  var cmdMeta={oracleText:(cmdCard.oracle_text||cmdCard.card_faces&&cmdCard.card_faces[0]&&cmdCard.card_faces[0].oracle_text)||'',typeLine:cmdCard.type_line||'',cmc:cmdCard.cmc||0,colorIdentity:ci,name:officialName};
+  // Pseudo-detection de thèmes via les regex
+  var fakeDeck={commander:{name:officialName,oracleText:cmdMeta.oracleText,colors:ci},cards:[]};
+  var themes={};
+  try{themes=_anaCommanderThemes(fakeDeck)||{};}catch(e){themes={};}
+  // Tri : freq EDHREC + bonus synergie thématique
+  var entries=Object.keys(freqMap).map(function(nl){
     var meta=_anaData[nl];
-    var nm=meta?meta.name:nl;
-    var nmLc=nm.toLowerCase();
-    if(seen[nmLc])return;
-    // Filtre EDHREC min
-    if(e.freq<preset.edhrecMin)return;
-    // Skip commandant lui-même
-    if(nmLc===officialName.toLowerCase())return;
-    // Skip terrains (on les choisira séparément)
-    if(meta&&meta.tags&&meta.tags.isLand)return;
-    // Color identity
-    if(meta&&meta.colorIdentity){
-      var ok=true;
-      meta.colorIdentity.forEach(function(c){if(ci.indexOf(c)<0)ok=false;});
+    var synBonus=0;
+    if(meta){
+      try{synBonus=_anaThemeSynergyScore(meta,themes)*0.04;}catch(e){}
+    }
+    return {nl:nl,freq:freqMap[nl],meta:meta,score:freqMap[nl]+synBonus};
+  });
+  entries.sort(function(a,b){return b.score-a.score;});
+  // Détection des packages combo possibles avec ce commandant
+  var combosCandidates=[];
+  _COMBO_PACKAGES.forEach(function(pkg){
+    if(pkg.colors.length){
+      var ok=true;pkg.colors.forEach(function(c){if(ci.indexOf(c)<0)ok=false;});
       if(!ok)return;
     }
-    // Collection only
-    if(_dgenState.source==='coll'){if(!collOwned[nmLc])return;}
-    // Game changers / tutors / fast mana caps
-    if(GAME_CHANGERS.has(nmLc)){if(gcCount>=preset.maxGameChangers)return;gcCount++;}
-    if(TUTORS.has(nmLc)||FAST_MANA.has(nmLc)){if(tutorCount>=preset.maxTutors)return;tutorCount++;}
-    seen[nmLc]=1;
-    nameMap[nl]=nm;
-    picks.push({name:nm,nl:nl,freq:e.freq,meta:meta});
-  });
-  // Terrains : on prend des terrains basiques selon la color identity
-  var BASIC_BY_COLOR={W:'Plains',U:'Island',B:'Swamp',R:'Mountain',G:'Forest'};
-  var nLands=37;
-  var lands=[];
-  if(ci.length===0){lands.push({name:'Wastes',nl:'wastes',qty:nLands});}
-  else{
-    var perColor=Math.floor(nLands/ci.length);
-    var remainder=nLands-perColor*ci.length;
-    ci.forEach(function(col,i){
-      var n=perColor+(i<remainder?1:0);
-      lands.push({name:BASIC_BY_COLOR[col],nl:BASIC_BY_COLOR[col].toLowerCase(),qty:n});
+    // Compte combien de cartes du package sont dans la freqMap (= jouables avec ce cmd)
+    var avail=pkg.cards.filter(function(c){
+      var nl=c.toLowerCase();
+      if(!freqMap[nl]&&!_anaData[nl])return false;
+      if(_dgenState.source==='coll'&&!collOwned[nl])return false;
+      return true;
     });
+    if(avail.length>=2){combosCandidates.push({pkg:pkg,available:avail});}
+  });
+  // État de remplissage par catégorie / courbe
+  var roleCount={ramp:0,draw:0,removal:0,wipes:0,interaction:0,wincon:0};
+  var curveCount={1:0,2:0,3:0,4:0,5:0,6:0,7:0};
+  var picks=[];var gcCount=0,tutorCount=0,fastManaCount=0;var seen={};
+  var nameMap={};
+  function eligible(e,enforceCurve,enforceQuotaMin){
+    var nl=e.nl;
+    var meta=e.meta;
+    var nm=meta?meta.name:nl;
+    var nmLc=nm.toLowerCase();
+    if(seen[nmLc])return null;
+    if(e.freq<preset.edhrecMin&&!meta)return null; // seulement freq min si pas de meta
+    if(nmLc===officialName.toLowerCase())return null;
+    if(meta&&meta.tags&&meta.tags.isLand)return null;
+    if(meta&&meta.colorIdentity){
+      for(var i=0;i<meta.colorIdentity.length;i++){if(ci.indexOf(meta.colorIdentity[i])<0)return null;}
+    }
+    if(_dgenState.source==='coll'&&!collOwned[nmLc])return null;
+    if(_DGEN_GAME_CHANGERS.has(nmLc)&&gcCount>=preset.maxGameChangers)return null;
+    if(_DGEN_TUTORS.has(nmLc)&&tutorCount>=preset.maxTutors)return null;
+    if(_DGEN_FAST_MANA.has(nmLc)&&fastManaCount>=preset.maxTutors)return null;
+    // Courbe : si bucket plein et qu'on enforce → reject
+    if(enforceCurve&&meta){
+      var b=_dgenCmcBucket(meta);
+      if(curveCount[b]>=curve[b][1])return null;
+    }
+    return {nl:nl,name:nm,nmLc:nmLc,meta:meta,freq:e.freq};
   }
-  // Si collection only et l'utilisateur a des terrains spéciaux, on aurait pu les ajouter — pour MVP, basiques.
+  function consume(pick){
+    seen[pick.nmLc]=1;
+    nameMap[pick.nl]=pick.name;
+    if(_DGEN_GAME_CHANGERS.has(pick.nmLc))gcCount++;
+    if(_DGEN_TUTORS.has(pick.nmLc))tutorCount++;
+    if(_DGEN_FAST_MANA.has(pick.nmLc))fastManaCount++;
+    var role=pick.meta?_dgenRoleOf(pick.meta):null;
+    if(role&&roleCount.hasOwnProperty(role))roleCount[role]++;
+    if(pick.meta){var b=_dgenCmcBucket(pick.meta);curveCount[b]++;}
+    picks.push({name:pick.name,nl:pick.nl,freq:pick.freq,meta:pick.meta,role:role});
+  }
+  // ═══ PHASE 1 : combos packages (priorité absolue si présents) ═══
+  var pickedPackages=[];
+  combosCandidates.sort(function(a,b){return b.pkg.bonus-a.pkg.bonus;});
+  combosCandidates.slice(0,2).forEach(function(cc){ // max 2 packages pour ne pas saturer
+    var addedFromPkg=0;
+    cc.available.forEach(function(cardNm){
+      if(picks.length>=nNonLand-5)return;
+      var nl=cardNm.toLowerCase();
+      var meta=_anaData[nl]||null;
+      var p=eligible({nl:nl,freq:freqMap[nl]||0.5,meta:meta},false,false);
+      if(p){consume(p);addedFromPkg++;}
+    });
+    if(addedFromPkg>=2)pickedPackages.push(cc.pkg);
+  });
+  // ═══ PHASE 2 : quotas minima par catégorie ═══
+  // On parcourt entries plusieurs fois, en priorisant les catégories sous quota
+  var roleOrder=['ramp','draw','removal','wipes','interaction'];
+  roleOrder.forEach(function(role){
+    var minQ=quotas[role][0];
+    for(var i=0;i<entries.length&&roleCount[role]<minQ&&picks.length<nNonLand;i++){
+      var e=entries[i];
+      if(seen[(e.meta?e.meta.name:e.nl).toLowerCase()])continue;
+      if(!e.meta)continue; // sans meta on ne peut pas classer
+      var r=_dgenRoleOf(e.meta);
+      if(r!==role)continue;
+      var p=eligible(e,true,true);
+      if(p)consume(p);
+    }
+  });
+  // ═══ PHASE 3 : remplissage par synergie+freq, avec courbe respectée ═══
+  for(var i=0;i<entries.length&&picks.length<nNonLand;i++){
+    var e=entries[i];
+    var p=eligible(e,true,false);
+    if(p)consume(p);
+  }
+  // ═══ PHASE 4 : si encore en sous-effectif, on relâche la courbe ═══
+  for(var i=0;i<entries.length&&picks.length<nNonLand;i++){
+    var e=entries[i];
+    var p=eligible(e,false,false);
+    if(p)consume(p);
+  }
+  // Si quotas non remplis, on log un warning (visible dans la sortie UI)
+  var quotaWarnings=[];
+  Object.keys(quotas).forEach(function(role){
+    if(roleCount[role]<quotas[role][0]){
+      quotaWarnings.push(role+' : '+roleCount[role]+'/'+quotas[role][0]+' min');
+    }
+  });
   // Affichage
   if(!picks.length){
     res.innerHTML='<div style="background:rgba(220,80,80,.10);border:.5px solid var(--rd2);border-radius:9px;padding:14px 18px;margin-top:12px">'
@@ -44412,32 +44813,143 @@ function _dgenBuild(officialName,cmdCard,ci,freqMap){
   }
   var totalNonLand=picks.length;
   var totalLand=lands.reduce(function(s,l){return s+l.qty;},0);
+  // ═══ MÉTRIQUES PRO ═══
+  var metrics=_dgenComputeMetrics(picks,lands,themes,roleCount,curveCount,gcCount,tutorCount,fastManaCount,pickedPackages);
   var html='<div style="background:rgba(120,200,144,.08);border:.5px solid rgba(120,200,144,.4);border-radius:10px;padding:14px 18px;margin-top:12px">';
   html+='<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap">';
   html+='<div style="font-family:var(--ff-head);font-size:1.05rem;color:var(--gold2)">✓ Deck généré</div>';
   html+='<span style="font-size:.84rem;color:var(--tx2)"><b>'+(totalNonLand+totalLand+1)+'</b> cartes (1 cmd + '+totalNonLand+' sorts + '+totalLand+' terrains)</span>';
   html+='<button class="btn btnsm btnp" onclick="_dgenCreate()" style="margin-left:auto">📥 Créer ce deck</button>';
   html+='</div>';
+  // Métriques pro (bracket, speed, plan A, interaction, courbe, combos)
+  html+=_dgenRenderMetrics(metrics,quotaWarnings,quotas,roleCount,curve,curveCount);
+  // Liste détaillée
+  html+='<details open style="margin-top:10px"><summary style="cursor:pointer;color:var(--tx2);font-size:.86rem;margin-bottom:8px">📋 Liste détaillée</summary>';
   html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:5px;max-height:50vh;overflow-y:auto;padding-right:4px">';
   picks.forEach(function(p){
-    var pct=Math.round(p.freq*100);
-    html+='<div style="display:flex;gap:6px;font-size:.8rem;padding:3px 7px;background:var(--s2);border-radius:5px">'
+    var pct=Math.round((p.freq||0)*100);
+    var roleIco={ramp:'🌱',draw:'📖',removal:'🗡',wipes:'💥',interaction:'🛡',wincon:'🏆'}[p.role]||'';
+    html+='<div style="display:flex;gap:6px;font-size:.8rem;padding:3px 7px;background:var(--s2);border-radius:5px" title="'+(p.role||'')+'">'
       +'<span style="color:var(--ac2);min-width:32px;text-align:right;font-variant-numeric:tabular-nums">'+pct+'%</span>'
-      +'<span style="color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.name)+'</span>'
+      +'<span style="color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+roleIco+' '+esc(p.name)+'</span>'
       +'</div>';
   });
   lands.forEach(function(l){
-    html+='<div style="display:flex;gap:6px;font-size:.8rem;padding:3px 7px;background:var(--s3);border-radius:5px">'
+    var catIco={dualETBT:'🟡',dualUntap:'🟢',utility:'⚙',fetch:'🔍',basic:'·'}[l.cat]||'·';
+    var lnm=l.nm||l.name||'';
+    html+='<div style="display:flex;gap:6px;font-size:.8rem;padding:3px 7px;background:var(--s3);border-radius:5px" title="'+(l.cat||'')+'">'
       +'<span style="color:var(--tx3);min-width:32px;text-align:right">×'+l.qty+'</span>'
-      +'<span style="color:var(--tx2)">'+esc(l.name)+'</span>'
+      +'<span style="color:var(--tx2)">'+catIco+' '+esc(lnm)+'</span>'
       +'</div>';
   });
-  html+='</div>';
-  html+='<div style="font-size:.74rem;color:var(--tx3);margin-top:10px;font-style:italic">Sélection basée sur fréquences EDHREC + ton niveau '+esc(preset.label)+'. Pour aller plus loin (manabase non-basique, swaps), crée le deck puis utilise l\'Analyse.</div>';
+  html+='</div></details>';
+  html+='<div style="font-size:.74rem;color:var(--tx3);margin-top:10px;font-style:italic">Sélection basée sur fréquences EDHREC × synergie thématique + quotas catégories + courbe contrôlée. Niveau : '+esc(preset.label)+'.</div>';
   html+='</div>';
   res.innerHTML=html;
   // Stocke pour création
-  _dgenLastResult={commander:officialName,cmdCard:cmdCard,picks:picks,lands:lands,ci:ci};
+  _dgenLastResult={commander:officialName,cmdCard:cmdCard,picks:picks,lands:lands,ci:ci,metrics:metrics};
+}
+
+// ═══════ MÉTRIQUES PRO : speed-meter, bracket, plan A, interaction density ═══════
+function _dgenComputeMetrics(picks,lands,themes,roleCount,curveCount,gcCount,tutorCount,fastManaCount,pickedPackages){
+  var m={};
+  // Bracket auto (2-5) basé sur GC + tutors + fast mana + combos
+  var bracketScore=0;
+  bracketScore+=gcCount*1.5;
+  bracketScore+=tutorCount*0.8;
+  bracketScore+=fastManaCount*1.2;
+  if(pickedPackages.length>0)bracketScore+=3*pickedPackages.length;
+  if(bracketScore<2)m.bracket=2;
+  else if(bracketScore<6)m.bracket=3;
+  else if(bracketScore<14)m.bracket=4;
+  else m.bracket=5;
+  // Speed-meter
+  var rampLow=0;
+  picks.forEach(function(p){if(p.role==='ramp'&&p.meta&&(p.meta.cmc||0)<=2)rampLow++;});
+  var tEst=12 - 0.4*rampLow - 0.5*fastManaCount - 0.3*tutorCount - 0.8*pickedPackages.length;
+  m.speedTurn=Math.max(3,Math.round(tEst*10)/10);
+  // Win-cond coherence : détecte le plan A
+  var planScore={combo:0,commander_dmg:0,combat:0,control:0,drain:0,reanimate:0,mill:0,storm:0};
+  pickedPackages.forEach(function(pkg){if(planScore.hasOwnProperty(pkg.wincon))planScore[pkg.wincon]+=8;});
+  picks.forEach(function(p){
+    if(!p.meta)return;
+    var o=(p.meta.oracleText||'').toLowerCase();
+    var tl=(p.meta.typeLine||'').toLowerCase();
+    if(p.role==='interaction')planScore.control++;
+    if(/commander damage|deals damage to a player.*equal/.test(o))planScore.commander_dmg+=2;
+    if(/equip\b/.test(tl))planScore.commander_dmg++;
+    if(/mill|put.*top.*cards.*graveyard/.test(o))planScore.mill++;
+    if(/each opponent loses|life equal to/.test(o))planScore.drain++;
+    if(/lifelink|gain life/.test(o)&&(themes.lifegain||1)>1.5)planScore.drain++;
+    if(/return.*creature.*from.*graveyard.*battlefield/.test(o))planScore.reanimate++;
+    if(/\bstorm\b|copy target (instant|sorcery)/.test(o))planScore.storm++;
+    if(tl.indexOf('creature')>=0&&(p.meta.cmc||0)<=3)planScore.combat++;
+  });
+  var planEntries=Object.keys(planScore).map(function(k){return {k:k,v:planScore[k]};}).sort(function(a,b){return b.v-a.v;});
+  m.plan=planEntries[0].k;m.planScore=planEntries[0].v;
+  m.plan2=planEntries[1]&&planEntries[1].v>3?planEntries[1].k:null;
+  var total=planEntries.reduce(function(s,e){return s+e.v;},0);
+  m.coherence=total>0?Math.round((planEntries[0].v/total)*100):0;
+  // Interaction-density (instant-speed)
+  var instCount=0;
+  picks.forEach(function(p){if(p.meta&&_dgenIsInstantSpeedInteraction(p.meta))instCount++;});
+  m.interactionDensity=Math.round((instCount/Math.max(1,picks.length))*100);
+  m.instantInteraction=instCount;
+  // CMC moyen
+  var cmcSum=0,nCmc=0;
+  picks.forEach(function(p){if(p.meta&&!(p.meta.tags&&p.meta.tags.isLand)){cmcSum+=(p.meta.cmc||0);nCmc++;}});
+  m.avgCmc=nCmc?Math.round(cmcSum/nCmc*10)/10:0;
+  m.pickedPackages=pickedPackages;
+  return m;
+}
+
+// ── Rend les métriques sous forme de panneau visuel
+function _dgenRenderMetrics(m,quotaWarnings,quotas,roleCount,curveTarget,curveCount){
+  var bracketColors={2:'#7fb069',3:'#e8c96e',4:'#f08c4e',5:'#dc5050'};
+  var bracketLabels={2:'Casual',3:'Mid-power',4:'Optimisé',5:'cEDH'};
+  var planLabels={combo:'Combo',commander_dmg:'Dégâts cmd',combat:'Combat',control:'Contrôle',drain:'Drain',reanimate:'Réanimateur',mill:'Mill',storm:'Storm'};
+  var planIcos={combo:'🎯',commander_dmg:'⚔',combat:'🪖',control:'🛡',drain:'🩸',reanimate:'💀',mill:'📚',storm:'🌪'};
+  var h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px">';
+  h+='<div style="background:rgba(0,0,0,.25);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">BRACKET ESTIMÉ</div><div style="font-size:1.15rem;font-weight:700;color:'+bracketColors[m.bracket]+'">'+m.bracket+' — '+bracketLabels[m.bracket]+'</div></div>';
+  h+='<div style="background:rgba(0,0,0,.25);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">VITESSE (T-DE-WIN)</div><div style="font-size:1.15rem;font-weight:700;color:var(--gold2)">T'+m.speedTurn+'</div></div>';
+  h+='<div style="background:rgba(0,0,0,.25);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">PLAN A</div><div style="font-size:.98rem;font-weight:600;color:var(--ac2)">'+(planIcos[m.plan]||'')+' '+(planLabels[m.plan]||m.plan)+'</div><div style="font-size:.66rem;color:var(--tx3)">'+m.coherence+'% cohérent'+(m.plan2?' · B : '+(planLabels[m.plan2]||m.plan2):'')+'</div></div>';
+  h+='<div style="background:rgba(0,0,0,.25);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">INTERACTION (INSTANT)</div><div style="font-size:1.15rem;font-weight:700;color:var(--tx)">'+m.instantInteraction+' <span style="font-size:.7rem;color:var(--tx3)">('+m.interactionDensity+'%)</span></div></div>';
+  h+='<div style="background:rgba(0,0,0,.25);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px"><div style="font-size:.66rem;color:var(--tx3);letter-spacing:.05em">CMC MOYEN</div><div style="font-size:1.15rem;font-weight:700;color:var(--tx)">'+m.avgCmc+'</div></div>';
+  h+='</div>';
+  // Quotas
+  h+='<div style="background:rgba(0,0,0,.18);border:.5px solid var(--bd2);border-radius:8px;padding:10px 12px;margin-bottom:10px">';
+  h+='<div style="font-size:.68rem;color:var(--tx3);letter-spacing:.05em;margin-bottom:6px">QUOTAS PAR CATÉGORIE (cible)</div>';
+  h+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem">';
+  var roleIcos={ramp:'🌱',draw:'📖',removal:'🗡',wipes:'💥',interaction:'🛡'};
+  Object.keys(quotas).forEach(function(role){
+    var cur=roleCount[role]||0;var mn=quotas[role][0];var mx=quotas[role][1];
+    var col=cur<mn?'#dc5050':(cur<=mx?'#7fb069':'#e8c96e');
+    h+='<span><span style="color:'+col+';font-weight:700">'+cur+'</span><span style="color:var(--tx3)"> / '+mn+'-'+mx+'</span> '+roleIcos[role]+' '+role+'</span>';
+  });
+  h+='</div>';
+  if(quotaWarnings.length){h+='<div style="margin-top:6px;font-size:.74rem;color:#dc5050;font-style:italic">⚠ Sous quota : '+quotaWarnings.join(' · ')+'</div>';}
+  h+='</div>';
+  // Courbe
+  h+='<div style="background:rgba(0,0,0,.18);border:.5px solid var(--bd2);border-radius:8px;padding:10px 12px;margin-bottom:10px">';
+  h+='<div style="font-size:.68rem;color:var(--tx3);letter-spacing:.05em;margin-bottom:6px">COURBE DE MANA</div>';
+  h+='<div style="display:flex;gap:6px;align-items:flex-end;height:60px">';
+  var maxBucket=0;Object.keys(curveCount).forEach(function(b){if(curveCount[b]>maxBucket)maxBucket=curveCount[b];});
+  Object.keys(curveCount).sort().forEach(function(b){
+    var v=curveCount[b];var pct=maxBucket?Math.round(v/maxBucket*100):0;
+    var tgtMn=curveTarget[b][0],tgtMx=curveTarget[b][1];
+    var inRange=v>=tgtMn&&v<=tgtMx;
+    var col=inRange?'rgba(127,176,105,.85)':(v<tgtMn?'rgba(220,80,80,.85)':'rgba(232,201,110,.85)');
+    h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><div style="font-size:.74rem;color:'+col+';font-weight:700">'+v+'</div><div style="width:100%;background:'+col+';height:'+pct+'%;min-height:3px;border-radius:3px 3px 0 0"></div><div style="font-size:.64rem;color:var(--tx3)">'+(b==='7'?'7+':b)+'</div><div style="font-size:.58rem;color:var(--tx3);font-style:italic">'+tgtMn+'-'+tgtMx+'</div></div>';
+  });
+  h+='</div></div>';
+  // Combos
+  if(m.pickedPackages&&m.pickedPackages.length){
+    h+='<div style="background:rgba(232,201,110,.10);border:.5px solid rgba(232,201,110,.3);border-radius:8px;padding:8px 12px;margin-bottom:10px">';
+    h+='<div style="font-size:.72rem;color:var(--gold2);font-weight:600;letter-spacing:.04em">🎯 PACKAGES COMBO INTÉGRÉS</div>';
+    m.pickedPackages.forEach(function(pkg){h+='<div style="font-size:.78rem;color:var(--tx2);margin-top:2px">· '+esc(pkg.name)+' <span style="color:var(--tx3)">(+'+pkg.bonus+')</span></div>';});
+    h+='</div>';
+  }
+  return h;
 }
 var _dgenLastResult=null;
 function _dgenCreate(){
@@ -44446,10 +44958,14 @@ function _dgenCreate(){
   var id='dk_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
   var lines=['// Commander','1 '+r.commander,''];
   r.picks.forEach(function(p){lines.push('1 '+p.name);});
-  r.lands.forEach(function(l){lines.push(l.qty+' '+l.name);});
+  r.lands.forEach(function(l){lines.push(l.qty+' '+(l.nm||l.name));});
   var rawName=lines.join('\n');
   var parsed=[];
   try{if(typeof parseList==='function')parsed=parseList(rawName);}catch(e){}
+  var metaNotes='Généré par 🧙 Constructeur ('+_DECK_LEVEL_PRESETS[_dgenState.level].label+', source: '+(_dgenState.source==='coll'?'ma collection':'toutes cartes')+').';
+  if(r.metrics){
+    metaNotes+='\nBracket: '+r.metrics.bracket+' · Plan A: '+r.metrics.plan+' ('+r.metrics.coherence+'%) · Vitesse: T'+r.metrics.speedTurn+' · Interaction instant: '+r.metrics.instantInteraction;
+  }
   decks[id]={
     name:r.commander+' (généré)',
     rawName:rawName,
@@ -44459,7 +44975,7 @@ function _dgenCreate(){
     format:'commander',
     commander:{name:r.commander,colors:r.ci},
     colors:r.ci,
-    notes:'Généré par 🧙 Constructeur ('+_DECK_LEVEL_PRESETS[_dgenState.level].label+', source: '+(_dgenState.source==='coll'?'ma collection':'toutes cartes')+').',
+    notes:metaNotes,
     updatedAt:Date.now(),
     generatedFrom:'commander-builder'
   };
@@ -45331,6 +45847,708 @@ function _landingDemo(){
   var enc=_shareEncodeDeck(demo);
   location.href=location.pathname+'?share='+enc;
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// MATCH TRACKER — journal de partie + matchup matrix + winrate par deck
+// ════════════════════════════════════════════════════════════════════════
+// Modèle : games[] = [{id, ts, deckId, oppDeck, oppArch, result, turnWin, mulligans, notes}]
+// Stocké localStorage 'mtg_games' + sync _fsPrefs.games
+var _games=[];
+try{var __mg=localStorage.getItem('mtg_games');if(__mg)_games=JSON.parse(__mg)||[];}catch(e){_games=[];}
+function _saveGames(){
+  try{localStorage.setItem('mtg_games',JSON.stringify(_games));}catch(e){}
+  if(typeof _fsPrefs!=='undefined'){_fsPrefs.games=_games;if(typeof _saveFsPrefs==='function')_saveFsPrefs();}
+}
+function openMatchTracker(){
+  var ov=document.getElementById('mt-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='mt-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeMatchTracker();});
+  }
+  _renderMatchTracker();
+  ov.style.display='flex';
+}
+function closeMatchTracker(){var ov=document.getElementById('mt-ov');if(ov)ov.style.display='none';}
+function _renderMatchTracker(){
+  var ov=document.getElementById('mt-ov');if(!ov)return;
+  var myDecks=Object.keys(decks||{}).filter(function(id){return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):true;}).map(function(id){return {id:id,name:decks[id].name||'(sans nom)'};});
+  var deckOpts=myDecks.map(function(d){return '<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>';}).join('');
+  // Matrice winrate par deck × archétype adversaire
+  var stats={};
+  _games.forEach(function(g){
+    if(!g.deckId)return;
+    if(!stats[g.deckId])stats[g.deckId]={wins:0,losses:0,draws:0,total:0,vs:{}};
+    stats[g.deckId].total++;
+    if(g.result==='W')stats[g.deckId].wins++;
+    else if(g.result==='L')stats[g.deckId].losses++;
+    else stats[g.deckId].draws++;
+    var oa=g.oppArch||'(non spécifié)';
+    if(!stats[g.deckId].vs[oa])stats[g.deckId].vs[oa]={w:0,l:0,d:0};
+    if(g.result==='W')stats[g.deckId].vs[oa].w++;
+    else if(g.result==='L')stats[g.deckId].vs[oa].l++;
+    else stats[g.deckId].vs[oa].d++;
+  });
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:1100px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">📓 Journal de parties</div><button class="btn btnsm" onclick="closeMatchTracker()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:14px">Loggue tes parties pour voir tes vrais matchups et winrates. Plus tu remplis, plus le coach est précis.</div>';
+  // Formulaire de log
+  html+='<div style="background:rgba(0,0,0,.18);border:.5px solid var(--bd2);border-radius:10px;padding:12px 14px;margin-bottom:14px">';
+  html+='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:8px;letter-spacing:.04em">+ NOUVELLE PARTIE</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr 110px 110px;gap:8px;margin-bottom:8px">';
+  html+='<select id="mt-deck" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.84rem"><option value="">— Mon deck —</option>'+deckOpts+'</select>';
+  html+='<input id="mt-opp" type="text" placeholder="Adversaire (deck/archétype)" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.84rem">';
+  html+='<select id="mt-arch" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.84rem"><option value="">Archétype</option><option value="Aggro">Aggro</option><option value="Midrange">Midrange</option><option value="Control">Control</option><option value="Combo">Combo</option><option value="Tempo">Tempo</option><option value="Ramp">Ramp</option><option value="Stax">Stax</option><option value="Aristocrats">Aristocrats</option><option value="Tribal">Tribal</option><option value="Voltron">Voltron</option><option value="Group Hug">Group Hug</option><option value="Other">Autre</option></select>';
+  html+='<select id="mt-res" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.84rem"><option value="W">✓ Win</option><option value="L">✗ Loss</option><option value="D">⊕ Draw</option></select>';
+  html+='</div>';
+  html+='<div style="display:grid;grid-template-columns:90px 90px 1fr 110px;gap:8px">';
+  html+='<input id="mt-turn" type="number" min="1" max="30" placeholder="T. win" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.84rem">';
+  html+='<input id="mt-mull" type="number" min="0" max="6" placeholder="Mull." style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.84rem">';
+  html+='<input id="mt-notes" type="text" placeholder="Notes (mulligan keep, key plays, regrets…)" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.84rem">';
+  html+='<button class="btn btnp" onclick="_mtAdd()" style="padding:7px 12px">💾 Logger</button>';
+  html+='</div></div>';
+  // Stats par deck
+  var deckIds=Object.keys(stats);
+  if(deckIds.length){
+    html+='<div style="font-size:.86rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:8px">📊 Winrates par deck</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-bottom:14px">';
+    deckIds.forEach(function(did){
+      var s=stats[did];var nm=(decks[did]&&decks[did].name)||'(deck supprimé)';
+      var wrPct=s.total?Math.round((s.wins/s.total)*100):0;
+      var col=wrPct>=60?'#7fb069':wrPct>=45?'#e8c96e':'#dc5050';
+      html+='<div style="background:rgba(0,0,0,.22);border:.5px solid var(--bd2);border-radius:9px;padding:9px 12px">';
+      html+='<div style="font-size:.86rem;color:var(--tx);font-weight:600;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(nm)+'</div>';
+      html+='<div style="font-size:1.05rem;font-weight:700;color:'+col+'">'+wrPct+'% <span style="font-size:.74rem;color:var(--tx3)">('+s.wins+'W / '+s.losses+'L'+(s.draws?' / '+s.draws+'D':'')+')</span></div>';
+      // Top matchups
+      var matchups=Object.keys(s.vs).map(function(a){var v=s.vs[a];var n=v.w+v.l+v.d;return {a:a,wr:n?v.w/n*100:0,n:n,w:v.w,l:v.l};}).filter(function(m){return m.n>=2;}).sort(function(a,b){return b.wr-a.wr;});
+      if(matchups.length){
+        html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:4px">';
+        matchups.slice(0,4).forEach(function(mm){
+          var mcol=mm.wr>=60?'#7fb069':mm.wr>=45?'#e8c96e':'#dc5050';
+          html+='<div>vs '+esc(mm.a)+' : <span style="color:'+mcol+'">'+Math.round(mm.wr)+'%</span> ('+mm.w+'W/'+mm.l+'L)</div>';
+        });
+        html+='</div>';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  // Historique
+  html+='<div style="font-size:.86rem;color:var(--gold2);font-family:var(--ff-head);margin-bottom:8px">📜 Historique ('+_games.length+' partie'+(_games.length>1?'s':'')+')</div>';
+  if(!_games.length){
+    html+='<div style="padding:20px;text-align:center;color:var(--tx3);font-style:italic">Aucune partie loggée. Commence à remplir le formulaire ci-dessus.</div>';
+  }else{
+    html+='<div style="max-height:40vh;overflow-y:auto;padding-right:4px">';
+    _games.slice().sort(function(a,b){return b.ts-a.ts;}).slice(0,50).forEach(function(g){
+      var dnm=(decks[g.deckId]&&decks[g.deckId].name)||'(deck supprimé)';
+      var d=new Date(g.ts);var dStr=d.getDate()+'/'+(d.getMonth()+1);
+      var rcol=g.result==='W'?'#7fb069':g.result==='L'?'#dc5050':'#888';
+      var rico=g.result==='W'?'✓':g.result==='L'?'✗':'⊕';
+      html+='<div style="display:flex;gap:10px;align-items:center;padding:6px 9px;background:var(--s2);border-radius:6px;margin-bottom:3px;font-size:.82rem">';
+      html+='<span style="color:'+rcol+';font-weight:700;font-size:1.05rem;width:18px">'+rico+'</span>';
+      html+='<span style="color:var(--tx3);width:42px;font-size:.74rem">'+dStr+'</span>';
+      html+='<span style="color:var(--tx);min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(dnm)+'</span>';
+      html+='<span style="color:var(--tx3)">vs</span>';
+      html+='<span style="color:var(--tx2);min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(g.oppDeck||g.oppArch||'?')+'</span>';
+      if(g.turnWin)html+='<span style="color:var(--gold2);font-size:.74rem">T'+g.turnWin+'</span>';
+      if(g.mulligans)html+='<span style="color:var(--tx3);font-size:.74rem">mull '+g.mulligans+'</span>';
+      if(g.notes)html+='<span style="color:var(--tx3);font-size:.74rem;font-style:italic;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(g.notes)+'</span>';
+      else html+='<span style="flex:1"></span>';
+      html+='<button class="btn btnsm" onclick="_mtDel(\''+g.id+'\')" style="padding:2px 7px;font-size:.7rem">×</button>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _mtAdd(){
+  var deckId=document.getElementById('mt-deck').value;
+  if(!deckId){if(typeof toastError==='function')toastError('Choisis un deck');return;}
+  var g={
+    id:'g_'+Date.now()+'_'+Math.random().toString(36).slice(2,5),
+    ts:Date.now(),
+    deckId:deckId,
+    oppDeck:document.getElementById('mt-opp').value.trim().slice(0,80),
+    oppArch:document.getElementById('mt-arch').value,
+    result:document.getElementById('mt-res').value,
+    turnWin:parseInt(document.getElementById('mt-turn').value)||null,
+    mulligans:parseInt(document.getElementById('mt-mull').value)||0,
+    notes:document.getElementById('mt-notes').value.trim().slice(0,200)
+  };
+  _games.push(g);_saveGames();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Partie loggée');
+  _renderMatchTracker();
+}
+function _mtDel(id){
+  if(!confirm('Supprimer cette partie ?'))return;
+  _games=_games.filter(function(g){return g.id!==id;});
+  _saveGames();_renderMatchTracker();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// EDH POD OPTIMIZER — entrée 4 commandants, sortie threat assessment + sideboard pod
+// ════════════════════════════════════════════════════════════════════════
+function openPodOptimizer(){
+  var ov=document.getElementById('po-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='po-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closePodOptimizer();});
+  }
+  var myDecks=Object.keys(decks||{}).filter(function(id){var d=decks[id];return d&&(d.format==='commander'||d.format==='paupercmd')&&(typeof _deckBelongsTo==='function'?_deckBelongsTo(d,0):true);}).map(function(id){return {id:id,name:decks[id].name};});
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">👥 Pod Optimizer — préparation de table</div><button class="btn btnsm" onclick="closePodOptimizer()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:14px">Entre ton commandant + 3 adversaires. L\'algo te donne le bracket pod, le threat-order, et les cartes à ajouter contre <i>ce</i> pod précis.</div>';
+  // Sélecteur "Mon deck"
+  var deckOpts='<option value="">— Choisir un deck —</option>'+myDecks.map(function(d){return '<option value="'+esc(d.id)+'">'+esc(d.name)+'</option>';}).join('');
+  html+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px">';
+  html+='<div><label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px;letter-spacing:.04em">TON DECK</label><select id="po-mydeck" style="width:100%;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx)">'+deckOpts+'</select></div>';
+  for(var i=1;i<=3;i++){
+    html+='<div><label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px;letter-spacing:.04em">ADVERSAIRE '+i+' (nom du commandant)</label><input id="po-opp'+i+'" type="text" placeholder="ex: Krenko, Mob Boss" style="width:100%;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx)"></div>';
+  }
+  html+='</div>';
+  html+='<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btnp" onclick="_poAnalyze()" id="po-go">🔮 Analyser le pod</button></div>';
+  html+='<div id="po-result"></div>';
+  html+='</div>';
+  ov.innerHTML=html;
+  ov.style.display='flex';
+}
+function closePodOptimizer(){var ov=document.getElementById('po-ov');if(ov)ov.style.display='none';}
+function _poAnalyze(){
+  var res=document.getElementById('po-result');if(!res)return;
+  var myDeckId=document.getElementById('po-mydeck').value;
+  if(!myDeckId){res.innerHTML='<div style="color:var(--rd2);padding:14px">Choisis ton deck d\'abord</div>';return;}
+  var opps=[];for(var i=1;i<=3;i++){var v=document.getElementById('po-opp'+i).value.trim();if(v)opps.push(v);}
+  if(opps.length<1){res.innerHTML='<div style="color:var(--rd2);padding:14px">Entre au moins 1 adversaire</div>';return;}
+  res.innerHTML='<div style="padding:20px;text-align:center;color:var(--tx3)"><div style="width:28px;height:28px;border:3px solid var(--bd2);border-top-color:var(--gold2);border-radius:50%;animation:_anaSpin .85s linear infinite;margin:0 auto 10px"></div>Récupération des commandants…</div>';
+  // Fetch les oracles via Scryfall pour chaque adversaire
+  Promise.all(opps.map(function(nm){
+    return fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(nm)).then(function(r){return r.json();}).catch(function(){return null;});
+  })).then(function(oppCards){
+    var oppData=oppCards.map(function(c,i){
+      if(!c||c.object==='error')return {name:opps[i],error:true};
+      var oracle=(c.oracle_text||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].oracle_text)||'').toLowerCase();
+      return {name:c.name,oracle:oracle,cmc:c.cmc||0,ci:c.color_identity||[],img:(c.image_uris&&c.image_uris.small)||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris&&c.card_faces[0].image_uris.small)||''};
+    });
+    _poRender(myDeckId,oppData);
+  });
+}
+function _poRender(myDeckId,oppData){
+  var res=document.getElementById('po-result');
+  var myDeck=decks[myDeckId];
+  // Threat scoring pour chaque adversaire
+  function threatOf(o){
+    if(o.error)return {s:0,reasons:['inconnu']};
+    var t=0,reasons=[];
+    var lw=o.oracle;
+    // Combo signals
+    if(/win the game|wins the game/.test(lw)){t+=8;reasons.push('wincon directe');}
+    if(/infinite|untap all|each.*untap/.test(lw)){t+=4;reasons.push('boucles potentielles');}
+    if(/storm|cascade/.test(lw)){t+=4;reasons.push('spell-stacking');}
+    // Stax signals
+    if(/skip.*step|don't untap|can't (attack|cast|untap)/.test(lw)){t+=5;reasons.push('stax');}
+    if(/sacrifice.*at the beginning/.test(lw)){t+=4;reasons.push('soft-lock');}
+    // Card advantage runaway
+    if(/draw (a|two|three|four) cards?[^.]*whenever|whenever.*draw.*card/.test(lw)){t+=4;reasons.push('moteur de pioche');}
+    if(/extra turn|take an additional turn/.test(lw)){t+=6;reasons.push('tours supplémentaires');}
+    // Combat threats
+    if(/double strike|trample.*\+\d|deals damage equal/.test(lw)){t+=3;reasons.push('menace de combat');}
+    if(/commander damage|equal to.*power/.test(lw)){t+=3;reasons.push('commander damage');}
+    // Aristocrats / Token
+    if(/whenever.*dies|sacrifice.*creature|whenever a creature.*enters/.test(lw)){t+=3;reasons.push('valeur incremental');}
+    // Fast mana / ramp commanders
+    if(/add.*\{[wubrgc]\}|treasure token/.test(lw)){t+=3;reasons.push('ramp/fast mana');}
+    // Low CMC + ETB-trigger = très fragile mais reset rapide
+    if((o.cmc||0)<=3&&/when.*enters/.test(lw)){t+=2;reasons.push('redémarrage rapide');}
+    return {s:t,reasons:reasons};
+  }
+  var threats=oppData.map(function(o){return Object.assign({},o,threatOf(o));});
+  threats.sort(function(a,b){return b.s-a.s;});
+  // Tech cards : conseille des cartes à inclure dans ton deck contre ce pod
+  var techCards=[];
+  threats.forEach(function(o){
+    if(o.error)return;
+    var lw=o.oracle;
+    if(/win the game|infinite|combo|storm/.test(lw))techCards.push({card:'Cyclonic Rift / Tergrid\'s Lantern / Praetor\'s Grasp',why:'casse les combos avant la win'});
+    if(/whenever.*dies|sacrifice/.test(lw))techCards.push({card:'Rest in Peace / Leyline of the Void',why:'éteint les aristocrats'});
+    if(/draw.*whenever|extra turn/.test(lw))techCards.push({card:'Notion Thief / Narset, Parter of Veils',why:'éteint la pioche adverse'});
+    if(/skip.*step|don't untap/.test(lw))techCards.push({card:'Aura Shards / Vandalblast',why:'casse les stax pieces'});
+    if(/treasure token|add.*mana/.test(lw))techCards.push({card:'Collector Ouphe / Stony Silence',why:'neutralise l\'accélération artefact'});
+    if(/commander damage|equip|aura/.test(lw))techCards.push({card:'Swords to Plowshares / Path to Exile',why:'remove sans permettre de récupérer'});
+    if(/double strike|trample/.test(lw))techCards.push({card:'Settle the Wreckage / Cyclonic Rift',why:'casse le board avant l\'attaque'});
+  });
+  // Dédup
+  var seen={};techCards=techCards.filter(function(t){if(seen[t.card])return false;seen[t.card]=1;return true;}).slice(0,8);
+  // Bracket pod
+  var totalThreat=threats.reduce(function(s,t){return s+t.s;},0);
+  var avgThreat=threats.length?Math.round(totalThreat/threats.length):0;
+  var podBr=avgThreat>=18?5:avgThreat>=12?4:avgThreat>=6?3:2;
+  // Tier list visuel
+  var html='<div style="background:rgba(0,0,0,.20);border:.5px solid var(--bd2);border-radius:10px;padding:14px 18px;margin-top:12px">';
+  html+='<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap">';
+  var podCol={2:'#7fb069',3:'#e8c96e',4:'#f08c4e',5:'#dc5050'}[podBr];
+  html+='<div><div style="font-size:.72rem;color:var(--tx3);letter-spacing:.05em">BRACKET POD ESTIMÉ</div><div style="font-size:1.4rem;font-weight:700;color:'+podCol+'">'+podBr+'</div></div>';
+  html+='<div><div style="font-size:.72rem;color:var(--tx3);letter-spacing:.05em">MENACE GLOBALE</div><div style="font-size:1.4rem;font-weight:700;color:var(--gold2)">'+totalThreat+' pts</div></div>';
+  html+='</div>';
+  // Threat ranking
+  html+='<div style="font-size:.86rem;color:var(--gold2);margin-bottom:6px">⚠ Threat-order (à neutraliser en premier)</div>';
+  threats.forEach(function(o,i){
+    var rank=i+1;
+    var col=rank===1?'#dc5050':rank===2?'#e8c96e':'#7fb069';
+    html+='<div style="display:flex;gap:10px;align-items:center;padding:6px 9px;background:rgba(0,0,0,.18);border-left:3px solid '+col+';border-radius:0 6px 6px 0;margin-bottom:4px">';
+    if(o.img)html+='<img src="'+esc(o.img)+'" style="width:32px;height:46px;border-radius:3px;object-fit:cover">';
+    html+='<div style="flex:1"><div style="font-weight:600;color:var(--tx)">#'+rank+' '+esc(o.name)+'</div><div style="font-size:.74rem;color:var(--tx3)">'+(o.reasons||[]).join(' · ')+'</div></div>';
+    html+='<div style="color:'+col+';font-weight:700">'+(o.s||0)+' pts</div></div>';
+  });
+  // Tech cards
+  if(techCards.length){
+    html+='<div style="font-size:.86rem;color:var(--gold2);margin:14px 0 6px">🛠 Cartes à ajouter contre ce pod</div>';
+    techCards.forEach(function(tc){
+      html+='<div style="padding:5px 9px;background:rgba(232,201,110,.08);border-radius:5px;margin-bottom:3px;font-size:.84rem"><b style="color:var(--ac2)">'+esc(tc.card)+'</b> <span style="color:var(--tx3)">— '+esc(tc.why)+'</span></div>';
+    });
+  }
+  // Conseil global
+  html+='<div style="margin-top:12px;font-size:.78rem;color:var(--tx3);line-height:1.5;font-style:italic">Stratégie suggérée : focus le threat #'+1+' tour 4-5, garde 1-2 interactions instant-speed pour le tour de win adverse. Si ton deck est plus lent que le bracket pod, accepte de jouer arrière et réagir.</div>';
+  html+='</div>';
+  res.innerHTML=html;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// MULLIGAN TRAINER — tire 7 cartes + verdict garde/mull + drill London
+// ════════════════════════════════════════════════════════════════════════
+function openMulliganTrainer(deckId){
+  var ov=document.getElementById('mu-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='mu-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeMulliganTrainer();});
+  }
+  var myDecks=Object.keys(decks||{}).filter(function(id){return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):true;}).map(function(id){return {id:id,name:decks[id].name};});
+  var deckOpts='<option value="">— Choisir un deck —</option>'+myDecks.map(function(d){return '<option value="'+esc(d.id)+'"'+(deckId===d.id?' selected':'')+'>'+esc(d.name)+'</option>';}).join('');
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:900px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🎴 Mulligan Trainer</div><button class="btn btnsm" onclick="closeMulliganTrainer()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:12px">Tire 7 cartes. L\'algo te dit si la main est gardable, à mulliganer, et pourquoi. Train ton instinct.</div>';
+  html+='<div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap">';
+  html+='<select id="mu-deck" style="flex:1;min-width:200px;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx)">'+deckOpts+'</select>';
+  html+='<button class="btn btnp" onclick="_muDraw()">🎲 Tirer 7 (London Mulligan)</button>';
+  html+='</div>';
+  html+='<div id="mu-result"></div>';
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+  if(deckId)setTimeout(_muDraw,100);
+}
+function closeMulliganTrainer(){var ov=document.getElementById('mu-ov');if(ov)ov.style.display='none';}
+var _muHistory=[];
+function _muDraw(){
+  var did=document.getElementById('mu-deck').value;
+  var res=document.getElementById('mu-result');
+  if(!did){res.innerHTML='<div style="color:var(--rd2);padding:14px">Choisis un deck</div>';return;}
+  var d=decks[did];if(!d){res.innerHTML='<div style="color:var(--rd2);padding:14px">Deck introuvable</div>';return;}
+  // Expand deck en pool
+  var pool=[];(d.cards||[]).forEach(function(c){
+    if(/^commander|^commandant/i.test(c.sec||''))return;
+    var q=c.qty||1;for(var i=0;i<q;i++)pool.push(c);
+  });
+  if(pool.length<7){res.innerHTML='<div style="color:var(--rd2);padding:14px">Deck trop petit pour mulligan</div>';return;}
+  // Tirage Fisher-Yates
+  for(var i=pool.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=pool[i];pool[i]=pool[j];pool[j]=t;}
+  var hand=pool.slice(0,7);
+  // Verdict
+  var v=_muEvaluate(hand,d);
+  _muHistory.push({hand:hand,verdict:v.verdict});
+  var html='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">';
+  hand.forEach(function(c){
+    var meta=_anaData[c.nl]||{};
+    var img=meta.imgUri||('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(c.name));
+    var isLand=meta.tags&&meta.tags.isLand;
+    html+='<div style="position:relative;width:88px;height:122px;border-radius:6px;overflow:hidden;background:var(--s3);border:.5px solid '+(isLand?'rgba(150,180,200,.4)':'var(--bd2)')+'">';
+    html+='<img src="'+esc(img)+'" alt="'+esc(c.name)+'" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display=\'none\'">';
+    html+='<div style="position:absolute;bottom:0;left:0;right:0;font-size:.62rem;padding:1px 4px;background:rgba(0,0,0,.85);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(c.name)+'</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  // Verdict box
+  var col=v.verdict==='Garde'?'#7fb069':v.verdict==='Mull'?'#dc5050':'#e8c96e';
+  html+='<div style="background:rgba(0,0,0,.25);border:1.5px solid '+col+';border-radius:10px;padding:14px 18px">';
+  html+='<div style="font-size:1.4rem;font-weight:700;color:'+col+';margin-bottom:6px">'+v.verdict+' '+(v.verdict==='Garde'?'✓':v.verdict==='Mull'?'✗':'?')+'</div>';
+  html+='<div style="font-size:.86rem;color:var(--tx2);margin-bottom:8px">'+esc(v.reason)+'</div>';
+  // Breakdown
+  html+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;color:var(--tx3)">';
+  html+='<span>🏔 Terrains : <b style="color:var(--tx)">'+v.lands+'</b></span>';
+  html+='<span>🌱 Ramp : <b style="color:var(--tx)">'+v.ramp+'</b></span>';
+  html+='<span>📖 Pioche : <b style="color:var(--tx)">'+v.draw+'</b></span>';
+  html+='<span>🗡 Removal : <b style="color:var(--tx)">'+v.removal+'</b></span>';
+  html+='<span>⚡ Plays T1-T3 : <b style="color:var(--tx)">'+v.earlyPlays+'</b></span>';
+  html+='</div>';
+  if(v.tips.length){
+    html+='<div style="margin-top:8px;padding-top:8px;border-top:.5px solid var(--bd);font-size:.78rem;color:var(--tx3)">';
+    v.tips.forEach(function(t){html+='<div>· '+esc(t)+'</div>';});
+    html+='</div>';
+  }
+  html+='</div>';
+  // History
+  if(_muHistory.length>1){
+    var stats={Garde:0,Mull:0,'Marginal':0};_muHistory.forEach(function(h){stats[h.verdict]++;});
+    html+='<div style="margin-top:10px;font-size:.78rem;color:var(--tx3);text-align:center">Sur '+_muHistory.length+' tirages : '+stats.Garde+' gardes · '+stats.Marginal+' marginales · '+stats.Mull+' mulligans</div>';
+  }
+  res.innerHTML=html;
+}
+function _muEvaluate(hand,deck){
+  var lands=0,ramp=0,draw=0,removal=0,earlyPlays=0;
+  hand.forEach(function(c){
+    var m=_anaData[c.nl];if(!m)return;
+    if(m.tags&&m.tags.isLand){lands++;return;}
+    if(m.tags){
+      if(m.tags.ramp>=0.6)ramp++;
+      if(m.tags.draw>=0.6)draw++;
+      if(m.tags.removal>=0.6)removal++;
+    }
+    if((m.cmc||0)<=3)earlyPlays++;
+  });
+  var v='Garde',reason='',tips=[];
+  var fmt=deck.format||'commander';
+  var isEdh=fmt==='commander'||fmt==='paupercmd';
+  // Règles
+  if(lands===0){v='Mull';reason='Aucun terrain : impossible de jouer.';tips.push('La règle de base : il faut au moins 2 terrains.');}
+  else if(lands===7){v='Mull';reason='7 terrains, aucun sort. Tu ne fais rien.';tips.push('Au moins 2 spells dans une main de keep.');}
+  else if(lands===1){
+    if(ramp>=1&&earlyPlays>=2){v='Marginal';reason='1 land + ramp : tu peux espérer un 2e land vite, mais risqué.';tips.push('À garder seulement si ramp T2 est dans la main.');}
+    else{v='Mull';reason='1 seul land sans ramp : tu vas screw mana.';}
+  }
+  else if(lands===6){v='Mull';reason='6 terrains, 1 sort : pas assez d\'action.';tips.push('Mulligan obvious. Garder seulement si le 1 sort gagne la partie.');}
+  else if(lands>=2&&lands<=4){
+    // Sweet spot
+    if(earlyPlays>=2&&(ramp>=1||draw>=1||isEdh)){
+      v='Garde';reason='Mix équilibré : '+lands+' lands, '+earlyPlays+' actions T1-T3.';
+      if(ramp>=1)tips.push('Le ramp T2 est clutch en Commander.');
+      if(draw>=1)tips.push('La pioche garantit l\'accès au plan.');
+    }else if(earlyPlays===1&&isEdh){
+      v='Marginal';reason='Peu d\'actions T1-T3 mais terrains OK.';tips.push('Garde si ton plan A démarre T4+ et que la main contient ce qu\'il faut.');
+    }else{
+      v='Marginal';reason='Mana OK mais courbe lente. Aucune accélération.';tips.push('À mulliganer si le format est rapide (60-card formats).');
+    }
+  }
+  else if(lands===5){
+    if(ramp>=1||earlyPlays>=2){v='Marginal';reason='Lourd en mana, peu de sorts. Marginal.';tips.push('Garde seulement si T2-T3 sont occupés.');}
+    else{v='Mull';reason='5 terrains et rien à faire avec : trop lent.';}
+  }
+  // Bonus EDH
+  if(isEdh&&v==='Marginal'&&(ramp>=2||draw>=2)){v='Garde';tips.push('En EDH, ramp+pioche est suffisant : ton plan vient via les cartes piochées.');}
+  return {verdict:v,reason:reason,lands:lands,ramp:ramp,draw:draw,removal:removal,earlyPlays:earlyPlays,tips:tips};
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// TOURNAMENT MODE — timer 50min + life tracker simple (1 vs 1) ou 4-player EDH
+// ════════════════════════════════════════════════════════════════════════
+var _tmState={running:false,paused:false,secs:50*60,startTs:0,lives:[],mode:'1v1',timerId:null};
+function openTournamentMode(){
+  var ov=document.getElementById('tm-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='tm-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,.95);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov&&!_tmState.running)closeTournamentMode();});
+  }
+  _tmRender();
+  ov.style.display='flex';
+}
+function closeTournamentMode(){
+  if(_tmState.running&&!confirm('Une partie est en cours. Quitter quand même ?'))return;
+  if(_tmState.timerId){clearInterval(_tmState.timerId);_tmState.timerId=null;}
+  _tmState.running=false;
+  var ov=document.getElementById('tm-ov');if(ov)ov.style.display='none';
+}
+function _tmRender(){
+  var ov=document.getElementById('tm-ov');if(!ov)return;
+  var mm=Math.floor(_tmState.secs/60),ss=_tmState.secs%60;
+  var timeStr=String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+  var timeCol=_tmState.secs<60?'#dc5050':_tmState.secs<300?'#e8c96e':'#7fb069';
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:760px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">⏱ Mode Tournoi</div><button class="btn btnsm" onclick="closeTournamentMode()">✕</button></div>';
+  // Timer
+  html+='<div style="text-align:center;margin:14px 0">';
+  html+='<div style="font-size:5rem;font-family:\'Cinzel\',serif;font-weight:700;color:'+timeCol+';line-height:1;font-variant-numeric:tabular-nums">'+timeStr+'</div>';
+  html+='<div style="font-size:.74rem;color:var(--tx3);letter-spacing:.06em">TEMPS RESTANT</div>';
+  html+='</div>';
+  // Controls
+  html+='<div style="display:flex;gap:8px;justify-content:center;margin-bottom:18px;flex-wrap:wrap">';
+  if(!_tmState.running){
+    html+='<button class="btn btnp" onclick="_tmStart()">▶ Démarrer (50 min)</button>';
+    html+='<button class="btn btnsm" onclick="_tmSet(50)">50 min</button>';
+    html+='<button class="btn btnsm" onclick="_tmSet(30)">30 min</button>';
+    html+='<button class="btn btnsm" onclick="_tmSet(15)">15 min</button>';
+  }else{
+    html+='<button class="btn btnp" onclick="_tmPause()">'+(_tmState.paused?'▶ Reprendre':'⏸ Pause')+'</button>';
+    html+='<button class="btn btnsm" onclick="_tmReset()">🔄 Reset</button>';
+  }
+  // Mode switch
+  html+='<button class="btn btnsm'+(_tmState.mode==='1v1'?' btnp':'')+'" onclick="_tmMode(\'1v1\')">1 vs 1</button>';
+  html+='<button class="btn btnsm'+(_tmState.mode==='edh'?' btnp':'')+'" onclick="_tmMode(\'edh\')">EDH 4 joueurs</button>';
+  html+='</div>';
+  // Life trackers
+  var nPlayers=_tmState.mode==='edh'?4:2;
+  if(!_tmState.lives.length||_tmState.lives.length!==nPlayers){_tmState.lives=[];for(var i=0;i<nPlayers;i++)_tmState.lives.push(_tmState.mode==='edh'?40:20);}
+  var labels=_tmState.mode==='edh'?['Moi','Joueur 2','Joueur 3','Joueur 4']:['Moi','Adversaire'];
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">';
+  _tmState.lives.forEach(function(life,i){
+    var dead=life<=0;
+    var col=life<=10?'#dc5050':life<=20?'#e8c96e':'#7fb069';
+    html+='<div style="background:rgba(0,0,0,.30);border:1.5px solid '+(dead?'#444':col)+';border-radius:12px;padding:14px;text-align:center;opacity:'+(dead?'0.4':'1')+'">';
+    html+='<div style="font-size:.74rem;color:var(--tx3);letter-spacing:.05em;margin-bottom:6px">'+esc(labels[i])+'</div>';
+    html+='<div style="font-size:2.8rem;font-weight:700;color:'+col+';line-height:1">'+life+'</div>';
+    html+='<div style="display:flex;gap:4px;margin-top:8px;justify-content:center;flex-wrap:wrap">';
+    [-5,-1,1,5].forEach(function(delta){
+      var sign=delta>0?'+':'';
+      html+='<button onclick="_tmLife('+i+','+delta+')" style="padding:4px 8px;border-radius:5px;border:.5px solid var(--bd2);background:'+(delta<0?'rgba(220,80,80,.12)':'rgba(127,176,105,.12)')+';color:'+(delta<0?'#dc5050':'#7fb069')+';cursor:pointer;font-size:.78rem;font-weight:600;font-family:inherit">'+sign+delta+'</button>';
+    });
+    html+='</div></div>';
+  });
+  html+='</div>';
+  // Quick log result
+  html+='<div style="margin-top:18px;padding-top:14px;border-top:.5px solid var(--bd);text-align:center">';
+  html+='<button class="btn btnsm" onclick="closeTournamentMode();openMatchTracker()">📓 Logger ce match</button>';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _tmStart(){
+  _tmState.running=true;_tmState.paused=false;_tmState.startTs=Date.now();
+  if(_tmState.timerId)clearInterval(_tmState.timerId);
+  _tmState.timerId=setInterval(function(){
+    if(_tmState.paused)return;
+    _tmState.secs=Math.max(0,_tmState.secs-1);
+    if(_tmState.secs===0){clearInterval(_tmState.timerId);_tmState.timerId=null;_tmState.running=false;try{new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=').play();}catch(e){}if(typeof toastError==='function')toastError('⏰ Temps écoulé !');}
+    _tmRender();
+  },1000);
+  _tmRender();
+}
+function _tmPause(){_tmState.paused=!_tmState.paused;_tmRender();}
+function _tmReset(){if(_tmState.timerId){clearInterval(_tmState.timerId);_tmState.timerId=null;}_tmState.running=false;_tmState.paused=false;_tmState.secs=50*60;_tmState.lives=[];_tmRender();}
+function _tmSet(min){_tmState.secs=min*60;_tmRender();}
+function _tmMode(m){_tmState.mode=m;_tmState.lives=[];_tmRender();}
+function _tmLife(idx,delta){_tmState.lives[idx]+=delta;_tmRender();}
+
+// ════════════════════════════════════════════════════════════════════════
+// PRINT-FRIENDLY DECK LIST — feuille A4 prête pour tournoi paper
+// ════════════════════════════════════════════════════════════════════════
+function openPrintDeck(deckId){
+  var d=decks[deckId];if(!d){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  var win=window.open('','_blank','width=820,height=1100');
+  if(!win){if(typeof toastError==='function')toastError('Popup bloqué — autorise les popups');return;}
+  // Groupe par section
+  var bySec={};(d.cards||[]).forEach(function(c){
+    var s=c.sec||'Autres';
+    if(!bySec[s])bySec[s]=[];
+    bySec[s].push(c);
+  });
+  var secOrder=['Commander','Commandant','Creatures','Créatures','Instants','Éphémères','Sorceries','Rituels','Enchantments','Enchantements','Artifacts','Artefacts','Planeswalkers','Lands','Terrains','Sideboard','Réserve','Autres'];
+  var secs=Object.keys(bySec).sort(function(a,b){var ia=secOrder.indexOf(a),ib=secOrder.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});
+  var totalQty=(d.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(d.name||'Deck')+'</title>';
+  html+='<style>@page{size:A4;margin:1.5cm}body{font-family:Georgia,serif;color:#000;margin:0;padding:0;line-height:1.4}h1{font-family:"Cinzel",Georgia,serif;font-size:18pt;margin:0 0 4pt;border-bottom:1.5pt solid #000;padding-bottom:4pt}.meta{font-size:9pt;color:#555;margin-bottom:12pt}.cols{column-count:2;column-gap:24pt}.sec{break-inside:avoid;margin-bottom:10pt}.sec-t{font-family:"Cinzel",Georgia,serif;font-size:11pt;font-weight:bold;color:#3a3a3a;text-transform:uppercase;letter-spacing:.04em;border-bottom:.5pt solid #aaa;padding-bottom:2pt;margin-bottom:3pt}.card-line{font-size:10pt;display:flex;justify-content:space-between;padding:1pt 0}.qty{font-weight:bold;width:24pt;color:#000;font-variant-numeric:tabular-nums}.nm{flex:1}.foot{margin-top:14pt;padding-top:6pt;border-top:.5pt solid #aaa;font-size:8pt;color:#888;text-align:center}@media print{body{margin:0}}</style>';
+  html+='</head><body>';
+  html+='<h1>'+esc(d.name||'Deck')+'</h1>';
+  html+='<div class="meta">'+esc(d.format||'').toUpperCase()+' · '+totalQty+' cartes';
+  if(d.commander&&d.commander.name)html+=' · Commandant : <b>'+esc(d.commander.name)+'</b>';
+  html+='</div>';
+  html+='<div class="cols">';
+  secs.forEach(function(s){
+    var cards=bySec[s];if(!cards.length)return;
+    var sq=cards.reduce(function(ss,c){return ss+(c.qty||1);},0);
+    html+='<div class="sec"><div class="sec-t">'+esc(s)+' ('+sq+')</div>';
+    cards.forEach(function(c){
+      html+='<div class="card-line"><span class="qty">'+(c.qty||1)+'×</span><span class="nm">'+esc(c.name)+'</span></div>';
+    });
+    html+='</div>';
+  });
+  html+='</div>';
+  html+='<div class="foot">Imprimé depuis ManaLAB le '+new Date().toLocaleDateString('fr-FR')+'</div>';
+  html+='<script>setTimeout(function(){window.print();},250);<\/script>';
+  html+='</body></html>';
+  win.document.write(html);win.document.close();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// SPELL-CHECKER DECK LIST — Levenshtein vs Scryfall names
+// ════════════════════════════════════════════════════════════════════════
+// Liste de noms connus = _anaData keys + cartes scannées
+function _spellSuggest(name,maxDist){
+  maxDist=maxDist||3;
+  var lc=(name||'').toLowerCase().trim();
+  if(!lc)return null;
+  var pool=Object.keys(_anaData||{});
+  if(pool.length===0)return null;
+  // Levenshtein simple, abort early
+  function lev(a,b,limit){
+    if(Math.abs(a.length-b.length)>limit)return limit+1;
+    var m=a.length,n=b.length;if(!m)return n;if(!n)return m;
+    var v0=[],v1=[];for(var i=0;i<=n;i++)v0.push(i);
+    for(var i=0;i<m;i++){
+      v1[0]=i+1;var rowMin=v1[0];
+      for(var j=0;j<n;j++){
+        var cost=a.charCodeAt(i)===b.charCodeAt(j)?0:1;
+        v1[j+1]=Math.min(v1[j]+1,v0[j+1]+1,v0[j]+cost);
+        if(v1[j+1]<rowMin)rowMin=v1[j+1];
+      }
+      if(rowMin>limit)return limit+1;
+      var tmp=v0;v0=v1;v1=tmp;
+    }
+    return v0[n];
+  }
+  var best=null,bestD=maxDist+1;
+  for(var k=0;k<pool.length;k++){
+    var nm=pool[k];if(!nm)continue;
+    if(Math.abs(nm.length-lc.length)>maxDist)continue;
+    var d=lev(nm,lc,maxDist);
+    if(d<bestD){bestD=d;best=_anaData[nm].name||nm;if(d===0)break;}
+  }
+  return bestD<=maxDist?{name:best,distance:bestD}:null;
+}
+// Hook qu'on peut appeler dans le builder pour signaler les noms inconnus
+function _spellCheckList(cardLines){
+  var unknowns=[];
+  cardLines.forEach(function(c){
+    var nl=(c.name||'').toLowerCase().trim();
+    if(_anaData[nl])return;
+    var sug=_spellSuggest(c.name,3);
+    if(sug)unknowns.push({input:c.name,suggestion:sug.name,distance:sug.distance});
+    else unknowns.push({input:c.name,suggestion:null});
+  });
+  return unknowns;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// MULTILANG SEARCH — FR ↔ EN pour les cartes connues
+// ════════════════════════════════════════════════════════════════════════
+// Mini-dictionnaire pour les cartes les plus jouées (extensible)
+var _MTG_FR_EN={
+  'foudre':'Lightning Bolt','lumière de la justice':'Path to Exile','épée vers les socs':'Swords to Plowshares',
+  'cyclonique':'Cyclonic Rift','contre-sort':'Counterspell','sépultures et déchéance':'Crypt Ghast',
+  'main de noix':'Sol Ring','tutorat démoniaque':'Demonic Tutor','tutorat vampirique':'Vampiric Tutor',
+  'éveil cosmique':'Awakening of Vitu-Ghazi','germination':'Cultivate','la trouvaille de kodama':'Kodama\'s Reach',
+  'étude rhystique':'Rhystic Study','rémora mystique':'Mystic Remora','bibliothèque sylvestre':'Sylvan Library',
+  'mitraille':'Grapeshot','tendrils of agony':'Tendrils of Agony','past in flames':'Past in Flames',
+  'twincast':'Twincast','reverberate':'Reverberate','manamorphose':'Manamorphose',
+  'oracle de thassa':'Thassa\'s Oracle','consultation démoniaque':'Demonic Consultation',
+  'cape de frémisoie':'Whispersilk Cloak','bottes preste-pieds':'Swiftfoot Boots','jambières du paladin':'Lightning Greaves',
+  'tour de commandement':'Command Tower','verger exotique':'Exotic Orchard','sentier des ancêtres':'Path of Ancestry',
+  'éclats de mana':'Arcane Signet','globe de mana':'Mana Crypt','crypte de mana':'Mana Crypt',
+  'cœur de la cité':'Heart of the Cards','citerne pour pyromanciens':'Pyromancer\'s Reservoir',
+  'plaine':'Plains','île':'Island','marais':'Swamp','montagne':'Mountain','forêt':'Forest','déchets':'Wastes'
+};
+function _mlTranslate(query){
+  var lc=query.toLowerCase().trim();
+  if(_MTG_FR_EN[lc])return _MTG_FR_EN[lc];
+  // Recherche partielle
+  var hits=[];
+  Object.keys(_MTG_FR_EN).forEach(function(fr){
+    if(fr.indexOf(lc)>=0||lc.indexOf(fr)>=0)hits.push(_MTG_FR_EN[fr]);
+  });
+  return hits.length?hits[0]:null;
+}
+// À hooker dans la recherche Scryfall : si la query est FR, traduit avant l'appel
+function _searchWithMultilang(query,callback){
+  var translated=_mlTranslate(query);
+  var finalQuery=translated||query;
+  // L'appel Scryfall se fait depuis le composant qui hook ça
+  callback(finalQuery,translated?{wasTranslated:true,from:query,to:translated}:null);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// FORMAT LEGALITY CHECKER — vérifie cartes bannies/restrictées
+// ════════════════════════════════════════════════════════════════════════
+// Banlists de référence (mai 2026). À étoffer avec Scryfall legalities si dispo dans _anaData[nl].legalities
+var _BANLISTS={
+  commander:['ancestral recall','balance','biorhythm','black lotus','channel','chaos orb',
+    'coalition victory','dockside extortionist','emrakul, the aeons torn','erayo, soratami ascendant',
+    'falling star','fastbond','gifts ungiven','golos, tireless pilgrim','griselbrand','hullbreacher',
+    'iona, shield of emeria','jeweled lotus','karakas','leovold, emissary of trest',
+    'library of alexandria','limited resources','lutri, the spellchaser','mana crypt','mox sapphire',
+    'mox jet','mox ruby','mox pearl','mox emerald','nadu, winged wisdom','panoptic mirror',
+    'paradox engine','primeval titan','prophet of kruphix','recurring nightmare','rofellos, llanowar emissary',
+    'shahrazad','sundering titan','sway of the stars','sylvan primordial','time vault','time walk',
+    'tinker','tolarian academy','trade secrets','upheaval','worldfire','yawgmoth\'s bargain'],
+  modern:['ancient den','arcum\'s astrolabe','birthing pod','blazing shoal','bridge from below',
+    'chrome mox','cloudpost','dark depths','deathrite shaman','dread return','eye of ugin',
+    'faithless looting','field of the dead','fury','gitaxian probe','glimpse of nature','golgari grave-troll',
+    'great furnace','green sun\'s zenith','hogaak, arisen necropolis','hypergenesis','jace, the mind sculptor',
+    'krark-clan ironworks','mental misstep','mox opal','mycosynth lattice','nadu, winged wisdom',
+    'oko, thief of crowns','ponder','preordain','punishing fire','rite of flame','seat of the synod',
+    'second sunrise','seething song','sensei\'s divining top','simian spirit guide','skullclamp',
+    'splinter twin','stoneforge mystic','summer bloom','treasure cruise','tree of tales','umezawa\'s jitte',
+    'uro, titan of nature\'s wrath','vault of whispers'],
+  legacy:['ancestral recall','balance','bazaar of baghdad','black lotus','channel','chaos orb',
+    'demonic consultation','demonic tutor','earthcraft','falling star','fastbond','goblin recruiter',
+    'gush','hermit druid','imperial seal','library of alexandria','mana crypt','mana drain','mana vault',
+    'memory jar','mind twist','mishra\'s workshop','mox jet','mox sapphire','mox ruby','mox pearl',
+    'mox emerald','necropotence','oko, thief of crowns','sensei\'s divining top','shahrazad',
+    'skullclamp','strip mine','time vault','time walk','timetwister','tolarian academy','underworld breach',
+    'vampiric tutor','wheel of fortune','windfall','yawgmoth\'s bargain','yawgmoth\'s will'],
+  pioneer:['balustrade spy','bloodstained mire','expressive iteration','field of the dead','flooded strand',
+    'fork in the road','geological appraiser','inverter of truth','karn, the great creator','kethis, the hidden hand',
+    'leyline binding','lotus field','lurrus of the dream-den','nexus of fate','oko, thief of crowns','once upon a time',
+    'polluted delta','smuggler\'s copter','teferi, time raveler','undercity informer','underworld breach',
+    'uro, titan of nature\'s wrath','veil of summer','walking ballista','windswept heath','winota, joiner of forces',
+    'wooded foothills']
+};
+function _legalityCheck(deck){
+  var fmt=(deck.format||'').toLowerCase();
+  var ban=_BANLISTS[fmt];
+  if(!ban)return [];
+  var hits=[];
+  (deck.cards||[]).forEach(function(c){
+    var nl=(c.name||'').toLowerCase().trim();
+    if(ban.indexOf(nl)>=0)hits.push(c.name);
+  });
+  return hits;
+}
+function _renderLegalityWarning(deck){
+  var hits=_legalityCheck(deck);
+  if(!hits.length)return '';
+  return '<div style="background:rgba(220,80,80,.10);border:.5px solid #dc5050;border-radius:8px;padding:8px 12px;margin-bottom:10px">'
+    +'<div style="font-size:.86rem;color:#dc5050;font-weight:600;margin-bottom:3px">⚠ Cartes bannies ('+deck.format+')</div>'
+    +'<div style="font-size:.78rem;color:var(--tx2)">'+hits.map(esc).join(' · ')+'</div>'
+    +'</div>';
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// HUB des outils pro — accès rapide à tous
+// ════════════════════════════════════════════════════════════════════════
+function openProToolsHub(){
+  var ov=document.getElementById('pth-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='pth-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeProToolsHub();});
+  }
+  var tools=[
+    {ico:'📓',n:'Journal de parties',d:'Logge tes parties, vois tes winrates par matchup',f:'openMatchTracker'},
+    {ico:'👥',n:'Pod Optimizer',d:'Analyse ton pod EDH, identifie les threats, suggère du tech',f:'openPodOptimizer'},
+    {ico:'🎴',n:'Mulligan Trainer',d:'Verdict garde/mull sur tes mains de 7',f:'openMulliganTrainer'},
+    {ico:'⏱',n:'Mode Tournoi',d:'Timer + life tracker pour la table',f:'openTournamentMode'},
+    {ico:'🧙',n:'Constructeur de deck',d:'Génère un deck complet depuis un commandant',f:'openDeckGenerator'},
+    {ico:'⚖',n:'Comparer 2 decks',d:'Diff visuel pour décider quoi changer',f:'openDeckCompare'}
+  ];
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:760px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🏆 Outils Pro</div><button class="btn btnsm" onclick="closeProToolsHub()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:14px">Suite d\'outils pour joueurs compétitifs : suivi de parties, prépa de pod, mulligan, tournoi.</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">';
+  tools.forEach(function(t){
+    html+='<button onclick="closeProToolsHub();'+t.f+'()" style="background:var(--s2);border:.5px solid var(--bd2);border-radius:10px;padding:14px;text-align:left;cursor:pointer;font-family:inherit;color:var(--tx);transition:all .12s" onmouseover="this.style.borderColor=\'var(--gold2)\';this.style.background=\'var(--s3)\'" onmouseout="this.style.borderColor=\'var(--bd2)\';this.style.background=\'var(--s2)\'">';
+    html+='<div style="font-size:1.6rem;margin-bottom:4px">'+t.ico+'</div>';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem;margin-bottom:4px">'+esc(t.n)+'</div>';
+    html+='<div style="font-size:.74rem;color:var(--tx3);line-height:1.4">'+esc(t.d)+'</div>';
+    html+='</button>';
+  });
+  html+='</div></div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeProToolsHub(){var ov=document.getElementById('pth-ov');if(ov)ov.style.display='none';}
 </script>
 <style>
 /* === Vue partagée === */
