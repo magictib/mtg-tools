@@ -32881,6 +32881,7 @@ function _cmdPalBuild(){
   items.push({key:'act:focus',ico:'🎯',lbl:'Focus deck (vue unifiée du dernier deck)',cat:'Action',act:function(){if(typeof openDeckFocus!=='function')return;var sorted=Object.keys(decks||{}).filter(function(id){return _deckBelongsTo?_deckBelongsTo(decks[id],0):true;}).map(function(id){return{id:id,t:decks[id].updatedAt||0};}).sort(function(a,b){return b.t-a.t;});if(sorted.length)openDeckFocus(sorted[0].id);}});
   items.push({key:'act:discover',ico:'🔮',lbl:'Découvrir des decks/commandants',cat:'Action',act:function(){if(typeof openDiscover==='function')openDiscover();}});
   items.push({key:'act:coach',ico:'💡',lbl:'Coach IA — pose une question sur un deck',cat:'Action',act:function(){if(typeof openCoach==='function')openCoach();}});
+  items.push({key:'act:brup',ico:'⬆',lbl:'Cibler un bracket supérieur (cartes à ajouter)',cat:'Action',act:function(){if(typeof openBracketUpgrade!=='function')return;var sorted=Object.keys(decks||{}).filter(function(id){return _deckBelongsTo?_deckBelongsTo(decks[id],0):true;}).map(function(id){return{id:id,t:decks[id].updatedAt||0};}).sort(function(a,b){return b.t-a.t;});if(sorted.length)openBracketUpgrade(sorted[0].id,4);}});
   items.push({key:'act:referral',ico:'🎁',lbl:'Mon programme de parrainage',cat:'Action',act:function(){if(typeof openReferrals==='function')openReferrals();}});
   items.push({key:'act:pursearch',ico:'🔍',lbl:'Chercher une carte dans mes listes partagées',cat:'Action',act:function(){if(typeof openPurchaseSearch==='function')openPurchaseSearch();}});
   items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
@@ -39143,6 +39144,15 @@ function anaRender(deckId){
       html+='</div>';
     }
     html+='<div style="font-size:10px;color:var(--tx3);margin-top:8px;font-style:italic;line-height:1.4">Le bracket est un indicateur d\'intentions de jeu pour aligner ta table. Pas un jugement de qualité.</div>';
+    // ── Bouton "Cibler un bracket supérieur" → liste de cartes à ajouter
+    if(br<5){
+      html+='<div style="margin-top:10px;padding-top:8px;border-top:.5px solid var(--bd);display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
+      html+='<span style="font-size:.74rem;color:var(--tx3);letter-spacing:.04em">⬆ MONTER DE BRACKET :</span>';
+      for(var bt=br+1;bt<=5;bt++){
+        html+='<button class="btn btnsm" onclick="openBracketUpgrade(\''+escJs(deckId)+'\','+bt+')" style="padding:4px 10px;font-size:.74rem;background:rgba(232,201,110,.10);color:var(--gold2);border-color:rgba(232,201,110,.35)">→ '+LBL[bt]+' ('+bt+')</button>';
+      }
+      html+='</div>';
+    }
     html+='</div>';
     return html;
   })();
@@ -46735,7 +46745,10 @@ function _dfRender(){
   html+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.86rem;color:var(--tx2)">';
   html+='<span><b style="color:var(--gold2)">'+totalQty+'</b> cartes</span>';
   if(fmt)html+='<span>📋 '+esc(fmt)+'</span>';
-  if(mini.bracket)html+='<span style="color:'+mini.bracketCol+'"><b>Bracket '+mini.bracket+'</b></span>';
+  if(mini.bracket){
+    html+='<span style="color:'+mini.bracketCol+'"><b>Bracket '+mini.bracket+'</b></span>';
+    if(mini.bracket<5)html+='<button class="btn btnsm" onclick="closeDeckFocus();openBracketUpgrade(\''+escJs(id)+'\','+(mini.bracket+1)+')" style="padding:2px 8px;font-size:.7rem;background:rgba(232,201,110,.10);color:var(--gold2);border-color:rgba(232,201,110,.3)" title="Voir les cartes à ajouter pour monter de bracket">⬆ Monter</button>';
+  }
   if(gamesForDeck.length)html+='<span><b style="color:'+(wrPct>=50?'#7fb069':'#dc5050')+'">'+wrPct+'%</b> WR ('+gamesForDeck.length+'p)</span>';
   html+='</div>';
   html+='</div>';
@@ -47050,6 +47063,289 @@ function _coachSettingsReset(){
   closeCoachSettings();
   if(typeof toastSuccess==='function')toastSuccess('✓ Clé effacée — retour au free tier');
   if(document.getElementById('coach-ov')&&document.getElementById('coach-ov').style.display==='flex')_coachRender();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// BRACKET UPGRADE — propose les cartes à ajouter pour atteindre un bracket cible
+// Source : _DGEN_TUTORS, _DGEN_FAST_MANA, _DGEN_GAME_CHANGERS, _COMBO_PACKAGES
+// ════════════════════════════════════════════════════════════════════════
+// Cibles par bracket (en deck Commander) : combien de chaque catégorie pour atteindre ce niveau
+var _BRACKET_TARGETS={
+  3:{tutors:2,fastMana:2,gameChangers:0,extraTurns:0,combos:0,interactionInst:5},
+  4:{tutors:5,fastMana:4,gameChangers:2,extraTurns:1,combos:1,interactionInst:8},
+  5:{tutors:8,fastMana:6,gameChangers:4,extraTurns:2,combos:2,interactionInst:10}
+};
+// Cartes blanches/incolores par défaut : utilisables partout
+// Ces listes étendent _DGEN_TUTORS/FAST_MANA/GAME_CHANGERS avec une info couleur
+// Format : {nm: nom, ci: ['B','R'…] ou [] (incolore)}
+var _BR_TUTORS_DETAIL=[
+  {nm:'Demonic Tutor',ci:['B']},{nm:'Vampiric Tutor',ci:['B']},{nm:'Imperial Seal',ci:['B']},
+  {nm:'Mystical Tutor',ci:['U']},{nm:'Enlightened Tutor',ci:['W']},{nm:'Worldly Tutor',ci:['G']},
+  {nm:'Green Sun\'s Zenith',ci:['G']},{nm:'Gamble',ci:['R']},{nm:'Diabolic Intent',ci:['B']},
+  {nm:'Intuition',ci:['U']},{nm:'Tainted Pact',ci:['B']},{nm:'Natural Order',ci:['G']},
+  {nm:'Survival of the Fittest',ci:['G']},{nm:'Entomb',ci:['B']},{nm:'Idyllic Tutor',ci:['W']},
+  {nm:'Fabricate',ci:['U']},{nm:'Chord of Calling',ci:['G']},{nm:'Eldritch Evolution',ci:['G']},
+  {nm:'Finale of Devastation',ci:['G']},{nm:'Grim Tutor',ci:['B']},{nm:'Beseech the Queen',ci:['B']},
+  {nm:'Sterling Grove',ci:['G','W']},{nm:'Bring to Light',ci:['G','U','W']},{nm:'Wargate',ci:['G','U','W']}
+];
+var _BR_FAST_MANA_DETAIL=[
+  {nm:'Mana Crypt',ci:[]},{nm:'Mana Vault',ci:[]},{nm:'Mox Diamond',ci:[]},{nm:'Chrome Mox',ci:[]},
+  {nm:'Lotus Petal',ci:[]},{nm:'Jeweled Lotus',ci:[]},{nm:'Grim Monolith',ci:[]},
+  {nm:'Mox Opal',ci:[]},{nm:'Mox Amber',ci:[]},{nm:'Dockside Extortionist',ci:['R']},
+  {nm:'Ancient Tomb',ci:[]},{nm:'Lion\'s Eye Diamond',ci:[]}
+];
+var _BR_GAME_CHANGERS_DETAIL=[
+  {nm:'Cyclonic Rift',ci:['U']},{nm:'Fierce Guardianship',ci:['U']},{nm:'Force of Will',ci:['U']},
+  {nm:'Force of Negation',ci:['U']},{nm:'Mana Drain',ci:['U']},{nm:'Rhystic Study',ci:['U']},
+  {nm:'Smothering Tithe',ci:['W']},{nm:'Thassa\'s Oracle',ci:['U']},{nm:'The One Ring',ci:[]},
+  {nm:'Drannith Magistrate',ci:['W']},{nm:'Opposition Agent',ci:['B']},{nm:'Bolas\'s Citadel',ci:['B']},
+  {nm:'Necropotence',ci:['B']},{nm:'Expropriate',ci:['U']},{nm:'Ad Nauseam',ci:['B']},
+  {nm:'Yawgmoth\'s Will',ci:['B']},{nm:'Sheoldred, the Apocalypse',ci:['B']},
+  {nm:'Consecrated Sphinx',ci:['U']},{nm:'Craterhoof Behemoth',ci:['G']},
+  {nm:'Jin-Gitaxias, Core Augur',ci:['U']},{nm:'Seedborn Muse',ci:['G']},{nm:'Urza, Lord High Artificer',ci:['U']}
+];
+var _BR_EXTRA_TURNS=[
+  {nm:'Time Warp',ci:['U']},{nm:'Temporal Manipulation',ci:['U']},{nm:'Capture of Jingzhou',ci:['U']},
+  {nm:'Walk the Aeons',ci:['U']},{nm:'Time Stretch',ci:['U']},{nm:'Temporal Mastery',ci:['U']},
+  {nm:'Nexus of Fate',ci:['U']},{nm:'Beacon of Tomorrows',ci:['U']}
+];
+var _BR_INTERACTION_INST=[
+  {nm:'Counterspell',ci:['U']},{nm:'Swan Song',ci:['U']},{nm:'Negate',ci:['U']},
+  {nm:'Swords to Plowshares',ci:['W']},{nm:'Path to Exile',ci:['W']},{nm:'Generous Gift',ci:['W']},
+  {nm:'Anguished Unmaking',ci:['W','B']},{nm:'Assassin\'s Trophy',ci:['B','G']},
+  {nm:'Lightning Bolt',ci:['R']},{nm:'Pyroblast',ci:['R']},{nm:'Red Elemental Blast',ci:['R']},
+  {nm:'Veil of Summer',ci:['G']},{nm:'Autumn\'s Veil',ci:['G']},
+  {nm:'Mental Misstep',ci:[]} // phyrexian mana, banni partout mais on liste pour cEDH
+];
+
+function openBracketUpgrade(deckId,targetBr){
+  var d=decks[deckId];if(!d){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  var ov=document.getElementById('bu-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='bu-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeBracketUpgrade();});
+  }
+  _buCurDeckId=deckId;_buTargetBr=targetBr;_buCollOnly=false;
+  _buRender();
+  ov.style.display='flex';
+}
+function closeBracketUpgrade(){var ov=document.getElementById('bu-ov');if(ov)ov.style.display='none';}
+var _buCurDeckId=null,_buTargetBr=4,_buCollOnly=false;
+function _buToggleColl(){_buCollOnly=!_buCollOnly;_buRender();}
+
+function _buRender(){
+  var ov=document.getElementById('bu-ov');if(!ov)return;
+  var d=decks[_buCurDeckId];if(!d)return;
+  // Couleurs du deck
+  var ci=(d.commander&&d.commander.colors)||d.colors||[];
+  // Compte actuel par catégorie
+  var cur={tutors:0,fastMana:0,gameChangers:0,extraTurns:0,combos:0,interactionInst:0};
+  var inDeckNames={};
+  (d.cards||[]).forEach(function(c){
+    var nl=(c.name||'').toLowerCase().trim();
+    var qty=c.qty||1;
+    inDeckNames[nl]=qty;
+    if(_DGEN_TUTORS.has(nl))cur.tutors+=qty;
+    if(_DGEN_FAST_MANA.has(nl))cur.fastMana+=qty;
+    if(_DGEN_GAME_CHANGERS.has(nl))cur.gameChangers+=qty;
+    var meta=_anaData[nl];
+    if(meta&&_dgenIsInstantSpeedInteraction(meta))cur.interactionInst+=qty;
+    // Extra turns (heuristique : oracle text "take an additional turn")
+    if(meta&&/take an additional turn|take another turn/i.test(meta.oracleText||''))cur.extraTurns+=qty;
+  });
+  // Combos détectés
+  try{var combos=_anaDetectCombos(d);cur.combos=(combos||[]).filter(function(c){return !c.partial&&!c.theoretical;}).length;}catch(e){}
+  // Target
+  var tgt=_BRACKET_TARGETS[_buTargetBr]||_BRACKET_TARGETS[4];
+  var brLbl={2:'Core',3:'Upgraded',4:'Optimisé',5:'cEDH'};
+  var brCol={2:'#a8d8ff',3:'#ffd47a',4:'#ff9b6c',5:'#e26d6d'};
+  // Diff = ce qui manque
+  var deficit={
+    tutors:Math.max(0,tgt.tutors-cur.tutors),
+    fastMana:Math.max(0,tgt.fastMana-cur.fastMana),
+    gameChangers:Math.max(0,tgt.gameChangers-cur.gameChangers),
+    extraTurns:Math.max(0,tgt.extraTurns-cur.extraTurns),
+    combos:Math.max(0,tgt.combos-cur.combos),
+    interactionInst:Math.max(0,tgt.interactionInst-cur.interactionInst)
+  };
+  // Collection (pour filtrage optionnel)
+  var collOwned={};
+  if(_buCollOnly){
+    try{(getProfCards(0)||[]).forEach(function(c){collOwned[(c.name||'').toLowerCase().trim()]=(c.qty||1);});}catch(e){}
+  }
+  function inCi(cardCi){
+    if(!cardCi||!cardCi.length)return true;
+    for(var i=0;i<cardCi.length;i++){if(ci.indexOf(cardCi[i])<0)return false;}
+    return true;
+  }
+  function passColl(nm){return !_buCollOnly||collOwned[nm.toLowerCase()];}
+  function filterPool(pool){
+    return pool.filter(function(c){
+      if(inDeckNames[c.nm.toLowerCase()])return false; // déjà dans le deck
+      if(!inCi(c.ci))return false;
+      if(!passColl(c.nm))return false;
+      return true;
+    });
+  }
+  var picks={
+    tutors:filterPool(_BR_TUTORS_DETAIL),
+    fastMana:filterPool(_BR_FAST_MANA_DETAIL),
+    gameChangers:filterPool(_BR_GAME_CHANGERS_DETAIL),
+    extraTurns:filterPool(_BR_EXTRA_TURNS),
+    interactionInst:filterPool(_BR_INTERACTION_INST)
+  };
+  // Combos jouables (filtre par couleur)
+  var combosPlayable=_COMBO_PACKAGES.filter(function(pkg){
+    if(pkg.colors.length){for(var i=0;i<pkg.colors.length;i++){if(ci.indexOf(pkg.colors[i])<0)return false;}}
+    // Au moins une carte du package n'est pas déjà dans le deck
+    return pkg.cards.some(function(c){return !inDeckNames[c.toLowerCase()];});
+  });
+  // Render
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">⬆ Cibler le bracket '+_buTargetBr+' — '+brLbl[_buTargetBr]+'</div><button class="btn btnsm" onclick="closeBracketUpgrade()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:12px"><b>'+esc(d.name||'')+'</b> — Voici les cartes à ajouter pour atteindre le bracket <span style="color:'+brCol[_buTargetBr]+';font-weight:700">'+_buTargetBr+'</span>.</div>';
+  // Sélecteur cible + filtre collection
+  html+='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">';
+  html+='<span style="font-size:.74rem;color:var(--tx3);letter-spacing:.05em">CIBLE :</span>';
+  [3,4,5].forEach(function(b){
+    html+='<button class="btn btnsm'+(_buTargetBr===b?' btnp':'')+'" onclick="_buSetTarget('+b+')">'+brLbl[b]+' ('+b+')</button>';
+  });
+  html+='<span style="margin-left:auto"></span>';
+  html+='<button class="btn btnsm'+(_buCollOnly?' btnp':'')+'" onclick="_buToggleColl()" title="Filtrer par cartes que tu possèdes">🃏 Ma collection</button>';
+  html+='</div>';
+  // Récap diff
+  html+='<div style="background:rgba(0,0,0,.20);border:.5px solid var(--bd2);border-radius:9px;padding:10px 12px;margin-bottom:12px">';
+  html+='<div style="font-size:.72rem;color:var(--tx3);letter-spacing:.04em;margin-bottom:6px">📊 ÉTAT ACTUEL vs CIBLE</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;font-size:.82rem">';
+  var cats=[
+    {k:'tutors',ico:'🔮',lbl:'Tutors ciblés'},
+    {k:'fastMana',ico:'💎',lbl:'Fast mana'},
+    {k:'gameChangers',ico:'⚠',lbl:'Game changers'},
+    {k:'extraTurns',ico:'⏳',lbl:'Tours sup.'},
+    {k:'combos',ico:'⚡',lbl:'Combos actifs'},
+    {k:'interactionInst',ico:'🛡',lbl:'Interaction instant'}
+  ];
+  cats.forEach(function(c){
+    var cv=cur[c.k],tv=tgt[c.k],def=deficit[c.k];
+    var col=def===0?'#7fb069':def<=2?'#e8c96e':'#dc5050';
+    html+='<div style="display:flex;flex-direction:column"><span style="font-size:.72rem;color:var(--tx3)">'+c.ico+' '+c.lbl+'</span><span><b style="color:'+col+'">'+cv+'</b><span style="color:var(--tx3)"> / '+tv+'</span>'+(def>0?' <span style="color:#dc5050;font-size:.7rem">+'+def+'</span>':' <span style="color:#7fb069">✓</span>')+'</span></div>';
+  });
+  html+='</div></div>';
+  // Sections de suggestions
+  function renderSec(title,ico,deficit,pool,catKey){
+    if(deficit===0&&!pool.length)return '';
+    var h='<div style="background:rgba(0,0,0,.14);border:.5px solid var(--bd2);border-radius:9px;padding:10px 12px;margin-bottom:10px">';
+    h+='<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem">'+ico+' '+title+'</div>';
+    if(deficit>0)h+='<span style="font-size:.74rem;color:#dc5050">+'+deficit+' à ajouter</span>';
+    else h+='<span style="font-size:.74rem;color:#7fb069">✓ Cible atteinte</span>';
+    h+='<span style="margin-left:auto"></span>';
+    if(pool.length&&deficit>0){
+      h+='<button class="btn btnsm" onclick="_buAddAll(\''+catKey+'\','+deficit+')" style="font-size:.72rem">+ Ajouter les '+Math.min(deficit,pool.length)+' premiers</button>';
+    }
+    h+='</div>';
+    if(!pool.length){
+      h+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Aucune carte disponible — soit toutes déjà dans le deck'+(_buCollOnly?', soit hors collection':'')+'.</div>';
+    }else{
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:5px">';
+      pool.slice(0,12).forEach(function(c){
+        var inColl=collOwned[c.nm.toLowerCase()];
+        h+='<div style="display:flex;gap:5px;align-items:center;padding:4px 7px;background:var(--s2);border-radius:5px;font-size:.8rem">';
+        h+='<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.nm)+'">'+esc(c.nm)+'</span>';
+        if(inColl&&!_buCollOnly)h+='<span style="color:#7fb069;font-size:.7rem" title="Tu possèdes cette carte">✓</span>';
+        h+='<button onclick="_buAddCard('+JSON.stringify(c.nm).replace(/"/g,'&quot;')+')" title="Ajouter au deck" style="padding:1px 7px;border-radius:4px;border:.5px solid var(--bd2);background:rgba(127,176,105,.10);color:#7fb069;cursor:pointer;font-size:.74rem">+</button>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+    h+='</div>';
+    return h;
+  }
+  html+=renderSec('Tutors ciblés','🔮',deficit.tutors,picks.tutors,'tutors');
+  html+=renderSec('Fast mana','💎',deficit.fastMana,picks.fastMana,'fastMana');
+  html+=renderSec('Game changers','⚠',deficit.gameChangers,picks.gameChangers,'gameChangers');
+  if(_buTargetBr>=4)html+=renderSec('Tours supplémentaires','⏳',deficit.extraTurns,picks.extraTurns,'extraTurns');
+  html+=renderSec('Interaction instant-speed','🛡',deficit.interactionInst,picks.interactionInst,'interactionInst');
+  // Combos packages
+  if(deficit.combos>0&&combosPlayable.length){
+    html+='<div style="background:rgba(0,0,0,.14);border:.5px solid var(--bd2);border-radius:9px;padding:10px 12px;margin-bottom:10px">';
+    html+='<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem">⚡ Packages combo</div><span style="font-size:.74rem;color:#dc5050">+'+deficit.combos+' à monter</span></div>';
+    combosPlayable.slice(0,5).forEach(function(pkg){
+      var missing=pkg.cards.filter(function(c){return !inDeckNames[c.toLowerCase()];});
+      var have=pkg.cards.filter(function(c){return inDeckNames[c.toLowerCase()];});
+      html+='<div style="background:rgba(232,201,110,.06);border-left:2.5px solid var(--gold2);border-radius:0 6px 6px 0;padding:7px 11px;margin-bottom:5px;font-size:.82rem">';
+      html+='<div style="display:flex;justify-content:space-between;align-items:baseline"><b>'+esc(pkg.name)+'</b><span style="color:var(--tx3);font-size:.72rem">'+have.length+'/'+pkg.cards.length+'</span></div>';
+      if(have.length)html+='<div style="font-size:.72rem;color:#7fb069;margin-top:2px">✓ Tu as : '+have.map(esc).join(' · ')+'</div>';
+      if(missing.length){
+        html+='<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">';
+        missing.forEach(function(m){
+          var nm=m.replace(/(^|\s)\w/g,function(c){return c.toUpperCase();});
+          html+='<button onclick="_buAddCard('+JSON.stringify(nm).replace(/"/g,'&quot;')+')" style="padding:2px 8px;border-radius:4px;border:.5px solid var(--bd2);background:rgba(127,176,105,.10);color:#7fb069;cursor:pointer;font-size:.72rem">+ '+esc(nm)+'</button>';
+        });
+        html+='</div>';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  // Conseils stratégiques
+  html+='<div style="background:rgba(91,140,245,.06);border-left:2.5px solid #5b8cf5;border-radius:0 8px 8px 0;padding:9px 12px;margin-bottom:10px;font-size:.78rem;color:var(--tx2);line-height:1.6">';
+  html+='<div style="font-weight:600;color:#5b8cf5;margin-bottom:3px">💡 Conseils pour bracket '+_buTargetBr+' ('+brLbl[_buTargetBr]+')</div>';
+  if(_buTargetBr===3)html+='Niveau "upgraded" : tu peux garder ton plan thématique. Ajoute 1-2 tutors ciblés et 1-2 mana rocks rapides. Pas de combo cassant.';
+  else if(_buTargetBr===4)html+='Niveau "optimisé" : il faut accepter un plan plus rapide. Pense en termes de turn-of-win (T6-7). Au moins 1 combo 2-cartes ou 1 wincon répétable. 8-10 interactions instant-speed.';
+  else if(_buTargetBr===5)html+='cEDH : speed T3-T4. Combos 2-3 cartes obligatoires, fast mana T1 essentiel, 10+ interactions instant-speed (counterspells > removal). Plan de jeu = "je tente la win à T3 et je contre la win adverse".';
+  html+='</div>';
+  // Bouton coach
+  html+='<div style="text-align:right;font-size:.78rem"><button class="btn btnsm" onclick="closeBracketUpgrade();openCoach({deckId:\''+escJs(_buCurDeckId)+'\'});setTimeout(function(){_coachAsk(\'Comment passer ce deck du bracket actuel au bracket '+_buTargetBr+' ('+brLbl[_buTargetBr]+') ?\');},200)">💡 Demander au coach</button></div>';
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _buSetTarget(b){_buTargetBr=b;_buRender();}
+function _buAddCard(nm){
+  var d=decks[_buCurDeckId];if(!d){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  // Vérifier qu'elle n'est pas déjà dedans
+  var lc=nm.toLowerCase().trim();
+  var exists=(d.cards||[]).some(function(c){return (c.name||'').toLowerCase().trim()===lc;});
+  if(exists){if(typeof toastError==='function')toastError(nm+' déjà dans le deck');return;}
+  // Ajoute
+  d.cards=d.cards||[];
+  d.cards.push({name:nm,qty:1,sec:'',nl:lc});
+  // Recompose rawName si possible
+  if(d.rawName){d.rawName=d.rawName.trim()+'\n1 '+nm;}
+  d.updatedAt=Date.now();
+  if(typeof saveDecks==='function')saveDecks();
+  if(typeof toastSuccess==='function')toastSuccess('✓ '+nm+' ajouté');
+  _buRender();
+  // Refresh analyse si visible
+  try{if(typeof anaRender==='function'&&_anaCurDeckId===_buCurDeckId)anaRender(_buCurDeckId);}catch(e){}
+}
+function _buAddAll(catKey,n){
+  // Réutilise la logique de _buRender pour récupérer le pool actuel
+  var d=decks[_buCurDeckId];if(!d)return;
+  var ci=(d.commander&&d.commander.colors)||d.colors||[];
+  var inDeck={};(d.cards||[]).forEach(function(c){inDeck[(c.name||'').toLowerCase().trim()]=1;});
+  var collOwned={};
+  if(_buCollOnly){try{(getProfCards(0)||[]).forEach(function(c){collOwned[(c.name||'').toLowerCase().trim()]=1;});}catch(e){}}
+  var poolMap={tutors:_BR_TUTORS_DETAIL,fastMana:_BR_FAST_MANA_DETAIL,gameChangers:_BR_GAME_CHANGERS_DETAIL,extraTurns:_BR_EXTRA_TURNS,interactionInst:_BR_INTERACTION_INST};
+  var pool=poolMap[catKey]||[];
+  var added=0;
+  pool.forEach(function(c){
+    if(added>=n)return;
+    if(inDeck[c.nm.toLowerCase()])return;
+    if(c.ci&&c.ci.length){for(var i=0;i<c.ci.length;i++){if(ci.indexOf(c.ci[i])<0)return;}}
+    if(_buCollOnly&&!collOwned[c.nm.toLowerCase()])return;
+    d.cards.push({name:c.nm,qty:1,sec:'',nl:c.nm.toLowerCase().trim()});
+    if(d.rawName)d.rawName=d.rawName.trim()+'\n1 '+c.nm;
+    added++;
+  });
+  if(added){
+    d.updatedAt=Date.now();
+    if(typeof saveDecks==='function')saveDecks();
+    if(typeof toastSuccess==='function')toastSuccess('✓ '+added+' carte(s) ajoutée(s)');
+    _buRender();
+    try{if(typeof anaRender==='function'&&_anaCurDeckId===_buCurDeckId)anaRender(_buCurDeckId);}catch(e){}
+  }
 }
 
 function _dfComputeMiniAnalysis(d){
