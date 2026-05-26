@@ -189,9 +189,147 @@ async function chatRules(question, history, card) {
   throw new Error('No LLM configured');
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// CHAT COACH MTG — coaching de deck, suggestions, explications stratégiques
+// Réutilise GitHub Models (gratuit) ou Gemini (fallback). Supporte BYOK
+// Anthropic/Gemini via byok = { provider, key }.
+// ════════════════════════════════════════════════════════════════════════
+var SYSTEM_COACH = [
+  'Tu es un coach Magic: The Gathering professionnel francophone, spécialisé en deck-building compétitif (Commander, Modern, Pioneer, Legacy).',
+  'Tu réponds en FRANÇAIS, concis, structuré, avec des chiffres concrets quand pertinent.',
+  'Style : direct, factuel, sans jargon excessif. Aucune flagornerie ("excellente question", etc.).',
+  'Format de réponse : 100-180 mots maximum. Utilise du Markdown léger (**bold** pour les cartes/concepts clés, listes à puces si plusieurs points).',
+  'Quand tu suggères des cartes : nomme exactement (anglais), explique pourquoi en 1 phrase, et chiffre l\'impact si possible.',
+  'Tu fais référence à des stats : speed (turn-of-win), bracket Commander 1-5, mana curve, ratios (ramp/draw/removal), winrate.',
+  'À la fin de chaque réponse, ajoute optionnellement 2-3 questions de suivi pertinentes sous la forme :\nFOLLOW_UPS:\n- question 1\n- question 2'
+].join(' ');
+
+// Appel Anthropic (BYOK)
+async function callAnthropic(systemPrompt, userText, opts) {
+  opts = opts || {};
+  var key = opts.userKey;
+  if (!key) throw new Error('Anthropic key missing');
+  var model = opts.model || 'claude-haiku-4-5';
+  var r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: model,
+      max_tokens: opts.maxTokens || 700,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userText }]
+    })
+  });
+  if (!r.ok) {
+    var txt = await r.text();
+    var err = new Error('Anthropic ' + r.status);
+    err.detail = txt.slice(0, 400);
+    err.status = r.status;
+    throw err;
+  }
+  var data = await r.json();
+  var content = '';
+  try {
+    if (Array.isArray(data.content)) content = data.content.map(function(p){return p.text||'';}).join('').trim();
+  } catch (e) { /* ignore */ }
+  return content;
+}
+
+// Appel Gemini avec clé custom (BYOK Gemini)
+async function callGeminiCustom(systemPrompt, userText, userKey, opts) {
+  opts = opts || {};
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + encodeURIComponent(userKey);
+  var r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+      contents: [{ role: 'user', parts: [{ text: userText }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: opts.maxTokens || 700 }
+    })
+  });
+  if (!r.ok) {
+    var txt = await r.text();
+    var err = new Error('Gemini BYOK ' + r.status);
+    err.detail = txt.slice(0, 400);
+    err.status = r.status;
+    throw err;
+  }
+  var data = await r.json();
+  var answer = '';
+  try {
+    var parts = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+    if (parts) answer = parts.map(function (p) { return p.text || ''; }).join('').trim();
+  } catch (e) { /* ignore */ }
+  return answer;
+}
+
+async function chatCoach(opts) {
+  opts = opts || {};
+  var question = String(opts.question || '').slice(0, 1000);
+  if (!question) throw new Error('question required');
+  // Contexte deck (optionnel) : injecté dans le prompt user
+  var contextBlocks = [];
+  if (opts.deckCtx) {
+    var dc = opts.deckCtx;
+    var lines = [];
+    if (dc.name) lines.push('Deck : ' + dc.name);
+    if (dc.format) lines.push('Format : ' + dc.format);
+    if (dc.commander) lines.push('Commandant : ' + dc.commander);
+    if (dc.bracket) lines.push('Bracket : ' + dc.bracket);
+    if (dc.plan) lines.push('Plan A détecté : ' + dc.plan + ' (' + (dc.coherence || 0) + '% cohérent)');
+    if (dc.speedTurn) lines.push('Vitesse estimée : T' + dc.speedTurn);
+    if (dc.counts) lines.push('Counts : ramp=' + (dc.counts.ramp || 0) + ', draw=' + (dc.counts.draw || 0) + ', removal=' + (dc.counts.removal || 0) + ', interaction=' + (dc.counts.interaction || 0));
+    if (dc.cards && Array.isArray(dc.cards) && dc.cards.length) {
+      lines.push('Cartes principales (top 30) : ' + dc.cards.slice(0, 30).join(', '));
+    }
+    if (lines.length) contextBlocks.push('[CONTEXTE DECK]\n' + lines.join('\n'));
+  }
+  if (opts.cardCtx) {
+    var cc = opts.cardCtx;
+    var cLines = [];
+    if (cc.name) cLines.push('Carte : ' + cc.name);
+    if (cc.typeLine) cLines.push('Type : ' + cc.typeLine);
+    if (cc.cmc != null) cLines.push('CMC : ' + cc.cmc);
+    if (cc.oracleText) cLines.push('Oracle : ' + String(cc.oracleText).slice(0, 600));
+    if (cLines.length) contextBlocks.push('[CONTEXTE CARTE]\n' + cLines.join('\n'));
+  }
+  var userText = (contextBlocks.length ? contextBlocks.join('\n\n') + '\n\n' : '') + 'Question : ' + question;
+
+  // Priorité BYOK si user a fourni une clé
+  if (opts.byok && opts.byok.key && opts.byok.provider) {
+    var prov = String(opts.byok.provider).toLowerCase();
+    if (prov === 'anthropic') {
+      return callAnthropic(SYSTEM_COACH, userText, { userKey: opts.byok.key, model: opts.byok.model || 'claude-haiku-4-5', maxTokens: 700 });
+    }
+    if (prov === 'gemini') {
+      return callGeminiCustom(SYSTEM_COACH, userText, opts.byok.key, { maxTokens: 700 });
+    }
+    // Provider inconnu : on retombe sur le défaut
+  }
+  // Défaut : GitHub Models > Gemini (clé serveur)
+  if (process.env.GITHUB_TOKEN) {
+    var msgs = [
+      { role: 'system', content: SYSTEM_COACH },
+      { role: 'user', content: userText }
+    ];
+    return callGithubChat(msgs, { model: GITHUB_MODEL_TEXT, maxTokens: 700, temperature: 0.4 });
+  }
+  if (process.env.GEMINI_API_KEY) {
+    var contents = [{ role: 'user', parts: [{ text: userText }] }];
+    return callGeminiText(SYSTEM_COACH, contents, { maxTokens: 700, temperature: 0.4 });
+  }
+  throw new Error('No LLM configured');
+}
+
 module.exports = {
   llmAvailable: llmAvailable,
   llmSetupHint: llmSetupHint,
   identifyCard: identifyCard,
-  chatRules: chatRules
+  chatRules: chatRules,
+  chatCoach: chatCoach
 };

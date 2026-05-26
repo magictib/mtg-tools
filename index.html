@@ -7945,6 +7945,7 @@ function renderHome(){
     +'<button class="home-action" onclick="goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit()"><span>📊</span>'+t('home.action.analyse','Analyser un deck')+'</button>'
     +'<button class="home-action" onclick="goTab(\'arena\')"><span>⚔</span>'+t('home.action.arena','Partie en cours')+'</button>'
     +'<button class="home-action" onclick="openMatchTracker()"><span>📓</span>'+t('home.action.matches','Logger une partie')+'</button>'
+    +'<button class="home-action" onclick="openCoach()"><span>💡</span>'+t('home.action.coach','Coach IA')+'</button>'
     +'</div></div>';
   // ── 🏆 Outils pro (collapsible) ──
   var _proOpen=false;try{_proOpen=localStorage.getItem('mtg_home_pro_open')==='1';}catch(e){}
@@ -32879,6 +32880,7 @@ function _cmdPalBuild(){
   items.push({key:'act:tournament',ico:'⏱',lbl:'Mode Tournoi (timer + life tracker)',cat:'Action',act:function(){if(typeof openTournamentMode==='function')openTournamentMode();}});
   items.push({key:'act:focus',ico:'🎯',lbl:'Focus deck (vue unifiée du dernier deck)',cat:'Action',act:function(){if(typeof openDeckFocus!=='function')return;var sorted=Object.keys(decks||{}).filter(function(id){return _deckBelongsTo?_deckBelongsTo(decks[id],0):true;}).map(function(id){return{id:id,t:decks[id].updatedAt||0};}).sort(function(a,b){return b.t-a.t;});if(sorted.length)openDeckFocus(sorted[0].id);}});
   items.push({key:'act:discover',ico:'🔮',lbl:'Découvrir des decks/commandants',cat:'Action',act:function(){if(typeof openDiscover==='function')openDiscover();}});
+  items.push({key:'act:coach',ico:'💡',lbl:'Coach IA — pose une question sur un deck',cat:'Action',act:function(){if(typeof openCoach==='function')openCoach();}});
   items.push({key:'act:referral',ico:'🎁',lbl:'Mon programme de parrainage',cat:'Action',act:function(){if(typeof openReferrals==='function')openReferrals();}});
   items.push({key:'act:pursearch',ico:'🔍',lbl:'Chercher une carte dans mes listes partagées',cat:'Action',act:function(){if(typeof openPurchaseSearch==='function')openPurchaseSearch();}});
   items.push({key:'act:playgroup',ico:'👥',lbl:'Playgroup — classement',cat:'Action',act:function(){if(typeof openPlaygroup==='function')openPlaygroup();}});
@@ -46749,6 +46751,7 @@ function _dfRender(){
   html+='<button class="btn btnsm" onclick="closeDeckFocus();openTournamentMode()">⏱ Mode tournoi</button>';
   html+='<button class="btn btnsm" onclick="closeDeckFocus();openMatchTracker();setTimeout(function(){var s=document.getElementById(\'mt-deck\');if(s)s.value=\''+escJs(id)+'\';},120)">📓 Logger</button>';
   html+='<button class="btn btnsm" onclick="closeDeckFocus();goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit();setTimeout(function(){var s=document.getElementById(\'ana-deck-sel\');if(s){s.value=\''+escJs(id)+'\';if(typeof anaRender===\'function\')anaRender(\''+escJs(id)+'\');}},150)">📊 Analyse détaillée</button>';
+  html+='<button class="btn btnsm" onclick="closeDeckFocus();openCoach({deckId:\''+escJs(id)+'\'})" style="background:rgba(232,201,110,.16);color:var(--gold2);border-color:rgba(232,201,110,.4)">💡 Coach IA</button>';
   html+='<button class="btn btnsm" onclick="closeDeckFocus();goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(id)+'\')">✎ Modifier</button>';
   html+='<button class="btn btnsm" onclick="closeDeckFocus();openDeckCompare()">⚖ Comparer</button>';
   html+='<button class="btn btnsm" onclick="openPrintDeck(\''+escJs(id)+'\')">🖨 Imprimer</button>';
@@ -46832,6 +46835,223 @@ function _dfSavePlan(){
   if(typeof saveDecks==='function')saveDecks();
   if(typeof toastSuccess==='function')toastSuccess('✓ Plan enregistré');
 }
+// ════════════════════════════════════════════════════════════════════════
+// AI COACH MTG — assistant qui répond aux questions sur un deck / une carte
+// Free par défaut (GitHub Models / Gemini côté serveur) + BYOK Anthropic/Gemini
+// ════════════════════════════════════════════════════════════════════════
+var _coachByokCfg={provider:'',key:'',model:''};
+try{var __cbk=localStorage.getItem('mtg_coach_byok');if(__cbk){var p=JSON.parse(__cbk);if(p&&typeof p==='object')_coachByokCfg=p;}}catch(e){}
+function _coachSaveByok(){
+  try{localStorage.setItem('mtg_coach_byok',JSON.stringify(_coachByokCfg));}catch(e){}
+}
+var _coachHistory=[]; // {q, a, ts}
+var _coachCurCtx=null; // {deckCtx, cardCtx, label}
+
+function openCoach(ctx){
+  // ctx peut être {deckId, cardName, freeText} OU rien (mode général)
+  _coachCurCtx=null;
+  if(ctx){
+    if(ctx.deckId&&decks[ctx.deckId]){
+      var d=decks[ctx.deckId];
+      var mini=(typeof _dfComputeMiniAnalysis==='function')?_dfComputeMiniAnalysis(d):null;
+      var topCards=(d.cards||[]).slice(0,30).map(function(c){return (c.qty>1?c.qty+'× ':'')+c.name;});
+      _coachCurCtx={
+        deckCtx:{
+          name:d.name||'',
+          format:d.format||'',
+          commander:(d.commander&&d.commander.name)||'',
+          bracket:mini?mini.bracket:null,
+          plan:mini?mini.plan:null,
+          coherence:mini?mini.coherence:null,
+          speedTurn:mini?mini.speedTurn:null,
+          counts:mini?{ramp:mini.quotas&&mini.quotas.ramp&&mini.quotas.ramp.n,draw:mini.quotas&&mini.quotas.draw&&mini.quotas.draw.n,removal:mini.quotas&&mini.quotas.removal&&mini.quotas.removal.n,interaction:mini.quotas&&mini.quotas.interaction&&mini.quotas.interaction.n}:{},
+          cards:topCards
+        },
+        label:'Deck : '+(d.name||'(sans nom)')
+      };
+    }
+    if(ctx.cardName){
+      var meta=_anaData[(ctx.cardName||'').toLowerCase()]||null;
+      _coachCurCtx=_coachCurCtx||{};
+      _coachCurCtx.cardCtx={
+        name:ctx.cardName,
+        typeLine:meta?meta.typeLine:'',
+        cmc:meta?meta.cmc:null,
+        oracleText:meta?meta.oracleText:''
+      };
+      _coachCurCtx.label=(_coachCurCtx.label?_coachCurCtx.label+' · ':'')+'Carte : '+ctx.cardName;
+    }
+  }
+  var ov=document.getElementById('coach-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='coach-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5600;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeCoach();});
+  }
+  _coachRender();
+  ov.style.display='flex';
+  setTimeout(function(){var el=document.getElementById('coach-q');if(el)el.focus();},80);
+}
+function closeCoach(){var ov=document.getElementById('coach-ov');if(ov)ov.style.display='none';}
+function _coachRender(){
+  var ov=document.getElementById('coach-ov');if(!ov)return;
+  var ctxLbl=_coachCurCtx&&_coachCurCtx.label?_coachCurCtx.label:'Mode général';
+  var hasByok=!!(_coachByokCfg.provider&&_coachByokCfg.key);
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:780px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">💡 Coach MTG</div>';
+  html+='<button class="btn btnsm" onclick="openCoachSettings()" title="Configurer ta propre clé API (Anthropic/Gemini)">⚙</button>';
+  html+='<button class="btn btnsm" onclick="closeCoach()">✕</button></div>';
+  html+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:12px">📍 Contexte : <span style="color:var(--tx2)">'+esc(ctxLbl)+'</span>'+(hasByok?' · <span style="color:var(--gold2)">🔑 '+esc(_coachByokCfg.provider)+'</span>':' · <span style="color:var(--tx3)">free tier</span>')+'</div>';
+  // Suggestions de questions selon contexte
+  if(_coachCurCtx&&_coachCurCtx.deckCtx){
+    html+='<div style="margin-bottom:10px;display:flex;gap:5px;flex-wrap:wrap">';
+    var sugg=[
+      'Quelles cartes je devrais ajouter en priorité ?',
+      'Quelle est la plus grosse faiblesse de ce deck ?',
+      'Comment accélérer mon plan A ?',
+      'Quelle carte couper pour un combo plus rapide ?'
+    ];
+    sugg.forEach(function(s){
+      html+='<button class="btn btnsm" onclick="_coachAsk('+JSON.stringify(s).replace(/"/g,'&quot;')+')" style="font-size:.72rem;padding:3px 9px">'+esc(s)+'</button>';
+    });
+    html+='</div>';
+  }
+  // Historique de conversation
+  if(_coachHistory.length){
+    html+='<div style="max-height:38vh;overflow-y:auto;padding-right:4px;margin-bottom:12px">';
+    _coachHistory.forEach(function(h){
+      html+='<div style="margin-bottom:10px">';
+      html+='<div style="background:rgba(91,140,245,.10);border-left:2.5px solid #5b8cf5;border-radius:0 7px 7px 0;padding:7px 11px;margin-bottom:5px;font-size:.86rem;color:var(--tx)">'+esc(h.q)+'</div>';
+      html+='<div style="background:rgba(232,201,110,.08);border-left:2.5px solid var(--gold2);border-radius:0 7px 7px 0;padding:9px 13px;font-size:.86rem;color:var(--tx);line-height:1.6;white-space:pre-wrap">'+_coachFormatMd(h.a)+'</div>';
+      if(h.followUps&&h.followUps.length){
+        html+='<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;padding-left:11px">';
+        h.followUps.forEach(function(fu){
+          html+='<button class="btn btnsm" onclick="_coachAsk('+JSON.stringify(fu).replace(/"/g,'&quot;')+')" style="font-size:.7rem;padding:2px 8px;color:var(--ac2)">→ '+esc(fu)+'</button>';
+        });
+        html+='</div>';
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  // Question input
+  html+='<div style="display:flex;gap:6px"><input id="coach-q" type="text" placeholder="Pose ta question (ex: pourquoi ce deck rame T3-4 ?)" style="flex:1;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem" onkeydown="if(event.key===\'Enter\'){_coachAsk();}">';
+  html+='<button class="btn btnp" id="coach-send" onclick="_coachAsk()">Envoyer</button></div>';
+  html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:6px">'+(hasByok?'Utilise ta clé '+esc(_coachByokCfg.provider)+' (illimité, qualité premium).':'Free tier : 20 requêtes/heure max. <a onclick="openCoachSettings()" style="color:var(--gold2);cursor:pointer;text-decoration:underline">Configurer une clé personnelle</a> pour illimité.')+'</div>';
+  // Boutons utilitaires
+  if(_coachHistory.length){
+    html+='<div style="text-align:right;margin-top:8px"><button class="btn btnsm" onclick="_coachClear()" style="font-size:.7rem">🗑 Effacer l\'historique</button></div>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _coachFormatMd(text){
+  // Mini-rendu Markdown : **bold**, *italic*, listes - , code `…`
+  return esc(text)
+    .replace(/\*\*([^*]+)\*\*/g,'<b style="color:var(--gold2)">$1</b>')
+    .replace(/\*([^*]+)\*/g,'<i>$1</i>')
+    .replace(/`([^`]+)`/g,'<code style="background:var(--s3);padding:1px 4px;border-radius:3px;font-size:.84em">$1</code>')
+    .replace(/^- /gm,'• ');
+}
+function _coachAsk(presetQ){
+  var qEl=document.getElementById('coach-q');
+  var q=presetQ||(qEl?qEl.value.trim():'');
+  if(!q){if(qEl)qEl.focus();return;}
+  if(qEl)qEl.value='';
+  var sendBtn=document.getElementById('coach-send');if(sendBtn){sendBtn.disabled=true;sendBtn.textContent='…';}
+  // Affiche un placeholder pendant l'attente
+  _coachHistory.push({q:q,a:'⏳ Le coach réfléchit…',followUps:[]});
+  _coachRender();
+  // Headers BYOK
+  var headers={'Content-Type':'application/json'};
+  if(_coachByokCfg.provider&&_coachByokCfg.key){
+    headers['X-User-Provider']=_coachByokCfg.provider;
+    headers['X-User-Key']=_coachByokCfg.key;
+    if(_coachByokCfg.model)headers['X-User-Model']=_coachByokCfg.model;
+  }
+  // Body
+  var body={question:q};
+  if(_coachCurCtx&&_coachCurCtx.deckCtx)body.deckCtx=_coachCurCtx.deckCtx;
+  if(_coachCurCtx&&_coachCurCtx.cardCtx)body.cardCtx=_coachCurCtx.cardCtx;
+  fetch('/api/coach',{method:'POST',headers:headers,body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return {ok:r.ok,status:r.status,d:d};});})
+    .then(function(res){
+      // Remplace le placeholder
+      var last=_coachHistory[_coachHistory.length-1];
+      if(!res.ok){
+        last.a='⚠ '+(res.d&&res.d.error||'Erreur')+(res.status===429?'\n\nAstuce : configure ta propre clé API dans les paramètres pour bypass le rate limit.':'');
+      }else{
+        last.a=res.d.answer||'(pas de réponse)';
+        last.followUps=res.d.followUps||[];
+      }
+      _coachRender();
+    })
+    .catch(function(e){
+      var last=_coachHistory[_coachHistory.length-1];
+      last.a='⚠ Erreur réseau : '+(e.message||e);
+      _coachRender();
+    })
+    .then(function(){
+      var sb=document.getElementById('coach-send');if(sb){sb.disabled=false;sb.textContent='Envoyer';}
+    });
+}
+function _coachClear(){_coachHistory=[];_coachRender();}
+
+// ── Settings BYOK ──
+function openCoachSettings(){
+  var ov=document.getElementById('coach-settings-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='coach-settings-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5700;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;padding:1rem';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeCoachSettings();});
+  }
+  var html='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:540px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.4rem;color:var(--gold2);flex:1">⚙ Coach — ta clé API</div><button class="btn btnsm" onclick="closeCoachSettings()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.6;margin-bottom:14px">Le coach utilise un free tier par défaut (limité à 20 requêtes/heure). Configure ta propre clé pour <b>illimité</b> et <b>qualité premium</b>.</div>';
+  html+='<div style="background:rgba(0,0,0,.20);border-radius:8px;padding:12px;margin-bottom:14px">';
+  html+='<label style="display:block;font-size:.78rem;color:var(--tx3);margin-bottom:4px;letter-spacing:.04em">PROVIDER</label>';
+  html+='<select id="coach-prov" style="width:100%;padding:8px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);margin-bottom:10px">';
+  html+='<option value="">— Aucune (utiliser le free tier) —</option>';
+  html+='<option value="anthropic"'+(_coachByokCfg.provider==='anthropic'?' selected':'')+'>Anthropic (Claude Haiku, Sonnet, Opus)</option>';
+  html+='<option value="gemini"'+(_coachByokCfg.provider==='gemini'?' selected':'')+'>Google Gemini (Flash, Pro)</option>';
+  html+='</select>';
+  html+='<label style="display:block;font-size:.78rem;color:var(--tx3);margin-bottom:4px;letter-spacing:.04em">CLÉ API</label>';
+  html+='<input id="coach-key" type="password" placeholder="sk-ant-… ou AIza…" value="'+esc(_coachByokCfg.key||'')+'" style="width:100%;padding:8px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-family:monospace;margin-bottom:10px">';
+  html+='<label style="display:block;font-size:.78rem;color:var(--tx3);margin-bottom:4px;letter-spacing:.04em">MODÈLE (optionnel)</label>';
+  html+='<input id="coach-model" type="text" placeholder="claude-haiku-4-5 (défaut)" value="'+esc(_coachByokCfg.model||'')+'" style="width:100%;padding:8px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-family:monospace">';
+  html+='</div>';
+  html+='<div style="font-size:.78rem;color:var(--tx3);line-height:1.6;margin-bottom:14px">';
+  html+='🔒 Ta clé est stockée <b>uniquement dans ton navigateur</b> (localStorage). Envoyée au serveur ManaLAB uniquement pour relayer ta requête vers le provider — jamais loggée, jamais stockée.<br>';
+  html+='💰 <b>Anthropic</b> : ~$5 gratuit à l\'inscription sur <a href="https://console.anthropic.com" target="_blank" style="color:var(--gold2)">console.anthropic.com</a><br>';
+  html+='💰 <b>Gemini</b> : 1500 req/jour gratuites sur <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--gold2)">aistudio.google.com/apikey</a>';
+  html+='</div>';
+  html+='<div style="display:flex;gap:8px;justify-content:flex-end">';
+  html+='<button class="btn btnsm" onclick="_coachSettingsReset()">🗑 Effacer</button>';
+  html+='<button class="btn btnp" onclick="_coachSettingsSave()">💾 Enregistrer</button>';
+  html+='</div></div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeCoachSettings(){var ov=document.getElementById('coach-settings-ov');if(ov)ov.style.display='none';}
+function _coachSettingsSave(){
+  _coachByokCfg.provider=document.getElementById('coach-prov').value;
+  _coachByokCfg.key=document.getElementById('coach-key').value.trim();
+  _coachByokCfg.model=document.getElementById('coach-model').value.trim();
+  _coachSaveByok();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Configuration enregistrée');
+  closeCoachSettings();
+  // Re-render le coach si ouvert
+  if(document.getElementById('coach-ov')&&document.getElementById('coach-ov').style.display==='flex')_coachRender();
+}
+function _coachSettingsReset(){
+  if(!confirm('Effacer ta clé API stockée ?'))return;
+  _coachByokCfg={provider:'',key:'',model:''};_coachSaveByok();
+  closeCoachSettings();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Clé effacée — retour au free tier');
+  if(document.getElementById('coach-ov')&&document.getElementById('coach-ov').style.display==='flex')_coachRender();
+}
+
 function _dfComputeMiniAnalysis(d){
   try{
     if(!d||!(d.cards||[]).length)return {error:'Deck vide'};
@@ -47043,6 +47263,7 @@ function _flNextActions(context,opts){
     <div class="kbd-row"><span class="kbd-label">Mode tournoi</span><kbd>t</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Logger une partie</span><kbd>l</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Pod Optimizer</span><kbd>p</kbd></div>
+    <div class="kbd-row"><span class="kbd-label">💡 Coach IA</span><kbd>i</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Focus deck (vue unifiée)</span><kbd>f</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Découvrir</span><kbd>d</kbd></div>
     <div class="kbd-row"><span class="kbd-label">Outils Pro</span><kbd>g</kbd> <kbd>p</kbd></div>
@@ -47165,6 +47386,7 @@ function closeKbdHelp(){var el=document.getElementById('kbd-help');if(el)el.clas
       case 't':if(typeof openTournamentMode==='function')openTournamentMode();e.preventDefault();return;
       case 'l':if(typeof openMatchTracker==='function')openMatchTracker();e.preventDefault();return;
       case 'p':if(typeof openPodOptimizer==='function')openPodOptimizer();e.preventDefault();return;
+      case 'i':if(typeof openCoach==='function')openCoach();e.preventDefault();return;
       case 'f':
         // Focus mode sur le dernier deck modifié
         if(typeof openDeckFocus==='function'&&typeof decks!=='undefined'){
