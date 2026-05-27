@@ -49726,6 +49726,14 @@ function _registerPhase4Items(){}
 '.ap-zone-card:hover{transform:translateY(-4px) scale(1.05);box-shadow:0 12px 24px rgba(0,0,0,.85),0 0 24px rgba(201,168,76,.45),0 0 0 1px rgba(201,168,76,.5);z-index:10}',
 '.ap-zone-card img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}',
 '.ap-zone-card-name{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,transparent,rgba(0,0,0,.9));color:#fff;font-size:.62rem;padding:14px 5px 4px;text-align:center;line-height:1.15;font-family:\'Goudy Mediaeval\',serif;text-shadow:0 1px 3px rgba(0,0,0,.95);pointer-events:none}',
+'@keyframes _apPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,80,80,.4)}50%{box-shadow:0 0 0 8px rgba(220,80,80,0)}}',
+'.ap-target-mode .ap-card{cursor:crosshair!important}',
+'.ap-target-mode .ap-card:hover{outline:3px solid #dc5050;outline-offset:-3px;transform:translateY(-6px) scale(1.06)}',
+'.ap-card-counters{position:absolute;top:3px;right:3px;display:flex;flex-direction:column;gap:2px;z-index:3}',
+'.ap-card-counter{background:rgba(232,201,110,.95);color:#1a1208;font-size:.58rem;padding:1px 4px;border-radius:6px;font-weight:700;line-height:1;border:.5px solid rgba(0,0,0,.4);box-shadow:0 1px 3px rgba(0,0,0,.6)}',
+'.ap-card-counter.minus{background:rgba(220,80,80,.95);color:#fff}',
+'.ap-card-counter.dmg{background:rgba(220,80,80,.95);color:#fff}',
+'.ap-card-sickness{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(143,196,235,.85);color:#1a1208;font-size:.56rem;padding:1px 5px;border-radius:6px;font-weight:700;letter-spacing:.05em;pointer-events:none;text-transform:uppercase}',
 '.ap-hand .ap-card{width:100px;height:140px;cursor:grab;margin-left:-32px;transition:transform .25s cubic-bezier(.34,1.56,.64,1),margin-left .25s,box-shadow .25s,filter .25s,z-index 0s .15s;box-shadow:0 4px 12px rgba(0,0,0,.8),0 0 0 1px rgba(0,0,0,.6)}',
 '.ap-hand .ap-card:first-child{margin-left:0}',
 '.ap-hand .ap-card:hover{transform:translateY(-30px) scale(1.18);z-index:50;transition:transform .25s cubic-bezier(.34,1.56,.64,1),margin-left .25s,box-shadow .25s,filter .25s,z-index 0s 0s;box-shadow:0 12px 28px rgba(0,0,0,.9),0 0 24px rgba(201,168,76,.5)}',
@@ -50011,13 +50019,23 @@ function _apStartGame(setup){
     battlefield:[],
     graveyard:[],
     exile:[],
+    stack:[], // sorts/abilités en attente de résolution
     commander:(d.commander&&d.commander.name)||null,
     commanderInZone:!!(d.commander&&d.commander.name), // commandant en command zone au début
     commanderTax:0,
+    cmdDmgTaken:{}, // {oppIdx: dmg} dmg que TON commandant t'a infligé (peu utile, sécurité)
+    cmdDmgFromOpp:{}, // {oppIdx: dmg} dmg infligés à toi par le cmd de l'adv idx → 21 = défaite
+    cmdDmgDealt:{}, // {oppIdx: dmg} dmg que TON cmd a infligés à l'adv idx → ≥21 = défaite adverse
     turn:1,
     life:startPV,
+    startPV:startPV,
+    maxHandSize:7, // override possible via permanents (Reliquary Tower, Spellbook…)
     manaPool:{W:0,U:0,B:0,R:0,G:0,C:0},
     landsPlayed:0,
+    gameOver:false, // 'win' | 'lose' | false
+    activePlayer:'me', // 'me' | 'opp0' | 'opp1'…
+    targeting:null, // {sourceName, sourceCard, effect, candidates:[]}
+    landTaxLimit:1, // override (Exploration, Azusa…)
     phase:'main1',
     log:['T1 — Main d\'ouverture'],
     selected:null,
@@ -50068,7 +50086,7 @@ function _apRender(){
   var fmtLbl=s.setup.format||'';
   var nOpp=s.opponents.length;
   var html='';
-  html+='<div class="ap-board ap-compact'+(nOpp>=2?' ap-multi':'')+'">';
+  html+='<div class="ap-board ap-compact'+(nOpp>=2?' ap-multi':'')+(s.targeting?' ap-target-mode':'')+'">';
   // ─── HEADER ULTRA-COMPACT ───
   html+='<div class="ap-header">';
   html+='<button class="ap-action" onclick="_apQuitConfirm()" title="Quitter (retour lobby)">✕</button>';
@@ -50080,9 +50098,41 @@ function _apRender(){
   });
   html+='</div>';
   html+='<div class="ap-stat"><div class="ap-stat-lbl">T</div><div class="ap-stat-val">'+s.turn+'</div></div>';
-  html+='<div class="ap-stat life '+lifeCls+'"><div class="ap-stat-lbl">PV</div><div class="ap-stat-val">'+s.life+'</div></div>';
+  var pvTargetable=s.targeting?' style="cursor:crosshair;outline:2px solid #dc5050;outline-offset:-2px" onclick="_apPickTarget(\'me\',0)"':'';
+  html+='<div class="ap-stat life '+lifeCls+'"'+pvTargetable+'><div class="ap-stat-lbl">PV</div><div class="ap-stat-val">'+s.life+'</div></div>';
+  // Badge cmd dmg total reçu (≥1 montre l'alerte rouge si proche de 21)
+  var cdTotal=Object.values(s.cmdDmgFromOpp||{}).reduce(function(a,b){return a+b;},0);
+  if(cdTotal>0){
+    var cdMax=Math.max.apply(null,Object.values(s.cmdDmgFromOpp||{0:0}));
+    var cdCol=cdMax>=15?'#dc5050':cdMax>=10?'#e8c96e':'#7fb069';
+    html+='<div class="ap-stat" title="Dégâts commandant reçus (max d\'un seul cmd)"><div class="ap-stat-lbl">⚔</div><div class="ap-stat-val" style="color:'+cdCol+'">'+cdMax+'/21</div></div>';
+  }
   html+='<button class="ap-action" onclick="openArenaThemes()" title="Thèmes">🎨</button>';
   html+='</div>';
+  // ─── BANDEAU TARGETING ───
+  if(s.targeting){
+    html+='<div style="background:linear-gradient(90deg,rgba(220,80,80,.25),rgba(220,80,80,.1));border:1px solid #dc5050;border-radius:9px;padding:8px 14px;margin:6px 0;display:flex;align-items:center;gap:12px;animation:_apPulse 1.5s ease infinite">';
+    html+='<div style="color:#dc5050;font-size:1.2rem">🎯</div>';
+    html+='<div style="flex:1;color:var(--tx);font-size:.86rem"><b>'+esc(s.targeting.sourceName||'Sort')+'</b> — '+esc(s.targeting.label||'Choisis une cible')+'</div>';
+    html+='<button class="ap-action" onclick="_apCancelTargeting()" style="background:rgba(220,80,80,.3);color:#fff">Annuler</button>';
+    html+='</div>';
+  }
+  // ─── STACK VISUELLE (sorts en attente) ───
+  if(s.stack&&s.stack.length){
+    html+='<div style="background:linear-gradient(135deg,rgba(143,196,235,.12),rgba(40,80,130,.18));border:1px solid rgba(143,196,235,.4);border-radius:9px;padding:8px 12px;margin:6px 0">';
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-family:Goudy Mediaeval,serif;color:#8fc4eb;font-size:.84rem">📋 Pile ('+s.stack.length+')</div>';
+    html+='<button class="ap-action" onclick="_apResolveTop()" style="background:rgba(143,196,235,.25);color:#8fc4eb;margin-left:auto">▼ Résoudre</button>';
+    html+='<button class="ap-action" onclick="_apCounterTop()" style="background:rgba(220,80,80,.2);color:#ffaaaa">✗ Contrer</button>';
+    html+='</div>';
+    html+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    s.stack.forEach(function(item,i){
+      var top=(i===s.stack.length-1);
+      html+='<div style="background:rgba(0,0,0,.5);border:.5px solid '+(top?'#8fc4eb':'rgba(143,196,235,.2)')+';border-radius:6px;padding:5px 10px;font-size:.78rem;color:'+(top?'#fff':'var(--tx2)')+'">';
+      html+=(top?'▶ ':'')+esc(item.name||'?')+(item.kind==='ability'?' (capacité)':'');
+      html+='</div>';
+    });
+    html+='</div></div>';
+  }
   // ─── ZONE ADVERSAIRES (en haut) ───
   if(nOpp>0){
     html+='<div class="ap-opp-zone">';
@@ -50090,14 +50140,19 @@ function _apRender(){
       var oppLifeCol=opp.life<=10?'#dc5050':opp.life<=20?'#e8c96e':'#7fb069';
       html+='<div class="ap-opp">';
       var oppDeckLbl=(opp.deckId&&decks[opp.deckId])?(' · '+esc(decks[opp.deckId].name)):'';
-      html+='<div class="ap-opp-head"><div class="ap-opp-name">🤖 Adv '+(i+1)+' <span style="font-size:.62rem;color:var(--tx3);font-weight:normal">'+esc(opp.aiType||'')+oppDeckLbl+'</span></div>';
+      var cmdDmgD=(s.cmdDmgDealt||{})[i]||0;
+      var cmdDmgBadge=cmdDmgD>0?' <span title="Tu lui as infligé '+cmdDmgD+' dmg commander" style="background:rgba(232,201,110,.18);color:#e8c96e;padding:1px 5px;border-radius:8px;font-size:.6rem;font-weight:700">⚔'+cmdDmgD+'/21'+(cmdDmgD>=21?' ☠':'')+'</span>':'';
+      var oppTargetable=(s.targeting&&(s.targeting.candidates==='opponents'||s.targeting.candidates==='players'))?' style="cursor:crosshair;outline:2px solid #dc5050;outline-offset:-2px"':'';
+      html+='<div class="ap-opp"'+oppTargetable+' '+(s.targeting&&(s.targeting.candidates==='opponents'||s.targeting.candidates==='players')?'onclick="_apPickTarget(\'opp\','+i+')"':'')+'>';
+      html+='<div class="ap-opp-head"><div class="ap-opp-name">🤖 Adv '+(i+1)+' <span style="font-size:.62rem;color:var(--tx3);font-weight:normal">'+esc(opp.aiType||'')+oppDeckLbl+'</span>'+cmdDmgBadge+'</div>';
       html+='<div class="ap-opp-life" style="color:'+oppLifeCol+'">'+opp.life+'</div>';
       html+='</div>';
       html+='<div class="ap-opp-actions">';
       html+='<button class="ap-action" style="padding:3px 7px;font-size:.66rem" onclick="_apOppLife('+i+',-5)">−5</button>';
       html+='<button class="ap-action" style="padding:3px 7px;font-size:.66rem" onclick="_apOppLife('+i+',-1)">−1</button>';
       html+='<button class="ap-action" style="padding:3px 7px;font-size:.66rem" onclick="_apOppLife('+i+',+1)">+1</button>';
-      html+='<button class="ap-action" style="padding:3px 7px;font-size:.66rem" onclick="_apOppThreat('+i+')" title="Simuler un play adverse">+ menace</button>';
+      html+='<button class="ap-action" style="padding:3px 7px;font-size:.66rem;background:rgba(232,201,110,.2);color:#e8c96e" onclick="event.stopPropagation();var v=prompt(\'Dégâts commandant à infliger ?\',\'1\');var n=parseInt(v);if(n>0)_apOppCmdDmg('+i+',n);" title="Dégâts commandant (compte vers 21)">⚔ Cmd</button>';
+      html+='<button class="ap-action" style="padding:3px 7px;font-size:.66rem" onclick="event.stopPropagation();_apOppThreat('+i+')" title="Simuler un play adverse">+ menace</button>';
       html+='</div>';
       if(opp.threats&&opp.threats.length){
         html+='<div class="ap-opp-threats">';
@@ -50212,6 +50267,28 @@ function _apOppLife(idx,delta){
   _gfState.opponents[idx].life+=delta;
   if(_gfState.opponents[idx].life<0)_gfState.opponents[idx].life=0;
   _apLog('Adv '+(idx+1)+' '+(delta>0?'+':'')+delta+' PV ('+_gfState.opponents[idx].life+')');
+  _apCheckStateBased();
+  _apRender();
+}
+// Dégâts via le commandant (clic sur "⚔ Cmd") : applique normal life ET incrémente cmdDmgDealt
+function _apOppCmdDmg(idx,delta){
+  if(!_gfState||!_gfState.opponents[idx]||delta<=0)return;
+  _gfState.opponents[idx].life-=delta;
+  if(_gfState.opponents[idx].life<0)_gfState.opponents[idx].life=0;
+  _gfState.cmdDmgDealt=_gfState.cmdDmgDealt||{};
+  _gfState.cmdDmgDealt[idx]=(_gfState.cmdDmgDealt[idx]||0)+delta;
+  _apLog('⚔ Cmd → Adv '+(idx+1)+' : -'+delta+' PV ('+_gfState.cmdDmgDealt[idx]+'/21 cmd)');
+  _apCheckStateBased();
+  _apRender();
+}
+// Dégâts commandant reçus du bot idx
+function _apTakeCmdDmg(oppIdx,delta){
+  if(!_gfState||delta<=0)return;
+  _gfState.life-=delta;
+  _gfState.cmdDmgFromOpp=_gfState.cmdDmgFromOpp||{};
+  _gfState.cmdDmgFromOpp[oppIdx]=(_gfState.cmdDmgFromOpp[oppIdx]||0)+delta;
+  _apLog('⚔ Adv '+(oppIdx+1)+' inflige '+delta+' dmg cmd ('+_gfState.cmdDmgFromOpp[oppIdx]+'/21)');
+  _apCheckStateBased();
   _apRender();
 }
 function _apOppThreat(idx){
@@ -50297,6 +50374,23 @@ function _apCardHtml(p,idx,zone,subType){
   }else if(!isLand&&typeof cmc==='number'){
     html+='<div class="ap-card-cmc">'+cmc+'</div>';
   }
+  // Compteurs +1/+1, -1/-1, dégâts (battlefield uniquement)
+  if(zone==='bf'&&p){
+    var cnt=p.counters||{};
+    var hasCnt=Object.keys(cnt).some(function(k){return cnt[k]>0;})||p.dmg>0;
+    if(hasCnt){
+      html+='<div class="ap-card-counters">';
+      if(cnt['+1/+1']>0)html+='<div class="ap-card-counter" title="Marqueurs +1/+1">+'+cnt['+1/+1']+'</div>';
+      if(cnt['-1/-1']>0)html+='<div class="ap-card-counter minus" title="Marqueurs -1/-1">−'+cnt['-1/-1']+'</div>';
+      if(cnt['loyalty']>0)html+='<div class="ap-card-counter" style="background:rgba(180,100,220,.95);color:#fff" title="Loyalty">♣'+cnt['loyalty']+'</div>';
+      if(p.dmg>0)html+='<div class="ap-card-counter dmg" title="Dégâts">🩸'+p.dmg+'</div>';
+      html+='</div>';
+    }
+    if(p.enteredThisTurn){
+      var pmeta=meta;var ptl=(pmeta&&pmeta.typeLine||'').toLowerCase();
+      if(ptl.indexOf('creature')>=0)html+='<div class="ap-card-sickness" title="Mal d\'invocation">😴 fraîche</div>';
+    }
+  }
   html+='<div class="ap-card-name">'+esc(name)+'</div>';
   html+='</div>';
   return html;
@@ -50340,26 +50434,47 @@ function _apAttachPreview(){
 function _apLog(t){if(!_gfState)return;_gfState.log.push('T'+_gfState.turn+'·'+_gfState.phase+' : '+t);}
 function _apDraw(n){
   if(!_gfState)return;
-  var drawn=0;
+  var drawn=0;var milledOut=false;
   for(var i=0;i<n;i++){
-    if(!_gfState.library.length){_apLog('💀 Mill out');break;}
+    if(!_gfState.library.length){milledOut=true;break;}
     _gfState.hand.push(_gfState.library.shift());
     drawn++;
   }
-  _apLog('Pioche '+drawn);
-  // Trigger : Whenever you draw a card (Icetill Explorer, Sword of Fire and Ice, etc.)
+  if(drawn>0)_apLog('Pioche '+drawn);
+  // SBA : pioche dans bibliothèque vide = défaite (règle 704.5b)
+  if(milledOut&&drawn<n){
+    _apLog('💀 Bibliothèque vide → défaite');
+    return _apEndGame('lose','Bibliothèque épuisée');
+  }
+  // Trigger : Whenever you draw a card
   if(drawn>0&&_gfState.triggers&&_gfState.triggers.length){
     for(var d=0;d<drawn;d++){_apFireTriggers('draw');}
   }
+  _apCheckStateBased();
   _apRender();
 }
 function _apNextTurn(){
+  if(!_gfState||_gfState.gameOver)return;
+  // ─── ÉTAPE DE FIN : défausse si > maxHandSize ───
+  _apRecomputeMaxHandSize();
+  var excess=_gfState.hand.length-(_gfState.maxHandSize||7);
+  if(excess>0){
+    _apPromptDiscard(excess,function(){_apContinueNextTurn();});
+    return;
+  }
+  _apContinueNextTurn();
+}
+function _apContinueNextTurn(){
   if(!_gfState)return;
   // ─── PHASE BOT : avant de revenir au joueur, chaque adversaire IA joue son tour ───
   _apRunBotTurns(function(){
     if(!_gfState)return;
     _gfState.turn++;_gfState.landsPlayed=0;
-    _gfState.battlefield.forEach(function(p){p.tapped=false;});
+    _gfState.battlefield.forEach(function(p){
+      p.tapped=false;
+      // Fin du mal d'invocation pour les créatures arrivées au tour précédent
+      if(p.enteredThisTurn)p.enteredThisTurn=false;
+    });
     _gfState.manaPool={W:0,U:0,B:0,R:0,G:0,C:0};
     _gfState.phase='untap';
     _apLog('— T'+_gfState.turn+' (toi) —');
@@ -50402,13 +50517,236 @@ function _apRunBotTurns(done){
     else if(opp.aiType==='combo'&&t>=6)d=Math.floor(Math.random()*10)+5; // combo va plein pot
     else if(opp.aiType==='control')d=t>=5?1:0;
     if(d>0){
-      _gfState.life-=d;if(_gfState.life<0)_gfState.life=0;
-      _apLog('🤖 Adv '+(oppIdx+1)+' inflige '+d+' dmg');
+      // Si format commander et bot a un deck assigné, on simule des dmg cmd à 30% (bot attaque avec son commandant)
+      var isCmd=(_gfState.setup&&(_gfState.setup.format==='commander'||_gfState.setup.format==='paupercmd'));
+      var cmdHit=isCmd&&opp.deckId&&Math.random()<0.3;
+      if(cmdHit){
+        _gfState.life-=d;if(_gfState.life<0)_gfState.life=0;
+        _gfState.cmdDmgFromOpp=_gfState.cmdDmgFromOpp||{};
+        _gfState.cmdDmgFromOpp[oppIdx]=(_gfState.cmdDmgFromOpp[oppIdx]||0)+d;
+        _apLog('⚔ Adv '+(oppIdx+1)+' (cmd) inflige '+d+' dmg ('+_gfState.cmdDmgFromOpp[oppIdx]+'/21)');
+      }else{
+        _gfState.life-=d;if(_gfState.life<0)_gfState.life=0;
+        _apLog('🤖 Adv '+(oppIdx+1)+' inflige '+d+' dmg');
+      }
+      _apCheckStateBased();
     }
+    if(_gfState.gameOver){done&&done();return;}
     setTimeout(step,400);
   }
   _apLog('— Tour des adversaires —');
   step();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// P0 — RÈGLES MTG FONDAMENTALES (alignement MTG Arena)
+// ════════════════════════════════════════════════════════════════════════
+
+// ─── Recalcule la taille max de main selon les permanents en jeu ───
+// Reliquary Tower / Library of Alexandria / Thought Vessel / Spellbook → pas de limite (999)
+function _apRecomputeMaxHandSize(){
+  if(!_gfState)return;
+  var max=7;var unlimited=false;
+  _gfState.battlefield.forEach(function(p){
+    var meta=_anaData[(p.name||'').toLowerCase()];if(!meta)return;
+    var o=(meta.oracleText||'').toLowerCase();
+    if(/no maximum hand size|maximum hand size .* is no limit|no maximum hand-size/i.test(o))unlimited=true;
+  });
+  _gfState.maxHandSize=unlimited?999:max;
+}
+
+// ─── Prompt de défausse en fin de tour (excès de cartes) ───
+function _apPromptDiscard(n,after){
+  if(!_gfState||!_gfState.hand.length){after&&after();return;}
+  if(n<=0){after&&after();return;}
+  var sel=[];
+  function open(){
+    var content='<div style="font-size:.86rem;color:var(--tx2);margin-bottom:10px">⚠ Tu as <b style="color:#dc5050">'+_gfState.hand.length+'</b> cartes en main, max <b style="color:var(--gold2)">'+_gfState.maxHandSize+'</b>. Défausse <b>'+(n-sel.length)+'</b> carte'+((n-sel.length)>1?'s':'')+'.</div>';
+    content+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:60vh;overflow-y:auto;padding:4px">';
+    _gfState.hand.forEach(function(nm,i){
+      var picked=sel.indexOf(i)>=0;
+      var meta=_anaData[(nm||'').toLowerCase()];
+      var img=meta&&(meta.imageUri||meta.imgUri)?(meta.imageUri||meta.imgUri):('https://api.scryfall.com/cards/named?format=image&version=normal&fuzzy='+encodeURIComponent(nm));
+      content+='<div class="ap-zone-card" onclick="_apDiscardToggle('+i+')" style="'+(picked?'outline:3px solid #dc5050;outline-offset:-3px;filter:brightness(.5)':'')+'">';
+      content+='<img src="'+esc(img)+'" alt="'+esc(nm)+'" loading="lazy">';
+      content+='<div class="ap-zone-card-name">'+esc(nm)+'</div>';
+      if(picked)content+='<div style="position:absolute;top:6px;right:6px;background:#dc5050;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-weight:700">✕</div>';
+      content+='</div>';
+    });
+    content+='</div>';
+    _apModal({
+      title:'🗑 Étape de défausse',
+      content:content,
+      canClose:false,
+      buttons:[{l:'Confirmer ('+sel.length+'/'+n+')',primary:sel.length===n,disabled:sel.length!==n,act:function(){
+        // Défausse les sélections (du plus grand au plus petit pour conserver les indexes)
+        sel.sort(function(a,b){return b-a;}).forEach(function(i){
+          var nm=_gfState.hand.splice(i,1)[0];
+          _gfState.graveyard.push(nm);
+          _apLog('🗑 Défausse : '+nm);
+        });
+        _apModalClose();
+        _apRender();
+        after&&after();
+      }}]
+    });
+  }
+  window._apDiscardToggle=function(i){
+    var p=sel.indexOf(i);
+    if(p>=0)sel.splice(p,1);
+    else if(sel.length<n)sel.push(i);
+    open();
+  };
+  open();
+}
+
+// ─── Parse mana cost en compteurs par couleur + générique + X ───
+// "{2}{W}{U}" → {generic:2,W:1,U:1,X:0,hybrid:[]}
+function _apParseManaCost(cost){
+  var out={generic:0,W:0,U:0,B:0,R:0,G:0,C:0,X:0,hybrid:[]};
+  if(!cost)return out;
+  var syms=String(cost).match(/\{[^}]+\}/g)||[];
+  syms.forEach(function(s){
+    var v=s.slice(1,-1).toUpperCase();
+    if(/^\d+$/.test(v)){out.generic+=parseInt(v);return;}
+    if(v==='X'){out.X++;return;}
+    if(v==='C'){out.C++;return;}
+    if('WUBRG'.indexOf(v)>=0){out[v]++;return;}
+    // Hybride {W/U} ou phyrexien {W/P}
+    if(/^([WUBRG])\/([WUBRG])$/.test(v)){
+      out.hybrid.push(v.split('/'));return;
+    }
+    if(/^([WUBRG])\/P$/.test(v)){
+      out.hybrid.push([v[0],'P']);return; // P = pay 2 life
+    }
+  });
+  return out;
+}
+
+// ─── Vérifie si le mana pool peut payer un coût (couleurs incluses) ───
+// Retourne true/false ; ne consomme PAS le mana.
+function _apCanPayCost(cost){
+  if(!_gfState)return false;
+  var c=_apParseManaCost(cost);
+  var pool=Object.assign({},_gfState.manaPool);
+  // 1. Paye les couleurs strictes d'abord
+  var colors=['W','U','B','R','G','C'];
+  for(var i=0;i<colors.length;i++){
+    var k=colors[i];if(c[k]>0){
+      if((pool[k]||0)<c[k])return false;
+      pool[k]-=c[k];
+    }
+  }
+  // 2. Paye les hybrides (chaque hybride = 1 mana payable dans n'importe laquelle des 2 options)
+  for(var h=0;h<c.hybrid.length;h++){
+    var opts=c.hybrid[h];var paid=false;
+    for(var oi=0;oi<opts.length;oi++){
+      var col=opts[oi];if(col==='P')continue; // pay 2 life = toujours possible
+      if((pool[col]||0)>0){pool[col]--;paid=true;break;}
+    }
+    if(!paid&&opts.indexOf('P')<0)return false;
+  }
+  // 3. Paye le générique avec n'importe quelle source restante (priorité C puis colorées)
+  var remaining=c.generic;
+  ['C','W','U','B','R','G'].forEach(function(k){
+    while(remaining>0&&pool[k]>0){pool[k]--;remaining--;}
+  });
+  if(remaining>0)return false;
+  return true;
+}
+
+// ─── Consomme le mana du pool selon un coût ───
+function _apPayCost(cost){
+  if(!_gfState)return;
+  var c=_apParseManaCost(cost);
+  var colors=['W','U','B','R','G','C'];
+  colors.forEach(function(k){
+    if(c[k]>0)_gfState.manaPool[k]=Math.max(0,(_gfState.manaPool[k]||0)-c[k]);
+  });
+  c.hybrid.forEach(function(opts){
+    for(var oi=0;oi<opts.length;oi++){
+      var col=opts[oi];if(col==='P')continue;
+      if((_gfState.manaPool[col]||0)>0){_gfState.manaPool[col]--;return;}
+    }
+  });
+  var remaining=c.generic;
+  ['C','W','U','B','R','G'].forEach(function(k){
+    while(remaining>0&&_gfState.manaPool[k]>0){_gfState.manaPool[k]--;remaining--;}
+  });
+}
+
+// ─── State-Based Actions (vérif après chaque action) ───
+// Réf : règles MTG 704.5 — créatures à 0 PV meurent, joueurs à 0 PV perdent, etc.
+function _apCheckStateBased(){
+  if(!_gfState||_gfState.gameOver)return;
+  // 1. Créatures avec marqueurs de dmg ≥ toughness → cimetière
+  var died=[];
+  _gfState.battlefield.forEach(function(p,i){
+    var meta=_anaData[(p.name||'').toLowerCase()];if(!meta)return;
+    var tl=(meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('creature')<0)return;
+    var tough=meta.toughness;if(typeof tough!=='number'||isNaN(tough))return;
+    var dmg=p.dmg||0;
+    var t=tough+(p.counters?(p.counters['+1/+1']||0)-(p.counters['-1/-1']||0):0);
+    if(t<=0||dmg>=t){died.push(i);}
+  });
+  if(died.length){
+    died.sort(function(a,b){return b-a;}).forEach(function(i){
+      var p=_gfState.battlefield.splice(i,1)[0];
+      _gfState.graveyard.push(p.name);
+      _apLog('💀 SBA : '+p.name+' meurt');
+    });
+    // Récursif (un mort peut déclencher des morts en chaîne)
+    setTimeout(_apCheckStateBased,30);
+  }
+  // 2. Joueur à 0 PV ou moins → défaite
+  if(_gfState.life<=0)return _apEndGame('lose','PV à 0');
+  // 3. Tentative de pioche dans bibliothèque vide → défaite (géré dans _apDraw)
+  // 4. Commander damage ≥ 21 reçu d'un seul adversaire → défaite
+  var cd=_gfState.cmdDmgFromOpp||{};
+  for(var k in cd){if(cd[k]>=21)return _apEndGame('lose','21 dmg commander reçus');}
+  // 5. Tous les adversaires à 0 PV ou ≥ 21 cmd dmg pris → victoire
+  if(_gfState.opponents&&_gfState.opponents.length){
+    var allDead=_gfState.opponents.every(function(o,i){
+      if(o.life<=0)return true;
+      var d=(_gfState.cmdDmgDealt||{})[i]||0;
+      return d>=21;
+    });
+    if(allDead)return _apEndGame('win','Tous les adversaires sont vaincus');
+  }
+}
+
+// ─── Fin de partie (victoire ou défaite) ───
+function _apEndGame(result,reason){
+  if(!_gfState||_gfState.gameOver)return;
+  _gfState.gameOver=result;
+  var t=result==='win'?'🏆 Victoire !':'☠ Défaite';
+  var col=result==='win'?'#7fb069':'#dc5050';
+  var content='<div style="text-align:center;padding:14px"><div style="font-size:2.6rem;color:'+col+';font-family:Goudy Mediaeval,serif;margin-bottom:6px">'+t+'</div>';
+  content+='<div style="color:var(--tx2);font-size:.92rem;margin-bottom:10px">'+esc(reason||'')+'</div>';
+  content+='<div style="color:var(--tx3);font-size:.78rem">Tour '+_gfState.turn+' · '+_gfState.deckName+'</div></div>';
+  setTimeout(function(){_apModal({
+    title:t,content:content,canClose:false,
+    buttons:[
+      {l:'📊 Logger la partie',primary:true,act:function(){_apModalClose();if(typeof _apEndGameFlow==='function')_apEndGameFlow();}},
+      {l:'🔄 Revanche',act:function(){_apModalClose();var s=JSON.parse(JSON.stringify(_gfState.setup));_apStartGame(s);}},
+      {l:'Fermer',act:function(){_apModalClose();closeArenaPro();}}
+    ]
+  });},250);
+}
+
+// ─── Targeting visuel : place le joueur en mode "choisis une cible" ───
+function _apEnterTargetMode(opts){
+  if(!_gfState)return;
+  _gfState.targeting=opts; // {label, candidates:'opponents'|'creatures'|'permanents'|'players', onPick:fn}
+  _apRender();
+}
+function _apCancelTargeting(){if(_gfState){_gfState.targeting=null;_apRender();}}
+function _apPickTarget(kind,idx){
+  if(!_gfState||!_gfState.targeting)return;
+  var t=_gfState.targeting;_gfState.targeting=null;
+  if(typeof t.onPick==='function')t.onPick(kind,idx);
+  _apRender();
 }
 function _apSetPhase(ph){
   if(!_gfState)return;
@@ -50478,21 +50816,67 @@ function _apPlayFromHand(idx){
     _apLog('🏔 '+nm+(maxLands>1?' ('+_gfState.landsPlayed+'/'+maxLands+')':''));
   }else{
     var cmc=meta?(meta.cmc||0):0;
-    var totalMana=Object.values(_gfState.manaPool).reduce(function(a,b){return a+b;},0);
-    if(totalMana<cmc){if(typeof toastError==='function')toastError('Mana insuffisant ('+totalMana+'/'+cmc+')');return;}
-    var rem=cmc;['W','U','B','R','G','C'].forEach(function(c){while(rem>0&&_gfState.manaPool[c]>0){_gfState.manaPool[c]--;rem--;}});
-    _gfState.hand.splice(idx,1);
-    var tl=(meta&&meta.typeLine||'').toLowerCase();
-    var isPerm=(tl.indexOf('creature')>=0||tl.indexOf('artifact')>=0||tl.indexOf('enchantment')>=0||tl.indexOf('planeswalker')>=0);
-    if(isPerm){
-      _gfState.battlefield.push({name:nm,tapped:tl.indexOf('creature')>=0&&tl.indexOf('haste')<0});
-    }else{
-      _gfState.graveyard.push(nm);
+    var manaCost=meta&&meta.manaCost?meta.manaCost:'';
+    // ─── VALIDATION MANA PAR COULEUR (pas juste total) ───
+    if(manaCost&&!_apCanPayCost(manaCost)){
+      if(typeof toastError==='function')toastError('Mana de la bonne couleur insuffisant pour '+nm);
+      return;
     }
-    _apLog('Cast '+nm+' ('+cmc+')');
-    // Résout l'effet du sort (instant/sorcery → effet immédiat ; permanent → ETB/triggers/statics)
-    try{if(typeof _apResolveEffect==='function')_apResolveEffect(nm);}catch(e){console.warn('[Arena] resolve effect',e);}
+    if(!manaCost){
+      var totalMana=Object.values(_gfState.manaPool).reduce(function(a,b){return a+b;},0);
+      if(totalMana<cmc){if(typeof toastError==='function')toastError('Mana insuffisant ('+totalMana+'/'+cmc+')');return;}
+    }
+    if(manaCost)_apPayCost(manaCost);
+    else{var rem=cmc;['C','W','U','B','R','G'].forEach(function(c){while(rem>0&&_gfState.manaPool[c]>0){_gfState.manaPool[c]--;rem--;}});}
+    _gfState.hand.splice(idx,1);
+    // ─── PILE : le sort va sur la pile avant résolution (auto-résolution après animation) ───
+    _gfState.stack=_gfState.stack||[];
+    _gfState.stack.push({name:nm,kind:'spell',meta:meta,cost:manaCost||cmc});
+    _apLog('🪄 Cast '+nm+' → pile');
+    // Auto-resolve après ~700ms (laisse une fenêtre pour cliquer "Contrer" en cas de besoin)
+    var snapshot=_gfState.stack.length;
+    setTimeout(function(){
+      if(!_gfState||!_gfState.stack)return;
+      if(_gfState.stack.length>=snapshot&&_gfState.stack[snapshot-1]&&_gfState.stack[snapshot-1].name===nm){
+        _apResolveTop();
+      }
+    },700);
   }
+  _apCheckStateBased();
+  _apRender();
+}
+// ─── Résout le sort en haut de la pile ───
+function _apResolveTop(){
+  if(!_gfState||!_gfState.stack||!_gfState.stack.length)return;
+  var item=_gfState.stack.pop();
+  var nm=item.name;var meta=item.meta||_anaData[(nm||'').toLowerCase()];
+  var tl=(meta&&meta.typeLine||'').toLowerCase();
+  var isPerm=(tl.indexOf('creature')>=0||tl.indexOf('artifact')>=0||tl.indexOf('enchantment')>=0||tl.indexOf('planeswalker')>=0);
+  if(isPerm){
+    var isCreature=tl.indexOf('creature')>=0;
+    var oracle=(meta&&meta.oracleText||'').toLowerCase();
+    var hasHaste=/\bhaste\b/i.test(oracle)||/célérité/i.test(oracle);
+    _gfState.battlefield.push({
+      name:nm,tapped:false,
+      enteredThisTurn:isCreature&&!hasHaste,
+      counters:{},dmg:0
+    });
+    _apLog('✓ '+nm+' arrive en jeu');
+  }else{
+    _gfState.graveyard.push(nm);
+    _apLog('✓ '+nm+' résolu → cimetière');
+  }
+  try{if(typeof _apResolveEffect==='function')_apResolveEffect(nm);}catch(e){console.warn('[Arena] resolve effect',e);}
+  _apCheckStateBased();
+  _apRender();
+}
+// ─── Contre le sort en haut de la pile (manuel : pour usage avec Counterspell) ───
+function _apCounterTop(){
+  if(!_gfState||!_gfState.stack||!_gfState.stack.length)return;
+  var item=_gfState.stack.pop();
+  _gfState.graveyard.push(item.name);
+  _apLog('🛡 '+item.name+' contré → cimetière');
+  _apCheckStateBased();
   _apRender();
 }
 // Détecte le mana produit par un permanent (land typiquement)
@@ -50547,9 +50931,22 @@ function _apClickPerm(e,idx){
   // on demande à l'utilisateur. Sinon on tape simplement.
   if(!_gfState||!_gfState.battlefield[idx])return;
   var p=_gfState.battlefield[idx];
+  // ─── MODE TARGETING : clic = sélectionner cette carte comme cible ───
+  if(_gfState.targeting){
+    _apPickTarget('bf',idx);
+    return;
+  }
   if(p.tapped){_apTogglePerm(idx);return;} // untap simple
   var meta=_anaData[(p.name||'').toLowerCase()];
   var isLand=meta&&meta.tags&&meta.tags.isLand;
+  // ─── SUMMONING SICKNESS : créature fraîche ne peut pas se tap (capacité {T} ou attaque) ───
+  if(!isLand&&p.enteredThisTurn){
+    var tl=(meta&&meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('creature')>=0){
+      if(typeof toastError==='function')toastError('Mal d\'invocation : '+p.name+' ne peut rien faire ce tour-ci');
+      return;
+    }
+  }
   if(!isLand){_apTogglePerm(idx);return;}
   var colors=_apDetectManaProduced(p.name);
   if(colors.length<=1){_apTogglePerm(idx);return;}
@@ -50663,6 +51060,7 @@ function _apLife(n){
   _gfState.life+=n;
   if(_gfState.life<0)_gfState.life=0;
   _apLog((n>0?'+':'')+n+' PV');
+  _apCheckStateBased();
   _apRender();
   // Animation flash sur le compteur PV
   setTimeout(function(){
@@ -51080,16 +51478,34 @@ function _apHandAttachUI(){
   document.addEventListener('mouseup',function(){if(resizing){resizing=false;document.body.style.userSelect='';_apHandSaveUI();}});
 }
 function _apCardMenu(e,zone,idx){
-  // Long press / right-click menu (placeholder pour future expansion)
+  // Menu contextuel : ajouter counters / dmg / envoyer GY / exiler
   e.preventDefault();
-  if(zone==='bf'&&_gfState){
-    if(confirm('Envoyer cette carte au cimetière ?')){
-      var p=_gfState.battlefield.splice(idx,1)[0];
-      _gfState.graveyard.push(p.name);
-      _apLog('💀 '+p.name+' → cimetière');
-      _apRender();
-    }
-  }
+  if(zone!=='bf'||!_gfState||!_gfState.battlefield[idx])return;
+  var p=_gfState.battlefield[idx];
+  var old=document.getElementById('ap-mana-menu');if(old)old.remove();
+  var menu=document.createElement('div');menu.id='ap-mana-menu';menu.className='ap-card-menu';
+  menu.style.left=Math.max(10,Math.min(window.innerWidth-220,e.clientX))+'px';
+  menu.style.top=Math.max(10,Math.min(window.innerHeight-340,e.clientY))+'px';
+  menu.innerHTML='<div style="padding:5px 10px;color:var(--gold2);font-size:.78rem;font-family:Goudy Mediaeval,serif">'+esc(p.name)+'</div>';
+  function row(label,cb){var b=document.createElement('button');b.innerHTML=label;b.onclick=function(){cb();menu.remove();_apCheckStateBased();_apRender();};menu.appendChild(b);}
+  p.counters=p.counters||{};
+  row('+1/+1 marqueur',function(){p.counters['+1/+1']=(p.counters['+1/+1']||0)+1;_apLog('⬆ +1/+1 sur '+p.name);});
+  row('−1/−1 marqueur',function(){p.counters['-1/-1']=(p.counters['-1/-1']||0)+1;_apLog('⬇ −1/−1 sur '+p.name);});
+  row('+1 loyauté (PW)',function(){p.counters['loyalty']=(p.counters['loyalty']||0)+1;_apLog('♣ +1 loyauté sur '+p.name);});
+  row('−1 loyauté (PW)',function(){p.counters['loyalty']=Math.max(0,(p.counters['loyalty']||0)-1);_apLog('♣ −1 loyauté sur '+p.name);});
+  row('+1 dégât',function(){p.dmg=(p.dmg||0)+1;_apLog('🩸 +1 dmg sur '+p.name);});
+  row('Retirer dégâts',function(){p.dmg=0;_apLog('🩹 dmg effacés sur '+p.name);});
+  var sep=document.createElement('div');sep.style.cssText='border-top:.5px solid var(--bd);margin:4px 0';menu.appendChild(sep);
+  row('💀 Envoyer au cimetière',function(){_gfState.battlefield.splice(idx,1);_gfState.graveyard.push(p.name);_apLog('💀 '+p.name+' → cimetière');});
+  row('⛔ Exiler',function(){_gfState.battlefield.splice(idx,1);_gfState.exile.push(p.name);_apLog('⛔ '+p.name+' → exil');});
+  row('↩ Renvoyer en main',function(){_gfState.battlefield.splice(idx,1);_gfState.hand.push(p.name);_apLog('↩ '+p.name+' → main');});
+  var cb=document.createElement('button');cb.innerHTML='Annuler';cb.style.color='var(--tx3)';cb.onclick=function(){menu.remove();};menu.appendChild(cb);
+  document.body.appendChild(menu);
+  setTimeout(function(){
+    document.addEventListener('click',function _close(ev){
+      if(!menu.contains(ev.target)){menu.remove();document.removeEventListener('click',_close);}
+    });
+  },80);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -51280,7 +51696,19 @@ function _apApplyImmediateEffect(cardName,oLow){
   // 0b. Destroy target creature (Doom Blade, Murder, Swords to Plowshares, Path to Exile)
   if(/destroy target (creature|artifact|enchantment|nonland permanent|planeswalker|permanent)/i.test(oLow)){
     var typeM=oLow.match(/destroy target (creature|artifact|enchantment|nonland permanent|planeswalker|permanent)/i);
-    _apLog('🗡 Détruit cible '+(typeM[1])+' (clic sur la carte adverse à viser)');
+    _apEnterTargetMode({
+      sourceName:cardName,
+      label:'Clic sur une '+typeM[1]+' (au champ) pour la détruire',
+      candidates:'permanents',
+      onPick:function(kind,idx){
+        if(kind==='bf'&&_gfState.battlefield[idx]){
+          var p=_gfState.battlefield.splice(idx,1)[0];
+          _gfState.graveyard.push(p.name);
+          _apLog('🗡 '+cardName+' détruit '+p.name);
+          _apCheckStateBased();
+        }
+      }
+    });
     return true;
   }
   // 0c. Exile target
@@ -51295,14 +51723,29 @@ function _apApplyImmediateEffect(cardName,oLow){
     var nMap={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,x:1};
     var d=nMap[dmgM[1].toLowerCase()]||parseInt(dmgM[1])||1;
     if(/each opponent/i.test(oLow)){
-      // Applique à tous les adversaires
       if(_gfState.opponents)_gfState.opponents.forEach(function(o,i){o.life-=d;if(o.life<0)o.life=0;});
       _apLog('💥 '+d+' dmg à chaque adversaire');
-    }else if(/target player|opponent loses/i.test(oLow)){
-      if(_gfState.opponents&&_gfState.opponents[0]){_gfState.opponents[0].life-=d;if(_gfState.opponents[0].life<0)_gfState.opponents[0].life=0;}
-      _apLog('💥 '+d+' dmg à Adv 1');
+      _apCheckStateBased();
     }else{
-      _apLog('💥 '+d+' dmg (cible manuelle : clic sur la cible)');
+      // Demande cible (créature au champ OU joueur)
+      _apEnterTargetMode({
+        sourceName:cardName,
+        label:d+' dégâts — choisis une créature au champ ou un joueur (clic sur l\'adv ou ta zone PV)',
+        candidates:'any',
+        onPick:function(kind,idx){
+          if(kind==='opp'&&_gfState.opponents[idx]){
+            _gfState.opponents[idx].life-=d;if(_gfState.opponents[idx].life<0)_gfState.opponents[idx].life=0;
+            _apLog('💥 '+cardName+' inflige '+d+' à Adv '+(idx+1));
+          }else if(kind==='bf'&&_gfState.battlefield[idx]){
+            _gfState.battlefield[idx].dmg=(_gfState.battlefield[idx].dmg||0)+d;
+            _apLog('💥 '+cardName+' inflige '+d+' à '+_gfState.battlefield[idx].name);
+          }else if(kind==='me'){
+            _gfState.life-=d;if(_gfState.life<0)_gfState.life=0;
+            _apLog('💥 '+cardName+' inflige '+d+' à toi');
+          }
+          _apCheckStateBased();
+        }
+      });
     }
     return true;
   }
