@@ -49362,6 +49362,8 @@ function _registerPhase4Items(){}
 '.ap-card img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}',
 '.ap-card-noimg{display:flex;align-items:center;justify-content:center;height:100%;color:var(--gold2);font-size:.62rem;text-align:center;padding:6px;font-family:\'Goudy Mediaeval\',serif;background:linear-gradient(135deg,#3a2814,#1a1208);line-height:1.2}',
 '.ap-card-cmc{position:absolute;top:3px;right:3px;background:rgba(0,0,0,.85);color:var(--gold2);font-size:.62rem;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:monospace;border:.5px solid rgba(201,168,76,.4)}',
+'.ap-card-cost{position:absolute;top:3px;left:3px;display:flex;gap:1.5px;background:rgba(0,0,0,.85);padding:3px 5px;border-radius:10px;border:.5px solid rgba(201,168,76,.4);align-items:center;line-height:1}',
+'.ap-card-cost .ms{filter:drop-shadow(0 1px 1px rgba(0,0,0,.6))}',
 '.ap-card-name{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,transparent,rgba(0,0,0,.92));color:#fff;font-size:.6rem;padding:8px 3px 3px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}',
 '/* ═══ ZONE MAIN (fan) ═══ */',
 '.ap-hand-wrap{background:linear-gradient(180deg,rgba(25,18,8,.7),rgba(10,6,2,.95));border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:8px 8px 14px;display:flex;flex-direction:column;align-items:center;position:relative}',
@@ -49495,7 +49497,7 @@ function _apRender(){
   if(!_gfState)return;
   var ov=document.getElementById('ap-ov');if(!ov)return;
   var s=_gfState;
-  // Group battlefield by type
+  // Group battlefield par type (3 rangées : Créatures/Walkers, Terrains, Autres permanents)
   var bf={creatures:[],lands:[],others:[]};
   s.battlefield.forEach(function(p,idx){
     var meta=_anaData[(p.name||'').toLowerCase()];
@@ -49503,7 +49505,7 @@ function _apRender(){
     var entry={p:p,idx:idx,meta:meta};
     if(tl.indexOf('land')>=0)bf.lands.push(entry);
     else if(tl.indexOf('creature')>=0||tl.indexOf('planeswalker')>=0)bf.creatures.push(entry);
-    else bf.others.push(entry);
+    else bf.others.push(entry); // artefacts, enchantements, etc.
   });
   var lifeCls=s.life<=10?'low':s.life<=20?'med':'';
   var totalMana=Object.values(s.manaPool).reduce(function(a,b){return a+b;},0);
@@ -49522,22 +49524,27 @@ function _apRender(){
   html+='</div>';
   html+='<div class="ap-stat"><div class="ap-stat-lbl">Tour</div><div class="ap-stat-val">'+s.turn+'</div></div>';
   html+='<div class="ap-stat life '+lifeCls+'"><div class="ap-stat-lbl">PV</div><div class="ap-stat-val">'+s.life+'</div></div>';
+  html+='<button class="ap-action" onclick="openArenaThemes()" title="Choisir playmat & sleeve">🎨</button>';
   html+='</div>';
   // Zones (battlefield + hand)
   html+='<div class="ap-zones">';
-  // BATTLEFIELD
+  // BATTLEFIELD — 3 rangées : Créatures, Artefacts/Enchant, Terrains
   html+='<div class="ap-battlefield">';
   html+='<div class="ap-bf-label">🟢 Champ de bataille</div>';
   // Row 1: créatures + walkers
-  html+='<div class="ap-bf-row"><span class="ap-bf-row-lbl">Créatures</span>';
+  html+='<div class="ap-bf-row"><span class="ap-bf-row-lbl">⚔ Créatures & Planeswalkers</span>';
   if(!bf.creatures.length)html+='<div style="color:rgba(201,168,76,.25);font-style:italic;font-size:.7rem;padding:10px">— vide —</div>';
   else bf.creatures.forEach(function(x){html+=_apCardHtml(x.p,x.idx,'bf','creature');});
   html+='</div>';
-  // Row 2: lands + artifacts/enchants
-  html+='<div class="ap-bf-row"><span class="ap-bf-row-lbl">Terrains & Permanents</span>';
-  if(!bf.lands.length&&!bf.others.length)html+='<div style="color:rgba(201,168,76,.25);font-style:italic;font-size:.7rem;padding:10px">— vide —</div>';
-  bf.lands.forEach(function(x){html+=_apCardHtml(x.p,x.idx,'bf','land');});
-  bf.others.forEach(function(x){html+=_apCardHtml(x.p,x.idx,'bf','other');});
+  // Row 2: artefacts + enchantements (séparé des terrains)
+  html+='<div class="ap-bf-row"><span class="ap-bf-row-lbl">⚙ Artefacts & Enchantements</span>';
+  if(!bf.others.length)html+='<div style="color:rgba(201,168,76,.25);font-style:italic;font-size:.7rem;padding:10px">— vide —</div>';
+  else bf.others.forEach(function(x){html+=_apCardHtml(x.p,x.idx,'bf','other');});
+  html+='</div>';
+  // Row 3: terrains
+  html+='<div class="ap-bf-row"><span class="ap-bf-row-lbl">🏔 Terrains</span>';
+  if(!bf.lands.length)html+='<div style="color:rgba(201,168,76,.25);font-style:italic;font-size:.7rem;padding:10px">— vide —</div>';
+  else bf.lands.forEach(function(x){html+=_apCardHtml(x.p,x.idx,'bf','land');});
   html+='</div>';
   html+='</div>';
   // HAND
@@ -49597,11 +49604,25 @@ function _apRender(){
   _apAttachPreview();
 }
 
+// Helper : rend les symboles de mana à partir d'un cost type "{2}{W}{U}"
+function _apManaCostHtml(cost){
+  if(!cost)return '';
+  var symbols=String(cost).match(/\{[^}]+\}/g)||[];
+  return symbols.map(function(s){
+    var inner=s.slice(1,-1).toLowerCase().replace('/','');
+    // Mapping spécial : {T}=tap, {C}=colorless, {X}=x, {1-9}=number, {W/U}=hybrid
+    return '<i class="ms ms-cost ms-shadow ms-'+inner+'" style="font-size:.6rem"></i>';
+  }).join('');
+}
+
 function _apCardHtml(p,idx,zone,subType){
   var name=p.name||'';
   var meta=_anaData[(name||'').toLowerCase()];
-  var img=meta&&meta.imgUri?meta.imgUri:null;
+  // Fallback : si pas d'imgUri en cache, on utilise l'endpoint Scryfall direct
+  // (redirection vers CDN — un peu plus lent au 1er affichage mais cache navigateur ensuite)
+  var img=meta&&meta.imgUri?meta.imgUri:('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(name));
   var cmc=meta?(meta.cmc||0):null;
+  var manaCost=meta&&meta.manaCost?meta.manaCost:null;
   var isLand=meta&&meta.tags&&meta.tags.isLand;
   var tapped=p.tapped?' tapped':'';
   var playable='';
@@ -49614,15 +49635,16 @@ function _apCardHtml(p,idx,zone,subType){
   }
   var onClick='';
   if(zone==='hand'){onClick='_apPlayFromHand('+idx+')';}
-  else if(zone==='bf'){onClick='_apTogglePerm('+idx+')';}
+  else if(zone==='bf'){onClick='_apClickPerm(event,'+idx+')';}
   var html='<div class="ap-card'+tapped+playable+'" data-card="'+esc(name)+'" onclick="'+onClick+'" oncontextmenu="event.preventDefault();_apCardMenu(event,\''+zone+'\','+idx+')">';
-  if(img){
-    html+='<img src="'+esc(img)+'" alt="'+esc(name)+'" loading="lazy" onerror="this.style.display=\'none\';this.parentNode.querySelector(\'.ap-card-noimg-fallback\').style.display=\'flex\'">';
-    html+='<div class="ap-card-noimg ap-card-noimg-fallback" style="display:none">'+esc(name)+'</div>';
-  }else{
-    html+='<div class="ap-card-noimg">'+esc(name)+'</div>';
+  html+='<img src="'+esc(img)+'" alt="'+esc(name)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
+  html+='<div class="ap-card-noimg" style="display:none">'+esc(name)+'</div>';
+  // Mana cost sur cartes en main (affiché en haut-gauche en chips)
+  if(zone==='hand'&&manaCost&&!isLand){
+    html+='<div class="ap-card-cost">'+_apManaCostHtml(manaCost)+'</div>';
+  }else if(!isLand&&typeof cmc==='number'){
+    html+='<div class="ap-card-cmc">'+cmc+'</div>';
   }
-  if(!isLand&&typeof cmc==='number')html+='<div class="ap-card-cmc">'+cmc+'</div>';
   html+='<div class="ap-card-name">'+esc(name)+'</div>';
   html+='</div>';
   return html;
@@ -49711,26 +49733,154 @@ function _apPlayFromHand(idx){
   }
   _apRender();
 }
+// Détecte le mana produit par un permanent (land typiquement)
+// Retourne un tableau de couleurs proposées : ['W'], ['U','B'], ['C'], etc.
+function _apDetectManaProduced(name){
+  var meta=_anaData[(name||'').toLowerCase()];if(!meta)return [];
+  var oracle=(meta.oracleText||'').toLowerCase();
+  var nm=(name||'').toLowerCase();
+  // Basics par sous-type ou nom
+  if(/^plains\b|\bplains\b/.test(nm))return ['W'];
+  if(/^island\b|\bisland\b/.test(nm))return ['U'];
+  if(/^swamp\b|\bswamp\b/.test(nm))return ['B'];
+  if(/^mountain\b|\bmountain\b/.test(nm))return ['R'];
+  if(/^forest\b|\bforest\b/.test(nm))return ['G'];
+  if(/wastes/.test(nm))return ['C'];
+  // "Add one mana of any color" / Command Tower
+  if(/any color/i.test(oracle)){
+    // Si commandant connu, restreint à ses couleurs
+    if(_gfState&&_gfState.commander){
+      var cmdMeta=_anaData[(_gfState.commander||'').toLowerCase()];
+      if(cmdMeta&&cmdMeta.colorIdentity)return cmdMeta.colorIdentity.slice();
+    }
+    return ['W','U','B','R','G'];
+  }
+  // Parse "Add {X}" patterns
+  var produces=[];
+  // {W}, {U}, {B}, {R}, {G}, {C}
+  ['w','u','b','r','g','c'].forEach(function(c){
+    if(new RegExp('add[^.]{0,40}\\{'+c+'\\}','i').test(oracle)){
+      produces.push(c.toUpperCase());
+    }
+  });
+  // Hybrid {W/U} etc.
+  var hybMatch=oracle.match(/\{([wubrg])\/([wubrg])\}/i);
+  if(hybMatch){
+    produces.push(hybMatch[1].toUpperCase());
+    produces.push(hybMatch[2].toUpperCase());
+  }
+  // Generic "add one mana"
+  if(!produces.length&&/add[^.]{0,30}(one|two|three)?\s*mana/i.test(oracle)){
+    produces.push('C');
+  }
+  // "Add {1}" → colorless 1
+  if(!produces.length&&/add\s*\{[0-9]\}/i.test(oracle)){
+    produces.push('C');
+  }
+  return produces;
+}
+
+function _apClickPerm(e,idx){
+  // Clic normal : si le permanent est un land qui produit plusieurs couleurs,
+  // on demande à l'utilisateur. Sinon on tape simplement.
+  if(!_gfState||!_gfState.battlefield[idx])return;
+  var p=_gfState.battlefield[idx];
+  if(p.tapped){_apTogglePerm(idx);return;} // untap simple
+  var meta=_anaData[(p.name||'').toLowerCase()];
+  var isLand=meta&&meta.tags&&meta.tags.isLand;
+  if(!isLand){_apTogglePerm(idx);return;}
+  var colors=_apDetectManaProduced(p.name);
+  if(colors.length<=1){_apTogglePerm(idx);return;}
+  // Plusieurs choix → menu inline
+  _apShowManaMenu(e,idx,colors);
+}
+function _apShowManaMenu(e,idx,colors){
+  // Affiche un mini-menu radial à la position du clic
+  // On retire d'éventuel menu existant
+  var old=document.getElementById('ap-mana-menu');if(old)old.remove();
+  var menu=document.createElement('div');menu.id='ap-mana-menu';
+  menu.className='ap-card-menu';
+  menu.style.left=Math.max(10,Math.min(window.innerWidth-180,e.clientX))+'px';
+  menu.style.top=Math.max(10,Math.min(window.innerHeight-200,e.clientY))+'px';
+  var colNames={W:'⚪ Blanc',U:'🟦 Bleu',B:'⚫ Noir',R:'🟥 Rouge',G:'🟩 Vert',C:'⚙ Incolore'};
+  var titleP=_gfState.battlefield[idx];
+  menu.innerHTML='<div style="padding:5px 10px;color:var(--gold2);font-size:.74rem;font-family:Goudy Mediaeval,serif">'+esc(titleP.name)+' — choisis la couleur</div>';
+  colors.forEach(function(c){
+    var b=document.createElement('button');
+    b.innerHTML=colNames[c]||c;
+    b.onclick=function(){
+      _gfState.manaPool[c]=(_gfState.manaPool[c]||0)+1;
+      _gfState.battlefield[idx].tapped=true;
+      _apLog('Tap '+titleP.name+' → +1 '+c);
+      menu.remove();
+      _apRender();
+    };
+    menu.appendChild(b);
+  });
+  // Ajout actions secondaires si la carte a une 2e abilité (ex: High Market sacrifice)
+  var meta=_anaData[(titleP.name||'').toLowerCase()];
+  var oracle=meta?(meta.oracleText||'').toLowerCase():'';
+  if(/sacrifice[^.]*creature/i.test(oracle)){
+    var sep=document.createElement('div');sep.style.cssText='border-top:.5px solid var(--bd);margin:4px 0;padding-top:4px';
+    sep.innerHTML='<div style="padding:0 10px;color:var(--tx3);font-size:.7rem;letter-spacing:.04em">ABILITÉ ALTERNATIVE</div>';
+    menu.appendChild(sep);
+    var b=document.createElement('button');b.innerHTML='🔪 Sacrifier créature → effet';
+    b.onclick=function(){
+      // Demande quelle créature sacrifier
+      var bf=_gfState.battlefield;
+      var creatures=[];
+      for(var i=0;i<bf.length;i++){
+        var bm=_anaData[(bf[i].name||'').toLowerCase()];
+        if(bm&&(bm.typeLine||'').toLowerCase().indexOf('creature')>=0)creatures.push({i:i,name:bf[i].name});
+      }
+      if(!creatures.length){if(typeof toastError==='function')toastError('Pas de créature à sacrifier');menu.remove();return;}
+      var sacName=prompt('Sacrifier quelle créature ?\n'+creatures.map(function(c,j){return (j+1)+'. '+c.name;}).join('\n'));
+      if(!sacName)return menu.remove();
+      var sacIdx=parseInt(sacName)-1;
+      var target=Number.isInteger(sacIdx)&&creatures[sacIdx]?creatures[sacIdx]:creatures.find(function(c){return c.name.toLowerCase()===sacName.toLowerCase();});
+      if(!target){menu.remove();return;}
+      var nm=_gfState.battlefield[target.i].name;
+      _gfState.battlefield.splice(target.i,1);
+      _gfState.graveyard.push(nm);
+      _gfState.battlefield[idx].tapped=true;
+      _apLog('🔪 Sacrifice '+nm+' via '+titleP.name);
+      menu.remove();_apRender();
+    };
+    menu.appendChild(b);
+  }
+  // Bouton "tap sans mana" (pour les cas où on veut juste taper)
+  var btn=document.createElement('button');btn.innerHTML='⚙ Tap sans mana';
+  btn.onclick=function(){_gfState.battlefield[idx].tapped=true;menu.remove();_apRender();};
+  menu.appendChild(btn);
+  // Cancel
+  var cb=document.createElement('button');cb.innerHTML='Annuler';cb.style.color='var(--tx3)';
+  cb.onclick=function(){menu.remove();};
+  menu.appendChild(cb);
+  document.body.appendChild(menu);
+  setTimeout(function(){
+    document.addEventListener('click',function _close(ev){
+      if(!menu.contains(ev.target)){menu.remove();document.removeEventListener('click',_close);}
+    });
+  },80);
+}
+
 function _apTogglePerm(idx){
   if(!_gfState||!_gfState.battlefield[idx])return;
-  var p=_gfState.battlefield[idx];p.tapped=!p.tapped;
+  var p=_gfState.battlefield[idx];
+  // Si on untap, juste basculer
+  if(p.tapped){p.tapped=false;_apRender();return;}
+  // On tap : produire le mana si c'est un land
+  p.tapped=true;
   var meta=_anaData[(p.name||'').toLowerCase()];
-  if(p.tapped&&meta&&meta.tags&&meta.tags.isLand){
-    var oracle=(meta.oracleText||'').toLowerCase();
-    var nm=(p.name||'').toLowerCase();
-    if(/^plains/.test(nm)||/\bplains\b/.test(nm)){_gfState.manaPool.W++;}
-    else if(/^island/.test(nm)||/\bisland\b/.test(nm)){_gfState.manaPool.U++;}
-    else if(/^swamp/.test(nm)||/\bswamp\b/.test(nm)){_gfState.manaPool.B++;}
-    else if(/^mountain/.test(nm)||/\bmountain\b/.test(nm)){_gfState.manaPool.R++;}
-    else if(/^forest/.test(nm)||/\bforest\b/.test(nm)){_gfState.manaPool.G++;}
-    else if(/wastes/.test(nm)){_gfState.manaPool.C++;}
-    else if(/any color/i.test(oracle)){_gfState.manaPool.C++;} // simplifié
-    else{
-      var cols=['W','U','B','R','G'];
-      for(var i=0;i<cols.length;i++){
-        if(new RegExp('add[^.]{0,30}\\{'+cols[i].toLowerCase()+'\\}','i').test(oracle)){_gfState.manaPool[cols[i]]++;break;}
-      }
+  if(meta&&meta.tags&&meta.tags.isLand){
+    var colors=_apDetectManaProduced(p.name);
+    if(colors.length===1){
+      _gfState.manaPool[colors[0]]=(_gfState.manaPool[colors[0]]||0)+1;
+      _apLog('Tap '+p.name+' → +1 '+colors[0]);
+    }else if(colors.length===0){
+      // Aucune couleur détectée → ne rien ajouter (silent)
     }
+    // Si plusieurs couleurs, _apClickPerm gère via le menu
   }
   _apRender();
 }
@@ -49827,6 +49977,166 @@ function _apCardMenu(e,zone,idx){
 // Remplacer le bouton "🐠 Goldfish solo" du Focus deck par le nouveau Arena Pro
 // On garde openGoldfish() en alias pour rétro-compat
 window.openGoldfish=window.openArenaPro;
+
+// ════════════════════════════════════════════════════════════════════════
+// PHASE 5B — PLAYMATS & SLEEVES THÉMATIQUES (déblocables en Pétales)
+// ════════════════════════════════════════════════════════════════════════
+var _PLAYMATS=[
+  // Gratuits
+  {id:'medieval',n:'Médiéval (or)',price:0,bg:'radial-gradient(ellipse at center,#1a1208 0%,#080503 100%)',accent:'rgba(201,168,76,.4)'},
+  {id:'forest',n:'Forêt enchantée',price:0,bg:'radial-gradient(ellipse at top,#1a3a1a 0%,#081408 60%,#040804 100%)',accent:'rgba(127,176,105,.5)'},
+  {id:'mountain',n:'Volcanique',price:0,bg:'radial-gradient(ellipse at top,#3a1a08 0%,#1a0a04 60%,#0a0402 100%)',accent:'rgba(240,140,78,.5)'},
+  // À débloquer
+  {id:'ocean',n:'Océan profond',price:50,bg:'radial-gradient(ellipse at top,#0a2a4a 0%,#0a1530 50%,#040816 100%)',accent:'rgba(143,196,235,.5)'},
+  {id:'arcane',n:'Arcane mystique',price:75,bg:'radial-gradient(ellipse at center,#3a1a4a 0%,#180a30 60%,#0a0418 100%)',accent:'rgba(180,130,220,.5)'},
+  {id:'cosmic',n:'Cosmique',price:100,bg:'radial-gradient(ellipse at center,#0a0a3a 0%,#000020 50%,#000000 100%),radial-gradient(circle at 20% 30%,rgba(180,180,255,.2) 0%,transparent 2%),radial-gradient(circle at 70% 60%,rgba(220,220,255,.15) 0%,transparent 1%),radial-gradient(circle at 85% 20%,rgba(255,255,255,.18) 0%,transparent 1.5%)',accent:'rgba(180,180,255,.5)'},
+  {id:'parchment',n:'Parchemin antique',price:60,bg:'radial-gradient(ellipse at center,#3a2a18 0%,#1a1208 60%,#080503 100%)',accent:'rgba(232,201,110,.6)'},
+  {id:'shadow',n:'Ombre profonde',price:90,bg:'radial-gradient(ellipse at top,#1a1a1a 0%,#0a0a0a 60%,#000000 100%)',accent:'rgba(180,40,60,.5)'},
+  {id:'jade',n:'Jade impérial',price:120,bg:'radial-gradient(ellipse at top,#0a3a2a 0%,#04201a 60%,#02100a 100%)',accent:'rgba(127,200,176,.5)'}
+];
+var _SLEEVES=[
+  // Gratuits
+  {id:'gold',n:'Bordure dorée',price:0,border:'1px solid rgba(201,168,76,.4)',glow:'rgba(201,168,76,.4)'},
+  {id:'silver',n:'Argentée',price:0,border:'1px solid rgba(200,200,210,.5)',glow:'rgba(255,255,255,.3)'},
+  {id:'bronze',n:'Bronze',price:0,border:'1px solid rgba(180,120,60,.5)',glow:'rgba(220,150,80,.4)'},
+  // Débloquables
+  {id:'sapphire',n:'Saphir',price:40,border:'1.5px solid rgba(100,160,240,.7)',glow:'rgba(100,160,240,.5)'},
+  {id:'ruby',n:'Rubis',price:40,border:'1.5px solid rgba(220,80,80,.7)',glow:'rgba(220,80,80,.5)'},
+  {id:'emerald',n:'Émeraude',price:40,border:'1.5px solid rgba(100,200,120,.7)',glow:'rgba(100,200,120,.5)'},
+  {id:'obsidian',n:'Obsidienne',price:60,border:'1.5px solid rgba(60,60,80,.9)',glow:'rgba(100,100,140,.6)'},
+  {id:'platinum',n:'Platine',price:80,border:'1.5px solid rgba(220,220,240,.9)',glow:'rgba(255,255,255,.6)'},
+  {id:'mythic',n:'Mythique (holo)',price:150,border:'1.5px solid transparent',glow:'rgba(255,160,80,.7)',bgImage:'linear-gradient(135deg,rgba(255,100,150,.3),rgba(150,100,255,.3),rgba(100,200,255,.3),rgba(255,200,100,.3))'}
+];
+// État courant
+var _apTheme={playmat:'medieval',sleeve:'gold'};
+try{var __apt=localStorage.getItem('mtg_arena_theme');if(__apt){var p=JSON.parse(__apt);if(p)_apTheme=Object.assign(_apTheme,p);}}catch(e){}
+function _apSaveTheme(){try{localStorage.setItem('mtg_arena_theme',JSON.stringify(_apTheme));}catch(e){}}
+// Applique le thème via variables CSS sur #ap-ov
+function _apApplyTheme(){
+  var ov=document.getElementById('ap-ov');if(!ov)return;
+  var p=_PLAYMATS.find(function(x){return x.id===_apTheme.playmat;})||_PLAYMATS[0];
+  var s=_SLEEVES.find(function(x){return x.id===_apTheme.sleeve;})||_SLEEVES[0];
+  ov.style.background=p.bg;
+  ov.style.setProperty('--ap-accent',p.accent);
+  ov.style.setProperty('--ap-card-border',s.border);
+  ov.style.setProperty('--ap-card-glow',s.glow);
+  if(s.bgImage)ov.style.setProperty('--ap-card-bg',s.bgImage);
+  else ov.style.setProperty('--ap-card-bg','#1a1208');
+}
+// Unlock helpers (Pétales)
+function _apIsUnlocked(kind,id){
+  if(typeof _progEnsureLoaded==='function')_progEnsureLoaded();
+  var item=(kind==='playmat'?_PLAYMATS:_SLEEVES).find(function(x){return x.id===id;});
+  if(!item)return false;
+  if(item.price===0)return true;
+  var unlocks=(_progState&&_progState.unlocks)||[];
+  return unlocks.indexOf('arena:'+kind+':'+id)>=0;
+}
+function _apUnlock(kind,id){
+  if(typeof _progEnsureLoaded==='function')_progEnsureLoaded();
+  var item=(kind==='playmat'?_PLAYMATS:_SLEEVES).find(function(x){return x.id===id;});
+  if(!item)return false;
+  if(_apIsUnlocked(kind,id))return true;
+  var coins=(_progState&&_progState.coins)||0;
+  if(coins<item.price){
+    if(typeof toastError==='function')toastError('Pas assez de Pétales : '+coins+' / '+item.price);
+    return false;
+  }
+  if(!confirm('Débloquer "'+item.n+'" pour '+item.price+' Pétales ? Tu en as '+coins+'.'))return false;
+  _progState.coins-=item.price;
+  _progState.unlocks=_progState.unlocks||[];
+  _progState.unlocks.push('arena:'+kind+':'+id);
+  if(typeof _progSave==='function')_progSave();
+  if(typeof toastSuccess==='function')toastSuccess('🌸 "'+item.n+'" débloqué !');
+  return true;
+}
+function openArenaThemes(){
+  var ov=document.getElementById('apt-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='apt-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,.92);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeArenaThemes();});
+  }
+  if(typeof _progEnsureLoaded==='function')_progEnsureLoaded();
+  var coins=(_progState&&_progState.coins)||0;
+  var html='<div style="background:var(--s1);border:1px solid var(--gold2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.4rem;color:var(--gold2);flex:1">🎨 Thèmes Arena</div><div style="font-size:.86rem;color:var(--gold2)">🌸 '+coins+' Pétales</div><button class="ap-action" onclick="closeArenaThemes()">✕</button></div>';
+  // Playmats
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1rem;margin-bottom:8px">🏟 Playmat (fond)</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:18px">';
+  _PLAYMATS.forEach(function(p){
+    var unlocked=_apIsUnlocked('playmat',p.id);
+    var active=_apTheme.playmat===p.id;
+    var borderCol=active?'var(--gold2)':'var(--bd2)';
+    html+='<div style="background:var(--s2);border:'+(active?'2px':'1px')+' solid '+borderCol+';border-radius:10px;padding:10px;cursor:pointer" onclick="'+(unlocked?'_apSetPlaymat(\''+p.id+'\')':'_apUnlock(\'playmat\',\''+p.id+'\')&&_apSetPlaymat(\''+p.id+'\')')+'">';
+    html+='<div style="height:80px;border-radius:8px;background:'+p.bg+';margin-bottom:6px;position:relative;overflow:hidden">';
+    if(!unlocked)html+='<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);color:var(--gold2);font-size:.86rem;font-family:\'Goudy Mediaeval\',serif">🔒 '+p.price+' 🌸</div>';
+    if(active)html+='<div style="position:absolute;top:5px;right:5px;background:var(--gold2);color:#1a1208;padding:1px 6px;border-radius:4px;font-size:.66rem;font-weight:700">ACTIF</div>';
+    html+='</div>';
+    html+='<div style="color:var(--tx);font-size:.86rem">'+esc(p.n)+'</div>';
+    if(p.price>0&&unlocked&&!active)html+='<div style="font-size:.7rem;color:#7fb069">✓ Débloqué</div>';
+    if(p.price===0)html+='<div style="font-size:.7rem;color:var(--tx3)">Gratuit</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  // Sleeves
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1rem;margin-bottom:8px">🃏 Bordure des cartes</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">';
+  _SLEEVES.forEach(function(s){
+    var unlocked=_apIsUnlocked('sleeve',s.id);
+    var active=_apTheme.sleeve===s.id;
+    var borderCol=active?'var(--gold2)':'var(--bd2)';
+    html+='<div style="background:var(--s2);border:'+(active?'2px':'1px')+' solid '+borderCol+';border-radius:10px;padding:10px;cursor:pointer" onclick="'+(unlocked?'_apSetSleeve(\''+s.id+'\')':'_apUnlock(\'sleeve\',\''+s.id+'\')&&_apSetSleeve(\''+s.id+'\')')+'">';
+    var sleeveBgCss=s.bgImage?s.bgImage:'linear-gradient(135deg,#3a2814,#1a1208)';
+    html+='<div style="width:60px;height:84px;margin:0 auto 6px;border-radius:5px;background:'+sleeveBgCss+';border:'+s.border+';box-shadow:0 0 12px '+s.glow+';position:relative">';
+    if(!unlocked)html+='<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);color:var(--gold2);font-size:.74rem;font-family:\'Goudy Mediaeval\',serif">🔒</div>';
+    if(active)html+='<div style="position:absolute;top:-7px;right:-7px;background:var(--gold2);color:#1a1208;padding:1px 5px;border-radius:4px;font-size:.6rem;font-weight:700">✓</div>';
+    html+='</div>';
+    html+='<div style="color:var(--tx);font-size:.82rem;text-align:center">'+esc(s.n)+'</div>';
+    if(s.price>0&&!unlocked)html+='<div style="font-size:.7rem;color:var(--gold2);text-align:center">'+s.price+' 🌸</div>';
+    if(s.price>0&&unlocked&&!active)html+='<div style="font-size:.7rem;color:#7fb069;text-align:center">✓ Débloqué</div>';
+    if(s.price===0)html+='<div style="font-size:.7rem;color:var(--tx3);text-align:center">Gratuit</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  html+='<div style="margin-top:14px;font-size:.74rem;color:var(--tx3);font-style:italic;text-align:center">💡 Gagne des Pétales en complétant les défis hebdomadaires, en jouant des parties loggées, ou en parrainant des amis.</div>';
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeArenaThemes(){var ov=document.getElementById('apt-ov');if(ov)ov.style.display='none';}
+function _apSetPlaymat(id){
+  if(!_apIsUnlocked('playmat',id))return;
+  _apTheme.playmat=id;_apSaveTheme();_apApplyTheme();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Playmat changé');
+  openArenaThemes(); // refresh
+}
+function _apSetSleeve(id){
+  if(!_apIsUnlocked('sleeve',id))return;
+  _apTheme.sleeve=id;_apSaveTheme();_apApplyTheme();
+  if(typeof _gfState!=='undefined'&&_gfState)_apRender();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Sleeve changé');
+  openArenaThemes(); // refresh
+}
+// Hook : applique le thème quand on ouvre Arena Pro
+(function(){
+  var origOpen=window.openArenaPro;
+  window.openArenaPro=function(deckId){
+    origOpen.apply(this,arguments);
+    setTimeout(_apApplyTheme,50);
+  };
+})();
+
+// Patch CSS : utilise les variables de thème sur les cartes
+(function(){
+  var s=document.createElement('style');
+  s.textContent=[
+'.ap-card{background:var(--ap-card-bg,#1a1208)!important;box-shadow:0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.05),0 0 8px var(--ap-card-glow,rgba(201,168,76,.2))!important}',
+'.ap-card{border:var(--ap-card-border,1px solid rgba(201,168,76,.4))!important}',
+'.ap-card:hover{box-shadow:0 8px 20px rgba(0,0,0,.85),0 0 18px var(--ap-card-glow,rgba(201,168,76,.4)),0 0 0 1px var(--ap-card-glow,rgba(201,168,76,.4))!important}'
+  ].join('\n');
+  document.head.appendChild(s);
+})();
 </script>
 <style>
 /* === Vue partagée === */
