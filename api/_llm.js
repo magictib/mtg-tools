@@ -326,10 +326,92 @@ async function chatCoach(opts) {
   throw new Error('No LLM configured');
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// PARSE CARD EFFECT — convertit l'oracle d'une carte en JSON d'actions
+// pour le rules engine d'Arena Pro. Sortie déterministe, cacheable.
+// ════════════════════════════════════════════════════════════════════════
+var SYSTEM_PARSE_CARD = [
+  'You are an MTG rules engine parser. Given a card name and its oracle text, output ONLY a JSON array describing the actions that resolve when the card is cast.',
+  'No prose, no explanation, no markdown code fences. JUST the JSON array.',
+  '',
+  'Available action types (use these exact strings):',
+  '- {"type":"search_land","filter":"basic|any|plains|island|swamp|mountain|forest","n":1,"dest":"battlefield_tapped|battlefield|hand","shuffle":true}',
+  '- {"type":"draw","n":3}',
+  '- {"type":"scry","n":2}',
+  '- {"type":"surveil","n":2}',
+  '- {"type":"mill","n":5,"who":"self|opp|each"}',
+  '- {"type":"create_token","n":1,"power":2,"toughness":2,"name":"Saproling","subtype":"creature"} // subtype: creature|artifact|treasure|food|clue',
+  '- {"type":"reanimate","filter":"creature|any","dest":"battlefield|hand"}',
+  '- {"type":"return_to_hand_from_gy","filter":"any|creature|instant|sorcery"}',
+  '- {"type":"destroy_all","filter":"creatures|artifacts|nonlands"}',
+  '- {"type":"exile_all","filter":"creatures|graveyards"}',
+  '- {"type":"damage_each_creature","amount":3}',
+  '- {"type":"damage_target","amount":3,"target":"any|creature|player"}',
+  '- {"type":"discard","n":2,"who":"you|opp|each"}',
+  '- {"type":"choose","mode":"one|two|three|up_to_one|up_to_two","modes":[<arrays of actions>]}',
+  '- {"type":"life","n":-3,"who":"you|opp"} // negative = lose, positive = gain',
+  '- {"type":"counter_target","filter":"spell|creature_spell|noncreature_spell"}',
+  '- {"type":"destroy_target","filter":"creature|artifact|enchantment|nonland|planeswalker"}',
+  '- {"type":"exile_target","filter":"creature|nonland|permanent"}',
+  '- {"type":"buff_target","power":3,"toughness":3,"keywords":["flying","trample"],"duration":"EOT"} // EOT=end of turn',
+  '- {"type":"add_mana","colors":["U","R"],"n":1}',
+  '- {"type":"copy_spell","target":"instant|sorcery|spell"}',
+  '- {"type":"register_trigger","when":"upkeep|main1|main2|end_step|draw|cast_instant|cast_sorcery|cast_creature","action":[<actions>],"may":true}',
+  '- {"type":"static","effect":"extra_lands|no_max_hand|cant_lose|cant_be_countered","n":1}',
+  '- {"type":"unknown","description":"texte court de ce que la carte fait"}',
+  '',
+  'Rules :',
+  '- If "Choose one —" with • bullets, wrap modes in a "choose" action.',
+  '- For permanents (creature/artifact/enchantment/planeswalker), separate ETB ("When this enters") from upkeep/draw/cast triggers (use "register_trigger").',
+  '- Static abilities (passive, no trigger) use "static" action type.',
+  '- For costs like "you may pay 3 life", wrap the action in a trigger with "may":true and include a life:-3 step.',
+  '- If you cannot parse confidently, return [{"type":"unknown","description":"..."}].',
+  '- Output JSON ONLY, no other text.'
+].join('\n');
+
+async function parseCardEffect(cardName, oracleText) {
+  if (!cardName || !oracleText) return [];
+  var userPrompt = 'Card: ' + cardName + '\nOracle: ' + String(oracleText).slice(0, 2000);
+  var raw = '';
+  try {
+    if (process.env.GITHUB_TOKEN) {
+      raw = await callGithubChat([
+        { role: 'system', content: SYSTEM_PARSE_CARD },
+        { role: 'user', content: userPrompt }
+      ], { maxTokens: 800, temperature: 0.05 });
+    } else if (process.env.GEMINI_API_KEY) {
+      raw = await callGeminiText(SYSTEM_PARSE_CARD, [{ role: 'user', parts: [{ text: userPrompt }] }], { maxTokens: 800, temperature: 0.05 });
+    } else {
+      throw new Error('No LLM configured');
+    }
+  } catch (e) {
+    return [{ type: 'unknown', description: 'LLM error: ' + e.message }];
+  }
+  // Nettoie : retire les code fences éventuels
+  var clean = String(raw || '').trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
+  // Tente le parse
+  try {
+    var arr = JSON.parse(clean);
+    if (Array.isArray(arr)) return arr;
+    if (arr && typeof arr === 'object') return [arr];
+  } catch (e) {
+    // Try to extract first JSON array
+    var match = clean.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch (e2) {}
+    }
+  }
+  return [{ type: 'unknown', description: clean.slice(0, 200) }];
+}
+
 module.exports = {
   llmAvailable: llmAvailable,
   llmSetupHint: llmSetupHint,
   identifyCard: identifyCard,
   chatRules: chatRules,
-  chatCoach: chatCoach
+  chatCoach: chatCoach,
+  parseCardEffect: parseCardEffect
 };
