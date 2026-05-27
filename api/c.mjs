@@ -5,7 +5,7 @@
 
 export const config = { runtime: 'edge' };
 
-const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID || 'manalab-app';
+const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID || 'mtg-tools-5ea4b';
 
 function esc(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({

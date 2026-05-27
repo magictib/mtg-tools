@@ -22,7 +22,7 @@ export const config = { runtime: 'edge' };
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const RESEND_FROM = process.env.RESEND_FROM || 'ManaLAB <noreply@manalab.app>';
 const DIGEST_SECRET = process.env.DIGEST_SECRET || '';
-const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID || 'manalab-app';
+const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID || 'mtg-tools-5ea4b';
 const BASE_URL = process.env.MANALAB_BASE_URL || 'https://valebro-bhce.vercel.app';
 
 function esc(s) {

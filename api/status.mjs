@@ -5,7 +5,7 @@
 
 export const config = { runtime: 'edge' };
 
-const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID || 'manalab-app';
+const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID || 'mtg-tools-5ea4b';
 
 async function check(name, fn) {
   const t0 = Date.now();
@@ -27,7 +27,13 @@ export default async function handler(req) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
     }),
     check('Scryfall API', async () => {
-      const r = await fetch('https://api.scryfall.com/cards/named?fuzzy=sol+ring');
+      // Scryfall exige User-Agent + Accept headers depuis 2024
+      const r = await fetch('https://api.scryfall.com/cards/named?fuzzy=sol+ring', {
+        headers: {
+          'User-Agent': 'ManaLAB/1.0 (status-check)',
+          'Accept': 'application/json'
+        }
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
     }),
     check('Sitemap', async () => {
