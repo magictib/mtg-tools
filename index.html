@@ -4472,6 +4472,13 @@ details > summary::-webkit-details-marker{display:none}
         <div id="ar-cfg-bots" style="display:flex;gap:5px"></div>
         <div style="font-size:.66rem;color:var(--tx3);font-style:italic;margin-top:3px">Reste : <span id="ar-cfg-humans">1 joueur réel</span></div>
       </div>
+    </div>
+    <!-- Config par bot (archétype + deck optionnel) -->
+    <div id="ar-cfg-bot-slots-wrap" style="margin-bottom:14px">
+      <label style="display:block;font-size:.72rem;color:var(--gold2);letter-spacing:.06em;margin-bottom:6px">🎯 ARCHÉTYPE & DECK PAR BOT</label>
+      <div id="ar-cfg-bot-slots"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px">
       <!-- Format -->
       <div>
         <label style="display:block;font-size:.72rem;color:var(--gold2);letter-spacing:.06em;margin-bottom:5px">📋 FORMAT</label>
@@ -50065,7 +50072,8 @@ function _apRender(){
     s.opponents.forEach(function(opp,i){
       var oppLifeCol=opp.life<=10?'#dc5050':opp.life<=20?'#e8c96e':'#7fb069';
       html+='<div class="ap-opp">';
-      html+='<div class="ap-opp-head"><div class="ap-opp-name">🤖 Adv '+(i+1)+' <span style="font-size:.62rem;color:var(--tx3);font-weight:normal">'+esc(opp.aiType||'')+'</span></div>';
+      var oppDeckLbl=(opp.deckId&&decks[opp.deckId])?(' · '+esc(decks[opp.deckId].name)):'';
+      html+='<div class="ap-opp-head"><div class="ap-opp-name">🤖 Adv '+(i+1)+' <span style="font-size:.62rem;color:var(--tx3);font-weight:normal">'+esc(opp.aiType||'')+oppDeckLbl+'</span></div>';
       html+='<div class="ap-opp-life" style="color:'+oppLifeCol+'">'+opp.life+'</div>';
       html+='</div>';
       html+='<div class="ap-opp-actions">';
@@ -50183,17 +50191,30 @@ function _apOppLife(idx,delta){
 function _apOppThreat(idx){
   if(!_gfState||!_gfState.opponents[idx])return;
   var opp=_gfState.opponents[idx];
-  // Genere une menace selon l'archétype
-  var threatsByType={
-    aggro:['Goblin Guide','Eidolon of the Great Revel','Lightning Bolt','Lava Spike','Boros Charm'],
-    combo:['Brainstorm','Ponder','Grapeshot','Manamorphose','Past in Flames'],
-    control:['Counterspell','Wrath of God','Path to Exile','Teferi','Force of Will'],
-    midrange:['Tarmogoyf','Liliana','Fatal Push','Bloodbraid Elf','Maelstrom Pulse'],
-    tribal:['Goblin Chieftain','Krenko activate','Goblin Warchief','Empty the Warrens'],
-    stax:['Smokestack','Winter Orb','Sphere of Resistance','Tabernacle']
-  };
-  var pool=threatsByType[opp.aiType]||threatsByType.aggro;
-  var t=pool[Math.floor(Math.random()*pool.length)];
+  var t=null;
+  // Si l'adversaire a un vrai deck assigné, tire une carte non-terrain au hasard depuis ce deck
+  if(opp.deckId&&decks[opp.deckId]&&decks[opp.deckId].cards&&decks[opp.deckId].cards.length){
+    var pool=decks[opp.deckId].cards.filter(function(c){
+      if(/^commander|^commandant/i.test(c.sec||''))return false;
+      var meta=_anaData[(c.name||'').toLowerCase()];
+      var tl=((meta&&meta.typeLine)||'').toLowerCase();
+      return tl.indexOf('land')<0;
+    });
+    if(pool.length){t=pool[Math.floor(Math.random()*pool.length)].name;}
+  }
+  if(!t){
+    // Fallback : menace fictive selon archétype
+    var threatsByType={
+      aggro:['Goblin Guide','Eidolon of the Great Revel','Lightning Bolt','Lava Spike','Boros Charm'],
+      combo:['Brainstorm','Ponder','Grapeshot','Manamorphose','Past in Flames'],
+      control:['Counterspell','Wrath of God','Path to Exile','Teferi','Force of Will'],
+      midrange:['Tarmogoyf','Liliana','Fatal Push','Bloodbraid Elf','Maelstrom Pulse'],
+      tribal:['Goblin Chieftain','Krenko activate','Goblin Warchief','Empty the Warrens'],
+      stax:['Smokestack','Winter Orb','Sphere of Resistance','Tabernacle']
+    };
+    var fp=threatsByType[opp.aiType]||threatsByType.aggro;
+    t=fp[Math.floor(Math.random()*fp.length)];
+  }
   opp.threats=opp.threats||[];opp.threats.push(t);
   if(opp.threats.length>10)opp.threats.shift();
   _apLog('Adv '+(idx+1)+' : '+t);
@@ -52018,9 +52039,19 @@ window.openGoldfish=window.openArenaPro;
 // ════════════════════════════════════════════════════════════════════════
 // CONFIGURATEUR JOUER — quick launch d'une partie Arena Pro depuis pg-arena
 // ════════════════════════════════════════════════════════════════════════
-var _arQuickCfg={players:2,bots:1,format:'commander',bo:1,deckId:null};
+var _arQuickCfg={players:2,bots:1,format:'commander',bo:1,deckId:null,botSlots:[]};
 try{var __aqc=localStorage.getItem('mtg_arena_quickcfg');if(__aqc){var p=JSON.parse(__aqc);if(p)_arQuickCfg=Object.assign(_arQuickCfg,p);}}catch(e){}
+if(!Array.isArray(_arQuickCfg.botSlots))_arQuickCfg.botSlots=[];
 function _arQuickSave(){try{localStorage.setItem('mtg_arena_quickcfg',JSON.stringify(_arQuickCfg));}catch(e){}}
+// Synchronise le tableau botSlots avec le nombre de bots demandé (chaque slot = {aiType, deckId?})
+function _arSyncBotSlots(){
+  var n=_arQuickCfg.bots||0;
+  var aiTypes=['aggro','combo','control','midrange','tribal'];
+  while(_arQuickCfg.botSlots.length<n){
+    _arQuickCfg.botSlots.push({aiType:aiTypes[_arQuickCfg.botSlots.length%aiTypes.length],deckId:null});
+  }
+  if(_arQuickCfg.botSlots.length>n)_arQuickCfg.botSlots.length=n;
+}
 function _arQuickRender(){
   // Players buttons (2/3/4)
   var pBar=document.getElementById('ar-cfg-players');
@@ -52082,6 +52113,27 @@ function _arQuickRender(){
     }).join('');
     dSel.onchange=function(){_arQuickCfg.deckId=this.value;_arQuickSave();_arQuickRender();};
   }
+  // Bot slots (par bot : aiType + deck optionnel)
+  _arSyncBotSlots();
+  var bSlots=document.getElementById('ar-cfg-bot-slots');
+  if(bSlots){
+    if(!_arQuickCfg.bots){bSlots.innerHTML='';}
+    else{
+      var myDecksAll=Object.keys(decks||{}).filter(function(id){return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):true;}).map(function(id){return {id:id,name:decks[id].name,fmt:decks[id].format};});
+      var aiTypes=[['aggro','Agro'],['combo','Combo'],['control','Control'],['midrange','Midrange'],['tribal','Tribal'],['random','Aléatoire']];
+      bSlots.innerHTML=_arQuickCfg.botSlots.map(function(slot,i){
+        var aiOpts=aiTypes.map(function(a){return '<option value="'+a[0]+'"'+(slot.aiType===a[0]?' selected':'')+'>'+a[1]+'</option>';}).join('');
+        var deckOpts='<option value="">— IA improvisée ('+(aiTypes.find(function(a){return a[0]===slot.aiType;})||['',''])[1]+') —</option>'+myDecksAll.map(function(d){
+          return '<option value="'+esc(d.id)+'"'+(slot.deckId===d.id?' selected':'')+'>'+esc(d.name)+(d.fmt?' ['+d.fmt+']':'')+'</option>';
+        }).join('');
+        return '<div style="display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap">'
+          +'<span style="font-size:.72rem;color:var(--tx3);min-width:48px">🤖 Bot '+(i+1)+'</span>'
+          +'<select onchange="_arBotSetAi('+i+',this.value)" style="padding:5px 8px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.78rem">'+aiOpts+'</select>'
+          +'<select onchange="_arBotSetDeck('+i+',this.value)" style="flex:1;min-width:160px;padding:5px 8px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-size:.78rem">'+deckOpts+'</select>'
+          +'</div>';
+      }).join('');
+    }
+  }
   // Summary
   var sum=document.getElementById('ar-cfg-summary');
   if(sum){
@@ -52089,17 +52141,22 @@ function _arQuickRender(){
     sum.textContent='Partie '+fmtLbl+' à '+_arQuickCfg.players+' joueurs ('+_arQuickCfg.bots+' bot'+(_arQuickCfg.bots>1?'s':'')+')'+(_arQuickCfg.bo>1?' · BO'+_arQuickCfg.bo:'');
   }
 }
+function _arBotSetAi(i,v){if(_arQuickCfg.botSlots[i]){_arQuickCfg.botSlots[i].aiType=v;_arQuickSave();_arQuickRender();}}
+function _arBotSetDeck(i,v){if(_arQuickCfg.botSlots[i]){_arQuickCfg.botSlots[i].deckId=v||null;_arQuickSave();_arQuickRender();}}
 function _arCfgSetFormat(f){_arQuickCfg.format=f;_arQuickSave();_arQuickRender();}
 function _arQuickLaunch(){
   if(!_arQuickCfg.deckId||!decks[_arQuickCfg.deckId]){
     if(typeof toastError==='function')toastError('Choisis ton deck d\'abord');
     return;
   }
-  // Pré-remplit _apLobby avec la config rapide
+  _arSyncBotSlots();
+  // Pré-remplit la liste des joueurs avec la config rapide
   var players=[{type:'me',deckId:_arQuickCfg.deckId}];
-  var aiTypes=['aggro','combo','control','midrange','tribal'];
   for(var i=0;i<_arQuickCfg.bots;i++){
-    players.push({type:'ai',aiType:aiTypes[i%aiTypes.length]});
+    var slot=_arQuickCfg.botSlots[i]||{aiType:'aggro',deckId:null};
+    var p={type:'ai',aiType:slot.aiType||'aggro'};
+    if(slot.deckId&&decks[slot.deckId])p.deckId=slot.deckId;
+    players.push(p);
   }
   // Reste = joueurs humains (placeholder pour multi futur — pour l'instant on les met en bots auto)
   var humansNeeded=_arQuickCfg.players-1-_arQuickCfg.bots;
@@ -52109,16 +52166,21 @@ function _arQuickLaunch(){
   if(humansNeeded>0&&typeof toastSuccess==='function'){
     toastSuccess('ℹ '+humansNeeded+' "humain(s)" simulés en IA aléatoire — multi-joueurs réel bientôt');
   }
-  // Démarre directement
+  // CRÉE et OUVRE l'overlay AVANT d'appeler _apStartGame (sinon _apRender bail out)
+  var ov=document.getElementById('ap-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ap-ov';
+    document.body.appendChild(ov);
+  }
+  document.body.classList.add('ap-active');
+  ov.classList.add('open');
+  // Démarre la partie
   if(typeof _apStartGame==='function'){
     _apStartGame({
       format:_arQuickCfg.format,
       bo:_arQuickCfg.bo,
       players:players
     });
-    // Ouvre l'overlay si pas déjà ouvert
-    var ov=document.getElementById('ap-ov');
-    if(ov){document.body.classList.add('ap-active');ov.classList.add('open');}
   }
 }
 // Render au passage sur l'onglet arena + learn
@@ -53596,10 +53658,18 @@ function openPremiumAnalytics(){
   });
   html+='</div>';
   html+='</div>';
+  // Bouton enrichissement si meta incomplète
+  var missingCnt=stats.totalCards-stats.metaCount;
+  if(missingCnt>0){
+    html+='<div style="background:rgba(232,201,110,.08);border:1px solid rgba(232,201,110,.4);border-radius:9px;padding:12px 14px;margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">';
+    html+='<div style="flex:1;min-width:200px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem">🔄 Données incomplètes</div><div style="font-size:.78rem;color:var(--tx2);margin-top:3px">'+missingCnt.toLocaleString('fr-FR')+' cartes sur '+stats.totalCards.toLocaleString('fr-FR')+' n\'ont pas encore de métadonnées Scryfall. Les pourcentages et compteurs (rareté, type, etc.) sont donc partiels.</div></div>';
+    html+='<button class="btn btnp" onclick="_paEnrichMissing()" id="pa-enrich-btn" style="padding:9px 16px;font-size:.84rem;background:var(--gold2);color:#1a1208;font-weight:700">⚡ Enrichir maintenant</button>';
+    html+='</div>';
+  }
   // Diagnostic intelligent
   var diags=[];
   if(stats.metaCount<stats.totalCards*.5){
-    diags.push({sev:'info',t:'⚠ '+Math.round((1-stats.metaCount/stats.totalCards)*100)+'% de tes cartes ne sont pas dans le cache (pas de meta Scryfall). Lance le scanner ou ré-importe pour avoir des stats complètes.'});
+    diags.push({sev:'info',t:'⚠ '+Math.round((1-stats.metaCount/stats.totalCards)*100)+'% de tes cartes ne sont pas dans le cache (pas de meta Scryfall). Clique sur "Enrichir maintenant" ci-dessus pour rattraper toutes les manquantes en une fois (par lots de 75 via Scryfall).'});
   }
   if(stats.unusedCards>stats.uniques*.5){
     diags.push({sev:'info',t:'📦 '+stats.unusedCards+' cartes uniques jamais utilisées dans un deck ('+Math.round(stats.unusedCards/stats.uniques*100)+'%). Opportunité : crée des decks ou marque-les comme "à échanger" sur le marketplace.'});
@@ -53626,6 +53696,36 @@ function openPremiumAnalytics(){
   ov.innerHTML=html;ov.style.display='flex';
 }
 function closePremiumAnalytics(){var ov=document.getElementById('pa-ov');if(ov)ov.style.display='none';}
+// Enrichit le cache _anaData pour TOUTES les cartes de la collection user qui n'ont pas de meta.
+// Utilise anaFetchMissing (batch /cards/collection 75 par 75, puis fuzzy pour les manquants).
+function _paEnrichMissing(){
+  var btn=document.getElementById('pa-enrich-btn');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Enrichissement…';btn.style.opacity='.6';}
+  var coll=[];try{coll=getProfCards(0)||[];}catch(e){}
+  // Construit la liste des nl manquants + un fallbackList (mapping nl → nom propre)
+  var missing=[];var fallback=[];
+  coll.forEach(function(c){
+    var nm=c.name||'';if(!nm)return;
+    var nl=(typeof stripDFC==='function'?stripDFC(nm):nm).toLowerCase();
+    if(_anaData[nl])return;
+    missing.push(nl);
+    fallback.push({nl:nl,name:nm});
+  });
+  if(!missing.length){
+    if(typeof toastSuccess==='function')toastSuccess('Tout est déjà à jour !');
+    if(btn){btn.disabled=false;btn.textContent='⚡ Enrichir maintenant';btn.style.opacity='1';}
+    return;
+  }
+  if(typeof toastSuccess==='function')toastSuccess('🔄 Récupération de '+missing.length+' fiches Scryfall en cours…');
+  if(typeof anaFetchMissing==='function'){
+    anaFetchMissing(missing,fallback,function(){
+      if(typeof _anaSaveCache==='function')_anaSaveCache();
+      if(typeof toastSuccess==='function')toastSuccess('✓ Données enrichies — réouverture des stats');
+      // Re-render la modal pour refléter les nouvelles métadonnées
+      openPremiumAnalytics();
+    });
+  }else if(btn){btn.disabled=false;btn.textContent='⚡ Enrichir maintenant';btn.style.opacity='1';}
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // PWA INSTALL PROPER + push notifications
