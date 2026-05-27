@@ -49973,6 +49973,397 @@ function _apCardMenu(e,zone,idx){
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// PHASE 5C — RÉSOLVEUR D'EFFETS (search land, draw, scry, mill, tokens, etc.)
+// Évite les misstriggers et la triche : l'algo applique l'effet de la carte
+// automatiquement et propose les choix utilisateur via un modal.
+// ════════════════════════════════════════════════════════════════════════
+// Patterns d'effets détectés via oracle text
+function _apResolveEffect(cardName){
+  if(!_gfState)return;
+  var meta=_anaData[(cardName||'').toLowerCase()];
+  if(!meta)return;
+  var o=(meta.oracleText||'').toLowerCase();
+  if(!o)return;
+  // Pour éviter les boucles ETB infinies, on stocke quelles cartes on a déjà résolues ce turn
+  // Mais pour solo on accepte (le user peut tap manuellement plus tard si besoin)
+
+  // 1. Search library for basic land
+  if(/search your library for (a|up to (one|two|three|four|\d+)) basic land cards?/i.test(o)){
+    var m=o.match(/up to (\w+) basic land/);
+    var n=m?(({one:1,two:2,three:3,four:4})[m[1]]||parseInt(m[1])||1):1;
+    var tapped=/(onto|to) the battlefield tapped/i.test(o);
+    _apPickLand({n:n,types:['basic'],tapped:tapped,shuffle:true,toHand:/to your hand/i.test(o),cardName:cardName});
+    return true;
+  }
+  // 2. Search library for any land
+  if(/search your library for (a|up to (one|two|three|\d+)) land cards?/i.test(o)){
+    var m=o.match(/up to (\w+) land/);
+    var n=m?(({one:1,two:2,three:3})[m[1]]||parseInt(m[1])||1):1;
+    var tapped=/(onto|to) the battlefield tapped/i.test(o);
+    _apPickLand({n:n,types:['any'],tapped:tapped,shuffle:true,toHand:/to your hand/i.test(o),cardName:cardName});
+    return true;
+  }
+  // 3. Cultivate-like : "search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand"
+  if(/search your library for (up to )?two basic land/i.test(o)&&/(into|to) your hand/i.test(o)){
+    _apPickLand({n:2,types:['basic'],mixedDest:true,shuffle:true,cardName:cardName});
+    return true;
+  }
+  // 4. Skyshroud Claim : "Search your library for up to two Forest cards, put them onto the battlefield"
+  var typeM=o.match(/search your library for (up to )?(?:two|three|\d+)?\s*(plains|island|swamp|mountain|forest) cards?/i);
+  if(typeM){
+    var t=typeM[2].toLowerCase();
+    var n=2;if(/three/i.test(o))n=3;if(/four/i.test(o))n=4;
+    var tapped=/(onto|to) the battlefield tapped/i.test(o);
+    _apPickLand({n:n,types:[t],tapped:tapped,shuffle:true,cardName:cardName});
+    return true;
+  }
+  // 5. Draw N cards
+  var drawM=o.match(/(?:^|\.\s*)draw (a|one|two|three|four|five|six|seven|\d+) cards?/i);
+  if(drawM&&!/(opponent|each)/i.test(o.split(drawM[0])[0]||'')){
+    var nMap={a:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7};
+    var nDraw=nMap[drawM[1]]||parseInt(drawM[1])||1;
+    setTimeout(function(){_apDraw(nDraw);_apLog('Effet : pioche '+nDraw);},150);
+    return true;
+  }
+  // 6. Scry N
+  var scryM=o.match(/scry (\d+)/i);
+  if(scryM){
+    var nScry=parseInt(scryM[1])||1;
+    setTimeout(function(){_apScry(nScry);},150);
+    return true;
+  }
+  // 7. Mill N (target player / each opponent)
+  var millM=o.match(/(?:mills?|put the top) (\w+|\d+) cards? (?:of (?:their|your) library )?(?:into (?:their|your) graveyard|from (?:their|your) library)/i);
+  if(millM){
+    var nMap2={a:1,one:1,two:2,three:3,four:4,five:5,seven:7,ten:10};
+    var nMill=nMap2[millM[1]]||parseInt(millM[1])||1;
+    setTimeout(function(){_apMill(nMill);},150);
+    return true;
+  }
+  // 8. Create tokens
+  var tokenM=o.match(/create (a|one|two|three|four|five|\d+|x) (\d+\/\d+|[\w-]+) ([\w\s]+?) (?:creature )?tokens?/i);
+  if(tokenM){
+    var nMap3={a:1,one:1,two:2,three:3,four:4,five:5};
+    var nTok=nMap3[tokenM[1]]||parseInt(tokenM[1])||1;
+    var pt=tokenM[2];var name=(tokenM[3]||'').trim();
+    setTimeout(function(){
+      for(var i=0;i<nTok;i++){
+        _gfState.battlefield.push({name:(pt+' '+name+' token').replace(/\s+/g,' ').trim(),tapped:false,isToken:true});
+      }
+      _apLog('Crée '+nTok+'× '+pt+' '+name+' token');
+      _apRender();
+    },150);
+    return true;
+  }
+  // 9. Reanimate : return creature from graveyard
+  if(/return (target |a )?creature card from your graveyard (to|onto) the battlefield/i.test(o)){
+    setTimeout(function(){_apReanimate('creature');},150);
+    return true;
+  }
+  // 10. Return any from graveyard to hand (Regrowth, Eternal Witness, Pulse of Murasa)
+  if(/return target card from your graveyard to your hand/i.test(o)){
+    setTimeout(function(){_apReturnFromGY('any');},150);
+    return true;
+  }
+  // 11. Wrath effects (destroy all creatures)
+  if(/destroy all creatures/i.test(o)){
+    setTimeout(function(){_apWrath('destroy');},150);
+    return true;
+  }
+  if(/exile all creatures/i.test(o)){
+    setTimeout(function(){_apWrath('exile');},150);
+    return true;
+  }
+  // 12. Damage to each creature (Pyroclasm-like)
+  var dmgEachM=o.match(/deals? (\d+) damage to each creature/i);
+  if(dmgEachM){
+    var dmg=parseInt(dmgEachM[1]);
+    setTimeout(function(){
+      // Simplifié : on retire les créatures avec power/toughness ≤ dmg
+      var killed=0;
+      for(var i=_gfState.battlefield.length-1;i>=0;i--){
+        var p=_gfState.battlefield[i];
+        var bm=_anaData[(p.name||'').toLowerCase()];
+        if(bm&&(bm.typeLine||'').toLowerCase().indexOf('creature')>=0){
+          var tg=parseInt(bm.toughness||'99')||99;
+          if(tg<=dmg){_gfState.battlefield.splice(i,1);_gfState.graveyard.push(p.name);killed++;}
+        }
+      }
+      if(killed)_apLog('💥 '+dmg+' dmg à chaque créature → '+killed+' morte(s)');
+      _apRender();
+    },150);
+    return true;
+  }
+  // 13. Discard (you discard / each opponent discards)
+  var discM=o.match(/discard (\w+) cards?/i);
+  if(discM&&/^you discard/i.test(o)){
+    var nMap4={a:1,one:1,two:2,three:3,four:4,five:5,seven:7,your:99};
+    var nDisc=discM[1]==='your'?99:(nMap4[discM[1]]||parseInt(discM[1])||1);
+    setTimeout(function(){_apDiscardPick(nDisc);},150);
+    return true;
+  }
+  return false;
+}
+
+// ═══ Modal réutilisable (picker générique) ═══
+function _apModal(opts){
+  // opts = {title, content, buttons:[{l,act,primary}], onClose}
+  var m=document.getElementById('ap-modal');
+  if(!m){
+    m=document.createElement('div');m.id='ap-modal';
+    m.style.cssText='position:fixed;inset:0;z-index:7100;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(4px)';
+    document.body.appendChild(m);
+  }
+  var html='<div style="background:linear-gradient(180deg,#2a1a08,#1a1208);border:1.5px solid var(--gold2);border-radius:14px;max-width:880px;width:100%;max-height:88vh;overflow-y:auto;padding:20px 26px;box-shadow:0 20px 60px rgba(0,0,0,.9)">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.25rem;color:var(--gold2);flex:1">'+esc(opts.title||'')+'</div>';
+  if(opts.canClose!==false)html+='<button class="ap-action" onclick="_apModalClose()">✕</button>';
+  html+='</div>';
+  html+=(opts.content||'');
+  if(opts.buttons&&opts.buttons.length){
+    html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">';
+    opts.buttons.forEach(function(b,i){
+      html+='<button class="ap-action'+(b.primary?' primary':'')+'" onclick="_apModalBtn('+i+')">'+esc(b.l)+'</button>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  m.innerHTML=html;m._opts=opts;m.style.display='flex';
+}
+function _apModalClose(){var m=document.getElementById('ap-modal');if(!m)return;m.style.display='none';if(m._opts&&m._opts.onClose)m._opts.onClose();}
+function _apModalBtn(i){var m=document.getElementById('ap-modal');if(!m||!m._opts||!m._opts.buttons)return;var b=m._opts.buttons[i];if(b&&b.act)b.act();}
+function _apPickerCardHtml(name,onClick){
+  var meta=_anaData[(name||'').toLowerCase()];
+  var img=meta&&meta.imgUri?meta.imgUri:('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(name));
+  return '<div class="ap-card" onclick="'+onClick+'" style="width:100px;height:140px;cursor:pointer"><img src="'+esc(img)+'" alt="'+esc(name)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="ap-card-noimg" style="display:none">'+esc(name)+'</div><div class="ap-card-name">'+esc(name)+'</div></div>';
+}
+
+// ═══ Handlers d'effets ═══
+function _apPickLand(opts){
+  if(!_gfState)return;
+  // Filtrer la library selon le type recherché
+  var lib=_gfState.library;
+  var candidates=[];
+  lib.forEach(function(nm,idx){
+    var meta=_anaData[(nm||'').toLowerCase()];
+    if(!meta)return;
+    var tl=(meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('land')<0)return;
+    if(opts.types.indexOf('basic')>=0&&tl.indexOf('basic')<0)return;
+    if(opts.types.indexOf('any')<0&&opts.types.indexOf('basic')<0){
+      // type spécifique (plains, forest, etc.)
+      var ok=false;
+      opts.types.forEach(function(t){if(tl.indexOf(t)>=0||(nm||'').toLowerCase().indexOf(t)>=0)ok=true;});
+      if(!ok)return;
+    }
+    candidates.push({nm:nm,idx:idx});
+  });
+  if(!candidates.length){
+    if(typeof toastError==='function')toastError('Aucun terrain trouvé dans la bibliothèque');
+    if(opts.shuffle){
+      // Shuffle quand même
+      for(var i=lib.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=lib[i];lib[i]=lib[j];lib[j]=t;}
+    }
+    return;
+  }
+  // Group par nom et compte
+  var grouped={};
+  candidates.forEach(function(c){if(!grouped[c.nm])grouped[c.nm]={count:0,idx:c.idx};grouped[c.nm].count++;});
+  // Modal de choix
+  var content='<div style="font-size:.88rem;color:var(--tx2);margin-bottom:10px">';
+  content+='Effet de <b style="color:var(--gold2)">'+esc(opts.cardName)+'</b> : cherche '+(opts.n>1?opts.n+' terrains':'1 terrain')+(opts.tapped?' (engagé)':'');
+  if(opts.toHand)content+=' (en main)';
+  else if(opts.mixedDest)content+=' (1 sur le champ, 1 en main)';
+  content+='.</div>';
+  content+='<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">';
+  Object.keys(grouped).forEach(function(nm){
+    var g=grouped[nm];
+    content+='<div style="position:relative">'+_apPickerCardHtml(nm,'_apLandChosen('+JSON.stringify(nm).replace(/"/g,'&quot;')+','+JSON.stringify(opts).replace(/"/g,'&quot;')+')')+'<div style="position:absolute;top:3px;right:3px;background:rgba(0,0,0,.85);color:var(--gold2);padding:2px 6px;border-radius:4px;font-size:.7rem;font-weight:700">×'+g.count+'</div></div>';
+  });
+  content+='</div>';
+  _apModal({title:'🔍 Chercher un terrain — '+opts.cardName,content:content,buttons:[{l:'Annuler (rien chercher)',act:function(){
+    // Shuffle quand même puisque la carte le demande
+    if(opts.shuffle){for(var i=lib.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=lib[i];lib[i]=lib[j];lib[j]=t;}}
+    _apModalClose();_apRender();
+  }}]});
+}
+function _apLandChosen(nm,opts){
+  if(!_gfState)return;
+  // Retirer 1 exemplaire de la library
+  var lib=_gfState.library;
+  var idx=lib.findIndex(function(c){return c===nm;});
+  if(idx<0){_apModalClose();return;}
+  lib.splice(idx,1);
+  // Selon destination
+  if(opts.toHand){
+    _gfState.hand.push(nm);
+    _apLog('Cherche → main : '+nm);
+  }else if(opts.mixedDest){
+    // 1 sur le champ tapped, 1 en main
+    _gfState.battlefield.push({name:nm,tapped:true});
+    _apLog('Cherche → champ (tapped) : '+nm);
+    // 2e choix après
+    if(opts.n>=2){
+      opts=Object.assign({},opts,{n:1,toHand:true,mixedDest:false});
+      _apModalClose();
+      setTimeout(function(){_apPickLand(opts);},120);
+      return;
+    }
+  }else{
+    _gfState.battlefield.push({name:nm,tapped:!!opts.tapped});
+    _apLog('Cherche → champ'+(opts.tapped?' (tapped)':'')+' : '+nm);
+  }
+  // Si plusieurs à chercher, on relance
+  if(opts.n>1&&!opts.mixedDest){
+    opts=Object.assign({},opts,{n:opts.n-1});
+    _apModalClose();
+    setTimeout(function(){_apPickLand(opts);},120);
+    return;
+  }
+  // Shuffle library
+  if(opts.shuffle){for(var i=lib.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=lib[i];lib[i]=lib[j];lib[j]=t;}}
+  _apModalClose();_apRender();
+}
+function _apScry(n){
+  if(!_gfState)return;
+  var lib=_gfState.library;
+  if(!lib.length){if(typeof toastError==='function')toastError('Bibliothèque vide');return;}
+  var top=lib.slice(0,n);
+  var content='<div style="font-size:.88rem;color:var(--tx2);margin-bottom:10px">📖 Scry '+n+' — pour chaque carte, choisis : top ou bottom.</div>';
+  content+='<div id="ap-scry-cards" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">';
+  top.forEach(function(nm,i){
+    content+='<div style="display:flex;flex-direction:column;align-items:center;gap:4px">'+_apPickerCardHtml(nm,'')+'<div style="display:flex;gap:2px"><button class="ap-action" style="padding:3px 7px;font-size:.7rem" onclick="_apScryChoice('+i+',\'top\')">↑ Top</button><button class="ap-action" style="padding:3px 7px;font-size:.7rem" onclick="_apScryChoice('+i+',\'bottom\')">↓ Bottom</button></div></div>';
+  });
+  content+='</div>';
+  _apModal({title:'🔮 Scry '+n,content:content,canClose:false,buttons:[{l:'Valider',act:_apScryConfirm,primary:true}]});
+  _apScryState={top:top.slice(),choices:new Array(n).fill('top')};
+}
+var _apScryState=null;
+function _apScryChoice(i,where){
+  if(!_apScryState)return;
+  _apScryState.choices[i]=where;
+  // Mise à jour visuelle de la modal (re-render boutons actifs)
+  var nodes=document.querySelectorAll('#ap-scry-cards>div');
+  if(nodes[i]){
+    nodes[i].querySelectorAll('button').forEach(function(b){b.classList.remove('primary');});
+    nodes[i].querySelectorAll('button')[where==='top'?0:1].classList.add('primary');
+  }
+}
+function _apScryConfirm(){
+  if(!_apScryState||!_gfState)return;
+  var n=_apScryState.top.length;
+  // Retire les top N
+  var removed=_gfState.library.splice(0,n);
+  // Reorder selon choices : ceux marqués 'top' restent, ceux 'bottom' vont au fond
+  var topKeep=[],bottomKeep=[];
+  removed.forEach(function(nm,i){if(_apScryState.choices[i]==='top')topKeep.push(nm);else bottomKeep.push(nm);});
+  _gfState.library=topKeep.concat(_gfState.library).concat(bottomKeep);
+  _apLog('🔮 Scry '+n+' : '+topKeep.length+' top, '+bottomKeep.length+' bottom');
+  _apScryState=null;_apModalClose();_apRender();
+}
+function _apMill(n){
+  if(!_gfState)return;
+  var milled=[];for(var i=0;i<n&&_gfState.library.length>0;i++){milled.push(_gfState.library.shift());}
+  milled.forEach(function(nm){_gfState.graveyard.push(nm);});
+  _apLog('📚 Mill '+milled.length+' : '+milled.join(', '));
+  _apRender();
+}
+function _apReanimate(filter){
+  if(!_gfState||!_gfState.graveyard.length){if(typeof toastError==='function')toastError('Cimetière vide');return;}
+  var pool=_gfState.graveyard.filter(function(nm){
+    var meta=_anaData[(nm||'').toLowerCase()];
+    if(!meta)return false;
+    if(filter==='creature')return (meta.typeLine||'').toLowerCase().indexOf('creature')>=0;
+    return true;
+  });
+  if(!pool.length){if(typeof toastError==='function')toastError('Aucune cible valide dans le cimetière');return;}
+  var content='<div style="font-size:.88rem;color:var(--tx2);margin-bottom:10px">💀 Choisis une carte à réanimer.</div>';
+  content+='<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">';
+  pool.forEach(function(nm){
+    content+=_apPickerCardHtml(nm,'_apReanimateChoose('+JSON.stringify(nm).replace(/"/g,'&quot;')+',\'bf\')');
+  });
+  content+='</div>';
+  _apModal({title:'💀 Réanimer',content:content,buttons:[{l:'Annuler',act:_apModalClose}]});
+}
+function _apReanimateChoose(nm,dest){
+  if(!_gfState)return;
+  var idx=_gfState.graveyard.findIndex(function(c){return c===nm;});
+  if(idx<0)return _apModalClose();
+  _gfState.graveyard.splice(idx,1);
+  if(dest==='bf')_gfState.battlefield.push({name:nm,tapped:false});
+  else _gfState.hand.push(nm);
+  _apLog('💀 Réanime : '+nm);
+  _apModalClose();_apRender();
+}
+function _apReturnFromGY(filter){
+  if(!_gfState||!_gfState.graveyard.length){if(typeof toastError==='function')toastError('Cimetière vide');return;}
+  var content='<div style="font-size:.88rem;color:var(--tx2);margin-bottom:10px">💀 → 🤚 Choisis une carte à récupérer en main.</div>';
+  content+='<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">';
+  _gfState.graveyard.forEach(function(nm){
+    content+=_apPickerCardHtml(nm,'_apReanimateChoose('+JSON.stringify(nm).replace(/"/g,'&quot;')+',\'hand\')');
+  });
+  content+='</div>';
+  _apModal({title:'💀 → 🤚 Récupérer du cimetière',content:content,buttons:[{l:'Annuler',act:_apModalClose}]});
+}
+function _apWrath(mode){
+  if(!_gfState)return;
+  var killed=0;
+  for(var i=_gfState.battlefield.length-1;i>=0;i--){
+    var p=_gfState.battlefield[i];
+    var bm=_anaData[(p.name||'').toLowerCase()];
+    if(bm&&(bm.typeLine||'').toLowerCase().indexOf('creature')>=0){
+      _gfState.battlefield.splice(i,1);
+      if(mode==='exile')_gfState.exile.push(p.name);
+      else _gfState.graveyard.push(p.name);
+      killed++;
+    }
+  }
+  _apLog('☠ '+(mode==='exile'?'Exile':'Détruit')+' toutes créatures ('+killed+')');
+  _apRender();
+}
+function _apDiscardPick(n){
+  if(!_gfState)return;
+  if(n>=_gfState.hand.length){
+    // Défausse toute la main
+    _gfState.hand.forEach(function(nm){_gfState.graveyard.push(nm);});
+    _apLog('Défausse toute la main ('+_gfState.hand.length+')');
+    _gfState.hand=[];
+    _apRender();return;
+  }
+  var content='<div style="font-size:.88rem;color:var(--tx2);margin-bottom:10px">🃏 Défausse '+n+' carte'+(n>1?'s':'')+' de ta main.</div>';
+  content+='<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">';
+  _gfState.hand.forEach(function(nm,i){
+    content+=_apPickerCardHtml(nm,'_apDiscardOne('+i+','+n+')');
+  });
+  content+='</div>';
+  _apModal({title:'🃏 Défausser',content:content,canClose:false});
+}
+function _apDiscardOne(handIdx,remaining){
+  if(!_gfState)return;
+  var nm=_gfState.hand.splice(handIdx,1)[0];
+  _gfState.graveyard.push(nm);
+  _apLog('Défausse : '+nm);
+  remaining--;
+  if(remaining>0&&_gfState.hand.length>0){_apModalClose();setTimeout(function(){_apDiscardPick(remaining);},80);return;}
+  _apModalClose();_apRender();
+}
+
+// ═══ Hook : appeler le résolveur après chaque cast (sauf permanents) ═══
+(function(){
+  var origPlay=_apPlayFromHand;
+  _apPlayFromHand=function(handIdx){
+    var nm=_gfState&&_gfState.hand[handIdx];
+    if(!nm)return origPlay(handIdx);
+    var meta=_anaData[(nm||'').toLowerCase()];
+    var tl=(meta&&meta.typeLine||'').toLowerCase();
+    origPlay(handIdx);
+    // Résoudre les effets (sauf si c'est un land - les lands sont placés direct sans effet)
+    if(meta&&!(meta.tags&&meta.tags.isLand)){
+      setTimeout(function(){_apResolveEffect(nm);},100);
+    }
+  };
+})();
+
 // ═══ Hooks d'accès ═══
 // Remplacer le bouton "🐠 Goldfish solo" du Focus deck par le nouveau Arena Pro
 // On garde openGoldfish() en alias pour rétro-compat
