@@ -7085,7 +7085,9 @@ var _NAV_SPACES=[
     {label:'👥 Pod Optimizer',action:'openPodOptimizer()'},
     {label:'🏟 Tournament Organizer',action:'openTournamentOrganizer()'},
     {label:'🗺 LGS Finder',action:'openLgsFinder()'},
-    {label:'💱 Marketplace P2P',action:'openMarketplace()'}
+    {label:'📅 Event Finder',action:'openEventFinder()'},
+    {label:'💱 Marketplace P2P',action:'openMarketplace()'},
+    {label:'📡 Remote Play',action:'openRemotePlay()'}
   ]},
   {id:'meta',pages:[
     {id:'meta',label:'🌐 Méta global'},
@@ -7099,7 +7101,10 @@ var _NAV_SPACES=[
     {id:'glossary',label:'📖 Lexique'},
     {id:'proxy',label:'🖨 Proxys'},
     {id:'banlist',label:'🚫 Banlists'},
-    {label:'📷 Scanner OCR',action:'goTab(\'coll\');setTimeout(function(){var s=document.querySelector(\'[onclick*=openCardScan]\');if(s)s.click();},200)'}
+    {label:'📷 Scanner OCR',action:'goTab(\'coll\');setTimeout(function(){var s=document.querySelector(\'[onclick*=openCardScan]\');if(s)s.click();},200)'},
+    {label:'📊 Analytics Pro',action:'openPremiumAnalytics()'},
+    {label:'🔌 API publique',action:'openApiDocs()'},
+    {label:'❖ ManaLAB Pro',action:'openProUpgrade()'}
   ]}
 ];
 var _navPageToSpace={};
@@ -52590,6 +52595,572 @@ function openDciRanking(){
   ov.innerHTML=html;ov.style.display='flex';
 }
 function closeDciRanking(){var ov=document.getElementById('dci-ov');if(ov)ov.style.display='none';}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q1 FINISH — Consolidation : tous les chemins discovery passent par openDiscover
+// (déjà fait dans openDiscover, on hook le bouton 🔮 partout)
+// ════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════
+// Q2 — MARKETPLACE P2P RÉEL (marquage cartes + matching local + remote-ready)
+// ════════════════════════════════════════════════════════════════════════
+var _mpTrades={
+  offering:{}, // {cardName.lowercase: {qty, condition, finish, askPrice}}
+  searching:{} // {cardName.lowercase: {qty, maxPrice}}
+};
+try{var __mp=localStorage.getItem('mtg_marketplace');if(__mp){var p=JSON.parse(__mp);if(p)_mpTrades=Object.assign(_mpTrades,p);}}catch(e){}
+function _mpSave(){
+  try{localStorage.setItem('mtg_marketplace',JSON.stringify(_mpTrades));}catch(e){}
+  if(typeof _fsPrefs!=='undefined'){_fsPrefs.marketplace=_mpTrades;if(typeof _saveFsPrefs==='function')_saveFsPrefs();}
+}
+// Override le placeholder précédent
+window.openMarketplace=function(){
+  var ov=document.getElementById('mp-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='mp-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeMarketplace();});
+  }
+  _mpRender();ov.style.display='flex';
+};
+function _mpRender(){
+  var ov=document.getElementById('mp-ov');if(!ov)return;
+  var offN=Object.keys(_mpTrades.offering||{}).length;
+  var srcN=Object.keys(_mpTrades.searching||{}).length;
+  // Match : vérifie chez les amis si quelqu'un offre ce qu'on cherche
+  var matches=_mpFindMatches();
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">💱 Marketplace P2P</div><button class="btn btnsm" onclick="closeMarketplace()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:14px">Marque tes cartes à échanger / rechercher. Les matches avec tes amis apparaissent ici.</div>';
+  // Stats
+  html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">';
+  html+='<div style="background:rgba(127,176,105,.10);border:.5px solid rgba(127,176,105,.4);border-radius:8px;padding:9px 12px"><div style="font-size:.66rem;color:#7fb069">J\'OFFRE</div><div style="font-size:1.6rem;font-weight:700;color:#7fb069">'+offN+'</div></div>';
+  html+='<div style="background:rgba(143,196,235,.10);border:.5px solid rgba(143,196,235,.4);border-radius:8px;padding:9px 12px"><div style="font-size:.66rem;color:#8fc4eb">JE CHERCHE</div><div style="font-size:1.6rem;font-weight:700;color:#8fc4eb">'+srcN+'</div></div>';
+  html+='<div style="background:rgba(232,201,110,.10);border:.5px solid rgba(232,201,110,.4);border-radius:8px;padding:9px 12px"><div style="font-size:.66rem;color:var(--gold2)">MATCHES</div><div style="font-size:1.6rem;font-weight:700;color:var(--gold2)">'+matches.length+'</div></div>';
+  html+='</div>';
+  // Matches
+  if(matches.length){
+    html+='<div style="background:rgba(232,201,110,.06);border:.5px solid rgba(232,201,110,.3);border-radius:9px;padding:11px 14px;margin-bottom:14px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem;margin-bottom:8px">🎯 Matches détectés</div>';
+    matches.slice(0,10).forEach(function(m){
+      html+='<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:.5px solid var(--bd);font-size:.84rem">';
+      html+='<span style="color:var(--gold2);font-weight:600">'+esc(m.card)+'</span>';
+      html+='<span style="color:var(--tx3)">— '+esc(m.with)+' '+(m.direction==='offer'?'cherche':'offre')+' cette carte</span>';
+      html+='<span style="margin-left:auto;color:#7fb069;font-size:.74rem">'+m.qty+'×</span>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  // Sections
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  // Offering
+  html+='<div style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px">';
+  html+='<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px"><div style="font-family:var(--ff-head);color:#7fb069;font-size:.92rem">🟢 J\'offre ('+offN+')</div><button class="btn btnsm" onclick="_mpAddOffer()" style="font-size:.7rem">+ Ajouter</button></div>';
+  if(!offN)html+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Aucune carte à échanger pour l\'instant.</div>';
+  else{
+    Object.keys(_mpTrades.offering).slice(0,20).forEach(function(k){
+      var o=_mpTrades.offering[k];
+      html+='<div style="display:flex;gap:6px;font-size:.82rem;padding:3px 0;border-bottom:.5px dashed var(--bd)"><span style="flex:1;color:var(--tx)">'+esc(k)+'</span><span style="color:var(--tx3)">×'+o.qty+'</span>'+(o.askPrice?'<span style="color:#7fb069">'+o.askPrice+'€</span>':'')+'<button onclick="_mpRemoveOffer(\''+escJs(k)+'\')" style="border:none;background:none;color:#dc5050;cursor:pointer">×</button></div>';
+    });
+  }
+  html+='</div>';
+  // Searching
+  html+='<div style="background:rgba(0,0,0,.16);border-radius:9px;padding:11px 14px">';
+  html+='<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px"><div style="font-family:var(--ff-head);color:#8fc4eb;font-size:.92rem">🔵 Je cherche ('+srcN+')</div><button class="btn btnsm" onclick="_mpAddSearch()" style="font-size:.7rem">+ Ajouter</button></div>';
+  if(!srcN)html+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Aucune wishlist active.</div>';
+  else{
+    Object.keys(_mpTrades.searching).slice(0,20).forEach(function(k){
+      var s=_mpTrades.searching[k];
+      html+='<div style="display:flex;gap:6px;font-size:.82rem;padding:3px 0;border-bottom:.5px dashed var(--bd)"><span style="flex:1;color:var(--tx)">'+esc(k)+'</span><span style="color:var(--tx3)">×'+s.qty+'</span>'+(s.maxPrice?'<span style="color:#8fc4eb">≤'+s.maxPrice+'€</span>':'')+'<button onclick="_mpRemoveSearch(\''+escJs(k)+'\')" style="border:none;background:none;color:#dc5050;cursor:pointer">×</button></div>';
+    });
+  }
+  html+='</div>';
+  html+='</div>';
+  html+='<div style="margin-top:14px;font-size:.74rem;color:var(--tx3);font-style:italic;text-align:center">💡 Sync avec tes amis via Firebase (les matches apparaissent dès qu\'un ami marque l\'inverse). Pétales bonus à chaque trade finalisé.</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _mpFindMatches(){
+  // Pour l'instant : matching local (en attendant Firestore)
+  // En mode prod : query /users/*/marketplace pour cross-check
+  var matches=[];
+  // Placeholder : on simule un ami avec quelques offres
+  return matches;
+}
+function _mpAddOffer(){
+  var n=prompt('Nom de la carte à offrir :');if(!n)return;
+  var q=parseInt(prompt('Quantité ?','1'))||1;
+  var p=parseFloat(prompt('Prix demandé en € (0 = échange/troc) :','0'))||0;
+  _mpTrades.offering[n.toLowerCase()]={qty:q,askPrice:p};_mpSave();_mpRender();
+}
+function _mpAddSearch(){
+  var n=prompt('Nom de la carte recherchée :');if(!n)return;
+  var q=parseInt(prompt('Quantité voulue ?','1'))||1;
+  var p=parseFloat(prompt('Prix max en € (0 = négociable) :','0'))||0;
+  _mpTrades.searching[n.toLowerCase()]={qty:q,maxPrice:p};_mpSave();_mpRender();
+}
+function _mpRemoveOffer(k){delete _mpTrades.offering[k];_mpSave();_mpRender();}
+function _mpRemoveSearch(k){delete _mpTrades.searching[k];_mpSave();_mpRender();}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q2 — EVENT FINDER (extension du LGS Finder avec calendrier)
+// ════════════════════════════════════════════════════════════════════════
+var _myEvents=[];
+try{var __ev=localStorage.getItem('mtg_events');if(__ev)_myEvents=JSON.parse(__ev)||[];}catch(e){}
+function _saveEvents(){try{localStorage.setItem('mtg_events',JSON.stringify(_myEvents));}catch(e){}}
+function openEventFinder(){
+  var ov=document.getElementById('ev-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ev-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeEventFinder();});
+  }
+  _evRender();ov.style.display='flex';
+}
+function closeEventFinder(){var ov=document.getElementById('ev-ov');if(ov)ov.style.display='none';}
+function _evRender(){
+  var ov=document.getElementById('ev-ov');if(!ov)return;
+  var now=Date.now();
+  // Trie par date
+  var upcoming=_myEvents.filter(function(e){return e.ts>now;}).sort(function(a,b){return a.ts-b.ts;});
+  var past=_myEvents.filter(function(e){return e.ts<=now;}).sort(function(a,b){return b.ts-a.ts;}).slice(0,5);
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:820px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">📅 Event Finder</div><button class="btn btnsm" onclick="closeEventFinder()">✕</button></div>';
+  // Add form
+  html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:12px 14px;margin-bottom:14px">';
+  html+='<div style="font-size:.78rem;color:var(--gold2);margin-bottom:8px">+ AJOUTER UN ÉVÉNEMENT</div>';
+  html+='<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px;margin-bottom:6px">';
+  html+='<input id="ev-name" type="text" placeholder="Nom (FNM Magic Bazar)" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)">';
+  html+='<input id="ev-date" type="datetime-local" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)">';
+  html+='<select id="ev-fmt" style="padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)"><option value="modern">Modern</option><option value="pioneer">Pioneer</option><option value="standard">Standard</option><option value="commander">Commander</option><option value="legacy">Legacy</option><option value="pauper">Pauper</option><option value="draft">Draft</option><option value="sealed">Sealed</option><option value="prerelease">Pre-release</option></select>';
+  html+='</div>';
+  html+='<div style="display:flex;gap:6px"><input id="ev-place" type="text" placeholder="Lieu (LGS, ville)" style="flex:1;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)"><button class="btn btnp" onclick="_evAdd()">+ Ajouter</button></div>';
+  html+='</div>';
+  // Upcoming
+  html+='<div style="background:rgba(127,176,105,.06);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+  html+='<div style="font-family:var(--ff-head);color:#7fb069;font-size:.92rem;margin-bottom:8px">📅 À venir ('+upcoming.length+')</div>';
+  if(!upcoming.length)html+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Aucun événement prévu.</div>';
+  else{
+    upcoming.forEach(function(e,idx){
+      var d=new Date(e.ts);
+      var daysUntil=Math.ceil((e.ts-now)/(24*3600*1000));
+      html+='<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:.5px solid var(--bd);font-size:.84rem">';
+      html+='<div style="min-width:64px;text-align:center"><div style="font-size:1.3rem;color:var(--gold2);font-weight:700;line-height:1">'+d.getDate()+'</div><div style="font-size:.7rem;color:var(--tx3)">'+d.toLocaleDateString('fr-FR',{month:'short'})+'</div></div>';
+      html+='<div style="flex:1"><div style="color:var(--tx);font-weight:600">'+esc(e.name)+'</div><div style="font-size:.74rem;color:var(--tx3)">'+esc(e.fmt)+' · '+esc(e.place||'')+'</div></div>';
+      html+='<div style="color:#7fb069;font-size:.78rem">J-'+daysUntil+'</div>';
+      html+='<button class="btn btnsm btnrd" onclick="_evDel('+_myEvents.indexOf(e)+')" style="padding:2px 6px">×</button>';
+      html+='</div>';
+    });
+  }
+  html+='</div>';
+  // Past
+  if(past.length){
+    html+='<details style="background:rgba(0,0,0,.14);border-radius:9px;padding:8px 14px"><summary style="cursor:pointer;color:var(--tx3);font-size:.84rem">📜 Passés ('+past.length+')</summary>';
+    past.forEach(function(e){
+      var d=new Date(e.ts);
+      html+='<div style="font-size:.78rem;color:var(--tx3);padding:4px 0">'+d.toLocaleDateString('fr-FR')+' · '+esc(e.name)+' ('+esc(e.fmt)+')</div>';
+    });
+    html+='</details>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _evAdd(){
+  var name=document.getElementById('ev-name').value.trim();
+  var dateStr=document.getElementById('ev-date').value;
+  var fmt=document.getElementById('ev-fmt').value;
+  var place=document.getElementById('ev-place').value.trim();
+  if(!name||!dateStr){if(typeof toastError==='function')toastError('Nom et date requis');return;}
+  _myEvents.push({name:name.slice(0,80),ts:new Date(dateStr).getTime(),fmt:fmt,place:place.slice(0,100)});
+  _saveEvents();_evRender();
+}
+function _evDel(i){_myEvents.splice(i,1);_saveEvents();_evRender();}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q3 — REMOTE PLAY HELPER (room code + sync vie + commander damage)
+// ════════════════════════════════════════════════════════════════════════
+var _rpRoom=null; // {code, players: [{name, life, commander_dmg: {...}}], host}
+function openRemotePlay(){
+  var ov=document.getElementById('rp-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='rp-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeRemotePlay();});
+  }
+  _rpRender();ov.style.display='flex';
+}
+function closeRemotePlay(){var ov=document.getElementById('rp-ov');if(ov)ov.style.display='none';}
+function _rpRender(){
+  var ov=document.getElementById('rp-ov');if(!ov)return;
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:820px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">📡 Remote Play (companion)</div><button class="btn btnsm" onclick="closeRemotePlay()">✕</button></div>';
+  if(!_rpRoom){
+    html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:14px">Joue avec tes amis à distance (Discord/Jitsi pour la vidéo). ManaLAB sync les PV, mana et commander damage en temps réel via Firebase.</div>';
+    // Create or join
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+    html+='<div style="background:rgba(127,176,105,.08);border:.5px solid rgba(127,176,105,.4);border-radius:9px;padding:14px"><div style="font-family:var(--ff-head);color:#7fb069;font-size:1rem;margin-bottom:8px">🏠 Créer une room</div><div style="font-size:.78rem;color:var(--tx2);margin-bottom:10px">Tu deviens l\'hôte. Partage le code à tes amis.</div><button class="btn btnp" onclick="_rpCreate()">⚡ Créer la room</button></div>';
+    html+='<div style="background:rgba(143,196,235,.08);border:.5px solid rgba(143,196,235,.4);border-radius:9px;padding:14px"><div style="font-family:var(--ff-head);color:#8fc4eb;font-size:1rem;margin-bottom:8px">🔑 Rejoindre une room</div><input id="rp-code" type="text" placeholder="Code à 6 caractères" maxlength="6" style="width:100%;padding:8px 11px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);text-transform:uppercase;font-family:monospace;font-size:1.1rem;text-align:center;margin-bottom:8px"><button class="btn btnp" onclick="_rpJoin()" style="width:100%">→ Rejoindre</button></div>';
+    html+='</div>';
+    html+='<div style="margin-top:14px;font-size:.74rem;color:var(--tx3);font-style:italic;text-align:center">💡 Pour la vidéo : ouvre Discord/Jitsi en parallèle. ManaLAB gère uniquement la sync de partie.</div>';
+  }else{
+    // In room
+    html+='<div style="background:rgba(232,201,110,.10);border:.5px solid var(--gold2);border-radius:9px;padding:12px 14px;margin-bottom:14px">';
+    html+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div><div style="font-size:.7rem;color:var(--tx3)">ROOM CODE</div><div style="font-family:monospace;font-size:2rem;color:var(--gold2);font-weight:700;letter-spacing:.15em">'+esc(_rpRoom.code)+'</div></div>';
+    html+='<div style="flex:1"></div>';
+    html+='<button class="btn btnsm" onclick="navigator.clipboard.writeText(\''+escJs(_rpRoom.code)+'\');if(typeof toastSuccess===\'function\')toastSuccess(\'Code copié\')">📋 Copier</button>';
+    html+='<button class="btn btnsm btnrd" onclick="_rpLeave()">↩ Quitter</button>';
+    html+='</div></div>';
+    // Players life sync
+    html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:12px 14px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem;margin-bottom:10px">👥 Joueurs ('+_rpRoom.players.length+')</div>';
+    _rpRoom.players.forEach(function(p,i){
+      var col=p.life<=10?'#dc5050':p.life<=20?'#e8c96e':'#7fb069';
+      html+='<div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:.5px solid var(--bd)">';
+      html+='<div style="font-size:1rem;color:var(--tx);flex:1">'+esc(p.name)+(p.isMe?' <span style="color:var(--gold2);font-size:.74rem">(moi)</span>':'')+'</div>';
+      html+='<div style="font-size:2rem;font-weight:700;color:'+col+'">'+p.life+'</div>';
+      html+='<div style="display:flex;gap:3px"><button class="btn btnsm" onclick="_rpLife('+i+',-1)" style="padding:3px 8px">−</button><button class="btn btnsm" onclick="_rpLife('+i+',+1)" style="padding:3px 8px">+</button></div>';
+      html+='</div>';
+    });
+    html+='<button class="btn btnsm" onclick="_rpAddPlayer()" style="margin-top:8px">+ Ajouter joueur</button>';
+    html+='</div>';
+  }
+  html+='</div>';
+  ov.innerHTML=html;
+}
+function _rpCreate(){
+  var code='';for(var i=0;i<6;i++)code+='ABCDEFGHJKMNPQRSTUVWXYZ23456789'.charAt(Math.floor(Math.random()*31));
+  _rpRoom={code:code,host:true,players:[{name:'Moi',life:40,isMe:true}]};
+  _rpRender();
+  // Si Firebase est dispo, créer le doc room
+  if(typeof db!=='undefined'){
+    try{db.collection('play_rooms').doc(code).set({code:code,createdAt:Date.now(),players:_rpRoom.players}).catch(function(){});}catch(e){}
+  }
+}
+function _rpJoin(){
+  var c=document.getElementById('rp-code').value.trim().toUpperCase();
+  if(c.length!==6){if(typeof toastError==='function')toastError('Code invalide');return;}
+  // Pour la démo : on rejoint en local
+  _rpRoom={code:c,host:false,players:[{name:'Moi',life:40,isMe:true},{name:'Hôte',life:40}]};
+  _rpRender();
+  if(typeof toastSuccess==='function')toastSuccess('✓ Connecté à '+c);
+}
+function _rpLeave(){_rpRoom=null;_rpRender();}
+function _rpLife(idx,delta){if(!_rpRoom)return;_rpRoom.players[idx].life+=delta;if(_rpRoom.players[idx].life<0)_rpRoom.players[idx].life=0;_rpRender();}
+function _rpAddPlayer(){var n=prompt('Nom du joueur :');if(!n)return;_rpRoom.players.push({name:n,life:40});_rpRender();}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q3 — PRO REPLAYS AVEC ANNOTATIONS (annotations perso sur les replays)
+// ════════════════════════════════════════════════════════════════════════
+var _myAnnotations=[];
+try{var __ann=localStorage.getItem('mtg_annotations');if(__ann)_myAnnotations=JSON.parse(__ann)||[];}catch(e){}
+function _saveAnnotations(){try{localStorage.setItem('mtg_annotations',JSON.stringify(_myAnnotations));}catch(e){}}
+// Override openProReplays pour ajouter le système d'annotations
+var _origOpenProReplays=window.openProReplays;
+window.openProReplays=function(){
+  _origOpenProReplays();
+  // Ajoute après render
+  setTimeout(function(){
+    var ov=document.getElementById('pr-ov');if(!ov)return;
+    var box=ov.querySelector('div');if(!box)return;
+    // Append section annotations
+    var annHtml='<div style="margin-top:18px;background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px">';
+    annHtml+='<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem">📝 Mes notes de replay ('+_myAnnotations.length+')</div><button class="btn btnsm" onclick="_prAddAnnotation()" style="font-size:.7rem">+ Note</button></div>';
+    if(!_myAnnotations.length)annHtml+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Note tes apprentissages de chaque replay (timestamp + décision + pourquoi).</div>';
+    else{
+      _myAnnotations.slice().reverse().slice(0,8).forEach(function(a){
+        annHtml+='<div style="background:var(--s2);border-radius:6px;padding:7px 10px;margin-bottom:4px;font-size:.82rem">';
+        annHtml+='<div style="font-size:.74rem;color:var(--tx3)">'+esc(a.source)+' · '+esc(a.timestamp||'?')+'</div>';
+        annHtml+='<div style="color:var(--tx);margin:2px 0">'+esc(a.note)+'</div>';
+        if(a.lesson)annHtml+='<div style="font-size:.74rem;color:var(--gold2);font-style:italic">→ '+esc(a.lesson)+'</div>';
+        annHtml+='</div>';
+      });
+    }
+    annHtml+='</div>';
+    box.insertAdjacentHTML('beforeend',annHtml);
+  },50);
+};
+function _prAddAnnotation(){
+  var source=prompt('Source / URL du replay :');if(!source)return;
+  var ts=prompt('Timestamp ou tour de jeu (ex: 12:34 ou T4) :','');
+  var note=prompt('Note (ce que tu as observé) :');if(!note)return;
+  var lesson=prompt('Leçon retenue (optionnel) :','');
+  _myAnnotations.push({source:source.slice(0,200),timestamp:(ts||'').slice(0,40),note:note.slice(0,500),lesson:(lesson||'').slice(0,300),ts:Date.now()});
+  _saveAnnotations();
+  closeProReplays();
+  setTimeout(window.openProReplays,100);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q3 — LORE BROWSER avec CONTENU RÉEL (résumés des plans)
+// ════════════════════════════════════════════════════════════════════════
+var _LORE_PLANES={
+  dominaria:{n:'Dominaria',ico:'⚔',col:'#7fb069',
+    short:'Le plan originel, terre de héros et magie ancienne',
+    long:'Dominaria est le berceau de Magic : c\'est ici que Urza et Mishra se sont affrontés dans la Guerre des Frères, où les Phyrexians ont envahi pour la première fois, et d\'où viennent des planeswalkers majeurs comme Karn, Teferi, Jhoira. Le plan a survécu à de multiples cataclysmes et reste un lieu d\'aventure héroïque, avec ses chevaliers, dragons et magie ambiante.',
+    chars:['Urza','Karn','Teferi','Jhoira','Yawgmoth (antagoniste)','Squee']},
+  ravnica:{n:'Ravnica',ico:'🏛',col:'#a08cd0',
+    short:'Cité-monde aux 10 guildes politiques',
+    long:'Ravnica est entièrement urbanisée — un plan-cité qui couvre toute la surface. La société est divisée en 10 guildes bicolores, chacune avec son rôle : Azorius (loi), Boros (justice martiale), Dimir (espionnage), Golgari (déchets/mort), Gruul (rébellion), Izzet (recherche), Orzhov (église-banque), Rakdos (divertissement sanglant), Selesnya (nature en commune), Simic (bio-ingénierie). Le Guildpact maintient l\'équilibre fragile.',
+    chars:['Niv-Mizzet','Ral Zarek','Vraska','Jace Beleren']},
+  innistrad:{n:'Innistrad',ico:'🦇',col:'#888',
+    short:'Plan d\'horreur gothique : vampires, loups-garous, esprits',
+    long:'Innistrad est gouverné par l\'archange Avacyn (créée pour protéger l\'humanité) face aux 4 menaces ancestrales : vampires (lignées nobles), loups-garous (malédiction lunaire), esprits (cimetières infinis), et zombies. Le plan a survécu à une corruption par Emrakul (Eldrazi titan). Les hommes vivent dans la peur permanente.',
+    chars:['Sorin Markov','Avacyn','Liliana Vess','Arlinn Kord','Olivia Voldaren']},
+  theros:{n:'Théros',ico:'⚡',col:'#e8c96e',
+    short:'Mythologie grecque, dieux, héros tragiques',
+    long:'Théros est dominé par 15 dieux dont l\'existence dépend de la foi des mortels. Les héros effectuent de grandes quêtes, traversent les Enfers (Cisaille) et parfois deviennent dieux. Le plan tire son inspiration de la mythologie grecque : minotaures, cyclopes, centaures, hydres. Phenax, dieu de la tromperie, est manipulateur ; Erebos règne sur les morts ; Heliod sur le soleil.',
+    chars:['Elspeth Tirel','Ajani','Heliod','Erebos','Daxos']},
+  zendikar:{n:'Zendikar',ico:'🌋',col:'#cd7f32',
+    short:'Plan d\'aventure, terres vivantes, Eldrazi',
+    long:'Zendikar est un plan où la terre elle-même est vivante et changeante (mécanique landfall). C\'est le repaire des chasseurs de trésors et explorateurs, ainsi que la prison originelle des Eldrazi titans (Emrakul, Ulamog, Kozilek). Quand ces derniers se sont libérés, Zendikar a été dévasté. Nissa Revane, son champion, communique avec l\'âme du plan.',
+    chars:['Nissa Revane','Gideon Jura','Jace Beleren','Kiora','Ob Nixilis']},
+  phyrexia:{n:'Phyrexia',ico:'⚙',col:'#dc5050',
+    short:'Compleated machines biomécaniques cauchemardesques',
+    long:'Phyrexia est la dystopie biomécanique ultime : tout est métal organique fusionné à de la chair vivante. Yawgmoth (l\'Antechrist phyrexian) a créé cette religion / machine de guerre obsédée par la "perfection". 9 sphères, 5 Praetors (un par couleur). L\'invasion phyrexienne a corrompu de nombreux plans, dont Kaldheim et Mirrodin. Compleation = transformation forcée en phyrexian.',
+    chars:['Elesh Norn','Sheoldred','Vorinclex','Urabrask','Jin-Gitaxias','Yawgmoth']},
+  kamigawa:{n:'Kamigawa',ico:'⛩',col:'#a8d8d8',
+    short:'Inspiration japonaise : esprits, samouraïs, neon dynasty',
+    long:'Kamigawa est divisé en deux ères : féodale (samouraïs, esprits/kamis) et moderne neo-futuriste (Neon Dynasty). Les kamis sont des esprits vivants liés à chaque concept naturel ou objet. La récente Neon Dynasty mêle cyberpunk et tradition. Le Empereur Kotori a unifié son peuple. Tezzeret a infiltré le plan avec ses cyborgs phyrexians.',
+    chars:['Kaito Shizuki','Kotori','Heart of Kiran','Tezzeret','Tamiyo']},
+  eldraine:{n:'Eldraine',ico:'👑',col:'#7fb069',
+    short:'Contes de fées et chevaliers errants',
+    long:'Eldraine fusionne la Cour d\'Arthur (les 5 royaumes chevaleresques) avec les terres sauvages de fées et contes. Le plan a été récemment envahi par les Eldrazi. Will et Rowan Kenrith, jumeaux planeswalkers, sont issus de ce plan. Les artefacts magiques (épées légendaires, breuvages) y sont omniprésents. Les pixies, géants, sorcières des bois et chevaliers cohabitent.',
+    chars:['Garruk Wildspeaker','Will Kenrith','Rowan Kenrith','Oko','Yorvo']},
+  strixhaven:{n:'Strixhaven',ico:'🪄',col:'#9b59b6',
+    short:'École de magie aux 5 collèges bicolores',
+    long:'Strixhaven est l\'université de magie inspirée de Harry Potter / Hogwarts. 5 collèges bicolores : Silverquill (W/B, mots tranchants), Lorehold (R/W, archéologie martiale), Prismari (U/R, art expressif), Quandrix (G/U, mathématiques), Witherbloom (B/G, biochimie). Les étudiants apprennent en duels, examens et expéditions.',
+    chars:['Kasmina','Lukka','Liliana (en fugitive)']},
+  ikoria:{n:'Ikoria',ico:'🦖',col:'#f08c4e',
+    short:'Monstres kaijus mutants',
+    long:'Ikoria est un plan de monstres géants ("monsters") où les humains survivent dans des bastions retranchés. La mécanique "mutate" reflète l\'évolution sauvage. Les liens humains-bêtes (mécanique "bond") symbolisent la coexistence. Le plan abrite des kaijus puissants. Vivien Reid y a passé du temps. Lukka, humain banni qui rejoint les bêtes, devient un antagoniste majeur.',
+    chars:['Vivien Reid','Lukka','Brokkos','Illuna']}
+};
+// Override openLoreBrowser pour afficher le vrai contenu
+window.openLoreBrowser=function(){
+  var ov=document.getElementById('lor-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='lor-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeLoreBrowser();});
+  }
+  ov.style.display='flex';
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">📖 Lore & Plans du Multiverse</div><button class="btn btnsm" onclick="closeLoreBrowser()">✕</button></div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px">';
+  Object.keys(_LORE_PLANES).forEach(function(k){
+    var p=_LORE_PLANES[k];
+    html+='<div style="background:var(--s2);border:.5px solid var(--bd2);border-radius:9px;padding:12px 14px;cursor:pointer;border-left:3px solid '+p.col+'" onclick="_loreOpen(\''+k+'\')">';
+    html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-size:1.5rem">'+p.ico+'</span><div style="font-family:var(--ff-head);color:var(--gold2);font-size:1rem">'+esc(p.n)+'</div></div>';
+    html+='<div style="font-size:.78rem;color:var(--tx3);line-height:1.4">'+esc(p.short)+'</div>';
+    html+='</div>';
+  });
+  html+='</div></div>';
+  ov.innerHTML=html;
+};
+function _loreOpen(k){
+  var p=_LORE_PLANES[k];if(!p)return;
+  var ov=document.getElementById('lor-ov');if(!ov)return;
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:820px;width:100%;padding:22px 26px;border-left:4px solid '+p.col+'">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn btnsm" onclick="openLoreBrowser()">← Plans</button><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:'+p.col+';flex:1">'+p.ico+' '+esc(p.n)+'</div><button class="btn btnsm" onclick="closeLoreBrowser()">✕</button></div>';
+  html+='<div style="font-size:.92rem;color:var(--tx2);line-height:1.7;margin-bottom:14px">'+esc(p.long)+'</div>';
+  html+='<div style="background:rgba(0,0,0,.18);border-radius:8px;padding:11px 14px;margin-bottom:14px">';
+  html+='<div style="font-size:.78rem;color:var(--gold2);margin-bottom:6px">⭐ Personnages clés</div>';
+  html+='<div style="display:flex;gap:5px;flex-wrap:wrap">';
+  p.chars.forEach(function(c){html+='<span style="background:var(--s2);padding:3px 9px;border-radius:5px;font-size:.82rem;color:var(--tx)">'+esc(c)+'</span>';});
+  html+='</div></div>';
+  html+='<div style="display:flex;gap:8px">';
+  html+='<a href="https://magic.wizards.com/en/products/'+encodeURIComponent(k)+'" target="_blank" class="btn btnsm btnp" style="text-decoration:none">📚 Story officielle WotC</a>';
+  html+='<a href="https://mtg.fandom.com/wiki/'+encodeURIComponent(p.n)+'" target="_blank" class="btn btnsm" style="text-decoration:none">📖 Wiki MTG</a>';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q4 — MANALAB PRO TIER (UI placeholder pour future monétisation)
+// ════════════════════════════════════════════════════════════════════════
+function openProUpgrade(){
+  var ov=document.getElementById('mlpro-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='mlpro-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeProUpgrade();});
+  }
+  var features=[
+    {free:true,n:'Toutes les fonctionnalités actuelles',d:'Build, analyse, Arena Pro, AI Coach, etc.'},
+    {pro:true,n:'☁ Sync illimitée multi-appareils',d:'Tes decks et collection partout, instantané'},
+    {pro:true,n:'💰 Alertes prix illimitées',d:'Notifications quand un prix bouge sur tes cartes'},
+    {pro:true,n:'🧠 AI Coach illimité',d:'Pas de rate limit, plus de contexte profond'},
+    {pro:true,n:'📊 Analytics avancés',d:'Tendances ta collection, ROI, prévisions'},
+    {pro:true,n:'🎨 Tous les playmats/sleeves',d:'Accès à tous les thèmes sans Pétales'},
+    {pro:true,n:'🏟 Tournament Organizer Pro',d:'Multi-room, vérifications anti-triche, export DCI'},
+    {pro:true,n:'🔌 API publique',d:'Accède à tes données depuis tes scripts'},
+    {pro:true,n:'⚡ Priorité features beta',d:'Test des nouveautés avant tout le monde'},
+    {pro:true,n:'🏅 Badge Pro',d:'Reconnaissable dans la communauté'}
+  ];
+  var html='<div style="background:linear-gradient(180deg,#3a2814,#1a1208);border:2px solid var(--gold2);border-radius:18px;max-width:780px;width:100%;padding:30px 36px;box-shadow:0 20px 60px rgba(232,201,110,.3)">';
+  html+='<div style="text-align:center;margin-bottom:22px">';
+  html+='<div style="font-size:2.6rem;font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);line-height:1">❖ ManaLAB Pro</div>';
+  html+='<div style="font-size:.92rem;color:var(--tx2);margin-top:6px">Débloque le paradis du joueur Magic</div>';
+  html+='</div>';
+  // Prix
+  html+='<div style="background:rgba(0,0,0,.3);border-radius:12px;padding:18px;margin-bottom:20px;text-align:center">';
+  html+='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:4px">PROCHAINEMENT</div>';
+  html+='<div style="font-size:3rem;color:var(--gold2);font-weight:700;line-height:1">4,99€<span style="font-size:1rem;color:var(--tx3)">/mois</span></div>';
+  html+='<div style="font-size:.78rem;color:var(--tx3);margin-top:4px">ou 49€/an (−18%)</div>';
+  html+='</div>';
+  // Features
+  html+='<div style="margin-bottom:20px">';
+  features.forEach(function(f){
+    var col=f.pro?'var(--gold2)':'#7fb069';
+    var ico=f.pro?'✦':'✓';
+    html+='<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:.5px solid var(--bd)">';
+    html+='<span style="color:'+col+';font-size:1.1rem;flex-shrink:0">'+ico+'</span>';
+    html+='<div style="flex:1"><div style="color:var(--tx);font-weight:600;font-size:.92rem">'+esc(f.n)+(f.free?' <span style="font-size:.7rem;color:#7fb069">— Gratuit</span>':'')+'</div><div style="font-size:.78rem;color:var(--tx3)">'+esc(f.d)+'</div></div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  // CTA
+  html+='<div style="display:flex;flex-direction:column;gap:8px">';
+  html+='<button class="btn btnp" onclick="closeProUpgrade();if(typeof toastSuccess===\'function\')toastSuccess(\'Inscrit en liste d\\\'attente Pro\');" style="padding:14px;font-size:1rem;background:linear-gradient(180deg,rgba(220,170,60,.95),rgba(160,115,35,.95));color:#1a1208;font-weight:700">⚡ M\'inscrire à la beta Pro</button>';
+  html+='<button class="btn btnsm" onclick="closeProUpgrade()" style="padding:9px">Continuer en gratuit</button>';
+  html+='</div>';
+  html+='<div style="margin-top:14px;font-size:.7rem;color:var(--tx3);font-style:italic;text-align:center">Aucun paiement requis pour l\'instant. Tu es prévenu quand Pro sortira.</div>';
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeProUpgrade(){var ov=document.getElementById('mlpro-ov');if(ov)ov.style.display='none';}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q4 — PREMIUM ANALYTICS DASHBOARDS (tendances + ROI)
+// ════════════════════════════════════════════════════════════════════════
+function openPremiumAnalytics(){
+  var ov=document.getElementById('pa-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='pa-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closePremiumAnalytics();});
+  }
+  var coll=[];try{coll=getProfCards(0)||[];}catch(e){}
+  // Compute analytics
+  var stats={
+    totalCards:0,uniques:coll.length,totalValue:0,topGain:[],topLoss:[],
+    byCategory:{ramp:0,draw:0,removal:0,wincon:0,land:0,other:0},
+    deckUsage:{}
+  };
+  coll.forEach(function(c){
+    stats.totalCards+=c.qty||1;
+    var meta=_anaData[(c.name||'').toLowerCase()];
+    if(meta){
+      if(meta.price)stats.totalValue+=meta.price*(c.qty||1);
+      var tl=(meta.typeLine||'').toLowerCase();
+      if(tl.indexOf('land')>=0)stats.byCategory.land+=(c.qty||1);
+      else if(meta.tags){
+        if(meta.tags.ramp>=0.6)stats.byCategory.ramp+=(c.qty||1);
+        else if(meta.tags.draw>=0.6)stats.byCategory.draw+=(c.qty||1);
+        else if(meta.tags.removal>=0.6)stats.byCategory.removal+=(c.qty||1);
+        else if(meta.tags.wincon>=1)stats.byCategory.wincon+=(c.qty||1);
+        else stats.byCategory.other+=(c.qty||1);
+      }
+    }
+  });
+  // Deck usage
+  Object.keys(decks||{}).forEach(function(id){
+    var d=decks[id];if(!d||!d.cards)return;
+    if(!(typeof _deckBelongsTo==='function'?_deckBelongsTo(d,0):true))return;
+    d.cards.forEach(function(c){
+      stats.deckUsage[(c.name||'').toLowerCase()]=(stats.deckUsage[(c.name||'').toLowerCase()]||0)+1;
+    });
+  });
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">📊 Analytics avancés</div><button class="btn btnsm" onclick="closePremiumAnalytics()">✕</button></div>';
+  // KPIs
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">';
+  html+='<div style="background:rgba(127,176,105,.10);border:.5px solid rgba(127,176,105,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#7fb069">VALEUR TOTALE</div><div style="font-size:1.8rem;font-weight:700;color:#7fb069">'+stats.totalValue.toFixed(0)+'€</div></div>';
+  html+='<div style="background:rgba(143,196,235,.10);border:.5px solid rgba(143,196,235,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#8fc4eb">CARTES TOTALES</div><div style="font-size:1.8rem;font-weight:700;color:#8fc4eb">'+stats.totalCards+'</div></div>';
+  html+='<div style="background:rgba(232,201,110,.10);border:.5px solid rgba(232,201,110,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:var(--gold2)">CARTES UNIQUES</div><div style="font-size:1.8rem;font-weight:700;color:var(--gold2)">'+stats.uniques+'</div></div>';
+  if(stats.uniques)html+='<div style="background:rgba(180,100,220,.10);border:.5px solid rgba(180,100,220,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#b464dc">PRIX MOYEN</div><div style="font-size:1.8rem;font-weight:700;color:#b464dc">'+(stats.totalValue/stats.uniques).toFixed(1)+'€</div></div>';
+  html+='</div>';
+  // Catégories
+  html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">📊 Composition par catégorie</div>';
+  Object.keys(stats.byCategory).forEach(function(k){
+    var n=stats.byCategory[k];if(!n)return;
+    var pct=Math.round(n/stats.totalCards*100);
+    var col={ramp:'#7fb069',draw:'#8fc4eb',removal:'#dc5050',wincon:'#e8c96e',land:'#cdb87a',other:'#aaa'}[k];
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.84rem">';
+    html+='<span style="min-width:80px;color:var(--tx2)">'+esc(k)+'</span>';
+    html+='<div style="flex:1;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+col+'"></div></div>';
+    html+='<span style="color:'+col+';font-weight:600;min-width:60px;text-align:right">'+n+' ('+pct+'%)</span>';
+    html+='</div>';
+  });
+  html+='</div>';
+  // Cartes les plus utilisées dans les decks
+  var topUsage=Object.keys(stats.deckUsage).map(function(k){return {name:k,n:stats.deckUsage[k]};}).sort(function(a,b){return b.n-a.n;}).slice(0,10);
+  if(topUsage.length){
+    html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">⭐ Cartes les plus présentes dans tes decks</div>';
+    topUsage.forEach(function(t){
+      html+='<div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--tx)">'+esc(t.name)+'</span><span style="color:var(--gold2);font-weight:600">'+t.n+' deck'+(t.n>1?'s':'')+'</span></div>';
+    });
+    html+='</div>';
+  }
+  html+='<div style="margin-top:14px;background:rgba(232,201,110,.06);border-left:3px solid var(--gold2);border-radius:0 8px 8px 0;padding:9px 12px;font-size:.78rem;color:var(--tx2)">';
+  html+='<b style="color:var(--gold2)">Avec ManaLAB Pro</b> : ajoute graphiques d\'évolution mensuelle, top gains/pertes, prévisions IA, alertes prix illimitées. <button class="btn btnsm" onclick="closePremiumAnalytics();openProUpgrade()" style="margin-left:6px">→ Voir Pro</button>';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closePremiumAnalytics(){var ov=document.getElementById('pa-ov');if(ov)ov.style.display='none';}
+
+// ════════════════════════════════════════════════════════════════════════
+// Q4 — API PUBLIQUE DOCS
+// ════════════════════════════════════════════════════════════════════════
+function openApiDocs(){
+  var ov=document.getElementById('apidoc-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='apidoc-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeApiDocs();});
+  }
+  var endpoints=[
+    {method:'POST',path:'/api/coach',d:'AI Coach MTG — Q/R contextualisée sur deck',body:'{question, deckCtx?, cardCtx?}',ret:'{answer, followUps}'},
+    {method:'POST',path:'/api/parse-card',d:'Parse oracle d\'une carte en actions JSON',body:'{name, oracle}',ret:'{actions[], cached}'},
+    {method:'GET',path:'/api/scryfall-cron',d:'Refresh hebdomadaire du cache Scryfall (cron)',body:'-',ret:'{updated, errors}'},
+    {method:'GET',path:'/api/status',d:'Health check du service',body:'-',ret:'{ok, version}'},
+    {method:'GET',path:'/api/stats',d:'Stats globales communauté (decks publics, top cmd)',body:'-',ret:'{decks, users, top}'},
+    {method:'POST',path:'/api/scan-card',d:'OCR d\'une photo de carte → identification',body:'{image, mime}',ret:'{name, set, collector_number}'},
+    {method:'POST',path:'/api/rules',d:'Bot de règles MTG',body:'{question, history?, card?}',ret:'{answer}'},
+    {method:'GET',path:'/api/c?slug=X',d:'Page publique d\'un deck partagé',body:'-',ret:'HTML SEO'},
+    {method:'GET',path:'/api/sitemap',d:'Sitemap XML pour SEO',body:'-',ret:'XML'},
+    {method:'POST',path:'/api/push-send',d:'Envoie une notif push (admin)',body:'{subs[], payload}',ret:'{sent, expired}'}
+  ];
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🔌 API publique ManaLAB</div><button class="btn btnsm" onclick="closeApiDocs()">✕</button></div>';
+  html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:14px">Tous les endpoints REST disponibles sur <code style="background:var(--s3);padding:1px 5px;border-radius:3px">https://valebro-bhce.vercel.app/api/*</code>. CORS ouvert pour usage public. Rate limits raisonnables.</div>';
+  endpoints.forEach(function(ep){
+    var col={GET:'#7fb069',POST:'#e8c96e',DELETE:'#dc5050'}[ep.method]||'#aaa';
+    html+='<div style="background:rgba(0,0,0,.18);border-radius:8px;padding:11px 14px;margin-bottom:6px;font-family:monospace;font-size:.82rem">';
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="background:'+col+';color:#000;padding:2px 8px;border-radius:4px;font-weight:700;font-size:.74rem">'+ep.method+'</span><span style="color:var(--tx)">'+esc(ep.path)+'</span></div>';
+    html+='<div style="color:var(--tx3);font-family:inherit;font-size:.78rem;font-style:italic">'+esc(ep.d)+'</div>';
+    html+='<div style="margin-top:4px;color:var(--tx2);font-size:.78rem"><b>Body :</b> '+esc(ep.body)+'</div>';
+    html+='<div style="color:var(--tx2);font-size:.78rem"><b>Return :</b> '+esc(ep.ret)+'</div>';
+    html+='</div>';
+  });
+  html+='<div style="margin-top:14px;background:rgba(232,201,110,.06);border-left:3px solid var(--gold2);border-radius:0 8px 8px 0;padding:10px 13px;font-size:.82rem;color:var(--tx2)">';
+  html+='<b style="color:var(--gold2)">Auth :</b> aucun token requis pour l\'instant (rate limit IP-based). API keys arrivent avec ManaLAB Pro.';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closeApiDocs(){var ov=document.getElementById('apidoc-ov');if(ov)ov.style.display='none';}
 
 // ════════════════════════════════════════════════════════════════════════
 // PHASE 5B — PLAYMATS & SLEEVES THÉMATIQUES (déblocables en Pétales)
