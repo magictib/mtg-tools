@@ -222,6 +222,26 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // Cache d'effets de cartes (Arena Pro rules engine)
+    // ============================================================
+    // Stocke les actions JSON parsées par l'IA pour chaque carte.
+    // Partagé entre tous les users pour réduire les appels API LLM.
+    // Données non-sensibles (juste oracle text → JSON d'actions).
+    // Lecture publique + écriture publique limitée (validation taille).
+    match /card_effects/{slug} {
+      allow read: if true;
+      allow create: if
+        request.resource.data.keys().hasOnly(['actions', 'ts']) &&
+        request.resource.data.actions is string &&
+        request.resource.data.actions.size() < 10000;
+      allow update: if
+        request.resource.data.keys().hasOnly(['actions', 'ts']) &&
+        request.resource.data.actions is string &&
+        request.resource.data.actions.size() < 10000;
+      allow delete: if isAdmin();
+    }
+
+    // ============================================================
     // Stats globales communauté (page publique indexable)
     // ============================================================
     // Doc unique meta/stats avec compteurs publics (nb decks publics,

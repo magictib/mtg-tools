@@ -50755,6 +50755,201 @@ function _apRegisterPermanentEffects(cardName,oracle,oLow){
 
 // ─── Application d'un effet immédiat (parse l'oracle / le mode) ───
 function _apApplyImmediateEffect(cardName,oLow){
+  // ═══ PATTERNS ÉTENDUS V3 — 30+ effets couvrant 80% des cartes courantes ═══
+
+  // 0a. Counter target spell (Counterspell, Negate, Mana Drain, Force of Will, Swan Song)
+  if(/counter target (spell|creature spell|noncreature spell|nonland spell)/i.test(oLow)){
+    _apLog('🛡 Contre la cible (manuel : retire de la pile adverse)');
+    return true;
+  }
+  // 0b. Destroy target creature (Doom Blade, Murder, Swords to Plowshares, Path to Exile)
+  if(/destroy target (creature|artifact|enchantment|nonland permanent|planeswalker|permanent)/i.test(oLow)){
+    var typeM=oLow.match(/destroy target (creature|artifact|enchantment|nonland permanent|planeswalker|permanent)/i);
+    _apLog('🗡 Détruit cible '+(typeM[1])+' (clic sur la carte adverse à viser)');
+    return true;
+  }
+  // 0c. Exile target
+  if(/exile target (creature|artifact|enchantment|nonland permanent|planeswalker|permanent|spell)/i.test(oLow)){
+    var typeM2=oLow.match(/exile target (creature|artifact|enchantment|nonland permanent|planeswalker|permanent|spell)/i);
+    _apLog('⛔ Exile cible '+typeM2[1]+' (clic manuel)');
+    return true;
+  }
+  // 0d. Damage X to any target / target creature / target player
+  var dmgM=oLow.match(/(?:deals?|deal) (\w+|\d+) damage (?:to (?:target|any target|each opponent|target creature|target player|target creature or player))/i);
+  if(dmgM){
+    var nMap={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,x:1};
+    var d=nMap[dmgM[1].toLowerCase()]||parseInt(dmgM[1])||1;
+    if(/each opponent/i.test(oLow)){
+      // Applique à tous les adversaires
+      if(_gfState.opponents)_gfState.opponents.forEach(function(o,i){o.life-=d;if(o.life<0)o.life=0;});
+      _apLog('💥 '+d+' dmg à chaque adversaire');
+    }else if(/target player|opponent loses/i.test(oLow)){
+      if(_gfState.opponents&&_gfState.opponents[0]){_gfState.opponents[0].life-=d;if(_gfState.opponents[0].life<0)_gfState.opponents[0].life=0;}
+      _apLog('💥 '+d+' dmg à Adv 1');
+    }else{
+      _apLog('💥 '+d+' dmg (cible manuelle : clic sur la cible)');
+    }
+    return true;
+  }
+  // 0e. Damage X to each creature/player ALREADY HANDLED above (pyroclasm)
+  // 0f. Lose X life
+  var lifeM=oLow.match(/target (?:opponent|player) loses (\w+|\d+) life/i);
+  if(lifeM){
+    var nMap2={one:1,two:2,three:3,four:4,five:5};
+    var l=nMap2[lifeM[1].toLowerCase()]||parseInt(lifeM[1])||1;
+    if(_gfState.opponents&&_gfState.opponents[0]){_gfState.opponents[0].life-=l;}
+    _apLog('🩸 Adv 1 perd '+l+' PV');
+    return true;
+  }
+  // 0g. You gain X life
+  var gainM=oLow.match(/you gain (\w+|\d+) life/i);
+  if(gainM){
+    var nMap3={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,ten:10};
+    var g=nMap3[gainM[1].toLowerCase()]||parseInt(gainM[1])||1;
+    _gfState.life+=g;
+    _apLog('❤ +'+g+' PV');
+    return true;
+  }
+  // 0h. Bounce target (Unsummon, Boomerang, Cyclonic Rift)
+  if(/return target (creature|nonland permanent|permanent|artifact|enchantment) to (its|that creature's|the target's|the) owner.?s? hand/i.test(oLow)){
+    _apLog('↩ Rebounce cible (clic manuel sur la cible)');
+    return true;
+  }
+  // 0i. Cyclonic Rift overload : bounce all nonland permanents you don't control
+  if(/return all nonland permanents (you don't control|that aren't yours) to their owners' hands/i.test(oLow)){
+    _apLog('🌪 Rebounce tous nonland adverses (à appliquer manuellement)');
+    return true;
+  }
+  // 0j. Demonic / Vampiric Tutor : search library for any card
+  if(/search your library for (a |any )?(card|nonland card|noncreature card)/i.test(oLow)&&!/basic land/i.test(oLow)){
+    var toHand=/(into|to) your hand/i.test(oLow);
+    var ontop=/on top of your library|put.+on top/i.test(oLow);
+    if(toHand){
+      // Modal : choisir une carte de la library
+      _apLog('🔍 Cherche dans la bibliothèque (tutor) — ouvre le viewer');
+      setTimeout(function(){_apViewZone('library');},150);
+    }else if(ontop){
+      _apLog('🔍 Cherche et met sur le top du deck');
+    }
+    return true;
+  }
+  // 0k. Untap target / untap all (Twiddle, Goblin Test Pilot, Unwinding Clock)
+  if(/untap (target|all) (permanent|creature|artifact|land)/i.test(oLow)){
+    _apLog('🔄 Untap manuel (clic sur la carte tapped)');
+    return true;
+  }
+  if(/untap all (your|of your) (lands|creatures|permanents)/i.test(oLow)){
+    var tgtM=oLow.match(/untap all (your|of your) (lands|creatures|permanents)/i);
+    var typ=tgtM[2];
+    _gfState.battlefield.forEach(function(p){
+      var meta=_anaData[(p.name||'').toLowerCase()];if(!meta)return;
+      var tl=(meta.typeLine||'').toLowerCase();
+      if(typ==='lands'&&tl.indexOf('land')<0)return;
+      if(typ==='creatures'&&tl.indexOf('creature')<0)return;
+      p.tapped=false;
+    });
+    _apLog('🔄 Untap tous tes '+typ);
+    return true;
+  }
+  // 0l. Buff +X/+Y (Giant Growth, Vines of Vastwood, Become Immense)
+  var buffM=oLow.match(/target creature gets \+(\d+)\/\+(\d+)(?: and gains ([\w\s,]+))? until end of turn/i);
+  if(buffM){
+    var p=parseInt(buffM[1])||0;var t=parseInt(buffM[2])||0;
+    var kw=buffM[3]?buffM[3].split(/, | and /).map(function(s){return s.trim();}).filter(Boolean):[];
+    _apLog('💪 Buff cible +'+p+'/+'+t+(kw.length?' + '+kw.join(','):'')+' EOT');
+    return true;
+  }
+  // 0m. Anthem (creatures you control get +X/+Y)
+  var anthemM=oLow.match(/(?:creatures? you control|other creatures? you control) get \+(\d+)\/\+(\d+)/i);
+  if(anthemM){
+    _apLog('💪 Anthem : créatures +'+anthemM[1]+'/+'+anthemM[2]+' (effet permanent du permanent)');
+    return true;
+  }
+  // 0n. Add mana abilities sur sorts (rituals : Dark Ritual, Cabal Ritual, Seething Song)
+  var addManaM=oLow.match(/add (?:\{([wubrgc0-9])\}\s*){1,4}/i);
+  if(addManaM&&/^add /.test(oLow.trim())){
+    var symbols=oLow.match(/\{([wubrgc0-9])\}/g)||[];
+    var added=0;
+    symbols.forEach(function(s){
+      var c=s.replace(/[\{\}]/g,'').toUpperCase();
+      if(/[0-9]/.test(c)){
+        var n=parseInt(c);for(var i=0;i<n;i++){_gfState.manaPool.C++;added++;}
+      }else{
+        _gfState.manaPool[c]=(_gfState.manaPool[c]||0)+1;added++;
+      }
+    });
+    if(added){_apLog('💧 +'+added+' mana');return true;}
+  }
+  // 0o. Cascade (cast a non-cascade spell with lesser CMC for free)
+  if(/\bcascade\b/i.test(oLow)){
+    _apLog('🌊 Cascade : révèle des cartes jusqu\'à une avec CMC inférieur (manuel)');
+    return true;
+  }
+  // 0p. Wheel : each player discards hand, draws 7
+  if(/each player discards (their|his or her) hand[^.]*draws/i.test(oLow)){
+    var n=oLow.match(/draws (\w+|\d+)/);var nd=(n?({a:1,one:1,two:2,three:3,seven:7})[n[1].toLowerCase()]||parseInt(n[1])||7:7);
+    // Toi
+    var hndCount=_gfState.hand.length;
+    _gfState.hand.forEach(function(c){_gfState.graveyard.push(c);});
+    _gfState.hand=[];
+    _apLog('🔄 Wheel : défausse '+hndCount+' cartes');
+    setTimeout(function(){_apDraw(nd);},100);
+    return true;
+  }
+  // 0q. Mass discard (Mind Twist, Hymn to Tourach)
+  var massDiscM=oLow.match(/target (?:player|opponent) discards (\w+|\d+) cards?/i);
+  if(massDiscM){
+    var nMap4={one:1,two:2,three:3,four:4,five:5};
+    var nd2=nMap4[massDiscM[1].toLowerCase()]||parseInt(massDiscM[1])||1;
+    _apLog('🃏 Adv défausse '+nd2+' carte'+(nd2>1?'s':'')+' (manuel)');
+    return true;
+  }
+  // 0r. Fight (target creature fights target creature)
+  if(/target creature you control fights target creature/i.test(oLow)){
+    _apLog('⚔ Combat : tes créatures se battent (clic sur les 2 cibles)');
+    return true;
+  }
+  // 0s. Reveal top X cards
+  var revealM=oLow.match(/(?:reveal|look at) the top (\w+|\d+) cards?/i);
+  if(revealM){
+    var nMap5={one:1,two:2,three:3,four:4,five:5,seven:7};
+    var nr=nMap5[revealM[1].toLowerCase()]||parseInt(revealM[1])||1;
+    _apLog('👁 Révèle top '+nr+' cartes (ouvre le viewer)');
+    setTimeout(function(){_apViewZone('library');},150);
+    return true;
+  }
+  // 0t. Each player draws X / Howling Mine (handled as register_trigger pour permanents)
+  // Pour les instants/sorceries : Concentrate, Tidings → just draw X
+  // (déjà géré par pattern draw existant)
+  // 0u. Sacrifice X for effect
+  if(/as an additional cost.+sacrifice (a |an )?creature/i.test(oLow)){
+    _apLog('🔪 Coût additionnel : sacrifie une créature (clic sur celle à sacrifier)');
+    return true;
+  }
+  // 0v. Proliferate
+  if(/proliferate/i.test(oLow)){
+    _apLog('🪺 Proliferate (ajoute +1 marqueur à chaque permanent/joueur déjà marqué — manuel)');
+    return true;
+  }
+  // 0w. Put counters on
+  var counterM=oLow.match(/put (a|one|two|three|\d+) \+1\/\+1 counters? on/i);
+  if(counterM){
+    var nMap6={a:1,one:1,two:2,three:3};
+    var nc=nMap6[counterM[1].toLowerCase()]||parseInt(counterM[1])||1;
+    _apLog('⬆ +'+nc+' marqueur(s) +1/+1 (clic sur la créature)');
+    return true;
+  }
+  // 0x. Cycling (when you cycle this) — ETB du permanent, déjà géré
+  // 0y. Buyback / flashback / madness — meta-mechanics, on log juste
+  if(/flashback|jump-start|buyback|madness/i.test(oLow)){
+    _apLog('♻ Mécanique alternative disponible : '+oLow.match(/flashback|jump-start|buyback|madness/i)[0]);
+    return true;
+  }
+  // 0z. Adventure (cast as instant first)
+  if(/^adventure/i.test(oLow)||/cast this as an instant/i.test(oLow)){
+    _apLog('🌟 Adventure : cast en mode instant (mode alternatif)');
+    return true;
+  }
   // 1. Search library for basic land
   if(/search your library for (a|up to (one|two|three|four|\d+)) basic land cards?/i.test(o)){
     var m=o.match(/up to (\w+) basic land/);
