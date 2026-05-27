@@ -5,8 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0c0a07">
 <script>
-// Bloque le prompt install natif Chrome/Edge AU PLUS TÔT (avant tout autre script)
-window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();return false;},{capture:true});
+// Capture le prompt install natif Chrome/Edge AU PLUS TÔT (pour le proposer via UI custom)
+window._pwaInstallEvent=null;
+window.addEventListener('beforeinstallprompt',function(e){
+  e.preventDefault();
+  window._pwaInstallEvent=e;
+  // Notification : un bouton "Installer" est dispo (à ajouter par l'UI)
+  try{window.dispatchEvent(new CustomEvent('mlpwaready'));}catch(err){}
+},{capture:true});
+// Quand l'app est effectivement installée
+window.addEventListener('appinstalled',function(){
+  window._pwaInstallEvent=null;
+  try{localStorage.setItem('ml_pwa_installed','1');}catch(e){}
+});
 // Migration one-shot : nettoie SW + caches périmés (versions <2026-05-17)
 // Ne s'exécute qu'une fois grâce au flag localStorage 'ml_reset_done_2026_05_17'
 (function(){
@@ -7231,6 +7242,7 @@ var _NAV_SPACES=[
     {label:'📷 Scanner OCR',action:'goTab(\'coll\');setTimeout(function(){var s=document.querySelector(\'[onclick*=openCardScan]\');if(s)s.click();},200)'},
     {label:'📊 Analytics Pro',action:'openPremiumAnalytics()'},
     {label:'🔌 API publique',action:'openApiDocs()'},
+    {label:'📱 Installer l\'app',action:'openPwaInstall()'},
     {label:'❖ ManaLAB Pro',action:'openProUpgrade()'}
   ]}
 ];
@@ -49730,11 +49742,37 @@ function _registerPhase4Items(){}
 '.ap-log{position:absolute;right:8px;bottom:90px;width:240px;max-height:160px;background:rgba(10,6,2,.88);border:.5px solid rgba(201,168,76,.25);border-radius:8px;padding:8px 11px;overflow-y:auto;font-size:.74rem;color:var(--tx2);font-family:monospace;line-height:1.5;backdrop-filter:blur(6px);pointer-events:auto;display:none}',
 '.ap-log.show{display:block}',
 '.ap-log-toggle{position:absolute;right:8px;bottom:60px;background:rgba(20,12,4,.85);border:.5px solid rgba(201,168,76,.3);color:var(--gold2);padding:4px 9px;border-radius:6px;font-size:.7rem;cursor:pointer;backdrop-filter:blur(6px);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em}',
-'/* ═══ Animation : card drawn from library to hand ═══ */',
-'@keyframes _apDrawn{from{transform:translate(200px,-100px) scale(.5) rotate(20deg);opacity:0}to{transform:translate(0,0) scale(1) rotate(0);opacity:1}}',
-'.ap-card.drawn{animation:_apDrawn .45s cubic-bezier(.34,1.56,.64,1)}',
-'@keyframes _apPlayed{from{transform:translateY(150px) scale(1.3);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}',
-'.ap-card.played{animation:_apPlayed .5s cubic-bezier(.34,1.56,.64,1)}',
+'/* ═══ Animations modernes style MTGA ═══ */',
+'@keyframes _apDrawn{0%{transform:translate(220px,-110px) scale(.4) rotate(25deg);opacity:0;filter:blur(3px)}60%{opacity:1;filter:blur(0)}100%{transform:translate(0,0) scale(1) rotate(0);opacity:1}}',
+'.ap-card.drawn{animation:_apDrawn .55s cubic-bezier(.34,1.56,.64,1)}',
+'@keyframes _apPlayed{0%{transform:translateY(180px) scale(1.4);opacity:0;box-shadow:0 0 60px rgba(232,201,110,1)}60%{opacity:1}100%{transform:translateY(0) scale(1);opacity:1;box-shadow:0 3px 8px rgba(0,0,0,.7)}}',
+'.ap-card.played{animation:_apPlayed .55s cubic-bezier(.34,1.56,.64,1)}',
+'/* ═══ Tap rotation fluide ═══ */',
+'.ap-card{transition:transform .35s cubic-bezier(.34,1.56,.64,1),box-shadow .2s,filter .2s,opacity .2s}',
+'/* ═══ Entrée du commandant cinématique ═══ */',
+'@keyframes _apCmdEnter{0%{transform:scale(2) rotate(15deg);opacity:0;filter:blur(6px) brightness(2)}50%{transform:scale(1.1) rotate(-3deg);filter:blur(1px)}100%{transform:scale(1) rotate(0);opacity:1;filter:blur(0)}}',
+'.ap-cmd-card.entering{animation:_apCmdEnter .75s cubic-bezier(.34,1.56,.64,1)}',
+'/* ═══ Glow pulsé sur cartes playable ═══ */',
+'@keyframes _apPlayableGlow{0%,100%{box-shadow:0 3px 8px rgba(0,0,0,.7),0 0 12px rgba(127,176,105,.4)}50%{box-shadow:0 3px 8px rgba(0,0,0,.7),0 0 24px rgba(127,176,105,.8)}}',
+'.ap-card.playable{animation:_apPlayableGlow 2.4s ease-in-out infinite}',
+'/* ═══ Tilt 3D au hover (effet immersif) ═══ */',
+'.ap-card{perspective:600px;transform-style:preserve-3d}',
+'.ap-card:hover img{transform:translateZ(8px)}',
+'/* ═══ Damage flash sur PV ═══ */',
+'@keyframes _apDamageFlash{0%{transform:scale(1)}25%{transform:scale(1.4);color:#ff4444;text-shadow:0 0 24px #ff4444}100%{transform:scale(1)}}',
+'.ap-stat.life.damaging .ap-stat-val{animation:_apDamageFlash .5s ease-out}',
+'/* ═══ Heal flash ═══ */',
+'@keyframes _apHealFlash{0%{transform:scale(1)}25%{transform:scale(1.4);color:#7fb069;text-shadow:0 0 24px #7fb069}100%{transform:scale(1)}}',
+'.ap-stat.life.healing .ap-stat-val{animation:_apHealFlash .5s ease-out}',
+'/* ═══ Mana pip bounce quand ajouté ═══ */',
+'@keyframes _apManaBounce{0%{transform:scale(.5);opacity:0}50%{transform:scale(1.3)}100%{transform:scale(1);opacity:1}}',
+'.ap-mana-pip.bounce{animation:_apManaBounce .35s cubic-bezier(.34,1.56,.64,1)}',
+'/* ═══ Particle effect (ETB) ═══ */',
+'@keyframes _apParticle{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--px,40px),var(--py,-40px)) scale(0);opacity:0}}',
+'.ap-particle{position:absolute;width:5px;height:5px;border-radius:50%;background:radial-gradient(circle,rgba(232,201,110,1) 0%,rgba(232,201,110,0) 70%);pointer-events:none;animation:_apParticle .8s ease-out forwards}',
+'/* ═══ Card flip (reveal/scry) ═══ */',
+'@keyframes _apCardFlip{0%{transform:rotateY(0)}50%{transform:rotateY(90deg) scale(1.1)}100%{transform:rotateY(0)}}',
+'.ap-card.flipping{animation:_apCardFlip .5s ease-in-out}',
 '/* ═══ Responsive mobile ═══ */',
 '@media (max-width:760px){',
 '  .ap-card{width:64px;height:90px}',
@@ -50537,7 +50575,21 @@ function _apTapAllLands(){
 function _apClearMana(){if(!_gfState)return;_gfState.manaPool={W:0,U:0,B:0,R:0,G:0,C:0};_apRender();}
 function _apAddMana(c){if(!_gfState)return;_gfState.manaPool[c]++;_apRender();}
 function _apSubMana(c){if(!_gfState||!_gfState.manaPool[c])return;_gfState.manaPool[c]--;_apRender();}
-function _apLife(n){if(!_gfState)return;_gfState.life+=n;if(_gfState.life<0)_gfState.life=0;_apLog((n>0?'+':'')+n+' PV');_apRender();}
+function _apLife(n){
+  if(!_gfState)return;
+  _gfState.life+=n;
+  if(_gfState.life<0)_gfState.life=0;
+  _apLog((n>0?'+':'')+n+' PV');
+  _apRender();
+  // Animation flash sur le compteur PV
+  setTimeout(function(){
+    var stat=document.querySelector('.ap-stat.life');
+    if(stat){
+      stat.classList.add(n<0?'damaging':'healing');
+      setTimeout(function(){stat.classList.remove('damaging','healing');},500);
+    }
+  },10);
+}
 function _apMulligan(){
   if(!_gfState)return;
   if(!confirm('Mulligan ? (London : tu rendras 1 carte au bottom pour chaque mull)'))return;
@@ -53312,76 +53364,382 @@ function openPremiumAnalytics(){
     ov.addEventListener('click',function(e){if(e.target===ov)closePremiumAnalytics();});
   }
   var coll=[];try{coll=getProfCards(0)||[];}catch(e){}
-  // Compute analytics
+  // ═══ Calcul des stats — V2 avec données réellement exploitables ═══
   var stats={
-    totalCards:0,uniques:coll.length,totalValue:0,topGain:[],topLoss:[],
-    byCategory:{ramp:0,draw:0,removal:0,wincon:0,land:0,other:0},
-    deckUsage:{}
+    totalCards:0,uniques:coll.length,totalValue:0,
+    byColor:{W:0,U:0,B:0,R:0,G:0,C:0,M:0,land:0},
+    byRarity:{mythic:0,rare:0,uncommon:0,common:0,special:0,unknown:0},
+    byType:{Creature:0,Instant:0,Sorcery:0,Artifact:0,Enchantment:0,Planeswalker:0,Land:0,Battle:0,Other:0},
+    byCmc:[0,0,0,0,0,0,0,0], // 0,1,2,3,4,5,6,7+
+    bySet:{},
+    byCategory:{ramp:0,draw:0,removal:0,interaction:0,wincon:0,land:0,utility:0},
+    byCondition:{NM:0,LP:0,MP:0,HP:0,DMG:0,unknown:0},
+    byFinish:{normal:0,foil:0,etched:0,other:0},
+    metaCount:0, // nb cartes ayant une meta (pour le pourcentage des catégories)
+    valueCount:0, // nb cartes ayant un prix
+    deckUsage:{}, // nom → nb decks où apparaît
+    topValue:[], // {name, price, qty, total}
+    unusedCards:0, // cartes jamais dans un deck
+    locationDistrib:{} // map des emplacements physiques
   };
   coll.forEach(function(c){
-    stats.totalCards+=c.qty||1;
+    var qty=c.qty||1;
+    stats.totalCards+=qty;
     var meta=_anaData[(c.name||'').toLowerCase()];
-    if(meta){
-      if(meta.price)stats.totalValue+=meta.price*(c.qty||1);
-      var tl=(meta.typeLine||'').toLowerCase();
-      if(tl.indexOf('land')>=0)stats.byCategory.land+=(c.qty||1);
-      else if(meta.tags){
-        if(meta.tags.ramp>=0.6)stats.byCategory.ramp+=(c.qty||1);
-        else if(meta.tags.draw>=0.6)stats.byCategory.draw+=(c.qty||1);
-        else if(meta.tags.removal>=0.6)stats.byCategory.removal+=(c.qty||1);
-        else if(meta.tags.wincon>=1)stats.byCategory.wincon+=(c.qty||1);
-        else stats.byCategory.other+=(c.qty||1);
-      }
+    // Condition + finish (depuis le user, pas la meta)
+    var cd=c.condition||'unknown';if(stats.byCondition.hasOwnProperty(cd))stats.byCondition[cd]+=qty;else stats.byCondition.unknown+=qty;
+    var f=c.finish||'normal';if(stats.byFinish.hasOwnProperty(f))stats.byFinish[f]+=qty;else stats.byFinish.other+=qty;
+    if(c.location)stats.locationDistrib[c.location]=(stats.locationDistrib[c.location]||0)+qty;
+    if(!meta)return;
+    stats.metaCount+=qty;
+    // Couleur
+    var ci=meta.colorIdentity||[];
+    var tl=(meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('land')>=0)stats.byColor.land+=qty;
+    else if(ci.length===0)stats.byColor.C+=qty;
+    else if(ci.length===1)stats.byColor[ci[0]]+=qty;
+    else stats.byColor.M+=qty;
+    // Rareté
+    var r=meta.rarity||'unknown';if(stats.byRarity.hasOwnProperty(r))stats.byRarity[r]+=qty;else stats.byRarity.unknown+=qty;
+    // Type
+    if(tl.indexOf('land')>=0)stats.byType.Land+=qty;
+    else if(tl.indexOf('battle')>=0)stats.byType.Battle+=qty;
+    else if(tl.indexOf('creature')>=0)stats.byType.Creature+=qty;
+    else if(tl.indexOf('instant')>=0)stats.byType.Instant+=qty;
+    else if(tl.indexOf('sorcery')>=0)stats.byType.Sorcery+=qty;
+    else if(tl.indexOf('artifact')>=0)stats.byType.Artifact+=qty;
+    else if(tl.indexOf('enchantment')>=0)stats.byType.Enchantment+=qty;
+    else if(tl.indexOf('planeswalker')>=0)stats.byType.Planeswalker+=qty;
+    else stats.byType.Other+=qty;
+    // CMC (hors terrains)
+    if(tl.indexOf('land')<0&&typeof meta.cmc==='number'){
+      var b=Math.min(7,Math.floor(meta.cmc));stats.byCmc[b]+=qty;
+    }
+    // Set
+    var s=meta.set?meta.set.toUpperCase():'';
+    if(s)stats.bySet[s]=(stats.bySet[s]||0)+qty;
+    // Catégorie (chaque carte tombe dans une seule catégorie)
+    if(tl.indexOf('land')>=0){stats.byCategory.land+=qty;}
+    else if(meta.tags){
+      if(meta.tags.ramp>=0.6)stats.byCategory.ramp+=qty;
+      else if(meta.tags.draw>=0.6)stats.byCategory.draw+=qty;
+      else if(meta.tags.removal>=0.6)stats.byCategory.removal+=qty;
+      else if(meta.tags.interaction>=0.6)stats.byCategory.interaction+=qty;
+      else if(meta.tags.wincon>=1)stats.byCategory.wincon+=qty;
+      else stats.byCategory.utility+=qty;
+    }else{
+      stats.byCategory.utility+=qty;
+    }
+    // Valeur
+    var price=meta&&meta.price?meta.price:null;
+    if(price){
+      stats.totalValue+=price*qty;
+      stats.valueCount+=qty;
+      stats.topValue.push({name:c.name,qty:qty,price:price,total:price*qty});
     }
   });
+  stats.topValue.sort(function(a,b){return b.total-a.total;});
   // Deck usage
   Object.keys(decks||{}).forEach(function(id){
     var d=decks[id];if(!d||!d.cards)return;
     if(!(typeof _deckBelongsTo==='function'?_deckBelongsTo(d,0):true))return;
+    var seen={};
     d.cards.forEach(function(c){
-      stats.deckUsage[(c.name||'').toLowerCase()]=(stats.deckUsage[(c.name||'').toLowerCase()]||0)+1;
+      var k=(c.name||'').toLowerCase();
+      if(seen[k])return;seen[k]=1;
+      stats.deckUsage[k]=(stats.deckUsage[k]||0)+1;
     });
   });
-  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  // Cartes inutilisées
+  var collNames={};coll.forEach(function(c){collNames[(c.name||'').toLowerCase()]=c.qty||1;});
+  stats.unusedCards=Object.keys(collNames).filter(function(n){return !stats.deckUsage[n];}).length;
+  var topUsage=Object.keys(stats.deckUsage).map(function(k){return {name:k,n:stats.deckUsage[k]};}).sort(function(a,b){return b.n-a.n;}).slice(0,10);
+  // Decks stats
+  var deckStats={total:0,byFormat:{}};
+  Object.keys(decks||{}).forEach(function(id){
+    var d=decks[id];if(!d)return;
+    if(!(typeof _deckBelongsTo==='function'?_deckBelongsTo(d,0):true))return;
+    deckStats.total++;
+    var f=d.format||'autre';
+    deckStats.byFormat[f]=(deckStats.byFormat[f]||0)+1;
+  });
+  // ═══ Rendu ═══
+  var html='<div style="background:var(--s1);border:1px solid var(--bd2);border-radius:14px;max-width:1100px;width:100%;padding:22px 26px">';
   html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">📊 Analytics avancés</div><button class="btn btnsm" onclick="closePremiumAnalytics()">✕</button></div>';
   // KPIs
-  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">';
-  html+='<div style="background:rgba(127,176,105,.10);border:.5px solid rgba(127,176,105,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#7fb069">VALEUR TOTALE</div><div style="font-size:1.8rem;font-weight:700;color:#7fb069">'+stats.totalValue.toFixed(0)+'€</div></div>';
-  html+='<div style="background:rgba(143,196,235,.10);border:.5px solid rgba(143,196,235,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#8fc4eb">CARTES TOTALES</div><div style="font-size:1.8rem;font-weight:700;color:#8fc4eb">'+stats.totalCards+'</div></div>';
-  html+='<div style="background:rgba(232,201,110,.10);border:.5px solid rgba(232,201,110,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:var(--gold2)">CARTES UNIQUES</div><div style="font-size:1.8rem;font-weight:700;color:var(--gold2)">'+stats.uniques+'</div></div>';
-  if(stats.uniques)html+='<div style="background:rgba(180,100,220,.10);border:.5px solid rgba(180,100,220,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#b464dc">PRIX MOYEN</div><div style="font-size:1.8rem;font-weight:700;color:#b464dc">'+(stats.totalValue/stats.uniques).toFixed(1)+'€</div></div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">';
+  html+='<div style="background:rgba(127,176,105,.10);border:.5px solid rgba(127,176,105,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#7fb069">VALEUR ESTIMÉE</div><div style="font-size:1.6rem;font-weight:700;color:#7fb069">'+stats.totalValue.toFixed(0)+'€</div>';
+  if(stats.uniques)html+='<div style="font-size:.7rem;color:var(--tx3);margin-top:2px">~'+(stats.totalValue/Math.max(stats.uniques,1)).toFixed(1)+'€/unique</div>';
+  if(stats.valueCount<stats.totalCards)html+='<div style="font-size:.66rem;color:#e8c96e;margin-top:2px">⚠ '+(stats.totalCards-stats.valueCount)+' cartes sans prix dispo</div>';
   html+='</div>';
-  // Catégories
+  html+='<div style="background:rgba(143,196,235,.10);border:.5px solid rgba(143,196,235,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#8fc4eb">CARTES TOTALES</div><div style="font-size:1.6rem;font-weight:700;color:#8fc4eb">'+stats.totalCards.toLocaleString('fr-FR')+'</div><div style="font-size:.7rem;color:var(--tx3);margin-top:2px">'+stats.uniques+' uniques</div></div>';
+  html+='<div style="background:rgba(232,201,110,.10);border:.5px solid rgba(232,201,110,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:var(--gold2)">DECKS CRÉÉS</div><div style="font-size:1.6rem;font-weight:700;color:var(--gold2)">'+deckStats.total+'</div>';
+  if(deckStats.total)html+='<div style="font-size:.66rem;color:var(--tx3);margin-top:2px">'+Object.keys(deckStats.byFormat).map(function(f){return f+'×'+deckStats.byFormat[f];}).join(' · ')+'</div>';
+  html+='</div>';
+  html+='<div style="background:rgba(180,100,220,.10);border:.5px solid rgba(180,100,220,.4);border-radius:9px;padding:11px"><div style="font-size:.66rem;color:#b464dc">CARTES INUTILISÉES</div><div style="font-size:1.6rem;font-weight:700;color:#b464dc">'+stats.unusedCards+'</div><div style="font-size:.66rem;color:var(--tx3);margin-top:2px">jamais dans un deck</div></div>';
+  html+='</div>';
+  // Distribution par couleur
   html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
-  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">📊 Composition par catégorie</div>';
-  Object.keys(stats.byCategory).forEach(function(k){
-    var n=stats.byCategory[k];if(!n)return;
-    var pct=Math.round(n/stats.totalCards*100);
-    var col={ramp:'#7fb069',draw:'#8fc4eb',removal:'#dc5050',wincon:'#e8c96e',land:'#cdb87a',other:'#aaa'}[k];
-    html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.84rem">';
-    html+='<span style="min-width:80px;color:var(--tx2)">'+esc(k)+'</span>';
-    html+='<div style="flex:1;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+col+'"></div></div>';
-    html+='<span style="color:'+col+';font-weight:600;min-width:60px;text-align:right">'+n+' ('+pct+'%)</span>';
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">🎨 Distribution par couleur (sur cartes identifiées : '+stats.metaCount.toLocaleString('fr-FR')+' / '+stats.totalCards.toLocaleString('fr-FR')+')</div>';
+  var colMap={W:{l:'⚪ Blanc',c:'#f5f0d8'},U:{l:'🟦 Bleu',c:'#8fc4eb'},B:{l:'⚫ Noir',c:'#888'},R:{l:'🟥 Rouge',c:'#f08c4e'},G:{l:'🟩 Vert',c:'#7fb069'},C:{l:'⚙ Incolore',c:'#aaa'},M:{l:'🌈 Multi',c:'#e8c96e'},land:{l:'🏔 Terrain',c:'#cdb87a'}};
+  Object.keys(colMap).forEach(function(k){
+    var n=stats.byColor[k];if(!n)return;
+    var pct=stats.metaCount?Math.round(n/stats.metaCount*100):0;
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.82rem">';
+    html+='<span style="min-width:90px;color:var(--tx2)">'+colMap[k].l+'</span>';
+    html+='<div style="flex:1;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+colMap[k].c+'"></div></div>';
+    html+='<span style="color:'+colMap[k].c+';font-weight:600;min-width:90px;text-align:right">'+n.toLocaleString('fr-FR')+' ('+pct+'%)</span>';
     html+='</div>';
   });
   html+='</div>';
-  // Cartes les plus utilisées dans les decks
-  var topUsage=Object.keys(stats.deckUsage).map(function(k){return {name:k,n:stats.deckUsage[k]};}).sort(function(a,b){return b.n-a.n;}).slice(0,10);
-  if(topUsage.length){
+  // Type + Rareté côte à côte
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:10px">';
+  // Type
+  var typeTotal=Object.values(stats.byType).reduce(function(s,v){return s+v;},0);
+  html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px">';
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.9rem;margin-bottom:6px">📋 Par type</div>';
+  Object.keys(stats.byType).forEach(function(k){
+    var n=stats.byType[k];if(!n)return;
+    var pct=typeTotal?Math.round(n/typeTotal*100):0;
+    html+='<div style="display:flex;justify-content:space-between;font-size:.8rem;padding:2px 0"><span style="color:var(--tx2)">'+esc(k)+'</span><span style="color:var(--tx)"><b style="color:var(--ac2)">'+n.toLocaleString('fr-FR')+'</b> <span style="color:var(--tx3);font-size:.74rem">('+pct+'%)</span></span></div>';
+  });
+  html+='</div>';
+  // Rareté
+  var rarTotal=Object.values(stats.byRarity).reduce(function(s,v){return s+v;},0);
+  html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px">';
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.9rem;margin-bottom:6px">💎 Par rareté</div>';
+  var rariCol={mythic:'#f08c4e',rare:'#e8c96e',uncommon:'#c0c4d4',common:'#888',special:'#b464dc',unknown:'#666'};
+  Object.keys(stats.byRarity).forEach(function(k){
+    var n=stats.byRarity[k];if(!n)return;
+    var pct=rarTotal?Math.round(n/rarTotal*100):0;
+    html+='<div style="display:flex;justify-content:space-between;font-size:.8rem;padding:2px 0"><span style="color:var(--tx2)">'+esc(k)+'</span><span style="color:'+rariCol[k]+'"><b>'+n.toLocaleString('fr-FR')+'</b> <span style="color:var(--tx3);font-size:.74rem">('+pct+'%)</span></span></div>';
+  });
+  html+='</div>';
+  html+='</div>';
+  // Courbe CMC
+  var maxBucket=Math.max.apply(null,stats.byCmc);
+  if(maxBucket>0){
     html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
-    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">⭐ Cartes les plus présentes dans tes decks</div>';
-    topUsage.forEach(function(t){
-      html+='<div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--tx)">'+esc(t.name)+'</span><span style="color:var(--gold2);font-weight:600">'+t.n+' deck'+(t.n>1?'s':'')+'</span></div>';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">⚡ Courbe CMC (hors terrains)</div>';
+    html+='<div style="display:flex;gap:6px;align-items:flex-end;height:80px">';
+    stats.byCmc.forEach(function(v,i){
+      var h=maxBucket?Math.round(v/maxBucket*100):0;
+      html+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px"><div style="font-size:.74rem;color:var(--tx2);font-weight:600">'+v.toLocaleString('fr-FR')+'</div><div style="width:100%;background:var(--gold2);height:'+h+'%;min-height:3px;border-radius:3px 3px 0 0;opacity:.7"></div><div style="font-size:.66rem;color:var(--tx3)">'+(i===7?'7+':i)+'</div></div>';
+    });
+    html+='</div></div>';
+  }
+  // Catégories (fonctionnelles)
+  var catTotal=Object.values(stats.byCategory).reduce(function(s,v){return s+v;},0);
+  if(catTotal>0){
+    html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">🎯 Par rôle fonctionnel</div>';
+    var catCol={ramp:'#7fb069',draw:'#8fc4eb',removal:'#dc5050',interaction:'#e8c96e',wincon:'#b464dc',land:'#cdb87a',utility:'#aaa'};
+    var catLbl={ramp:'🌱 Ramp',draw:'📖 Pioche',removal:'🗡 Removal',interaction:'🛡 Interaction',wincon:'⚡ Wincon',land:'🏔 Terrain',utility:'⚙ Utility/Autre'};
+    Object.keys(stats.byCategory).forEach(function(k){
+      var n=stats.byCategory[k];if(!n)return;
+      var pct=Math.round(n/catTotal*100);
+      html+='<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.82rem">';
+      html+='<span style="min-width:130px;color:var(--tx2)">'+catLbl[k]+'</span>';
+      html+='<div style="flex:1;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+catCol[k]+'"></div></div>';
+      html+='<span style="color:'+catCol[k]+';font-weight:600;min-width:90px;text-align:right">'+n.toLocaleString('fr-FR')+' ('+pct+'%)</span>';
+      html+='</div>';
     });
     html+='</div>';
   }
-  html+='<div style="margin-top:14px;background:rgba(232,201,110,.06);border-left:3px solid var(--gold2);border-radius:0 8px 8px 0;padding:9px 12px;font-size:.78rem;color:var(--tx2)">';
-  html+='<b style="color:var(--gold2)">Avec ManaLAB Pro</b> : ajoute graphiques d\'évolution mensuelle, top gains/pertes, prévisions IA, alertes prix illimitées. <button class="btn btnsm" onclick="closePremiumAnalytics();openProUpgrade()" style="margin-left:6px">→ Voir Pro</button>';
+  // Top sets
+  var topSets=Object.keys(stats.bySet).map(function(s){return {s:s,n:stats.bySet[s]};}).sort(function(a,b){return b.n-a.n;}).slice(0,15);
+  if(topSets.length){
+    html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">📚 Top extensions (15 plus représentées)</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:5px;font-size:.78rem">';
+    topSets.forEach(function(t){
+      html+='<span style="background:var(--s2);padding:4px 9px;border-radius:5px"><b style="color:var(--ac2)">'+esc(t.s)+'</b> <span style="color:var(--tx3)">'+t.n.toLocaleString('fr-FR')+'</span></span>';
+    });
+    html+='</div></div>';
+  }
+  // Top valeur
+  if(stats.topValue.length){
+    html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">💰 Top 15 cartes les plus chères ('+stats.topValue.slice(0,15).reduce(function(s,c){return s+c.total;},0).toFixed(0)+'€ cumulés)</div>';
+    stats.topValue.slice(0,15).forEach(function(c){
+      html+='<div style="display:flex;gap:8px;padding:3px 0;font-size:.82rem;border-bottom:.5px solid var(--bd)"><span style="color:var(--tx);flex:1">'+esc(c.name)+'</span><span style="color:var(--tx3)">×'+c.qty+'</span><span style="color:#7fb069;font-weight:600;min-width:80px;text-align:right">'+c.total.toFixed(2)+'€</span></div>';
+    });
+    html+='</div>';
+  }
+  // Top usage decks
+  if(topUsage.length){
+    html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px;margin-bottom:10px">';
+    html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem;margin-bottom:8px">⭐ Cartes les plus utilisées dans tes '+deckStats.total+' decks</div>';
+    topUsage.forEach(function(t){
+      html+='<div style="display:flex;justify-content:space-between;font-size:.82rem;padding:3px 0;border-bottom:.5px dashed var(--bd)"><span style="color:var(--tx)">'+esc(t.name)+'</span><span style="color:var(--gold2);font-weight:600">'+t.n+' deck'+(t.n>1?'s':'')+'</span></div>';
+    });
+    html+='</div>';
+  }
+  // État / finish
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px">';
+  html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.9rem;margin-bottom:6px">📦 Par état</div>';
+  var condCol={NM:'#7fb069',LP:'#a8d8a0',MP:'#e8c96e',HP:'#f08c4e',DMG:'#dc5050',unknown:'#666'};
+  var condTotal=Object.values(stats.byCondition).reduce(function(s,v){return s+v;},0);
+  Object.keys(stats.byCondition).forEach(function(k){
+    var n=stats.byCondition[k];if(!n)return;
+    var pct=condTotal?Math.round(n/condTotal*100):0;
+    html+='<div style="display:flex;justify-content:space-between;font-size:.8rem;padding:2px 0"><span style="color:var(--tx2)">'+esc(k)+'</span><span style="color:'+condCol[k]+'"><b>'+n.toLocaleString('fr-FR')+'</b> <span style="color:var(--tx3);font-size:.74rem">('+pct+'%)</span></span></div>';
+  });
+  if(stats.byCondition.unknown>stats.totalCards*.8)html+='<div style="font-size:.7rem;color:var(--tx3);font-style:italic;margin-top:5px">💡 Ajoute la condition de tes cartes en détails (clic sur une carte)</div>';
   html+='</div>';
+  html+='<div style="background:rgba(0,0,0,.18);border-radius:9px;padding:11px 14px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.9rem;margin-bottom:6px">✨ Par finition</div>';
+  var finTotal=Object.values(stats.byFinish).reduce(function(s,v){return s+v;},0);
+  Object.keys(stats.byFinish).forEach(function(k){
+    var n=stats.byFinish[k];if(!n)return;
+    var pct=finTotal?Math.round(n/finTotal*100):0;
+    html+='<div style="display:flex;justify-content:space-between;font-size:.8rem;padding:2px 0"><span style="color:var(--tx2)">'+esc(k)+'</span><span style="color:var(--tx)"><b style="color:var(--ac2)">'+n.toLocaleString('fr-FR')+'</b> <span style="color:var(--tx3);font-size:.74rem">('+pct+'%)</span></span></div>';
+  });
+  html+='</div>';
+  html+='</div>';
+  // Diagnostic intelligent
+  var diags=[];
+  if(stats.metaCount<stats.totalCards*.5){
+    diags.push({sev:'info',t:'⚠ '+Math.round((1-stats.metaCount/stats.totalCards)*100)+'% de tes cartes ne sont pas dans le cache (pas de meta Scryfall). Lance le scanner ou ré-importe pour avoir des stats complètes.'});
+  }
+  if(stats.unusedCards>stats.uniques*.5){
+    diags.push({sev:'info',t:'📦 '+stats.unusedCards+' cartes uniques jamais utilisées dans un deck ('+Math.round(stats.unusedCards/stats.uniques*100)+'%). Opportunité : crée des decks ou marque-les comme "à échanger" sur le marketplace.'});
+  }
+  if(stats.valueCount<stats.totalCards*.3){
+    diags.push({sev:'warn',t:'💰 Seules '+stats.valueCount.toLocaleString('fr-FR')+' cartes ont un prix tracké. Pour booster la valeur estimée, ré-importe les sets récents via le scanner.'});
+  }
+  if(stats.byColor.M>(stats.metaCount-stats.byColor.land)*.4){
+    diags.push({sev:'info',t:'🌈 Tu as beaucoup de cartes multi-color ('+stats.byColor.M.toLocaleString('fr-FR')+'). Idéal pour Commander : tu peux probablement monter beaucoup de decks 3-5C.'});
+  }
+  if(diags.length){
+    html+='<div style="background:rgba(91,140,245,.06);border-left:3px solid #5b8cf5;border-radius:0 9px 9px 0;padding:11px 14px;margin-bottom:10px">';
+    html+='<div style="font-family:var(--ff-head);color:#5b8cf5;font-size:.92rem;margin-bottom:6px">💡 Diagnostic intelligent</div>';
+    diags.forEach(function(d){html+='<div style="font-size:.82rem;color:var(--tx2);padding:3px 0;line-height:1.5">'+esc(d.t)+'</div>';});
+    html+='</div>';
+  }
+  // Footer
+  if(typeof isPro==='function'&&isPro()){
+    html+='<div style="margin-top:14px;background:rgba(232,201,110,.06);border-left:3px solid var(--gold2);border-radius:0 8px 8px 0;padding:9px 12px;font-size:.78rem;color:var(--tx2)">';
+    html+='<b style="color:var(--gold2)">❖ Pro actif</b> — Toutes les analytics débloquées. Prochaines features : graphiques d\'évolution mensuelle de la valeur, top gains/pertes, alertes prix par carte, prévisions IA.';
+    html+='</div>';
+  }
   html+='</div>';
   ov.innerHTML=html;ov.style.display='flex';
 }
 function closePremiumAnalytics(){var ov=document.getElementById('pa-ov');if(ov)ov.style.display='none';}
+
+// ════════════════════════════════════════════════════════════════════════
+// PWA INSTALL PROPER + push notifications
+// ════════════════════════════════════════════════════════════════════════
+function openPwaInstall(){
+  var ov=document.getElementById('pwa-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='pwa-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;padding:1rem';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closePwaInstall();});
+  }
+  var isInstalled=window.matchMedia&&window.matchMedia('(display-mode:standalone)').matches;
+  try{isInstalled=isInstalled||localStorage.getItem('ml_pwa_installed')==='1';}catch(e){}
+  var canInstall=!!window._pwaInstallEvent;
+  var pushPerm=(typeof Notification!=='undefined')?Notification.permission:'denied';
+  var html='<div style="background:linear-gradient(180deg,#2a1a08,#1a1208);border:2px solid var(--gold2);border-radius:16px;max-width:600px;width:100%;padding:28px 32px;box-shadow:0 20px 60px rgba(232,201,110,.2)">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">';
+  html+='<div style="font-size:2.4rem">📱</div>';
+  html+='<div style="flex:1"><div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2)">Installer ManaLAB</div><div style="font-size:.78rem;color:var(--tx3)">Application mobile + desktop, offline, notifications</div></div>';
+  html+='<button class="btn btnsm" onclick="closePwaInstall()">✕</button></div>';
+  // État install
+  html+='<div style="background:rgba(0,0,0,.20);border-radius:9px;padding:14px;margin-bottom:14px">';
+  if(isInstalled){
+    html+='<div style="display:flex;align-items:center;gap:10px"><span style="color:#7fb069;font-size:1.5rem">✓</span><div><b style="color:#7fb069">Application installée</b><br><span style="font-size:.82rem;color:var(--tx3)">ManaLAB est lancée comme app native.</span></div></div>';
+  }else if(canInstall){
+    html+='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:10px">Installe ManaLAB comme application native sur ton appareil. Plus rapide, accessible offline, dock/écran d\'accueil.</div>';
+    html+='<button class="btn btnp" onclick="_pwaTriggerInstall()" style="padding:12px 24px;font-size:1rem;background:linear-gradient(180deg,rgba(220,170,60,.95),rgba(160,115,35,.95));color:#1a1208;font-weight:700">📲 Installer maintenant</button>';
+  }else{
+    html+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.6">';
+    html+='<b style="color:var(--gold2)">Comment installer :</b><br>';
+    html+='• <b>Chrome / Edge desktop</b> : icône "Installer" dans la barre d\'adresse (à droite)<br>';
+    html+='• <b>Safari iOS</b> : Partager → "Sur l\'écran d\'accueil"<br>';
+    html+='• <b>Chrome Android</b> : Menu ⋮ → "Ajouter à l\'écran d\'accueil"<br>';
+    html+='• <b>Firefox</b> : Menu → "Installer cette app"';
+    html+='</div>';
+  }
+  html+='</div>';
+  // Notifications
+  html+='<div style="background:rgba(0,0,0,.20);border-radius:9px;padding:14px;margin-bottom:14px">';
+  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:1rem;margin-bottom:6px">🔔 Notifications push</div>';
+  html+='<div style="font-size:.82rem;color:var(--tx2);margin-bottom:10px">Reçois les alertes : un ami publie un deck, like sur ton deck, événement à venir, baisse de prix sur ta wishlist.</div>';
+  if(pushPerm==='granted'){
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span style="color:#7fb069;font-size:1.2rem">✓</span><span style="color:#7fb069">Notifications activées</span></div>';
+    html+='<button class="btn btnsm" onclick="_pwaTestNotif()">🔔 Tester une notification</button>';
+  }else if(pushPerm==='denied'){
+    html+='<div style="display:flex;align-items:center;gap:10px"><span style="color:#dc5050;font-size:1.2rem">✗</span><span style="color:#dc5050">Notifications refusées</span></div>';
+    html+='<div style="font-size:.74rem;color:var(--tx3);margin-top:6px">Va dans les paramètres de ton navigateur pour autoriser ManaLAB.</div>';
+  }else{
+    html+='<button class="btn btnp" onclick="_pwaRequestNotif()">🔔 Activer les notifications</button>';
+  }
+  html+='</div>';
+  // Avantages
+  html+='<div style="background:rgba(127,176,105,.06);border-left:3px solid #7fb069;border-radius:0 9px 9px 0;padding:11px 14px;font-size:.82rem;color:var(--tx2);line-height:1.7">';
+  html+='<b style="color:#7fb069">Avantages de l\'install :</b><br>';
+  html+='✓ Démarrage instantané depuis l\'écran d\'accueil<br>';
+  html+='✓ Mode plein écran sans la barre du navigateur<br>';
+  html+='✓ Fonctionne <b>hors-ligne</b> (collection, decks, analyse)<br>';
+  html+='✓ Notifications push même app fermée<br>';
+  html+='✓ Mise à jour automatique en arrière-plan';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function closePwaInstall(){var ov=document.getElementById('pwa-ov');if(ov)ov.style.display='none';}
+function _pwaTriggerInstall(){
+  if(!window._pwaInstallEvent){
+    if(typeof toastError==='function')toastError('Pas de prompt d\'install dispo. Utilise le menu navigateur.');
+    return;
+  }
+  window._pwaInstallEvent.prompt();
+  window._pwaInstallEvent.userChoice.then(function(choice){
+    if(choice.outcome==='accepted'){
+      if(typeof toastSuccess==='function')toastSuccess('✓ ManaLAB installé');
+      try{localStorage.setItem('ml_pwa_installed','1');}catch(e){}
+    }
+    window._pwaInstallEvent=null;
+    closePwaInstall();
+  });
+}
+function _pwaRequestNotif(){
+  if(typeof Notification==='undefined'){if(typeof toastError==='function')toastError('Notifications non supportées');return;}
+  Notification.requestPermission().then(function(perm){
+    if(perm==='granted'){
+      if(typeof toastSuccess==='function')toastSuccess('✓ Notifications activées');
+      // Push subscription via SW si possible
+      if('serviceWorker' in navigator&&'PushManager' in window){
+        navigator.serviceWorker.ready.then(function(reg){
+          if(typeof pushTogglePrompt==='function')pushTogglePrompt();
+        });
+      }
+    }else if(perm==='denied'){
+      if(typeof toastError==='function')toastError('Notifications refusées par le navigateur');
+    }
+    openPwaInstall();
+  });
+}
+function _pwaTestNotif(){
+  if(typeof Notification==='undefined'||Notification.permission!=='granted')return;
+  new Notification('ManaLAB',{
+    body:'🎴 Tu reçois bien les notifications !',
+    icon:'/icon.svg',
+    tag:'test'
+  });
+}
+// Affiche un bouton install discret quand le prompt est dispo (banner bas)
+window.addEventListener('mlpwaready',function(){
+  if(localStorage.getItem('ml_pwa_install_dismissed')==='1')return;
+  if(document.getElementById('ml-install-banner'))return;
+  var b=document.createElement('div');b.id='ml-install-banner';
+  b.style.cssText='position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:6000;background:linear-gradient(135deg,rgba(40,28,12,.96),rgba(20,12,4,.96));border:1.5px solid var(--gold2);border-radius:12px;padding:10px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,.6);max-width:90vw';
+  b.innerHTML='<span style="font-size:1.4rem">📱</span><span style="color:var(--tx);font-size:.86rem;flex:1">Installe ManaLAB comme app</span><button class="btn btnsm btnp" onclick="_pwaTriggerInstall()" style="padding:5px 11px">Installer</button><button class="btn btnsm" onclick="document.getElementById(\'ml-install-banner\').remove();localStorage.setItem(\'ml_pwa_install_dismissed\',\'1\')" style="padding:5px 9px">✕</button>';
+  document.body.appendChild(b);
+});
 
 // ════════════════════════════════════════════════════════════════════════
 // Q4 — API PUBLIQUE DOCS
