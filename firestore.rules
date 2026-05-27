@@ -222,6 +222,53 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // Marketplace P2P (carte à échanger / recherche par user)
+    // ============================================================
+    // Chaque user gère son propre doc /marketplace/{uid} : offering + searching
+    // Lecture publique pour permettre le matching cross-user.
+    match /marketplace/{uid} {
+      allow read: if true;
+      allow write: if isAuthed() && request.auth.uid == uid;
+    }
+
+    // ============================================================
+    // Play Rooms (Remote Play companion)
+    // ============================================================
+    // Rooms de partie multi-joueurs synchronisées via room code à 6 chars.
+    // Lecture publique (les joueurs scannent le code), création par tout user auth.
+    match /play_rooms/{code} {
+      allow read: if true;
+      allow create: if isAuthed();
+      allow update: if isAuthed();
+      allow delete: if isAuthed() && resource.data.host == request.auth.uid;
+    }
+
+    // ============================================================
+    // Tournaments (Organizer multi-device)
+    // ============================================================
+    // L'organisateur peut écrire. Les joueurs peuvent lire pour suivre.
+    match /tournaments/{tid} {
+      allow read: if true;
+      allow create: if isAuthed();
+      allow update: if isAuthed() && (
+        resource.data.organizer == request.auth.uid ||
+        // Les joueurs peuvent reporter leur match
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rounds', 'updatedAt'])
+      );
+      allow delete: if isAuthed() && resource.data.organizer == request.auth.uid;
+    }
+
+    // ============================================================
+    // DCI Rankings (classement global anonymisé)
+    // ============================================================
+    // Chaque user écrit son propre rating. Lecture publique pour leaderboard.
+    match /dci_rankings/{uid} {
+      allow read: if true;
+      allow write: if isAuthed() && request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(['displayName', 'elo', 'games', 'wins', 'losses', 'byFormat', 'updatedAt']);
+    }
+
+    // ============================================================
     // Cache d'effets de cartes (Arena Pro rules engine)
     // ============================================================
     // Stocke les actions JSON parsées par l'IA pour chaque carte.

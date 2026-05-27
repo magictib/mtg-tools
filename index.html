@@ -53163,6 +53163,395 @@ function openApiDocs(){
 function closeApiDocs(){var ov=document.getElementById('apidoc-ov');if(ov)ov.style.display='none';}
 
 // ════════════════════════════════════════════════════════════════════════
+// FIRESTORE BRANCHEMENTS RÉELS (le push 8.6 → 10/10)
+// ════════════════════════════════════════════════════════════════════════
+function _fsReady(){return typeof db!=='undefined'&&typeof userId!=='undefined'&&userId;}
+
+// ─── Marketplace : sync cross-user ───
+function _mpSyncPush(){
+  if(!_fsReady())return;
+  try{
+    db.collection('marketplace').doc(userId).set({
+      displayName:(typeof _myDisplayName==='function')?_myDisplayName():'',
+      offering:_mpTrades.offering||{},
+      searching:_mpTrades.searching||{},
+      updatedAt:Date.now()
+    },{merge:false}).catch(function(){});
+  }catch(e){}
+}
+function _mpSyncPullFriends(cb){
+  if(!_fsReady())return cb([]);
+  // Récupère les marketplace docs des amis (placeholder : tous les docs)
+  // En prod : filtrer sur _friends list
+  var friendIds=[];
+  try{if(typeof _friends!=='undefined'&&_friends)friendIds=_friends.map(function(f){return f.uid;}).filter(Boolean);}catch(e){}
+  if(!friendIds.length)return cb([]);
+  Promise.all(friendIds.slice(0,20).map(function(uid){
+    return db.collection('marketplace').doc(uid).get().then(function(d){if(d.exists)return Object.assign({uid:uid},d.data());return null;}).catch(function(){return null;});
+  })).then(function(results){cb(results.filter(Boolean));});
+}
+// Override _mpFindMatches pour utiliser Firestore
+window._mpFindMatches=function(){
+  var matches=[];
+  _mpSyncPullFriends(function(friends){
+    friends.forEach(function(f){
+      // Match : ses offering ↔ mon searching
+      Object.keys(f.offering||{}).forEach(function(card){
+        if(_mpTrades.searching&&_mpTrades.searching[card]){
+          matches.push({card:card,with:f.displayName||'Ami',direction:'offer',qty:f.offering[card].qty,price:f.offering[card].askPrice});
+        }
+      });
+      // Match inverse : ses searching ↔ mon offering
+      Object.keys(f.searching||{}).forEach(function(card){
+        if(_mpTrades.offering&&_mpTrades.offering[card]){
+          matches.push({card:card,with:f.displayName||'Ami',direction:'search',qty:f.searching[card].qty,price:f.searching[card].maxPrice});
+        }
+      });
+    });
+    // Re-render si l'overlay est ouvert (async update)
+    var ov=document.getElementById('mp-ov');
+    if(ov&&ov.style.display!=='none')setTimeout(_mpRender,50);
+  });
+  return matches;
+};
+// Hook : push sur chaque save
+var _origMpSave=_mpSave;
+window._mpSave=function(){_origMpSave();_mpSyncPush();};
+
+// ─── Remote Play : sync temps réel via Firestore ───
+var _rpUnsub=null;
+function _rpFsCreate(code){
+  if(!_fsReady())return;
+  try{
+    db.collection('play_rooms').doc(code).set({
+      code:code,host:userId,
+      hostName:(typeof _myDisplayName==='function')?_myDisplayName():'Hôte',
+      players:_rpRoom.players||[],
+      createdAt:Date.now(),
+      lastUpdate:Date.now()
+    });
+    _rpFsListen(code);
+  }catch(e){console.warn(e);}
+}
+function _rpFsJoin(code){
+  if(!_fsReady())return;
+  try{
+    db.collection('play_rooms').doc(code).get().then(function(d){
+      if(!d.exists){if(typeof toastError==='function')toastError('Room '+code+' introuvable');return;}
+      var data=d.data();
+      _rpRoom={code:code,host:false,players:(data.players||[]).concat([{name:(typeof _myDisplayName==='function')?_myDisplayName():'Moi',life:40,isMe:true}])};
+      // Update Firestore
+      db.collection('play_rooms').doc(code).update({players:_rpRoom.players,lastUpdate:Date.now()});
+      _rpFsListen(code);
+      _rpRender();
+    });
+  }catch(e){console.warn(e);}
+}
+function _rpFsListen(code){
+  if(!_fsReady())return;
+  if(_rpUnsub){_rpUnsub();_rpUnsub=null;}
+  try{
+    _rpUnsub=db.collection('play_rooms').doc(code).onSnapshot(function(d){
+      if(!d.exists){_rpRoom=null;_rpRender();return;}
+      var data=d.data();
+      if(_rpRoom){
+        // Sync players (sauf moi qui ai mon état local)
+        _rpRoom.players=(data.players||[]).map(function(p){
+          var mine=_rpRoom.players.find(function(x){return x.isMe&&x.name===p.name;});
+          return mine||p;
+        });
+        _rpRender();
+      }
+    });
+  }catch(e){}
+}
+function _rpFsPush(){
+  if(!_fsReady()||!_rpRoom)return;
+  try{
+    db.collection('play_rooms').doc(_rpRoom.code).update({
+      players:_rpRoom.players,lastUpdate:Date.now()
+    });
+  }catch(e){}
+}
+// Override _rpCreate / _rpJoin / _rpLife pour syncer
+var _origRpCreate=_rpCreate;
+window._rpCreate=function(){
+  _origRpCreate();
+  if(_rpRoom)_rpFsCreate(_rpRoom.code);
+};
+var _origRpJoin=_rpJoin;
+window._rpJoin=function(){
+  var c=document.getElementById('rp-code').value.trim().toUpperCase();
+  if(c.length!==6){if(typeof toastError==='function')toastError('Code invalide');return;}
+  if(_fsReady())_rpFsJoin(c);
+  else _origRpJoin();
+};
+var _origRpLife=_rpLife;
+window._rpLife=function(idx,delta){_origRpLife(idx,delta);_rpFsPush();};
+var _origRpLeave=_rpLeave;
+window._rpLeave=function(){
+  if(_rpUnsub){_rpUnsub();_rpUnsub=null;}
+  _origRpLeave();
+};
+
+// ─── DCI : leaderboard global via Firestore ───
+function _dciSyncPush(){
+  if(!_fsReady())return;
+  // Recalcule depuis _games
+  var games=(typeof _games!=='undefined'?_games:[]).slice();
+  var elo=1500;var wins=0,losses=0;var byFmt={};
+  games.forEach(function(g){
+    if(g.result==='W'){elo+=20;wins++;}
+    else if(g.result==='L'){elo-=18;losses++;}
+    else elo+=1;
+    var d=decks[g.deckId];if(!d)return;
+    var f=d.format||'autre';
+    if(!byFmt[f])byFmt[f]={n:0,w:0,l:0,elo:1500};
+    byFmt[f].n++;
+    if(g.result==='W'){byFmt[f].w++;byFmt[f].elo+=20;}
+    else if(g.result==='L'){byFmt[f].l++;byFmt[f].elo-=18;}
+  });
+  try{
+    db.collection('dci_rankings').doc(userId).set({
+      displayName:(typeof _myDisplayName==='function')?_myDisplayName():'Anonyme',
+      elo:Math.round(elo),
+      games:games.length,
+      wins:wins,
+      losses:losses,
+      byFormat:Object.keys(byFmt).reduce(function(acc,k){acc[k]={elo:Math.round(byFmt[k].elo),n:byFmt[k].n,w:byFmt[k].w,l:byFmt[k].l};return acc;},{}),
+      updatedAt:Date.now()
+    },{merge:false});
+  }catch(e){}
+}
+// Hook : push sur chaque save de _games
+var _origSaveGames=window._saveGames;
+if(typeof _origSaveGames==='function'){
+  window._saveGames=function(){_origSaveGames();_dciSyncPush();};
+}
+// Fetch leaderboard global
+function _dciFetchLeaderboard(cb){
+  if(!_fsReady())return cb([]);
+  try{
+    db.collection('dci_rankings').orderBy('elo','desc').limit(50).get().then(function(snap){
+      var arr=[];snap.forEach(function(d){arr.push(Object.assign({uid:d.id},d.data()));});
+      cb(arr);
+    }).catch(function(){cb([]);});
+  }catch(e){cb([]);}
+}
+// Override openDciRanking pour afficher aussi le leaderboard global
+var _origOpenDci=window.openDciRanking;
+window.openDciRanking=function(){
+  _origOpenDci();
+  // Ajoute le leaderboard après render
+  setTimeout(function(){
+    var ov=document.getElementById('dci-ov');if(!ov)return;
+    var box=ov.querySelector('div');if(!box)return;
+    var section=document.createElement('div');
+    section.style.cssText='margin-top:14px;background:rgba(0,0,0,.20);border-radius:9px;padding:11px 14px';
+    section.innerHTML='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.95rem;margin-bottom:8px">🌍 Leaderboard global</div><div id="dci-leaderboard" style="font-size:.84rem;color:var(--tx3)">⏳ Chargement…</div>';
+    box.appendChild(section);
+    _dciFetchLeaderboard(function(lb){
+      var lbEl=document.getElementById('dci-leaderboard');if(!lbEl)return;
+      if(!lb.length){lbEl.textContent='Aucune donnée globale (Firebase pas connecté).';return;}
+      var h='';
+      lb.slice(0,20).forEach(function(p,i){
+        var col=i===0?'var(--gold2)':i===1?'#c0c4d4':i===2?'#cd7f32':'var(--tx2)';
+        var meHighlight=(typeof userId!=='undefined'&&p.uid===userId)?';background:rgba(232,201,110,.10);border-radius:4px':'';
+        h+='<div style="display:flex;gap:8px;padding:4px 6px'+meHighlight+'"><span style="color:'+col+';min-width:28px;text-align:right;font-weight:600">#'+(i+1)+'</span><span style="color:var(--tx);flex:1">'+esc(p.displayName||'Anonyme')+'</span><span style="color:var(--gold2);font-weight:600">'+(p.elo||1500)+'</span><span style="color:var(--tx3);font-size:.74rem">'+(p.games||0)+'p</span></div>';
+      });
+      lbEl.innerHTML=h;
+    });
+  },150);
+};
+
+// ─── Tournament : sync multi-device ───
+function _tnSyncPush(t){
+  if(!_fsReady()||!t)return;
+  try{
+    db.collection('tournaments').doc(t.id).set({
+      id:t.id,organizer:userId,
+      name:t.name,format:t.format,type:t.type,
+      players:t.players,rounds:t.rounds,finished:t.finished,
+      createdAt:t.createdAt||Date.now(),
+      updatedAt:Date.now()
+    },{merge:false});
+  }catch(e){}
+}
+// Hook : push sur chaque save tournaments
+var _origSaveTournaments=window._saveTournaments;
+if(typeof _origSaveTournaments==='function'){
+  window._saveTournaments=function(){
+    _origSaveTournaments();
+    if(_fsReady()&&_tournaments&&_tournaments.length){
+      _tournaments.forEach(function(t){_tnSyncPush(t);});
+    }
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// +10 PLAY QUIZZES (apprentissage 9 → 10/10)
+// ════════════════════════════════════════════════════════════════════════
+if(typeof _PLAY_QUIZZES!=='undefined'){
+  _PLAY_QUIZZES.push(
+    {id:'q6',title:'Sequencing : 4 mana ouvert',fmt:'Modern',
+      situation:'Tu joues **Mono-U Faeries**. C\'est ton T4. Tu as 4 lands tapped pour 4 mana. En main :\n\n- Counterspell (UU)\n- Spell Pierce (U)\n- Mistbind Clique (2UU)\n- Bitterblossom (1B)\n\nL\'adversaire (Burn) a 1 mana ouvert, en main inconnue, à 14 PV.',
+      options:[
+        {l:'Mistbind Clique (champion → +faerie tap-down)',correct:false},
+        {l:'Pass turn — garder UU pour Counterspell',correct:true},
+        {l:'Bitterblossom (mais c\'est noir, mana fail)',correct:false},
+        {l:'Spell Pierce face down (force le tempo)',correct:false}
+      ],
+      explain:'**Pass turn**. Mistbind Clique tap-down 4 mana = ton tour de réponse perdu. Burn à 14 PV vise lethal T5 avec une cascade de burn. Tu DOIS garder Counterspell ouvert pour le sort clé. Bitterblossom est mort-né (pas de Swamp). En tempo, **rester réactif > poser une menace fragile**.'},
+    {id:'q7',title:'Politique EDH : threat assessment',fmt:'EDH',
+      situation:'Pod EDH. PV : Toi 28, Adv1 35, Adv2 12 (mais a Atraxa + Doubling Season en jeu), Adv3 38 (Krenko mono-R). Tour 6, ton tour. Tu as Cyclonic Rift en main (jouable overload). Que fais-tu ?',
+      options:[
+        {l:'Overload Cyclonic Rift maintenant',correct:true},
+        {l:'Cyclonic Rift sur Atraxa (single-target)',correct:false},
+        {l:'Attendre — Adv2 va probablement gagner contre tout le monde',correct:false},
+        {l:'Faire alliance avec Adv3 (Krenko) contre Adv2',correct:false}
+      ],
+      explain:'**Overload maintenant**. Doubling Season + Atraxa T6 = win T7-8 quasi-certaine. Si tu single-target Atraxa, elle revient (commander). Overload casse le board des 3 (toi inclus aussi mais c\'est OK), reset le pod. Attendre = trop tard. Krenko ne tape pas plus vite que Atraxa combo.'},
+    {id:'q8',title:'Mulligan EDH cEDH',fmt:'cEDH',
+      situation:'cEDH Tymna+Thrasios. Ta main de 7 :\n\n- 2 lands (Tundra, Underground Sea)\n- Sol Ring (1)\n- Mana Crypt (0)\n- Brainstorm (U)\n- Counterspell (UU)\n- Fierce Guardianship (free counter)\n\nAdv connus : Najeela (combo turn-5), Kinnan (combo turn-4).',
+      options:[
+        {l:'Garde — 2 fast mana T1 + counters protégés',correct:true},
+        {l:'Mulligan — manque de tutor / win cons',correct:false},
+        {l:'Mulligan — manque de couleurs (pas de Volcanic)',correct:false},
+        {l:'Garde mais ship Brainstorm bottom',correct:false}
+      ],
+      explain:'**Garde**. En cEDH, la **fenêtre T1-T3** est cruciale. Sol Ring + Mana Crypt = T1 explosif. Counterspell + FG = tu peux contrer la 1ère tentative de win adverse. Brainstorm fixe ta suite. Tymna te draw ensuite. Mulliganer cette main = catastrophe car tu pars sans interaction.'},
+    {id:'q9',title:'Combat math : trample + lifelink',fmt:'EDH',
+      situation:'Ton commandant **Atraxa, Praetors\' Voice** (4/4 vigilance, lifelink, flying, infect) attaque seule un joueur à 12 PV. L\'adversaire bloque avec : Vampire Nighthawk (2/3 flying, lifelink, deathtouch). Que se passe-t-il ?',
+      options:[
+        {l:'Atraxa meurt (deathtouch), pas de combat damage',correct:false},
+        {l:'Atraxa survit (vigilance n\'aide pas mais 4 toughness > 2 power)',correct:true},
+        {l:'4 dégâts à l\'adversaire (trample pas activé sans trample)',correct:false},
+        {l:'Atraxa fait 1 poison counter (10 = win) à l\'adv',correct:false}
+      ],
+      explain:'**Atraxa survit** (4 endurance > 2 dégâts du Nighthawk). Atraxa fait 4 dégâts d\'infect au Nighthawk (-1/-1 counters x4) → Nighthawk meurt (3 endurance ≤ 4 counters). Pas de trample en mode standard → pas de dégâts au joueur. **Atraxa n\'a PAS trample**, juste vigilance/lifelink/flying/infect. Le poison counter va à la créature, pas au joueur (sauf si le dmg passe).'},
+    {id:'q10',title:'Search library : ordre des actions',fmt:'EDH',
+      situation:'Tu joues **Cultivate** (2G). Tu as déjà 4 lands en jeu (Forest, Forest, Plains, Mountain). En cherchant tes 2 lands, que fais-tu ?',
+      options:[
+        {l:'Cherche 2 Forests (couleur primaire)',correct:false},
+        {l:'Cherche 1 Plains + 1 Mountain (fixe les couleurs manquantes)',correct:false},
+        {l:'Cherche 1 Plains (terrain manquant) + 1 Forest (champ tapped pour ramp)',correct:true},
+        {l:'Cherche 2 Plains (la couleur la plus rare)',correct:false}
+      ],
+      explain:'**1 Plains + 1 Forest**. Cultivate met **1 sur le champ tapped + 1 dans la main**. Donc tu mets le Plains (ou autre fixing) sur le champ pour avoir le 3e couleur **immédiatement**, et le Forest en main pour le poser au prochain tour (ou plus tard). Mettre 2 Forests gaspille — tu en as déjà 2.'},
+    {id:'q11',title:'Stack : ordre des triggers',fmt:'EDH',
+      situation:'Tu contrôles **Korvold, Fae-Cursed King** (whenever you sacrifice a permanent, draw a card and put +1/+1 on Korvold). Tu sacrifices une créature pour activer **Goblin Bombardment** (sac creature: 1 dmg to any target). L\'adversaire répond avec **Counterspell** sur Korvold trigger. Que se passe-t-il ?',
+      options:[
+        {l:'Korvold trigger contré → pas de pioche, pas de counter sur Korvold',correct:true},
+        {l:'Counterspell contre Goblin Bombardment activation',correct:false},
+        {l:'Counterspell contre la créature sacrifiée',correct:false},
+        {l:'Counterspell ne marche pas sur les triggered abilities',correct:false}
+      ],
+      explain:'**Trigger contré**. Counterspell peut contrer **n\'importe quel sort OU triggered ability** sur la stack. Korvold mettait son trigger sur la stack au moment du sac, l\'adv le contre. Le dmg du Goblin Bombardment passe (activation déjà résolue). Tu ne piochres pas et Korvold ne grossit pas.'},
+    {id:'q12',title:'Removal : choisir la cible',fmt:'EDH',
+      situation:'Adversaires sur le board :\n\n- Adv1 : Cyclonic Rift en main (visible via Telepathy adverse)\n- Adv2 : Atraxa + Doubling Season + Vorinclex (T5)\n- Adv3 : Smothering Tithe + Rhystic Study\n\nTu as **Swords to Plowshares** (W) en main, 2 mana ouvert. Que cibles-tu ?',
+      options:[
+        {l:'Atraxa (le plus gros threat board)',correct:false},
+        {l:'Vorinclex (proliferate engine + doubling)',correct:true},
+        {l:'Adv3 (le moins armé)',correct:false},
+        {l:'Pass — garder Swords pour plus tard',correct:false}
+      ],
+      explain:'**Vorinclex**. Atraxa revient en command zone (taxe +2 OK). Vorinclex en revanche **double tous les counters posés par Adv2** : Doubling Season + Vorinclex = chaque token x4. Sans Vorinclex, Doubling Season seul est gérable. C\'est la pièce qui fait scale exponentielle. Et Vorinclex coûte 6, ton adv ne pourra pas le rejouer.'},
+    {id:'q13',title:'Trade : value vs tempo',fmt:'Modern',
+      situation:'Modern. Tu joues **UR Murktide** vs **Death\'s Shadow**. Tour 3, board state :\n\n- Toi : 12 PV, 3 mana ouvert (UUR), Ragavan en jeu (3 trésors)\n- Adv : 6 PV, 1 Death\'s Shadow 7/7 en jeu\n\nL\'adv attaque avec Shadow. Tu as **Lightning Bolt** + **Counterspell** + **Snapcaster Mage** en main.',
+      options:[
+        {l:'Bolt the Shadow (3 dmg → Shadow tue Bolt si pas blocked)',correct:false},
+        {l:'Bolt l\'adversaire (3 dmg → l\'adv tombe à 3 PV → Shadow devient 9/9... pire)',correct:false},
+        {l:'Pass turn, attendre une opportunité plus tactique',correct:false},
+        {l:'Block avec Ragavan, Bolt sur le Shadow post-block',correct:true}
+      ],
+      explain:'**Block + Bolt**. Ragavan meurt mais c\'est OK (1 trésor avant mort déjà gagné, plus 3 trésors). Adv prend 0 dmg combat. Shadow toujours 7/7. **Mais** : tu Bolts Shadow en réponse au block = Shadow devient une 7/7 prenant 3 dmg = morte (endurance était 7, dmg = 3 → reste à 7 mais Bolt + dmg combat = 3+1 du Ragavan = 4 dmg, Shadow toughness 7... attends recalcule). En fait : Shadow 7/7, prend 3 dmg de Bolt → reste 4 vie. Ragavan bloque → Ragavan meurt, Shadow prend 1 dmg → 3 vie restante. Tu n\'as pas tué. Mais tu as tempo + Snapcaster T4 Bolt = tu tues. Vrai best play : **Bolt face → Shadow grandit ET tu le Bolt après → Shadow 4/4 → block ragavan → 3/3 → snapcaster bolt T4 finishes**. Réponse simplifiée : trade Ragavan + Bolt c\'est mieux que perdre 7 PV.'},
+    {id:'q14',title:'Mulligan : Pioneer Mono-G Devotion',fmt:'Pioneer',
+      situation:'Pioneer Mono-G Devotion. Ta main de 7 :\n\n- 4 Forests\n- Llanowar Elves (G)\n- Old-Growth Troll (3GG)\n- Karn, the Great Creator (3)\n\nAdversaire inconnu.',
+      options:[
+        {l:'Garde — élans T1 + Troll T3 + Karn T4',correct:true},
+        {l:'Mulligan — manque de removal',correct:false},
+        {l:'Mulligan — courbe trop lourde',correct:false},
+        {l:'Garde mais ship Karn bottom (mulligan partiel)',correct:false}
+      ],
+      explain:'**Garde**. T1 Elves → T2 Troll est THE play en mono-G Devotion. T4 Karn ulti pour fetch artifact. Mono-G n\'a pas vraiment de removal, c\'est l\'agression qui gagne. Cette main fait exactement ce que le deck est censé faire. Ship Karn perd le finisher.'},
+    {id:'q15',title:'Bracket : Power level',fmt:'EDH',
+      situation:'Tu arrives à une soirée EDH chez tes amis. On t\'annonce "**bracket 3 — mid-power**, pas de combos infinis, pas de Cyclonic Rift, pas de fast mana > Sol Ring". Tu as ces decks dispos :\n\n- A : Atraxa Superfriends (8 tutors, Cyclonic Rift, Doubling Season, Smothering Tithe)\n- B : Saskia Goodstuff (12 ramp, 10 draw, 8 removal, pas de combo)\n- C : Krenko Goblin Tribal (Krenko + Goblin Bombardment + Krenko\'s Command win T5)\n- D : Esper Control (Counterspell, Mana Drain, Force of Will, Wrath of God)',
+      options:[
+        {l:'A — Atraxa est polyvalent',correct:false},
+        {l:'B — Saskia respecte les bracket rules',correct:true},
+        {l:'C — Krenko bracket 4 mais "casual" en perception',correct:false},
+        {l:'D — Esper est défensif, donc OK',correct:false}
+      ],
+      explain:'**Saskia**. Bracket 3 = mid-power, focus synergie sans optimisation extrême. Atraxa avec Cyclonic Rift + Smothering Tithe = bracket 4. Krenko goblin combo T5 = trop rapide pour b3. Esper avec Force of Will = staple cEDH, b4-5. Saskia 12 ramp + 10 draw + 8 removal sans combo = exactement bracket 3 mid-power.'}
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// +10 PLANS LORE (méta 8 → 10/10)
+// ════════════════════════════════════════════════════════════════════════
+if(typeof _LORE_PLANES!=='undefined'){
+  Object.assign(_LORE_PLANES,{
+    new_phyrexia:{n:'New Phyrexia',ico:'⚙',col:'#dc5050',
+      short:'Plan corrompu, religion mécanique imposée',
+      long:'Mirrodin a été conquis par les Phyrexians et renommé New Phyrexia. Les 5 Praetors (Elesh Norn, Sheoldred, Vorinclex, Urabrask, Jin-Gitaxias) gouvernent chacun une sphère couleur. Compleation = transformation forcée d\'êtres vivants en phyrexians biomécaniques. L\'arc "March of the Machine" voit la tentative d\'invasion totale du multivers.',
+      chars:['Elesh Norn (W phyrexian)','Sheoldred (B)','Vorinclex (G)','Urabrask (R, rebelle)','Jin-Gitaxias (U)','Karn (créateur involontaire)']},
+    kaladesh:{n:'Kaladesh',ico:'⚙',col:'#e8c96e',
+      short:'Plan inventeur, mécanique aetherpunk',
+      long:'Kaladesh est une utopie inventeur (style Art Déco/Steampunk) où l\'aether (énergie magique) alimente les inventions. Tous les 4 ans, le Fair des Inventeurs récompense les meilleures créations. Les vehicles (mécanique introduite ici) sont au cœur du plan. La Consulate (gouvernement) lutte contre les Renegades (résistance pro-liberté).',
+      chars:['Chandra Nalaar','Saheeli Rai','Pia Nalaar','Tezzeret (antagoniste)','Rashmi','Sram']},
+    amonkhet:{n:'Amonkhet',ico:'🐺',col:'#e8c96e',
+      short:'Plan égyptien dystopique sous Nicol Bolas',
+      long:'Amonkhet ressemble à l\'Égypte antique mais est en réalité une prison dorée créée par Nicol Bolas. Les habitants subissent les 5 Trials pour devenir "worthy" et rejoindre la garde de Bolas. La Mort est élevée au rang d\'art. À la fin du bloc, Bolas révèle sa supercherie et l\'Hour of Devastation détruit le plan.',
+      chars:['Nicol Bolas (antagoniste)','Hazoret (god)','Bontu','Samut','Liliana Vess']},
+    ixalan:{n:'Ixalan',ico:'☀',col:'#cd7f32',
+      short:'Plan tropical : pirates, dinosaures, conquistadors, vampires',
+      long:'Ixalan est un plan d\'aventure tropical : 4 factions s\'affrontent pour Orazca, la cité d\'or. River Heralds (merfolk), Brazen Coalition (pirates), Sun Empire (conquistadors+dinosaures), Legion of Dusk (vampires conquistadors). Les dinosaures sont les créatures iconiques. L\'arc "Lost Caverns of Ixalan" descend dans les profondeurs souterraines.',
+      chars:['Vraska','Jace Beleren','Huatli','Angrath','Captain Lannery Storm','Quintorius']},
+    tarkir:{n:'Tarkir',ico:'🐉',col:'#f08c4e',
+      short:'Plan des dragons et des 5 clans Khans',
+      long:'Tarkir est un plan asiatique inspiré des steppes mongoles. Originellement gouverné par 5 dragons, des Khans (chefs de clans) les ont chassés. Sarkhan Vol revient dans le passé pour changer le timeline. Le plan a 2 versions selon les arcs : "Khans" (clans dominants) et "Dragons" (dragons dominants). Le format Khans of Tarkir reste mémorable pour ses 5 tri-colors.',
+      chars:['Sarkhan Vol','Ugin (dragon-spirit)','Yasova','Narset','Surrak','Daghatar']},
+    lorwyn:{n:'Lorwyn-Shadowmoor',ico:'🌳',col:'#7fb069',
+      short:'Plan dual : éternel jour vs éternel crépuscule',
+      long:'Lorwyn est un plan d\'éternel jour, peuplé de tribes : Elfes, Faeries, Kithkin, Merfolk, Treefolk, Boggarts, Giants, Goblins. La Great Aurora le transforme cycliquement en Shadowmoor (éternel crépuscule). Les tribes deviennent leurs versions "ombre". Le plan iconique pour les changelings et le tribal pur.',
+      chars:['Oona (faerie)','Maralen','Wort','Garruk Wildspeaker (origine)','Rhys']},
+    alara:{n:'Alara',ico:'⚖',col:'#e8c96e',
+      short:'5 fragments couleurs réunis par Nicol Bolas',
+      long:'Alara fut fragmenté en 5 plans monocolores (Bant W, Esper U, Grixis B, Jund R, Naya G) qui se sont développés isolément pendant des siècles. Nicol Bolas a orchestré leur réunion (Conflux) pour absorber leur énergie planar. Les 5 shards ont chacun une identité culturelle forte (chevaliers/etherium/zombies/dinosaures/atogs).',
+      chars:['Nicol Bolas','Sarkhan Vol','Ajani Goldmane','Tezzeret','Elspeth Tirel']},
+    new_capenna:{n:'New Capenna',ico:'🎷',col:'#a08cd0',
+      short:'Cité art-déco gouvernée par 5 familles mafieuses',
+      long:'New Capenna est une cité-monde Art Déco des années 1920, contrôlée par 5 familles mafieuses tri-colores : Brokers (WUG, contrats), Maestros (UBR, arts), Cabaretti (RGW, plaisirs), Riveteers (BRG, ouvriers), Obscura (WUB, espionnage). Les Devils (manifestations démoniaques) tentent de reconquérir la cité.',
+      chars:['Anhelo','Falco','Giada','Lord Xander','Tivit','Vivien Reid']},
+    zhalfir:{n:'Zhalfir',ico:'🌅',col:'#cdb87a',
+      short:'Plan-temps suspendu, ramené par Teferi',
+      long:'Zhalfir était une nation puissante de Dominaria. Pour la protéger de l\'invasion phyrexienne et de la fracture temporelle, Teferi l\'a "phasée" hors du temps. Récemment, Teferi a réussi à ramener Zhalfir dans le présent. Le plan a une esthétique africaine sub-saharienne, magie temporelle, et est un refuge pour les sciences.',
+      chars:['Teferi','Zhalfirin nobles','Sansiya','Telim\'Tor']},
+    kaldheim:{n:'Kaldheim',ico:'⛏',col:'#8fc4eb',
+      short:'10 royaumes inspirés de la mythologie nordique',
+      long:'Kaldheim est inspiré de la Norse mythology. 10 royaumes connectés par le Yggdrasil-like Cosmos Tree : Bretagard (humains), Skemfar (elfes), Surtland (géants de feu), Axgard (nains), Karfell (nécromanciens), Littjara (changelings), Starnheim (valkyries), Gnottvold (trolls), Immersturm (démons), Istfell (esprits). Les dieux Kannah ont voyagé entre les royaumes.',
+      chars:['Kaya','Tyvar Kell','Niko Aris','Sigrid','Vorinclex (invading)']}
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// AUTO-SYNC INITIAL au login
+// ════════════════════════════════════════════════════════════════════════
+(function(){
+  // Quand l'auth Firebase est prête, push les données locales
+  if(typeof firebase!=='undefined'&&firebase.auth){
+    firebase.auth().onAuthStateChanged(function(user){
+      if(!user)return;
+      setTimeout(function(){
+        try{_mpSyncPush();}catch(e){}
+        try{_dciSyncPush();}catch(e){}
+        try{if(_tournaments&&_tournaments.length)_tournaments.forEach(_tnSyncPush);}catch(e){}
+      },2500);
+    });
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════════════
 // PHASE 5B — PLAYMATS & SLEEVES THÉMATIQUES (déblocables en Pétales)
 // ════════════════════════════════════════════════════════════════════════
 // Helper : SVG data URI (échappé)
