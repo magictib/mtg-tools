@@ -43250,11 +43250,47 @@ function trackError(err,ctx){
 // La vraie protection vient du webhook Stripe qui écrit dans Firestore.
 var _myTier='free';
 var _myProUntil=0;
+// ════════════════════════════════════════════════════════════════════════
+// LIFETIME PRO — accès Pro illimité pour les fondateurs / amis principaux
+// ════════════════════════════════════════════════════════════════════════
+// Identifié par nom affiché OU email (matching case-insensitive).
+// Pour ajouter quelqu'un : ajoute son nom/email à la liste ci-dessous.
+var _LIFETIME_PRO_NAMES=['tibco','tibcocodage','thibaud','thibco','gerebite','gérébite','gerébite'];
+var _LIFETIME_PRO_EMAILS=['thibaud.combes31@gmail.com'];
+function _isLifetimePro(){
+  try{
+    // Check display name
+    var nm=(typeof _myDisplayName==='function'?_myDisplayName():'').toLowerCase().trim();
+    if(nm){
+      for(var i=0;i<_LIFETIME_PRO_NAMES.length;i++){
+        if(nm===_LIFETIME_PRO_NAMES[i]||nm.indexOf(_LIFETIME_PRO_NAMES[i])===0)return true;
+      }
+    }
+    // Check email
+    var email=(_currentUser&&_currentUser.email||'').toLowerCase().trim();
+    if(email&&_LIFETIME_PRO_EMAILS.indexOf(email)>=0)return true;
+    // Check PN[0..n] et identifie si "Gérébite" est dans les profils chargés (= ami connecté en miroir)
+    if(typeof PN!=='undefined'&&Array.isArray(PN)){
+      // PN[0] = moi ; on ne re-check pas. On regarde si gérébite est ami (mais ça donne pro à son ami, pas à lui)
+      // Donc on saute cette logique : gérébite doit se connecter avec son propre compte.
+    }
+  }catch(e){}
+  return false;
+}
 function isPro(){
+  // 1. Lifetime Pro (fondateurs / amis core) — accès gratuit à vie
+  if(_isLifetimePro())return true;
+  // 2. Tier "pro" via Firestore (paiement Stripe ou attribution admin)
   if(_myTier==='pro'){
     if(!_myProUntil||_myProUntil>Date.now())return true;
   }
   return false;
+}
+// Retourne le type de Pro pour affichage UI ('lifetime' / 'paid' / 'free')
+function _proStatus(){
+  if(_isLifetimePro())return 'lifetime';
+  if(_myTier==='pro'&&(!_myProUntil||_myProUntil>Date.now()))return 'paid';
+  return 'free';
 }
 // Limites par tier (free)
 var PRO_LIMITS={
@@ -43285,17 +43321,22 @@ function _loadMyTier(){
 function _proBadgeRefresh(){
   var b=document.getElementById('pro-badge-mini');
   if(isPro()){
+    var status=_proStatus();
+    var lbl=status==='lifetime'?'❖ LIFETIME':'❖ PRO';
+    // Gradient plus prestigieux pour lifetime (violet/or holographique)
+    var bg=status==='lifetime'
+      ?'linear-gradient(135deg,#b87bff,#c9a84c,#b87bff)'
+      :'linear-gradient(135deg,#c9a84c,#8a6f2e)';
     if(!b){
-      // Petit badge ❖ Pro sur le menu utilisateur
       var hub=document.getElementById('hub-wrap');
       if(hub){
         b=document.createElement('span');b.id='pro-badge-mini';
-        b.style.cssText='position:absolute;top:-3px;right:-3px;background:linear-gradient(135deg,#c9a84c,#8a6f2e);color:#000;font-size:.6rem;font-weight:700;padding:1px 5px;border-radius:8px;font-family:var(--ff-head);letter-spacing:.04em;box-shadow:0 2px 8px rgba(201,168,76,.5)';
-        b.textContent='❖ PRO';
+        b.style.cssText='position:absolute;top:-3px;right:-3px;color:#000;font-size:.6rem;font-weight:700;padding:1px 5px;border-radius:8px;font-family:var(--ff-head);letter-spacing:.04em;box-shadow:0 2px 8px rgba(201,168,76,.5)';
         hub.style.position='relative';
         hub.appendChild(b);
       }
     }
+    if(b){b.textContent=lbl;b.style.background=bg;b.title=status==='lifetime'?'Accès Pro à vie (Fondateur / Ami core)':'ManaLAB Pro actif';}
   } else if(b){b.remove();}
 }
 // Page d'upgrade
@@ -53207,17 +53248,33 @@ function openProUpgrade(){
     {pro:true,n:'⚡ Priorité features beta',d:'Test des nouveautés avant tout le monde'},
     {pro:true,n:'🏅 Badge Pro',d:'Reconnaissable dans la communauté'}
   ];
+  var status=(typeof _proStatus==='function')?_proStatus():'free';
   var html='<div style="background:linear-gradient(180deg,#3a2814,#1a1208);border:2px solid var(--gold2);border-radius:18px;max-width:780px;width:100%;padding:30px 36px;box-shadow:0 20px 60px rgba(232,201,110,.3)">';
   html+='<div style="text-align:center;margin-bottom:22px">';
   html+='<div style="font-size:2.6rem;font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);line-height:1">❖ ManaLAB Pro</div>';
   html+='<div style="font-size:.92rem;color:var(--tx2);margin-top:6px">Débloque le paradis du joueur Magic</div>';
   html+='</div>';
-  // Prix
-  html+='<div style="background:rgba(0,0,0,.3);border-radius:12px;padding:18px;margin-bottom:20px;text-align:center">';
-  html+='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:4px">PROCHAINEMENT</div>';
-  html+='<div style="font-size:3rem;color:var(--gold2);font-weight:700;line-height:1">4,99€<span style="font-size:1rem;color:var(--tx3)">/mois</span></div>';
-  html+='<div style="font-size:.78rem;color:var(--tx3);margin-top:4px">ou 49€/an (−18%)</div>';
-  html+='</div>';
+  // Statut actuel
+  if(status==='lifetime'){
+    html+='<div style="background:linear-gradient(135deg,rgba(184,123,255,.20),rgba(201,168,76,.20),rgba(184,123,255,.20));border:2px solid var(--gold2);border-radius:12px;padding:20px;margin-bottom:20px;text-align:center;box-shadow:0 0 30px rgba(184,123,255,.3)">';
+    html+='<div style="font-size:.78rem;color:var(--gold2);letter-spacing:.08em;margin-bottom:6px">TON STATUT</div>';
+    html+='<div style="font-size:2.2rem;font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);line-height:1;background:linear-gradient(135deg,#b87bff,#c9a84c,#b87bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">❖ LIFETIME PRO</div>';
+    html+='<div style="font-size:.92rem;color:var(--tx2);margin-top:10px;line-height:1.6">🎁 Accès Pro <b>gratuit à vie</b>. Réservé aux fondateurs et amis core de ManaLAB.<br>Toutes les features Pro sont déjà débloquées pour toi.</div>';
+    html+='</div>';
+  }else if(status==='paid'){
+    html+='<div style="background:rgba(127,176,105,.10);border:.5px solid #7fb069;border-radius:12px;padding:14px 18px;margin-bottom:20px;text-align:center">';
+    html+='<div style="font-size:.78rem;color:#7fb069;letter-spacing:.05em">TON STATUT</div>';
+    html+='<div style="font-size:1.4rem;color:#7fb069;font-weight:700">✓ Pro actif</div>';
+    if(_myProUntil)html+='<div style="font-size:.78rem;color:var(--tx3);margin-top:3px">jusqu\'au '+new Date(_myProUntil).toLocaleDateString('fr-FR')+'</div>';
+    html+='</div>';
+  }else{
+    // Prix (free user)
+    html+='<div style="background:rgba(0,0,0,.3);border-radius:12px;padding:18px;margin-bottom:20px;text-align:center">';
+    html+='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:4px">PROCHAINEMENT</div>';
+    html+='<div style="font-size:3rem;color:var(--gold2);font-weight:700;line-height:1">4,99€<span style="font-size:1rem;color:var(--tx3)">/mois</span></div>';
+    html+='<div style="font-size:.78rem;color:var(--tx3);margin-top:4px">ou 49€/an (−18%)</div>';
+    html+='</div>';
+  }
   // Features
   html+='<div style="margin-bottom:20px">';
   features.forEach(function(f){
@@ -53231,10 +53288,12 @@ function openProUpgrade(){
   html+='</div>';
   // CTA
   html+='<div style="display:flex;flex-direction:column;gap:8px">';
-  html+='<button class="btn btnp" onclick="closeProUpgrade();if(typeof toastSuccess===\'function\')toastSuccess(\'Inscrit en liste d\\\'attente Pro\');" style="padding:14px;font-size:1rem;background:linear-gradient(180deg,rgba(220,170,60,.95),rgba(160,115,35,.95));color:#1a1208;font-weight:700">⚡ M\'inscrire à la beta Pro</button>';
-  html+='<button class="btn btnsm" onclick="closeProUpgrade()" style="padding:9px">Continuer en gratuit</button>';
+  if(status==='free'){
+    html+='<button class="btn btnp" onclick="closeProUpgrade();if(typeof toastSuccess===\'function\')toastSuccess(\'Inscrit en liste d\\\'attente Pro\');" style="padding:14px;font-size:1rem;background:linear-gradient(180deg,rgba(220,170,60,.95),rgba(160,115,35,.95));color:#1a1208;font-weight:700">⚡ M\'inscrire à la beta Pro</button>';
+  }
+  html+='<button class="btn btnsm" onclick="closeProUpgrade()" style="padding:9px">Fermer</button>';
   html+='</div>';
-  html+='<div style="margin-top:14px;font-size:.7rem;color:var(--tx3);font-style:italic;text-align:center">Aucun paiement requis pour l\'instant. Tu es prévenu quand Pro sortira.</div>';
+  if(status==='free')html+='<div style="margin-top:14px;font-size:.7rem;color:var(--tx3);font-style:italic;text-align:center">Aucun paiement requis pour l\'instant. Tu es prévenu quand Pro sortira.</div>';
   html+='</div>';
   ov.innerHTML=html;ov.style.display='flex';
 }
