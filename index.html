@@ -49351,8 +49351,9 @@ function _registerPhase4Items(){}
 '.ap-zones{display:grid;grid-template-rows:auto 1fr auto;gap:6px;flex:1;min-height:0;position:relative}',
 '.ap-battlefield{background:linear-gradient(180deg,rgba(45,30,15,.4),rgba(25,18,8,.6));border:1px solid rgba(201,168,76,.18);border-radius:10px;padding:10px;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:8px;min-height:200px}',
 '.ap-bf-label{position:absolute;top:6px;left:12px;font-family:\'Goudy Mediaeval\',serif;color:rgba(201,168,76,.45);font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;pointer-events:none}',
-'.ap-bf-row{display:flex;gap:5px;flex-wrap:wrap;min-height:130px;align-items:flex-start;padding-top:14px}',
-'.ap-bf-row+.ap-bf-row{border-top:.5px dashed rgba(201,168,76,.12);padding-top:14px;margin-top:6px}',
+'.ap-bf-row{display:flex;gap:6px;flex-wrap:wrap;min-height:140px;align-items:flex-start;padding-top:18px;padding-bottom:6px;position:relative}',
+'.ap-bf-row+.ap-bf-row{border-top:.5px dashed rgba(201,168,76,.12);padding-top:18px;margin-top:8px}',
+'.ap-battlefield{overflow-y:auto}',
 '.ap-bf-row-lbl{position:absolute;font-size:.6rem;color:rgba(201,168,76,.35);left:14px;transform:translateY(-8px)}',
 '/* ═══ CARTE (battlefield) ═══ */',
 '.ap-card{position:relative;width:90px;height:126px;border-radius:7px;overflow:hidden;background:#1a1208;cursor:pointer;flex-shrink:0;transition:transform .2s ease,box-shadow .2s ease,filter .2s;box-shadow:0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.05);user-select:none;-webkit-user-select:none}',
@@ -49501,7 +49502,8 @@ function _apRender(){
   var bf={creatures:[],lands:[],others:[]};
   s.battlefield.forEach(function(p,idx){
     var meta=_anaData[(p.name||'').toLowerCase()];
-    var tl=(meta&&meta.typeLine||'').toLowerCase();
+    // Pour les tokens (créés à la volée), utilise _typeLine stocké sur le permanent
+    var tl=(p._typeLine||(meta&&meta.typeLine)||'').toLowerCase();
     var entry={p:p,idx:idx,meta:meta};
     if(tl.indexOf('land')>=0)bf.lands.push(entry);
     else if(tl.indexOf('creature')>=0||tl.indexOf('planeswalker')>=0)bf.creatures.push(entry);
@@ -49688,35 +49690,109 @@ function _apAttachPreview(){
 function _apLog(t){if(!_gfState)return;_gfState.log.push('T'+_gfState.turn+'·'+_gfState.phase+' : '+t);}
 function _apDraw(n){
   if(!_gfState)return;
+  var drawn=0;
   for(var i=0;i<n;i++){
     if(!_gfState.library.length){_apLog('💀 Mill out');break;}
     _gfState.hand.push(_gfState.library.shift());
+    drawn++;
   }
-  _apLog('Pioche '+n);_apRender();
+  _apLog('Pioche '+drawn);
+  // Trigger : Whenever you draw a card (Icetill Explorer, Sword of Fire and Ice, etc.)
+  if(drawn>0&&_gfState.triggers&&_gfState.triggers.length){
+    for(var d=0;d<drawn;d++){_apFireTriggers('draw');}
+  }
+  _apRender();
 }
 function _apNextTurn(){
   if(!_gfState)return;
   _gfState.turn++;_gfState.landsPlayed=0;
   _gfState.battlefield.forEach(function(p){p.tapped=false;});
   _gfState.manaPool={W:0,U:0,B:0,R:0,G:0,C:0};
-  _gfState.phase='draw';
+  _gfState.phase='untap';
   _apLog('— Nouveau tour —');
   setTimeout(function(){
-    if(_gfState){_apDraw(1);_gfState.phase='main1';_apRender();}
-  },50);
+    if(!_gfState)return;
+    // Upkeep triggers
+    _gfState.phase='upkeep';
+    _apFireTriggers('upkeep');
+    _apRender();
+    setTimeout(function(){
+      if(!_gfState)return;
+      _gfState.phase='draw';
+      _apDraw(1);
+      _gfState.phase='main1';
+      // Precombat main triggers (Black Market Connection-like)
+      _apFireTriggers('precombat main phase');
+      _apRender();
+    },150);
+  },80);
 }
-function _apSetPhase(ph){if(!_gfState)return;_gfState.phase=ph;_apRender();}
+function _apSetPhase(ph){
+  if(!_gfState)return;
+  _gfState.phase=ph;
+  // Fire phase-specific triggers
+  if(ph==='end')_apFireTriggers('end step');
+  if(ph==='combat')_apFireTriggers('combat');
+  if(ph==='main1')_apFireTriggers('precombat main phase');
+  _apRender();
+}
+// Fire registered triggers matching a phase
+function _apFireTriggers(when){
+  if(!_gfState||!_gfState.triggers||!_gfState.triggers.length)return;
+  var fired=_gfState.triggers.filter(function(t){return t.when===when;});
+  if(!fired.length)return;
+  // Pour chaque trigger : demander confirmation si "you may", sinon auto-apply
+  fired.forEach(function(t){
+    var isMay=/you may/i.test(t.text);
+    if(isMay){
+      // Modal de choix
+      setTimeout(function(){_apShowTriggerChoice(t,when);},100);
+    }else{
+      // Auto-apply (parse l'oracle minimaliste)
+      _apApplyTriggerEffect(t);
+    }
+  });
+}
+function _apShowTriggerChoice(trigger,when){
+  // Détecte le coût et l'effet pour le présenter
+  var oracle=trigger.text;
+  // Pattern : "you may pay X life, sacrifice Y, etc."
+  var lifeCost=oracle.match(/pay (\d+) life/i);
+  var content='<div style="font-size:.88rem;color:var(--tx2);margin-bottom:10px"><b style="color:var(--gold2)">'+esc(trigger.card)+'</b> — trigger '+when+'</div>';
+  content+='<div style="background:rgba(0,0,0,.30);border-radius:7px;padding:9px 12px;margin-bottom:10px;font-size:.82rem;color:var(--tx);font-style:italic;line-height:1.5;white-space:pre-wrap">'+esc(oracle.slice(0,400))+'</div>';
+  var costLbl=lifeCost?'Payer '+lifeCost[1]+' PV → effet':'Activer l\'effet';
+  _apModal({title:'⚡ Trigger : '+trigger.card,content:content,buttons:[
+    {l:costLbl,primary:true,act:function(){
+      if(lifeCost){_apLife(-parseInt(lifeCost[1]));}
+      _apApplyTriggerEffect(trigger);
+      _apModalClose();
+    }},
+    {l:'Passer (pas d\'effet)',act:function(){
+      _apLog('Trigger '+trigger.card+' : skip');
+      _apModalClose();
+    }}
+  ]});
+}
+function _apApplyTriggerEffect(trigger){
+  // Parse l'oracle pour la partie effet (après le "you may")
+  var oracle=trigger.text;
+  var afterMay=oracle.split(/you may[^.]*?(?:pay [^.,]+[.,])?\s*(?:if you do[,]?\s*)?/i);
+  var effect=(afterMay[1]||oracle).toLowerCase();
+  // Applique l'effet en réutilisant l'immediate handler
+  setTimeout(function(){_apApplyImmediateEffect(trigger.card,effect);_apRender();},50);
+}
 function _apPlayFromHand(idx){
   if(!_gfState)return;
   var nm=_gfState.hand[idx];if(!nm)return;
   var meta=_anaData[(nm||'').toLowerCase()];
   var isLand=meta&&meta.tags&&meta.tags.isLand;
   if(isLand){
-    if(_gfState.landsPlayed>=1){if(typeof toastError==='function')toastError('1 land/tour max');return;}
+    var maxLands=1+((_gfState.statics&&_gfState.statics.extraLands)||0);
+    if(_gfState.landsPlayed>=maxLands){if(typeof toastError==='function')toastError(maxLands+' terrain'+(maxLands>1?'s':'')+'/tour max');return;}
     _gfState.hand.splice(idx,1);
     _gfState.battlefield.push({name:nm,tapped:false});
     _gfState.landsPlayed++;
-    _apLog('🏔 '+nm);
+    _apLog('🏔 '+nm+(maxLands>1?' ('+_gfState.landsPlayed+'/'+maxLands+')':''));
   }else{
     var cmc=meta?(meta.cmc||0):0;
     var totalMana=Object.values(_gfState.manaPool).reduce(function(a,b){return a+b;},0);
@@ -49974,20 +50050,183 @@ function _apCardMenu(e,zone,idx){
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// PHASE 5C — RÉSOLVEUR D'EFFETS (search land, draw, scry, mill, tokens, etc.)
-// Évite les misstriggers et la triche : l'algo applique l'effet de la carte
-// automatiquement et propose les choix utilisateur via un modal.
+// PHASE 5C — RÉSOLVEUR D'EFFETS V2 (anti-misstrigger, anti-triche)
+// Distingue : (1) effets immédiats (sort instant/sorcery, ETB), (2) modaux
+// "Choose one", (3) triggers conditionnels (upkeep/draw/etc.), (4) statics,
+// (5) abilités activées. Sépare proprement chaque catégorie.
 // ════════════════════════════════════════════════════════════════════════
-// Patterns d'effets détectés via oracle text
+
+// 🎯 Point d'entrée principal
 function _apResolveEffect(cardName){
   if(!_gfState)return;
   var meta=_anaData[(cardName||'').toLowerCase()];
-  if(!meta)return;
-  var o=(meta.oracleText||'').toLowerCase();
-  if(!o)return;
-  // Pour éviter les boucles ETB infinies, on stocke quelles cartes on a déjà résolues ce turn
-  // Mais pour solo on accepte (le user peut tap manuellement plus tard si besoin)
+  if(!meta){
+    // Pas de meta = pas d'oracle dispo → on ne peut rien faire d'auto
+    if(typeof toastError==='function')toastError('Pas de données pour '+cardName+' — effet non résolu auto');
+    return;
+  }
+  var oracle=(meta.oracleText||'');
+  var oLow=oracle.toLowerCase();
+  if(!oLow)return;
+  var tl=(meta.typeLine||'').toLowerCase();
+  var isInstantSorcery=tl.indexOf('instant')>=0||tl.indexOf('sorcery')>=0;
+  var isPermanent=/creature|artifact|enchantment|planeswalker|land/i.test(tl);
 
+  // ─── PRIORITÉ 1 : Modal Choose one/two/three pour charms et commands ───
+  if(_apTryModalChoice(cardName,oracle))return true;
+
+  // ─── PRIORITÉ 2 : Permanents → registre triggers + statics + ETB seulement ───
+  if(isPermanent&&!isInstantSorcery){
+    _apRegisterPermanentEffects(cardName,oracle,oLow);
+    return true;
+  }
+
+  // ─── PRIORITÉ 3 : Instants/sorceries → effets immédiats ───
+  return _apApplyImmediateEffect(cardName,oLow);
+}
+
+// ─── Détection Modal "Choose one" ───
+function _apTryModalChoice(cardName,oracle){
+  if(!oracle)return false;
+  var modeM=oracle.match(/Choose (one|two|three|up to one|up to two|up to three)\s*[—\-]/i);
+  if(!modeM)return false;
+  // Parse les modes : généralement séparés par "•" ou nouvelles lignes commençant par "•"
+  var afterChoose=oracle.substring(modeM.index+modeM[0].length).trim();
+  var modes=[];
+  // Try splitting by bullet
+  if(afterChoose.indexOf('•')>=0){
+    modes=afterChoose.split(/\s*•\s*/).map(function(s){return s.trim();}).filter(function(s){return s.length>5;});
+  }
+  // Fallback : split by newline
+  if(modes.length<2){
+    modes=afterChoose.split('\n').map(function(s){return s.replace(/^[•·\-\s]+/,'').trim();}).filter(function(s){return s.length>5;});
+  }
+  if(modes.length<2)return false;
+  // Limite à 4 modes (sécurité)
+  modes=modes.slice(0,4);
+  // Détermine combien de choix
+  var nChoices=1;
+  if(/two/i.test(modeM[1]))nChoices=2;
+  if(/three/i.test(modeM[1]))nChoices=3;
+  var upTo=/up to/i.test(modeM[1]);
+  // Modal de sélection
+  var content='<div style="font-size:.88rem;color:var(--tx2);margin-bottom:10px"><b style="color:var(--gold2)">'+esc(cardName)+'</b> — choisis '+(upTo?'jusqu\'à ':'')+nChoices+' :</div>';
+  content+='<div style="display:flex;flex-direction:column;gap:6px">';
+  modes.forEach(function(m,i){
+    content+='<button class="ap-action" onclick="_apModalChooseMode(\''+escJs(cardName)+'\','+i+','+nChoices+','+upTo+')" style="text-align:left;padding:11px 14px;font-size:.84rem;line-height:1.5;white-space:normal">';
+    content+='<b style="color:var(--gold2)">'+String.fromCharCode(65+i)+'.</b> '+esc(m);
+    content+='</button>';
+  });
+  content+='</div>';
+  _apModal({title:'✦ '+cardName+' — Mode',content:content,canClose:false,buttons:upTo?[{l:'Valider mes choix',primary:true,act:function(){
+    _apModalClose();
+    // Applique tous les modes sélectionnés
+    if(_gfState._pendingModes){
+      _gfState._pendingModes.forEach(function(mIdx){
+        _apApplyImmediateEffect(cardName,modes[mIdx].toLowerCase());
+      });
+      _gfState._pendingModes=null;
+    }
+    _apRender();
+  }}]:[]});
+  _gfState._pendingModes=[];
+  _gfState._pendingModesList=modes;
+  return true;
+}
+function _apModalChooseMode(cardName,modeIdx,nChoices,upTo){
+  if(!_gfState||!_gfState._pendingModesList)return;
+  if(upTo){
+    // Multi-select : on toggle
+    var idx=_gfState._pendingModes.indexOf(modeIdx);
+    if(idx>=0)_gfState._pendingModes.splice(idx,1);
+    else if(_gfState._pendingModes.length<nChoices)_gfState._pendingModes.push(modeIdx);
+    // Highlight selected (simple way : re-render modal)
+    // Pour l'instant on garde tel quel
+    return;
+  }
+  // Single select : applique direct
+  if(nChoices===1){
+    var modes=_gfState._pendingModesList;
+    var mode=modes[modeIdx];
+    _apLog('✦ '+cardName+' mode '+(String.fromCharCode(65+modeIdx))+' : '+mode.slice(0,60));
+    _apModalClose();
+    _gfState._pendingModes=null;_gfState._pendingModesList=null;
+    setTimeout(function(){_apApplyImmediateEffect(cardName,mode.toLowerCase());_apRender();},80);
+    return;
+  }
+  // Multi-mode séquentiel (Choose two —)
+  _gfState._pendingModes.push(modeIdx);
+  if(_gfState._pendingModes.length>=nChoices){
+    var modes=_gfState._pendingModesList;
+    _apModalClose();
+    _gfState._pendingModes.forEach(function(mi){
+      _apLog('✦ '+cardName+' mode '+(String.fromCharCode(65+mi)));
+      _apApplyImmediateEffect(cardName,modes[mi].toLowerCase());
+    });
+    _gfState._pendingModes=null;_gfState._pendingModesList=null;
+    _apRender();
+  }
+}
+
+// ─── Enregistrer effets d'un permanent : ETB + statics + triggers ───
+function _apRegisterPermanentEffects(cardName,oracle,oLow){
+  _gfState.triggers=_gfState.triggers||[];
+  _gfState.statics=_gfState.statics||{extraLands:0,noMaxHand:false,creaturesGain:[]};
+  // ─ STATIC : extra land par tour ─
+  // "you may play an additional land each turn" / "you may play X additional lands on each of your turns"
+  if(/may play an additional land(?: each turn)?/i.test(oracle)){
+    _gfState.statics.extraLands+=1;
+    _apLog('⚡ Static : +1 terrain/tour ('+cardName+')');
+  }
+  var extraM=oracle.match(/may play (?:up to )?(two|three) additional lands/i);
+  if(extraM){
+    var n=({two:2,three:3})[extraM[1].toLowerCase()]||0;
+    _gfState.statics.extraLands+=n;
+    _apLog('⚡ Static : +'+n+' terrains/tour ('+cardName+')');
+  }
+  // No max hand size
+  if(/no maximum hand size/i.test(oracle)){
+    _gfState.statics.noMaxHand=true;
+    _apLog('⚡ Static : main sans limite ('+cardName+')');
+  }
+  // ─ TRIGGERS conditionnels (à appliquer plus tard, pas au cast) ─
+  // "At the beginning of your upkeep" / "of your precombat main phase" / "of each end step"
+  var upkeepM=oracle.match(/at the beginning of (?:your|each player's|each) (upkeep|precombat main phase|end step|combat)/i);
+  if(upkeepM){
+    _gfState.triggers.push({card:cardName,when:upkeepM[1].toLowerCase(),text:oracle});
+    _apLog('⚡ Trigger enregistré : '+cardName+' (au début de '+upkeepM[1]+')');
+  }
+  // "Whenever you draw a card"
+  if(/whenever you draw (?:a |an )?card/i.test(oracle)){
+    _gfState.triggers.push({card:cardName,when:'draw',text:oracle});
+    _apLog('⚡ Trigger enregistré : '+cardName+' (quand tu pioches)');
+  }
+  // "Whenever you cast"
+  var castM=oracle.match(/whenever you cast (?:a |an )?(instant|sorcery|spell|creature|noncreature)/i);
+  if(castM){
+    _gfState.triggers.push({card:cardName,when:'cast:'+castM[1].toLowerCase(),text:oracle});
+    _apLog('⚡ Trigger enregistré : '+cardName+' (quand tu castes un '+castM[1]+')');
+  }
+  // ─ ETB triggers : "When this/X enters the battlefield, Y" ─
+  // Ces effets se déclenchent immédiatement (c'est la mécanique ETB)
+  var etbM=oracle.match(/when\s+(?:this creature|this enchantment|this artifact|[\w\s,']+?)\s+enters[^.]*[,.]\s+(.+?)(?:\.|$)/i);
+  if(etbM){
+    var etbAction=etbM[1].trim();
+    _apLog('🎯 ETB : '+cardName);
+    setTimeout(function(){_apApplyImmediateEffect(cardName,etbAction.toLowerCase());_apRender();},100);
+  }
+  // ─ Abilités activées détectées (mais pas auto-firées — visibles via clic droit) ─
+  // "{X}, ...: effect"  — on les expose via le menu contextuel plus tard
+  // Pour l'instant on les log juste pour info
+  var actM=oracle.match(/\{[^}]+\}[^:]*:[^.]+/);
+  if(actM){
+    // On stocke la carte comme ayant une ability activée (utilisable via menu)
+    _gfState.statics.creaturesGain.push({card:cardName,ability:actM[0]});
+  }
+}
+
+// ─── Application d'un effet immédiat (parse l'oracle / le mode) ───
+function _apApplyImmediateEffect(cardName,oLow){
   // 1. Search library for basic land
   if(/search your library for (a|up to (one|two|three|four|\d+)) basic land cards?/i.test(o)){
     var m=o.match(/up to (\w+) basic land/);
@@ -50041,17 +50280,59 @@ function _apResolveEffect(cardName){
     setTimeout(function(){_apMill(nMill);},150);
     return true;
   }
-  // 8. Create tokens
-  var tokenM=o.match(/create (a|one|two|three|four|five|\d+|x) (\d+\/\d+|[\w-]+) ([\w\s]+?) (?:creature )?tokens?/i);
+  // 8a. Treasure tokens (artefact)
+  var treasureM=o.match(/create (a|one|two|three|four|five|\d+|x) treasure tokens?/i);
+  if(treasureM){
+    var nMap3a={a:1,one:1,two:2,three:3,four:4,five:5};
+    var nTreas=nMap3a[treasureM[1]]||parseInt(treasureM[1])||1;
+    setTimeout(function(){
+      for(var i=0;i<nTreas;i++){
+        _gfState.battlefield.push({name:'Treasure token',tapped:false,isToken:true,_typeLine:'Artifact — Treasure'});
+      }
+      _apLog('💰 Crée '+nTreas+' Treasure token'+(nTreas>1?'s':''));
+      _apRender();
+    },150);
+    return true;
+  }
+  // 8b. Food tokens (artefact)
+  var foodM=o.match(/create (a|one|two|three|four|five|\d+) food tokens?/i);
+  if(foodM){
+    var nMap3b={a:1,one:1,two:2,three:3,four:4,five:5};
+    var nFood=nMap3b[foodM[1]]||parseInt(foodM[1])||1;
+    setTimeout(function(){
+      for(var i=0;i<nFood;i++){
+        _gfState.battlefield.push({name:'Food token',tapped:false,isToken:true,_typeLine:'Artifact — Food'});
+      }
+      _apLog('🍞 Crée '+nFood+' Food token'+(nFood>1?'s':''));
+      _apRender();
+    },150);
+    return true;
+  }
+  // 8c. Clue tokens (artefact)
+  var clueM=o.match(/create (a|one|two|three|four|five|\d+) clue tokens?/i);
+  if(clueM){
+    var nMap3c={a:1,one:1,two:2,three:3,four:4,five:5};
+    var nClue=nMap3c[clueM[1]]||parseInt(clueM[1])||1;
+    setTimeout(function(){
+      for(var i=0;i<nClue;i++){
+        _gfState.battlefield.push({name:'Clue token',tapped:false,isToken:true,_typeLine:'Artifact — Clue'});
+      }
+      _apLog('🔎 Crée '+nClue+' Clue token'+(nClue>1?'s':''));
+      _apRender();
+    },150);
+    return true;
+  }
+  // 8d. Créatures tokens (X/Y type creature token)
+  var tokenM=o.match(/create (a|one|two|three|four|five|\d+|x) (\d+\/\d+) ([\w\s,]+?) (?:creature )?tokens?/i);
   if(tokenM){
     var nMap3={a:1,one:1,two:2,three:3,four:4,five:5};
     var nTok=nMap3[tokenM[1]]||parseInt(tokenM[1])||1;
     var pt=tokenM[2];var name=(tokenM[3]||'').trim();
     setTimeout(function(){
       for(var i=0;i<nTok;i++){
-        _gfState.battlefield.push({name:(pt+' '+name+' token').replace(/\s+/g,' ').trim(),tapped:false,isToken:true});
+        _gfState.battlefield.push({name:(pt+' '+name+' token').replace(/\s+/g,' ').trim(),tapped:false,isToken:true,_typeLine:'Creature — Token ('+pt+')'});
       }
-      _apLog('Crée '+nTok+'× '+pt+' '+name+' token');
+      _apLog('🎁 Crée '+nTok+'× '+pt+' '+name+' token');
       _apRender();
     },150);
     return true;
