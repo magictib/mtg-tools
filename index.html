@@ -38277,6 +38277,16 @@ function _anaAntiSynergyPenalty(cardMeta,deckThemes){
       var _loc=_anaDeckTypeCounts[_low]||0;
       if(_loc<=1)penalty+=-7;else if(_loc<=4)penalty+=-3;
     }
+    // E : valeur/récursion conditionnée à « contrôler des créatures légendaires » alors que le deck en a peu → piège
+    if(/legendary creatures? you control|you control (?:a|an|another|one or more|two or more|\d+)[^.]*legendary|if [^.]*legendary creature/.test(o)){
+      var _legC=_anaDeckTypeCounts['legendary']||0;
+      if(_legC<=2)penalty+=-6;else if(_legC<=4)penalty+=-2;
+    }
+    // D : créature chère (cmc≥6) quasi sans impact (vanilla/near-vanilla) → filler hors-plan
+    if((cardMeta.cmc||0)>=6&&/creature/.test((cardMeta.typeLine||'').toLowerCase())
+       &&!/draw|destroy|exile|return|search|create|token|counter|\bfly|trample|menace|deathtouch|lifelink|hexproof|indestructible|\bhaste|reach|vigilance|\bward\b|protection|strike|\bflash\b|defender|prowess|infect|when |whenever|sacrifice|graveyard|each opponent|win the game|gain control|fight|damage|add \{|can't be blocked|unblockable/.test(o)){
+      penalty+=-5;
+    }
   }
   return penalty;
 }
@@ -38455,6 +38465,7 @@ function _anaThemeSynergyScore(cardMeta,themes){
     if(/\bdisturb\b|\bencore\b|\bretrace\b/.test(o))s+=4;  // rejouabilité depuis le GY
     if(/\bembalm\b|\beternalize\b/.test(o))s+=3;           // récursion en jeton
     if(/from your graveyard/.test(o))s+=2;                 // capacité activée jouable depuis le GY (catch-all léger)
+    if(/\+1\/\+1 counter|proliferate/.test(o))s+=2;        // C : Lotleth grossit en défaussant → marqueurs synergiques (Rampetête, Scorpion)
   }
   // Pioche / avantage de cartes en deck défausse : trouve les pièces et alimente le plan
   // (le commandant n'est pas « pioche », mais piocher reste précieux ici — ex. Pacte de sang, Night's Whisper)
