@@ -49797,6 +49797,14 @@ function _registerPhase4Items(){}
 '.ap-zone-btn:hover{background:rgba(40,28,12,.6);border-color:rgba(201,168,76,.5)}',
 '.ap-zone-btn .ap-z-n{font-weight:700;font-size:.95rem;color:var(--gold2);line-height:1}',
 '.ap-zone-btn .ap-z-l{font-size:.55rem;color:rgba(201,168,76,.55);letter-spacing:.06em;text-transform:uppercase}',
+'/* ═══ FX cinématiques (P2) : popups flottants, flash écran ═══ */',
+'#ap-fx{position:fixed;inset:0;z-index:7300;pointer-events:none;overflow:hidden}',
+'.ap-fx-pop{position:absolute;transform:translate(-50%,-50%);font-family:\'Goudy Mediaeval\',serif;font-weight:700;font-size:1.7rem;white-space:nowrap;text-shadow:0 2px 8px #000,0 0 14px currentColor;animation:_apFxRise 1.15s cubic-bezier(.2,.7,.3,1) forwards}',
+'@keyframes _apFxRise{0%{opacity:0;transform:translate(-50%,-40%) scale(.5)}18%{opacity:1;transform:translate(-50%,-65%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-170%) scale(1)}}',
+'.ap-fx-flash{position:absolute;inset:0;pointer-events:none;animation:_apFxFlash .55s ease-out forwards}',
+'@keyframes _apFxFlash{0%{opacity:0}25%{opacity:1}100%{opacity:0}}',
+'.ap-fx-banner{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);font-family:\'Goudy Mediaeval\',serif;font-weight:700;font-size:3rem;text-shadow:0 4px 20px #000;animation:_apFxBanner 1.6s ease-out forwards;text-align:center}',
+'@keyframes _apFxBanner{0%{opacity:0;transform:translate(-50%,-50%) scale(.3)}25%{opacity:1;transform:translate(-50%,-50%) scale(1.1)}80%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.05)}}',
 '/* ═══ Preview overlay ═══ */',
 '.ap-preview{position:fixed;pointer-events:none;z-index:6800;border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.9),0 0 40px rgba(201,168,76,.4);display:none;transition:opacity .15s}',
 '.ap-preview.show{display:block}',
@@ -50540,8 +50548,9 @@ function _apRender(){
   }
   html+='<div style="display:flex;gap:4px"><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apDraw(1)" title="Piocher">📚</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apMulligan()" title="Mulligan">🔄</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apTapAllLands()" title="Tap tous les terrains">⚙</button></div>';
   if(myTurn&&s.combatMode!=='declare'&&!(s.mp&&_mpg&&_mpg.awaitingBlocks))html+='<button class="ap-action" style="padding:8px;font-size:.8rem;background:rgba(220,120,40,.2);color:#e08a3c;border-color:rgba(220,120,40,.5)" onclick="_apStartCombat()">⚔ Déclarer une attaque</button>';
-  if(s.mp&&_mpg&&_mpg.awaitingBlocks)html+='<div style="padding:8px;text-align:center;font-size:.74rem;color:#e08a3c;background:rgba(220,120,40,.12);border:1px solid rgba(220,120,40,.4);border-radius:7px">⏳ En attente des blocages adverses…</div>';
+  if(s.mp&&_mpg&&_mpg.awaitingBlocks)html+='<div style="padding:8px;text-align:center;font-size:.74rem;color:#e08a3c;background:rgba(220,120,40,.12);border:1px solid rgba(220,120,40,.4);border-radius:7px">⏳ En attente des blocages adverses…<br><button class="ap-action" style="margin-top:5px;padding:3px 8px;font-size:.64rem" onclick="_mpgCancelCombat()">Annuler l\'attaque</button></div>';
   if(!s.mp)html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleBotSpeed()" title="Vitesse de jeu du bot">🤖 Bot : '+(_apBotSpeedFast?'⚡ rapide':'🐢 normal')+'</button>';
+  html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleSfx()" title="Effets sonores">'+(_apSfxOn?'🔊 Son : on':'🔇 Son : off')+'</button>';
   // Mana pool (grille 3×2)
   html+='<div class="ap-rail-sec-lbl">Réserve de mana</div>';
   html+='<div class="ap-rail-mana">';
@@ -50612,6 +50621,8 @@ function _apOppLife(idx,delta){
   _gfState.opponents[idx].life+=delta;
   if(_gfState.opponents[idx].life<0)_gfState.opponents[idx].life=0;
   _apLog('Adv '+(idx+1)+' '+(delta>0?'+':'')+delta+' PV ('+_gfState.opponents[idx].life+')');
+  var _a=_apAnchor('opp');_apFx((delta>0?'+':'')+delta,{color:delta>0?'#7fb069':'#ff6060',x:_a.x,y:_a.y});
+  if(delta<0)_apSfx('damage');
   _apCheckStateBased();
   _apRender();
 }
@@ -50876,10 +50887,12 @@ function _apConfirmAttack(){
     deadBlockers.forEach(function(b){var i=opp.perm.indexOf(b);if(i>=0){opp.perm.splice(i,1);_apLog('💀 '+b.name+' (Adv '+(oppIdx+1)+') meurt');}});
     opp.threats=opp.perm.map(function(x){return x.name;});
   }
+  _apSfx('attack');
   // Dégâts au visage
   if(faceDmg>0){
     opp.life-=faceDmg;if(opp.life<0)opp.life=0;
     _apLog('💥 '+faceDmg+' dégâts de combat à Adv '+(oppIdx+1)+(opp.perm?'':' '));
+    var _a=_apAnchor('opp');_apFx('-'+faceDmg,{color:'#ff6060',x:_a.x,y:_a.y});
     // Commander damage si mon commandant frappe au visage
     if(isCmdAttacker){
       _gfState.cmdDmgDealt=_gfState.cmdDmgDealt||{};
@@ -51129,6 +51142,72 @@ function _apAttachPreview(){
   });
 }
 function _apLog(t){if(!_gfState)return;_gfState.log.push('T'+_gfState.turn+'·'+_gfState.phase+' : '+t);}
+
+// ════════════════════════════════════════════════════════════════════════
+// P2 — POLISH : feedback cinématique (popups flottants, flash) + SFX
+// ════════════════════════════════════════════════════════════════════════
+function _apFxLayer(){var l=document.getElementById('ap-fx');if(!l){l=document.createElement('div');l.id='ap-fx';document.body.appendChild(l);}return l;}
+// Popup flottant (ex: "-3" rouge près de la vie, "💀 Goblin" sur le board)
+function _apFx(text,opts){
+  opts=opts||{};
+  var l=_apFxLayer();
+  var el=document.createElement('div');el.className='ap-fx-pop';el.textContent=text;
+  el.style.color=opts.color||'#fff';
+  el.style.left=(opts.x!=null?opts.x:window.innerWidth/2)+'px';
+  el.style.top=(opts.y!=null?opts.y:window.innerHeight*0.5)+'px';
+  if(opts.size)el.style.fontSize=opts.size;
+  l.appendChild(el);
+  setTimeout(function(){if(el.parentNode)el.remove();},1200);
+}
+// Flash plein écran (dégâts importants)
+function _apScreenFlash(color){
+  var l=_apFxLayer();
+  var el=document.createElement('div');el.className='ap-fx-flash';
+  el.style.background='radial-gradient(ellipse at center,transparent 40%,'+(color||'rgba(220,60,60,.5)')+' 100%)';
+  l.appendChild(el);
+  setTimeout(function(){if(el.parentNode)el.remove();},560);
+}
+// Bannière centrale (victoire/défaite)
+function _apFxBanner(text,color){
+  var l=_apFxLayer();
+  var el=document.createElement('div');el.className='ap-fx-banner';el.textContent=text;el.style.color=color||'#e8c96e';
+  l.appendChild(el);setTimeout(function(){if(el.parentNode)el.remove();},1700);
+}
+// Ancres approximatives selon la zone (sans dépendre d'un élément qui va re-render)
+function _apAnchor(where){
+  if(where==='me')return {x:window.innerWidth-86,y:window.innerHeight*0.55};
+  if(where==='opp')return {x:window.innerWidth*0.5,y:120};
+  return {x:window.innerWidth*0.5,y:window.innerHeight*0.5};
+}
+// ─── SFX (Web Audio, synthétisés, optionnels — off par défaut) ───
+var _apSfxOn=false;
+try{_apSfxOn=localStorage.getItem('mtg_ap_sfx')==='1';}catch(e){}
+var _apAudioCtx=null;
+function _apToggleSfx(){_apSfxOn=!_apSfxOn;try{localStorage.setItem('mtg_ap_sfx',_apSfxOn?'1':'0');}catch(e){}if(_apSfxOn)_apSfx('cast');if(_gfState)_apRender();}
+function _apSfx(type){
+  if(!_apSfxOn)return;
+  try{
+    var AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+    if(!_apAudioCtx)_apAudioCtx=new AC();
+    var ctx=_apAudioCtx;var t=ctx.currentTime;
+    function tone(freq,dur,type2,vol,delay){
+      var o=ctx.createOscillator(),g=ctx.createGain();
+      o.type=type2||'sine';o.frequency.value=freq;
+      g.gain.setValueAtTime(0,t+(delay||0));
+      g.gain.linearRampToValueAtTime(vol||0.12,t+(delay||0)+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+(delay||0)+dur);
+      o.connect(g);g.connect(ctx.destination);
+      o.start(t+(delay||0));o.stop(t+(delay||0)+dur+0.02);
+    }
+    if(type==='cast'){tone(420,0.18,'triangle',0.10);tone(620,0.16,'triangle',0.08,0.05);}
+    else if(type==='land'){tone(180,0.16,'sine',0.10);}
+    else if(type==='attack'){tone(300,0.12,'sawtooth',0.10);tone(220,0.18,'sawtooth',0.08,0.06);}
+    else if(type==='damage'){tone(120,0.22,'square',0.13);}
+    else if(type==='draw'){tone(700,0.08,'sine',0.07);}
+    else if(type==='win'){[523,659,784,1047].forEach(function(f,i){tone(f,0.22,'triangle',0.11,i*0.12);});}
+    else if(type==='lose'){[392,330,262,196].forEach(function(f,i){tone(f,0.26,'sawtooth',0.10,i*0.13);});}
+  }catch(e){}
+}
 function _apDraw(n){
   if(!_gfState)return;
   var drawn=0;var milledOut=false;
@@ -51211,6 +51290,8 @@ function _apRunBotTurns(done){
       if(atk>0){
         _gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;
         _apLog('⚔ Adv '+(oppIdx+1)+' attaque pour '+atk);
+        var _a=_apAnchor('me');_apFx('-'+atk,{color:'#ff6060',x:_a.x,y:_a.y});_apSfx('attack');
+        if(atk>=3)_apScreenFlash('rgba(220,60,60,.4)');
       }
       _apCheckStateBased();_apRender();
       if(_gfState.gameOver){done&&done();return;}
@@ -51402,6 +51483,7 @@ function _apCheckStateBased(){
       _gfState.battlefield.forEach(function(a){if(a.attachedTo===p._id){a.attachedTo=null;a.attachBuff=null;}});
       _apRouteToGrave(p.name,p.isToken);
       _apLog('💀 SBA : '+p.name+' ('+d.reason+')');
+      _apFx('💀 '+p.name,{color:'#c0c4d4',y:window.innerHeight*0.62});
     });
     setTimeout(_apCheckStateBased,30);
   }
@@ -51426,6 +51508,8 @@ function _apCheckStateBased(){
 function _apEndGame(result,reason){
   if(!_gfState||_gfState.gameOver)return;
   _gfState.gameOver=result;
+  _apFxBanner(result==='win'?'🏆 VICTOIRE':'☠ DÉFAITE',result==='win'?'#7fb069':'#dc5050');
+  _apSfx(result==='win'?'win':'lose');
   // Multijoueur : broadcast mon résultat aux autres
   if(_gfState.mp&&typeof _mpgWriteBoard==='function')_mpgWriteBoard({result:result});
   var t=result==='win'?'🏆 Victoire !':'☠ Défaite';
@@ -51639,6 +51723,7 @@ function _apResolveTop(){
     var perm={name:nm,tapped:false,enteredThisTurn:isCreature&&!hasHaste,counters:{},dmg:0};
     _gfState.battlefield.push(perm);
     _gfState._animPlay=nm; // déclenche l'animation de cast au prochain rendu
+    _apSfx('cast');
     _apLog('✓ '+nm+' arrive en jeu');
     // Aura : doit s'attacher à une créature (choix de cible)
     if(isAura){
@@ -51864,6 +51949,8 @@ function _apLife(n){
   _gfState.life+=n;
   if(_gfState.life<0)_gfState.life=0;
   _apLog((n>0?'+':'')+n+' PV');
+  var _a=_apAnchor('me');_apFx((n>0?'+':'')+n,{color:n>0?'#7fb069':'#ff6060',x:_a.x,y:_a.y});
+  if(n<=-3){_apScreenFlash('rgba(220,60,60,.45)');_apSfx('damage');}
   _apCheckStateBased();
   _apRender();
   // Animation flash sur le compteur PV
@@ -55072,6 +55159,15 @@ function _mpgResolveBlocks(combat,blocks){
   _mpg._combatTs=resolved.ts;
   db.collection('play_rooms').doc(_mpg.code).update({combat:resolved,lastUpdate:Date.now()}).catch(function(){});
   _mpgPushBoard();_apRender();
+}
+// ATTAQUANT : annule une attaque restée sans réponse (adversaire AFK)
+function _mpgCancelCombat(){
+  if(!_mpg||!_gfState)return;
+  if(!confirm('Annuler l\'attaque en cours ? (à utiliser si l\'adversaire ne répond pas)'))return;
+  _mpg.awaitingBlocks=false;_mpg._combatTs=Date.now();
+  db.collection('play_rooms').doc(_mpg.code).update({combat:null,lastUpdate:Date.now()}).catch(function(){});
+  _apLog('Attaque annulée');
+  _apRender();
 }
 // ATTAQUANT : applique les dégâts renvoyés à mes attaquants, puis nettoie le combat
 function _mpgApplyCombatResult(combat){
