@@ -50578,36 +50578,79 @@ function _apTakeCmdDmg(oppIdx,delta){
   _apCheckStateBased();
   _apRender();
 }
+// ─── Pool de cartes jouables par un bot (depuis son deck OU pool fictif par archétype) ───
+function _apBotPool(opp){
+  var out=[];
+  if(opp.deckId&&decks[opp.deckId]&&decks[opp.deckId].cards&&decks[opp.deckId].cards.length){
+    decks[opp.deckId].cards.forEach(function(c){
+      if(/^commander|^commandant|side/i.test(c.sec||''))return;
+      var m=_anaData[(c.name||'').toLowerCase()]||{};
+      var tl=(m.typeLine||'').toLowerCase();
+      var isLand=tl.indexOf('land')>=0||!!(m.tags&&m.tags.isLand);
+      var creature=tl.indexOf('creature')>=0;
+      var qty=c.qty||1;
+      for(var q=0;q<qty;q++)out.push({name:c.name,isLand:isLand,cmc:m.cmc||0,power:(typeof m.power==='number'?m.power:(creature?2:0)),creature:creature});
+    });
+  }
+  if(out.filter(function(c){return !c.isLand;}).length<4){
+    // Pool fictif par archétype (cmc + power assignés) + terrains de base
+    var fict={
+      aggro:[['Goblin Guide',1,2,1],['Monastery Swiftspear',1,1,1],['Lightning Bolt',1,0,0],['Lava Spike',1,0,0],['Eidolon of the Great Revel',2,1,1],['Goblin Rabblemaster',3,2,1],['Hellrider',4,3,1]],
+      combo:[['Ponder',1,0,0],['Brainstorm',1,0,0],['Sakura-Tribe Elder',2,1,1],['Grapeshot',2,0,0],['Past in Flames',4,0,0],['Goblin Electromancer',2,2,1]],
+      control:[['Opt',1,0,0],['Counterspell',2,0,0],['Fatal Push',1,0,0],['Wrath of God',4,0,0],['Teferi, Hero of Dominaria',5,0,0],['Snapcaster Mage',2,2,1]],
+      midrange:[['Llanowar Elves',1,1,1],['Tarmogoyf',2,4,1],['Bloodbraid Elf',4,3,1],['Liliana of the Veil',3,0,0],['Tireless Tracker',3,3,1],['Questing Beast',4,4,1]],
+      tribal:[['Goblin Warchief',3,2,1],['Goblin Chieftain',3,2,1],['Goblin Rabblemaster',3,2,1],['Krenko, Mob Boss',4,3,1],['Goblin Piledriver',2,1,1]],
+      stax:[['Sphere of Resistance',2,0,0],['Thalia, Guardian of Thraben',2,2,1],['Winter Orb',2,0,0],['Smokestack',4,0,0],['Stax Bot',3,2,1]],
+      random:[['Grizzly Bears',2,2,1],['Hill Giant',4,3,1],['Divination',3,0,0],['Shock',1,0,0],['Wind Drake',3,2,1]]
+    };
+    (fict[opp.aiType]||fict.aggro).forEach(function(a){out.push({name:a[0],cmc:a[1],power:a[2],creature:!!a[3],isLand:false});});
+    // Terrains de base pour que le bot puisse jouer un terrain par tour
+    for(var l=0;l<14;l++)out.push({name:['Mountain','Forest','Island','Swamp','Plains'][l%5],isLand:true,cmc:0,power:0,creature:false});
+  }
+  return out;
+}
+// ─── Le bot joue UN tour complet : 1 terrain + sorts abordables, puis renvoie les dégâts d'attaque ───
+function _apBotTakeTurn(opp,oppIdx){
+  if(!opp)return 0;
+  opp.lands=opp.lands||0;
+  opp.perm=opp.perm||[];
+  // Les créatures posées les tours précédents ne sont plus affectées du mal d'invocation
+  opp.perm.forEach(function(p){p.sick=false;});
+  var pool=_apBotPool(opp);
+  // 1) Joue un terrain (1/tour) si disponible
+  var landsPool=pool.filter(function(c){return c.isLand;});
+  if(landsPool.length&&opp.lands<14){
+    opp.lands++;
+    var land=landsPool[Math.floor(Math.random()*landsPool.length)];
+    opp.perm.push({name:land.name,isLand:true,cmc:0,power:0,sick:false,creature:false});
+  }
+  // 2) Lance des sorts abordables (mana = nb de terrains), en privilégiant la plus haute CMC payable
+  var mana=opp.lands;
+  var spells=pool.filter(function(c){return !c.isLand&&c.cmc>0;}).sort(function(a,b){return b.cmc-a.cmc;});
+  var casts=0;
+  for(var i=0;i<spells.length&&casts<3&&mana>0;i++){
+    var sp=spells[i];
+    if(sp.cmc<=mana){
+      mana-=sp.cmc;casts++;
+      opp.perm.push({name:sp.name,isLand:false,cmc:sp.cmc,power:sp.power,creature:sp.creature,sick:true});
+      _apLog('🤖 Adv '+(oppIdx+1)+' joue '+sp.name+' ('+sp.cmc+')');
+    }
+  }
+  if(casts===0&&opp.lands>0)_apLog('🤖 Adv '+(oppIdx+1)+' n\'a rien à jouer ('+opp.lands+' mana)');
+  // 3) Synchronise opp.threats (noms) pour le rendu du champ
+  opp.threats=opp.perm.map(function(p){return p.name;});
+  if(opp.threats.length>50){opp.perm=opp.perm.slice(-50);opp.threats=opp.perm.map(function(p){return p.name;});}
+  // 4) Attaque avec les créatures non affectées du mal d'invocation, réduit par mes bloqueurs
+  var atk=opp.perm.filter(function(p){return p.creature&&!p.sick;}).reduce(function(s,p){return s+(p.power||0);},0);
+  var myBlockers=_gfState.battlefield.filter(function(p){var m=_anaData[(p.name||'').toLowerCase()];return m&&(m.typeLine||'').toLowerCase().indexOf('creature')>=0&&!p.tapped;}).length;
+  atk=Math.max(0,atk-myBlockers*2);
+  return atk;
+}
+// Bouton manuel "+ play" : le bot joue un tour
 function _apOppThreat(idx){
   if(!_gfState||!_gfState.opponents[idx])return;
-  var opp=_gfState.opponents[idx];
-  var t=null;
-  // Si l'adversaire a un vrai deck assigné, tire une carte non-terrain au hasard depuis ce deck
-  if(opp.deckId&&decks[opp.deckId]&&decks[opp.deckId].cards&&decks[opp.deckId].cards.length){
-    var pool=decks[opp.deckId].cards.filter(function(c){
-      if(/^commander|^commandant/i.test(c.sec||''))return false;
-      var meta=_anaData[(c.name||'').toLowerCase()];
-      var tl=((meta&&meta.typeLine)||'').toLowerCase();
-      return tl.indexOf('land')<0;
-    });
-    if(pool.length){t=pool[Math.floor(Math.random()*pool.length)].name;}
-  }
-  if(!t){
-    // Fallback : menace fictive selon archétype
-    var threatsByType={
-      aggro:['Goblin Guide','Eidolon of the Great Revel','Lightning Bolt','Lava Spike','Boros Charm'],
-      combo:['Brainstorm','Ponder','Grapeshot','Manamorphose','Past in Flames'],
-      control:['Counterspell','Wrath of God','Path to Exile','Teferi','Force of Will'],
-      midrange:['Tarmogoyf','Liliana','Fatal Push','Bloodbraid Elf','Maelstrom Pulse'],
-      tribal:['Goblin Chieftain','Krenko activate','Goblin Warchief','Empty the Warrens'],
-      stax:['Smokestack','Winter Orb','Sphere of Resistance','Tabernacle']
-    };
-    var fp=threatsByType[opp.aiType]||threatsByType.aggro;
-    t=fp[Math.floor(Math.random()*fp.length)];
-  }
-  opp.threats=opp.threats||[];opp.threats.push(t);
-  if(opp.threats.length>16)opp.threats.shift();
-  _apLog('Adv '+(idx+1)+' : '+t);
+  var atk=_apBotTakeTurn(_gfState.opponents[idx],idx);
+  if(atk>0){_gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;_apLog('⚔ Adv '+(idx+1)+' attaque pour '+atk);}
   _apCheckStateBased();
   _apRender();
 }
@@ -50832,36 +50875,18 @@ function _apRunBotTurns(done){
   function step(){
     if(i>=bots.length){done&&done();return;}
     var opp=bots[i++];
-    // Génère une menace (utilise _apOppThreat qui pioche soit dans son deck soit d'un pool fictif)
     var oppIdx=_gfState.opponents.indexOf(opp);
-    if(oppIdx>=0)_apOppThreat(oppIdx);
-    // Applique des dégâts au joueur selon l'archétype et le tour
-    var t=_gfState.turn;
-    var dmgByType={aggro:2,combo:0,control:0,midrange:1,tribal:1,random:1};
-    var base=dmgByType[opp.aiType]||1;
-    // Aggro/midrange scalent avec le tour ; combo prépare son combo (peu de dégâts jusqu'au T6+)
-    var d=base;
-    if(opp.aiType==='aggro')d=Math.min(8,base+Math.floor(t/2));
-    else if(opp.aiType==='midrange')d=Math.min(6,Math.floor(t/2));
-    else if(opp.aiType==='combo'&&t>=6)d=Math.floor(Math.random()*10)+5; // combo va plein pot
-    else if(opp.aiType==='control')d=t>=5?1:0;
-    if(d>0){
-      // Si format commander et bot a un deck assigné, on simule des dmg cmd à 30% (bot attaque avec son commandant)
-      var isCmd=(_gfState.setup&&(_gfState.setup.format==='commander'||_gfState.setup.format==='paupercmd'));
-      var cmdHit=isCmd&&opp.deckId&&Math.random()<0.3;
-      if(cmdHit){
-        _gfState.life-=d;if(_gfState.life<0)_gfState.life=0;
-        _gfState.cmdDmgFromOpp=_gfState.cmdDmgFromOpp||{};
-        _gfState.cmdDmgFromOpp[oppIdx]=(_gfState.cmdDmgFromOpp[oppIdx]||0)+d;
-        _apLog('⚔ Adv '+(oppIdx+1)+' (cmd) inflige '+d+' dmg ('+_gfState.cmdDmgFromOpp[oppIdx]+'/21)');
-      }else{
-        _gfState.life-=d;if(_gfState.life<0)_gfState.life=0;
-        _apLog('🤖 Adv '+(oppIdx+1)+' inflige '+d+' dmg');
-      }
-      _apCheckStateBased();
+    if(oppIdx<0){setTimeout(step,80);return;}
+    // Le bot joue un vrai tour : terrain + sorts abordables, puis attaque
+    var atk=_apBotTakeTurn(opp,oppIdx);
+    if(atk>0){
+      _gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;
+      _apLog('⚔ Adv '+(oppIdx+1)+' attaque pour '+atk);
     }
+    _apCheckStateBased();
+    _apRender();
     if(_gfState.gameOver){done&&done();return;}
-    setTimeout(step,400);
+    setTimeout(step,450);
   }
   _apLog('— Tour des adversaires —');
   step();
