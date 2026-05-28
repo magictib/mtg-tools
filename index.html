@@ -49755,6 +49755,9 @@ function _registerPhase4Items(){}
 '.ap-card-counter.minus{background:rgba(220,80,80,.95);color:#fff}',
 '.ap-card-counter.dmg{background:rgba(220,80,80,.95);color:#fff}',
 '.ap-card-sickness{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(143,196,235,.85);color:#1a1208;font-size:.56rem;padding:1px 5px;border-radius:6px;font-weight:700;letter-spacing:.05em;pointer-events:none;text-transform:uppercase}',
+'.ap-card-pt{position:absolute;bottom:2px;right:2px;background:rgba(10,6,2,.92);color:#fff;font-size:.62rem;font-weight:700;padding:1px 5px;border-radius:6px;border:.5px solid rgba(201,168,76,.5);font-family:monospace;line-height:1.1;z-index:2}',
+'.ap-card.attacking{outline:3px solid #e08a3c;outline-offset:-3px;box-shadow:0 0 18px rgba(220,138,60,.8),0 6px 16px rgba(0,0,0,.8)!important;transform:translateY(-8px) rotate(-4deg)!important}',
+'.ap-card.attacking::after{content:"⚔";position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:1rem;filter:drop-shadow(0 1px 2px #000);z-index:5}',
 '.ap-hand .ap-card{width:100px;height:140px;cursor:grab;margin-left:-32px;transition:transform .25s cubic-bezier(.34,1.56,.64,1),margin-left .25s,box-shadow .25s,filter .25s,z-index 0s .15s;box-shadow:0 4px 12px rgba(0,0,0,.8),0 0 0 1px rgba(0,0,0,.6)}',
 '.ap-hand .ap-card:first-child{margin-left:0}',
 '.ap-hand .ap-card:hover{transform:translateY(-30px) scale(1.18);z-index:50;transition:transform .25s cubic-bezier(.34,1.56,.64,1),margin-left .25s,box-shadow .25s,filter .25s,z-index 0s 0s;box-shadow:0 12px 28px rgba(0,0,0,.9),0 0 24px rgba(201,168,76,.5)}',
@@ -50382,6 +50385,21 @@ function _apRender(){
   html+='<div class="ap-stat"><div class="ap-stat-lbl">Tour</div><div class="ap-stat-val">'+s.turn+'</div></div>';
   html+='<button class="ap-action" onclick="openArenaThemes()" title="Thèmes">🎨</button>';
   html+='</div>';
+  // ─── BANDEAU COMBAT (déclaration des attaquants) ───
+  if(s.combatMode==='declare'){
+    var nAtk=s.battlefield.filter(function(p){return p.attacking;}).length;
+    var totalPow=s.battlefield.filter(function(p){return p.attacking;}).reduce(function(a,p){return a+_apCreatureStats(p).power;},0);
+    html+='<div style="background:linear-gradient(90deg,rgba(220,120,40,.28),rgba(220,120,40,.08));border:1px solid #e08a3c;border-radius:9px;padding:8px 14px;margin:6px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;animation:_apPulse 1.5s ease infinite">';
+    html+='<div style="color:#e08a3c;font-size:1.2rem">⚔</div>';
+    html+='<div style="flex:1;color:var(--tx);font-size:.86rem"><b>Choisis tes attaquants</b> — clic sur tes créatures. '+nAtk+' attaquant'+(nAtk>1?'s':'')+' ('+totalPow+' dégâts)</div>';
+    if(s.opponents.length>1){
+      html+='<span style="font-size:.72rem;color:var(--tx3)">Cible :</span>';
+      s.opponents.forEach(function(o,oi){html+='<button class="ap-action'+((s.combatTarget||0)===oi?' primary':'')+'" style="font-size:.66rem;padding:3px 8px" onclick="_apSetCombatTarget('+oi+')">Adv '+(oi+1)+'</button>';});
+    }
+    html+='<button class="ap-action primary" onclick="_apConfirmAttack()" style="background:linear-gradient(180deg,#e08a3c,#a85e1e);color:#1a1208">Confirmer l\'attaque</button>';
+    html+='<button class="ap-action" onclick="_apCancelCombat()">Annuler</button>';
+    html+='</div>';
+  }
   // ─── BANDEAU TARGETING ───
   if(s.targeting){
     html+='<div style="background:linear-gradient(90deg,rgba(220,80,80,.25),rgba(220,80,80,.1));border:1px solid #dc5050;border-radius:9px;padding:8px 14px;margin:6px 0;display:flex;align-items:center;gap:12px;animation:_apPulse 1.5s ease infinite">';
@@ -50485,6 +50503,7 @@ function _apRender(){
     html+='<div style="padding:11px 8px;text-align:center;font-size:.78rem;color:#e89;background:rgba(120,30,30,.25);border:1px solid rgba(220,80,80,.4);border-radius:7px">⏳ Tour de l\'adversaire</div>';
   }
   html+='<div style="display:flex;gap:4px"><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apDraw(1)" title="Piocher">📚</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apMulligan()" title="Mulligan">🔄</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apTapAllLands()" title="Tap tous les terrains">⚙</button></div>';
+  if(myTurn&&!s.mp&&s.combatMode!=='declare')html+='<button class="ap-action" style="padding:8px;font-size:.8rem;background:rgba(220,120,40,.2);color:#e08a3c;border-color:rgba(220,120,40,.5)" onclick="_apStartCombat()">⚔ Déclarer une attaque</button>';
   // Mana pool (grille 3×2)
   html+='<div class="ap-rail-sec-lbl">Réserve de mana</div>';
   html+='<div class="ap-rail-mana">';
@@ -50542,6 +50561,7 @@ function _apRender(){
   html+='<div class="ap-preview" id="ap-preview"><img id="ap-preview-img" src="" alt=""></div>';
   html+='</div>';
   ov.innerHTML=html;
+  if(s._animPlay)s._animPlay=null; // l'animation de cast n'est jouée qu'une fois
   _apAttachPreview();
   setTimeout(_apHandAttachUI,20);
   // Multijoueur : pousse mon board (débounce)
@@ -50588,8 +50608,10 @@ function _apBotPool(opp){
       var tl=(m.typeLine||'').toLowerCase();
       var isLand=tl.indexOf('land')>=0||!!(m.tags&&m.tags.isLand);
       var creature=tl.indexOf('creature')>=0;
+      var pw=(typeof m.power==='number'?m.power:(creature?2:0));
+      var tg=(typeof m.toughness==='number'?m.toughness:(creature?2:0));
       var qty=c.qty||1;
-      for(var q=0;q<qty;q++)out.push({name:c.name,isLand:isLand,cmc:m.cmc||0,power:(typeof m.power==='number'?m.power:(creature?2:0)),creature:creature});
+      for(var q=0;q<qty;q++)out.push({name:c.name,isLand:isLand,cmc:m.cmc||0,power:pw,toughness:tg,creature:creature});
     });
   }
   if(out.filter(function(c){return !c.isLand;}).length<4){
@@ -50603,9 +50625,9 @@ function _apBotPool(opp){
       stax:[['Sphere of Resistance',2,0,0],['Thalia, Guardian of Thraben',2,2,1],['Winter Orb',2,0,0],['Smokestack',4,0,0],['Stax Bot',3,2,1]],
       random:[['Grizzly Bears',2,2,1],['Hill Giant',4,3,1],['Divination',3,0,0],['Shock',1,0,0],['Wind Drake',3,2,1]]
     };
-    (fict[opp.aiType]||fict.aggro).forEach(function(a){out.push({name:a[0],cmc:a[1],power:a[2],creature:!!a[3],isLand:false});});
+    (fict[opp.aiType]||fict.aggro).forEach(function(a){out.push({name:a[0],cmc:a[1],power:a[2],toughness:a[3]?Math.max(1,a[2]):1,creature:!!a[3],isLand:false});});
     // Terrains de base pour que le bot puisse jouer un terrain par tour
-    for(var l=0;l<14;l++)out.push({name:['Mountain','Forest','Island','Swamp','Plains'][l%5],isLand:true,cmc:0,power:0,creature:false});
+    for(var l=0;l<14;l++)out.push({name:['Mountain','Forest','Island','Swamp','Plains'][l%5],isLand:true,cmc:0,power:0,toughness:0,creature:false});
   }
   return out;
 }
@@ -50632,7 +50654,7 @@ function _apBotTakeTurn(opp,oppIdx){
     var sp=spells[i];
     if(sp.cmc<=mana){
       mana-=sp.cmc;casts++;
-      opp.perm.push({name:sp.name,isLand:false,cmc:sp.cmc,power:sp.power,creature:sp.creature,sick:true});
+      opp.perm.push({name:sp.name,isLand:false,cmc:sp.cmc,power:sp.power,toughness:sp.toughness||Math.max(1,sp.power),creature:sp.creature,sick:true,dmg:0});
       _apLog('🤖 Adv '+(oppIdx+1)+' joue '+sp.name+' ('+sp.cmc+')');
     }
   }
@@ -50651,6 +50673,126 @@ function _apOppThreat(idx){
   if(!_gfState||!_gfState.opponents[idx])return;
   var atk=_apBotTakeTurn(_gfState.opponents[idx],idx);
   if(atk>0){_gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;_apLog('⚔ Adv '+(idx+1)+' attaque pour '+atk);}
+  _apCheckStateBased();
+  _apRender();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// P1 — COMBAT FORMEL (déclaration attaquants → bloqueurs → dégâts)
+// Jeu local vs bot. En multijoueur le combat interactif arrivera en v2.
+// ════════════════════════════════════════════════════════════════════════
+// Force/endurance effective d'une de MES créatures (avec compteurs)
+function _apCreatureStats(p){
+  var m=_anaData[(p.name||'').toLowerCase()]||{};
+  var plus=(p.counters&&p.counters['+1/+1'])||0;
+  var minus=(p.counters&&p.counters['-1/-1'])||0;
+  return {
+    power:Math.max(0,(typeof m.power==='number'?m.power:(p.isToken?2:0))+plus-minus),
+    toughness:(typeof m.toughness==='number'?m.toughness:(p.isToken?2:1))+plus-minus,
+    isCreature:((m.typeLine||'').toLowerCase().indexOf('creature')>=0)||p.isToken
+  };
+}
+function _apStartCombat(){
+  if(!_gfState||_gfState.gameOver)return;
+  if(_gfState.mp){if(typeof toastError==='function')toastError('Le combat interactif arrive en multijoueur (v2)');return;}
+  var elig=_gfState.battlefield.filter(function(p){var st=_apCreatureStats(p);return st.isCreature&&!p.tapped&&!p.enteredThisTurn;});
+  if(!elig.length){if(typeof toastError==='function')toastError('Aucune créature ne peut attaquer (engagée, fraîche, ou aucune en jeu)');return;}
+  _gfState.phase='combat';
+  _gfState.combatMode='declare';
+  _gfState.combatTarget=0; // adversaire ciblé par défaut
+  _gfState.battlefield.forEach(function(p){p.attacking=false;});
+  _apLog('⚔ Déclaration des attaquants');
+  _apRender();
+}
+function _apToggleAttacker(idx){
+  if(!_gfState||_gfState.combatMode!=='declare')return;
+  var p=_gfState.battlefield[idx];if(!p)return;
+  var st=_apCreatureStats(p);
+  if(!st.isCreature){if(typeof toastError==='function')toastError('Pas une créature');return;}
+  if(p.tapped){if(typeof toastError==='function')toastError(p.name+' est engagée');return;}
+  if(p.enteredThisTurn){if(typeof toastError==='function')toastError('Mal d\'invocation : '+p.name);return;}
+  if(st.power<=0){if(typeof toastError==='function')toastError(p.name+' a 0 force');return;}
+  p.attacking=!p.attacking;
+  _apRender();
+}
+function _apSetCombatTarget(oppIdx){if(_gfState){_gfState.combatTarget=oppIdx;_apRender();}}
+function _apCancelCombat(){if(_gfState){_gfState.combatMode=null;_gfState.battlefield.forEach(function(p){p.attacking=false;});_apRender();}}
+// IA de blocage du bot : pour chaque attaquant (du plus fort au plus faible),
+// bloque s'il a une créature qui survit ou qui réalise un bon échange.
+function _apBotDeclareBlocks(opp,attackers){
+  var blocks={}; // attackerIdx → blocker perm
+  if(!opp||!opp.perm)return blocks;
+  var avail=opp.perm.filter(function(c){return c.creature&&!c._blocking;});
+  var sorted=attackers.slice().sort(function(a,b){return b.stats.power-a.stats.power;});
+  var lowLife=opp.life<=Math.max(8,attackers.reduce(function(s,a){return s+a.stats.power;},0));
+  sorted.forEach(function(a){
+    if(!avail.length)return;
+    // Cherche un bloqueur qui survit (toughness > attaquant power) et idéalement tue (power >= attaquant toughness)
+    var best=null,bestScore=-99;
+    avail.forEach(function(b){
+      if(b._blocking)return;
+      var survives=(b.toughness||1)>a.stats.power;
+      var kills=(b.power||0)>=a.stats.toughness;
+      var score=(kills?2:0)+(survives?1:0)-(!survives&&!kills?2:0);
+      if(score>bestScore){bestScore=score;best=b;}
+    });
+    // Bloque si bon échange OU si chump nécessaire (peu de PV)
+    if(best&&(bestScore>=1||lowLife)){
+      best._blocking=true;blocks[a.idx]=best;
+    }
+  });
+  return blocks;
+}
+function _apConfirmAttack(){
+  if(!_gfState)return;
+  var attackers=[];
+  _gfState.battlefield.forEach(function(p,idx){if(p.attacking){attackers.push({p:p,idx:idx,stats:_apCreatureStats(p)});}});
+  if(!attackers.length){_apCancelCombat();return;}
+  var oppIdx=_gfState.combatTarget||0;
+  var opp=_gfState.opponents[oppIdx];
+  if(!opp){_apCancelCombat();return;}
+  // Tape les attaquants
+  attackers.forEach(function(a){a.p.tapped=true;});
+  // Le bot déclare ses bloqueurs
+  if(opp.perm)opp.perm.forEach(function(c){c._blocking=false;});
+  var blocks=_apBotDeclareBlocks(opp,attackers);
+  // Résolution des dégâts
+  var faceDmg=0;var deadBlockers=[];
+  var isCmdAttacker=false;
+  attackers.forEach(function(a){
+    var blk=blocks[a.idx];
+    var isMyCmd=(_gfState.commander&&a.p.name===_gfState.commander);
+    if(blk){
+      // Échange de dégâts
+      a.p.dmg=(a.p.dmg||0)+(blk.power||0);
+      blk.dmg=(blk.dmg||0)+a.stats.power;
+      _apLog('⚔ '+a.p.name+' ('+a.stats.power+'/'+a.stats.toughness+') vs '+blk.name+' ('+(blk.power||0)+'/'+(blk.toughness||1)+')');
+      if(blk.dmg>=(blk.toughness||1))deadBlockers.push(blk);
+    }else{
+      faceDmg+=a.stats.power;
+      if(isMyCmd)isCmdAttacker=true;
+    }
+  });
+  // Retire les bloqueurs morts du board adverse
+  if(deadBlockers.length&&opp.perm){
+    deadBlockers.forEach(function(b){var i=opp.perm.indexOf(b);if(i>=0){opp.perm.splice(i,1);_apLog('💀 '+b.name+' (Adv '+(oppIdx+1)+') meurt');}});
+    opp.threats=opp.perm.map(function(x){return x.name;});
+  }
+  // Dégâts au visage
+  if(faceDmg>0){
+    opp.life-=faceDmg;if(opp.life<0)opp.life=0;
+    _apLog('💥 '+faceDmg+' dégâts de combat à Adv '+(oppIdx+1)+(opp.perm?'':' '));
+    // Commander damage si mon commandant frappe au visage
+    if(isCmdAttacker){
+      _gfState.cmdDmgDealt=_gfState.cmdDmgDealt||{};
+      _gfState.cmdDmgDealt[oppIdx]=(_gfState.cmdDmgDealt[oppIdx]||0)+faceDmg;
+    }
+  }
+  // Nettoie l'état de combat
+  _gfState.battlefield.forEach(function(p){p.attacking=false;});
+  if(opp.perm)opp.perm.forEach(function(c){c._blocking=false;});
+  _gfState.combatMode=null;
+  _gfState.phase='main2';
   _apCheckStateBased();
   _apRender();
 }
@@ -50724,6 +50866,7 @@ function _apCardHtml(p,idx,zone,subType){
   var manaCost=meta&&meta.manaCost?meta.manaCost:null;
   var isLand=meta&&meta.tags&&meta.tags.isLand;
   var tapped=p.tapped?' tapped':'';
+  var attacking=(zone==='bf'&&p.attacking)?' attacking':'';
   var playable='';
   // Marquer comme playable si en main et mana suffisant
   if(zone==='hand'){
@@ -50735,7 +50878,9 @@ function _apCardHtml(p,idx,zone,subType){
   var onClick='';
   if(zone==='hand'){onClick='_apPlayFromHand('+idx+')';}
   else if(zone==='bf'){onClick='_apClickPerm(event,'+idx+')';}
-  var html='<div class="ap-card'+tapped+playable+'" data-card="'+esc(name)+'" onclick="'+onClick+'" oncontextmenu="event.preventDefault();_apCardMenu(event,\''+zone+'\','+idx+')">';
+  // Animation de cast (carte fraîchement jouée)
+  var animCls=(zone==='bf'&&_gfState._animPlay&&name===_gfState._animPlay)?' played':'';
+  var html='<div class="ap-card'+tapped+playable+attacking+animCls+'" data-card="'+esc(name)+'" onclick="'+onClick+'" oncontextmenu="event.preventDefault();_apCardMenu(event,\''+zone+'\','+idx+')">';
   html+='<img src="'+esc(img)+'" alt="'+esc(name)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
   html+='<div class="ap-card-noimg" style="display:none">'+esc(name)+'</div>';
   // Mana cost sur cartes en main (affiché en haut-gauche en chips)
@@ -50759,6 +50904,13 @@ function _apCardHtml(p,idx,zone,subType){
     if(p.enteredThisTurn){
       var pmeta=meta;var ptl=(pmeta&&pmeta.typeLine||'').toLowerCase();
       if(ptl.indexOf('creature')>=0)html+='<div class="ap-card-sickness" title="Mal d\'invocation">😴 fraîche</div>';
+    }
+    // Force/endurance pour les créatures (lisibilité du combat)
+    var ptl2=(meta&&meta.typeLine||'').toLowerCase();
+    if(ptl2.indexOf('creature')>=0){
+      var st=_apCreatureStats(p);
+      var tDmg=p.dmg||0;
+      html+='<div class="ap-card-pt"'+(tDmg>0?' style="color:#ff9090"':'')+'>'+st.power+'/'+(st.toughness-tDmg)+'</div>';
     }
   }
   html+='<div class="ap-card-name">'+esc(name)+'</div>';
@@ -51239,6 +51391,7 @@ function _apResolveTop(){
       enteredThisTurn:isCreature&&!hasHaste,
       counters:{},dmg:0
     });
+    _gfState._animPlay=nm; // déclenche l'animation de cast au prochain rendu
     _apLog('✓ '+nm+' arrive en jeu');
   }else{
     _gfState.graveyard.push(nm);
@@ -51309,6 +51462,11 @@ function _apClickPerm(e,idx){
   // on demande à l'utilisateur. Sinon on tape simplement.
   if(!_gfState||!_gfState.battlefield[idx])return;
   var p=_gfState.battlefield[idx];
+  // ─── MODE COMBAT : clic = (dé)sélectionner comme attaquant ───
+  if(_gfState.combatMode==='declare'){
+    _apToggleAttacker(idx);
+    return;
+  }
   // ─── MODE TARGETING : clic = sélectionner cette carte comme cible ───
   if(_gfState.targeting){
     _apPickTarget('bf',idx);
