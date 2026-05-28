@@ -17663,6 +17663,19 @@ function _purSellerNameOf(c,lst){
   var g=(lst.orderGroups||[]).find(function(x){return x.id===c.orderGroupId;});
   return g?(g.sellerName||g.name||''):'';
 }
+// Montant dû par membre (cartes + part de port au prorata) — même calcul que le récap
+function _purOwedByMember(cards,groups){
+  var NONE='__none__';var bk={};function B(u){return bk[u]||(bk[u]={cards:0,ship:0});}
+  function cVal(c){return (typeof c.actualPrice==='number'?c.actualPrice:0)*(c.qty||1);}
+  (cards||[]).forEach(function(c){B(c.buyer||NONE).cards+=cVal(c);});
+  (groups||[]).forEach(function(g){
+    var S=g.shippingCost||0;if(!S)return;
+    var gc=(cards||[]).filter(function(c){return c.orderGroupId===g.id;});
+    var V=gc.reduce(function(s,c){return s+cVal(c);},0);var totQ=gc.reduce(function(s,c){return s+(c.qty||1);},0);
+    gc.forEach(function(c){var share=V>0?S*cVal(c)/V:(totQ>0?S*(c.qty||1)/totQ:0);B(c.buyer||NONE).ship+=share;});
+  });
+  return bk;
+}
 function _purRenderTableV2(cards,lst){
   cards=cards||[];
   var mems=_purMembers();var groups=lst.orderGroups||[];var q=_purTableSearch;
@@ -17706,6 +17719,14 @@ function _purRenderTableV2(cards,lst){
   html+='<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Commande :</span>';
   html+=chip('all','Toutes')+chip('todo','🕗 À commander ('+nTodo+')')+chip('ordered','🛒 Commandées ('+nOrdered+')');
   html+='</div>';
+  // Règlement (bande compacte) : une pastille cliquable par membre qui doit, n'apparaît que s'il y a des montants
+  var _owed=_purOwedByMember(cards,lst.orderGroups||[]);var _settled=lst.settlements||{};
+  var _regChips=(lst.members||[]).map(function(u){
+    var b=_owed[u];if(!b)return '';var tot=b.cards+b.ship;if(tot<=0.001)return '';
+    var paid=!!_settled[u];
+    return '<button onclick="purToggleSettled(\''+esc(u)+'\')" title="'+(paid?'Remboursé — clic pour rouvrir':'À régler — clic = marquer payé')+'" style="background:'+(paid?'rgba(127,176,105,.15)':'rgba(240,180,40,.12)')+';border:.5px solid '+(paid?'rgba(127,176,105,.5)':'rgba(240,180,40,.45)')+';color:'+(paid?'#7fb069':'var(--am)')+';border-radius:10px;padding:2px 9px;font-size:.72rem;cursor:pointer">'+(paid?'✓ ':'💸 ')+esc(_purMemberName(u))+' '+tot.toFixed(2)+'€</button>';
+  }).filter(Boolean);
+  if(_regChips.length)html+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Règlement :</span>'+_regChips.join('')+'</div>';
   html+='<table class="pur-table"><thead><tr>';
   html+='<th style="width:36px"></th>';
   html+=th('Carte','card','min-width:130px');
