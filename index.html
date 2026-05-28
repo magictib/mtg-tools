@@ -50601,6 +50601,7 @@ function _apRender(){
   html+='<div style="display:flex;gap:4px"><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apDraw(1)" title="Piocher">📚</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apMulligan()" title="Mulligan">🔄</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apTapAllLands()" title="Tap tous les terrains">⚙</button></div>';
   if(myTurn&&s.combatMode!=='declare'&&!(s.mp&&_mpg&&_mpg.awaitingBlocks))html+='<button class="ap-action" style="padding:8px;font-size:.8rem;background:rgba(220,120,40,.2);color:#e08a3c;border-color:rgba(220,120,40,.5)" onclick="_apStartCombat()">⚔ Déclarer une attaque</button>';
   if(s.mp&&_mpg&&_mpg.awaitingBlocks)html+='<div style="padding:8px;text-align:center;font-size:.74rem;color:#e08a3c;background:rgba(220,120,40,.12);border:1px solid rgba(220,120,40,.4);border-radius:7px">⏳ En attente des blocages adverses…<br><button class="ap-action" style="margin-top:5px;padding:3px 8px;font-size:.64rem" onclick="_mpgCancelCombat()">Annuler l\'attaque</button></div>';
+  if(s.mp&&_mpg&&_mpg.pendingCast)html+='<div style="padding:8px;text-align:center;font-size:.74rem;color:#8fc4eb;background:rgba(143,196,235,.12);border:1px solid rgba(143,196,235,.4);border-radius:7px">⏳ '+esc(_mpg.pendingCast.name)+' — réponse adverse…<br><button class="ap-action" style="margin-top:5px;padding:3px 8px;font-size:.64rem" onclick="_mpgForceResolveCast()">Forcer la résolution</button></div>';
   if(!s.mp)html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleBotSpeed()" title="Vitesse de jeu du bot">🤖 Bot : '+(_apBotSpeedFast?'⚡ rapide':'🐢 normal')+'</button>';
   html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleSfx()" title="Effets sonores">'+(_apSfxOn?'🔊 Son : on':'🔇 Son : off')+'</button>';
   // Mana pool (grille 3×2)
@@ -51839,6 +51840,10 @@ function _apPlayFromHand(idx){
     if(manaCost)_apPayCost(manaCost);
     else{var rem=cmc;['C','W','U','B','R','G'].forEach(function(c){while(rem>0&&_gfState.manaPool[c]>0){_gfState.manaPool[c]--;rem--;}});}
     _gfState.hand.splice(idx,1);
+    var _tl=(meta&&meta.typeLine||'').toLowerCase();
+    var _isPerm=(_tl.indexOf('creature')>=0||_tl.indexOf('artifact')>=0||_tl.indexOf('enchantment')>=0||_tl.indexOf('planeswalker')>=0);
+    // ─── MULTIJOUEUR : fenêtre de réponse adverse (priorité instant-speed) ───
+    if(_gfState.mp){_mpgCastWithPriority(nm,meta,_isPerm);_apCheckStateBased();_apRender();return;}
     // ─── PILE : le sort va sur la pile avant résolution (auto-résolution après animation) ───
     _gfState.stack=_gfState.stack||[];
     _gfState.stack.push({name:nm,kind:'spell',meta:meta,cost:manaCost||cmc});
@@ -55074,6 +55079,8 @@ function _mpgOnRoom(data){
     _gfState.activePlayer=(_mpg.activePlayer===_mpg.myUid)?'me':'opp';
     // ─── COMBAT synchronisé ───
     _mpgHandleCombat(data.combat);
+    // ─── PRIORITÉ instant-speed (fenêtre de réponse) ───
+    _mpgHandlePriority(data.priority);
     // Transition : c'est devenu MON tour
     if(prevActive&&prevActive!==_mpg.myUid&&_mpg.activePlayer===_mpg.myUid){_mpgStartMyTurn();}
     else _apRender();
@@ -55097,6 +55104,94 @@ function _mpgHandleCombat(combat){
     _mpg._combatTs=combat.ts;
     _mpgApplyCombatResult(combat);
   }
+}
+// ─── PRIORITÉ : fenêtre de réponse à un sort (contrer / laisser résoudre) ───
+function _mpgCastWithPriority(nm,meta,isPerm){
+  if(!_mpg||!_gfState)return;
+  var others=(_mpg.playerOrder||[]).filter(function(u){return u!==_mpg.myUid;});
+  if(!others.length){ // pas d'adversaire connecté → résolution directe
+    _mpgResolveSpell({name:nm,meta:meta,isPermanent:isPerm});return;
+  }
+  var ts=Date.now();
+  _mpg.pendingCast={name:nm,meta:meta,isPermanent:isPerm};
+  _mpg._prioTs=ts;
+  _apLog('🪄 Cast '+nm+' — fenêtre de réponse adverse');
+  db.collection('play_rooms').doc(_mpg.code).update({priority:{caster:_mpg.myUid,casterName:_mpg.myName,spell:nm,isPermanent:isPerm,ts:ts,status:'open',passed:[]},lastUpdate:Date.now()}).catch(function(){});
+  _mpgPushBoard();
+}
+function _mpgHandlePriority(prio){
+  if(!_gfState||!_gfState.mp)return;
+  if(!prio||prio.status==='resolved'){var b=document.getElementById('mpg-prio-ov');if(b)b.style.display='none';_mpg._prioSeen=0;return;}
+  if(prio.caster===_mpg.myUid){
+    // Je suis le lanceur : surveille les réponses
+    if(prio.status==='countered'){
+      var pc=_mpg.pendingCast;_mpg.pendingCast=null;
+      if(pc){_gfState.graveyard.push(pc.name);_apLog('🛡 '+pc.name+' a été contré !');_apFx('🛡 Contré',{color:'#8fc4eb'});}
+      db.collection('play_rooms').doc(_mpg.code).update({priority:null,lastUpdate:Date.now()}).catch(function(){});
+      _mpgPushBoard();_apRender();return;
+    }
+    var others=(_mpg.playerOrder||[]).filter(function(u){return u!==_mpg.myUid;});
+    if(others.every(function(u){return (prio.passed||[]).indexOf(u)>=0;})){
+      var pc2=_mpg.pendingCast;_mpg.pendingCast=null;
+      db.collection('play_rooms').doc(_mpg.code).update({priority:null,lastUpdate:Date.now()}).catch(function(){});
+      if(pc2)_mpgResolveSpell(pc2);
+    }
+    return;
+  }
+  // Je suis un répondeur
+  if((prio.passed||[]).indexOf(_mpg.myUid)>=0)return; // j'ai déjà passé
+  if(_mpg._prioSeen===prio.ts)return; // déjà affiché
+  _mpg._prioSeen=prio.ts;
+  _mpgShowResponseUI(prio);
+}
+function _mpgShowResponseUI(prio){
+  var ov=document.getElementById('mpg-prio-ov');
+  if(!ov){ov=document.createElement('div');ov.id='mpg-prio-ov';ov.style.cssText='position:fixed;left:0;right:0;bottom:200px;z-index:7050;display:flex;justify-content:center;pointer-events:none';document.body.appendChild(ov);}
+  var meta=_anaData[(prio.spell||'').toLowerCase()];
+  var img=meta&&(meta.imageUri||meta.imgUri)?(meta.imageUri||meta.imgUri):('https://api.scryfall.com/cards/named?format=image&version=normal&fuzzy='+encodeURIComponent(prio.spell));
+  var h='<div style="pointer-events:auto;background:linear-gradient(135deg,rgba(40,30,60,.97),rgba(20,15,35,.97));border:1.5px solid #8fc4eb;border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px;box-shadow:0 12px 40px rgba(0,0,0,.8);max-width:520px">';
+  h+='<img src="'+esc(img)+'" style="width:60px;height:84px;border-radius:7px;object-fit:cover" onerror="this.style.display=\'none\'">';
+  h+='<div style="flex:1"><div style="font-family:Goudy Mediaeval,serif;color:#8fc4eb;font-size:1rem">'+esc(prio.casterName||'Adversaire')+' lance</div><div style="color:#fff;font-weight:700">'+esc(prio.spell)+'</div><div style="font-size:.72rem;color:var(--tx3);margin-top:3px">Réponds maintenant (contre-sort, instant) ou laisse résoudre.</div></div>';
+  h+='<div style="display:flex;flex-direction:column;gap:6px">';
+  h+='<button class="ap-action" onclick="_mpgPriorityCounter()" style="background:rgba(143,196,235,.25);color:#8fc4eb;border-color:#8fc4eb">🛡 Contrer</button>';
+  h+='<button class="ap-action primary" onclick="_mpgPriorityPass()">Laisser résoudre</button>';
+  h+='</div></div>';
+  ov.innerHTML=h;ov.style.display='flex';
+}
+function _mpgPriorityPass(){
+  var ov=document.getElementById('mpg-prio-ov');if(ov)ov.style.display='none';
+  if(!_mpg)return;
+  try{db.collection('play_rooms').doc(_mpg.code).update({'priority.passed':firebase.firestore.FieldValue.arrayUnion(_mpg.myUid),lastUpdate:Date.now()}).catch(function(){});}catch(e){}
+  _apLog('Tu laisses résoudre');
+}
+function _mpgPriorityCounter(){
+  var ov=document.getElementById('mpg-prio-ov');if(ov)ov.style.display='none';
+  if(!_mpg)return;
+  db.collection('play_rooms').doc(_mpg.code).update({'priority.status':'countered',lastUpdate:Date.now()}).catch(function(){});
+  _apLog('🛡 Tu contres le sort adverse !');
+}
+// Force la résolution de mon sort si l'adversaire ne répond pas (AFK)
+function _mpgForceResolveCast(){
+  if(!_mpg||!_mpg.pendingCast)return;
+  if(!confirm('Forcer la résolution ? (à utiliser si l\'adversaire ne répond pas)'))return;
+  var pc=_mpg.pendingCast;_mpg.pendingCast=null;
+  db.collection('play_rooms').doc(_mpg.code).update({priority:null,lastUpdate:Date.now()}).catch(function(){});
+  _mpgResolveSpell(pc);
+}
+// Résout un sort (après la fenêtre de priorité) : permanent → champ, sinon → cimetière + effet
+function _mpgResolveSpell(pc){
+  if(!_gfState)return;
+  var nm=pc.name;var meta=pc.meta||_anaData[(nm||'').toLowerCase()];
+  if(pc.isPermanent){
+    var tl=(meta&&meta.typeLine||'').toLowerCase();var isCreature=tl.indexOf('creature')>=0;
+    var oracle=(meta&&meta.oracleText||'').toLowerCase();var hasHaste=/\bhaste\b|célérité/i.test(oracle);
+    _gfState.battlefield.push({name:nm,tapped:false,enteredThisTurn:isCreature&&!hasHaste,counters:{},dmg:0});
+    _gfState._animPlay=nm;_apLog('✓ '+nm+' arrive en jeu');_apSfx('cast');
+  }else{
+    _gfState.graveyard.push(nm);_apLog('✓ '+nm+' résolu → cimetière');
+  }
+  try{if(typeof _apResolveEffect==='function')_apResolveEffect(nm);}catch(e){}
+  _apCheckStateBased();_mpgPushBoard();_apRender();
 }
 function _mpgApplyBoards(){
   if(_gfState&&_gfState.mp){
@@ -55187,6 +55282,7 @@ function _mpgPassTurn(){
   if(!_mpg||!_gfState)return;
   if(_mpg.activePlayer!==_mpg.myUid){if(typeof toastError==='function')toastError('Ce n\'est pas ton tour');return;}
   if(_mpg.awaitingBlocks){if(typeof toastError==='function')toastError('Attends la résolution du combat');return;}
+  if(_mpg.pendingCast){if(typeof toastError==='function')toastError('Attends la réponse adverse à ton sort');return;}
   _apRecomputeMaxHandSize();
   var excess=_gfState.hand.length-(_gfState.maxHandSize||7);
   if(excess>0){_apPromptDiscard(excess,_mpgDoPassTurn);return;}
