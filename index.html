@@ -49896,6 +49896,45 @@ function openArenaPro(deckId){
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// PERSISTANCE / REPRISE DE PARTIE (reconnexion solo + multijoueur)
+// On sauvegarde _gfState (main, biblio, board — tout est local) à chaque
+// rendu. Au retour, on propose de reprendre. Pour le multi, on se ré-abonne.
+// ════════════════════════════════════════════════════════════════════════
+var _apPersistTO=null;
+function _apPersist(){
+  if(!_gfState||_gfState.gameOver){return;}
+  try{
+    var clone=JSON.parse(JSON.stringify(Object.assign({},_gfState,{targeting:null,combatMode:null,_animPlay:null})));
+    var pkg={ts:Date.now(),state:clone};
+    if(_gfState.mp&&_mpg)pkg.mp={code:_mpg.code,myUid:_mpg.myUid,myName:_mpg.myName,myDeckId:_mpg.myDeckId,host:_mpg.host,format:_mpg.format,playerOrder:_mpg.playerOrder};
+    localStorage.setItem('mtg_ap_save',JSON.stringify(pkg));
+  }catch(e){}
+}
+function _apPersistDebounced(){if(_apPersistTO)clearTimeout(_apPersistTO);_apPersistTO=setTimeout(_apPersist,500);}
+function _apClearPersist(){try{localStorage.removeItem('mtg_ap_save');}catch(e){}}
+function _apHasSavedGame(){
+  try{var pkg=JSON.parse(localStorage.getItem('mtg_ap_save'));
+    if(!pkg||!pkg.state)return null;
+    if(Date.now()-pkg.ts>1000*60*60*12)return null; // expire après 12h
+    return pkg;
+  }catch(e){return null;}
+}
+function _apResumeGame(){
+  var pkg=_apHasSavedGame();if(!pkg){if(typeof toastError==='function')toastError('Aucune partie à reprendre');return;}
+  var ov=document.getElementById('ap-ov');if(!ov){ov=document.createElement('div');ov.id='ap-ov';document.body.appendChild(ov);}
+  document.body.classList.add('ap-active');ov.classList.add('open');
+  _gfState=pkg.state;
+  if(pkg.mp&&_fsReady()){
+    _mpg=Object.assign({status:'playing',players:{},lastActive:null},pkg.mp);
+    _mpgListen(pkg.mp.code); // re-sync turn/activePlayer/boards adverses
+    if(typeof toastSuccess==='function')toastSuccess('Reconnexion à la room '+pkg.mp.code);
+  }
+  _apApplyTheme&&_apApplyTheme();
+  _apRender();
+  if(typeof toastSuccess==='function')toastSuccess('Partie reprise');
+}
+
 // ═══ LOBBY pré-partie : setup de la partie ═══
 var _apLobby={
   format:'commander',
@@ -49951,6 +49990,18 @@ function _apRenderLobby(){
   html+='<button class="ap-action" onclick="_mpgOpen()" title="Jouer en ligne contre des amis">🌐 En ligne</button>';
   html+='<button class="ap-action" onclick="openArenaThemes()">🎨</button>';
   html+='</div>';
+  // Bandeau « Reprendre la partie » si une sauvegarde existe
+  var _sv=_apHasSavedGame&&_apHasSavedGame();
+  if(_sv){
+    var svName=(_sv.state&&_sv.state.deckName)||'partie';
+    var svTurn=(_sv.state&&_sv.state.turn)||1;
+    html+='<div style="background:linear-gradient(135deg,rgba(127,176,105,.18),rgba(40,80,40,.2));border:1px solid rgba(127,176,105,.5);border-radius:12px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+    html+='<div style="font-size:1.5rem">⏯</div>';
+    html+='<div style="flex:1;min-width:180px"><div style="font-family:Goudy Mediaeval,serif;color:#7fb069;font-size:.95rem">Partie en cours</div><div style="font-size:.74rem;color:var(--tx2)">'+esc(svName)+' — tour '+svTurn+(_sv.mp?' · en ligne':'')+'</div></div>';
+    html+='<button class="ap-action primary" onclick="_apResumeGame()" style="font-size:.84rem">⏯ Reprendre</button>';
+    html+='<button class="ap-action" onclick="_apClearPersist();_apOpenLobby()" style="font-size:.74rem">Abandonner</button>';
+    html+='</div>';
+  }
   // Bandeau multijoueur
   html+='<div style="background:linear-gradient(135deg,rgba(143,196,235,.12),rgba(40,80,130,.18));border:1px solid rgba(143,196,235,.4);border-radius:12px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
   html+='<div style="font-size:1.6rem">🌐</div>';
@@ -50390,6 +50441,7 @@ function closeArenaPro(){
   }
   // Multijoueur : quitter proprement la room
   if(_gfState&&_gfState.mp&&typeof _mpgLeave==='function'){try{_mpgLeave();}catch(e){}}
+  _apClearPersist();
   document.body.classList.remove('ap-active');
   var ov=document.getElementById('ap-ov');if(ov)ov.classList.remove('open');
   _gfState=null;
@@ -50613,6 +50665,8 @@ function _apRender(){
   setTimeout(_apHandAttachUI,20);
   // Multijoueur : pousse mon board (débounce)
   if(_gfState.mp&&typeof _mpgPushBoardDebounced==='function')_mpgPushBoardDebounced();
+  // Persistance pour reprise/reconnexion
+  _apPersistDebounced();
 }
 
 // ═══ Actions adversaires ═══
@@ -51600,6 +51654,7 @@ function _apCheckStateBased(){
 function _apEndGame(result,reason){
   if(!_gfState||_gfState.gameOver)return;
   _gfState.gameOver=result;
+  _apClearPersist(); // la partie est finie : plus rien à reprendre
   _apFxBanner(result==='win'?'🏆 VICTOIRE':'☠ DÉFAITE',result==='win'?'#7fb069':'#dc5050');
   _apSfx(result==='win'?'win':'lose');
   // Multijoueur : broadcast mon résultat aux autres
@@ -54883,7 +54938,7 @@ function _mpgRenderLobby(){
     [['commander','Commander 40 PV'],['paupercmd','Pauper Commander 40 PV'],['modern','Modern 20 PV'],['pioneer','Pioneer 20 PV'],['legacy','Legacy 20 PV'],['standard','Standard 20 PV'],['pauper','Pauper 20 PV'],['brawl','Brawl 25 PV']].forEach(function(f){html+='<option value="'+f[0]+'">'+f[1]+'</option>';});
     html+='</select>';
     html+='<button class="ap-action primary" onclick="_mpgCreate()" style="width:100%">⚡ Créer la room</button></div>';
-    html+='<div style="background:rgba(143,196,235,.08);border:.5px solid rgba(143,196,235,.4);border-radius:9px;padding:16px"><div style="font-family:Goudy Mediaeval,serif;color:#8fc4eb;font-size:1rem;margin-bottom:8px">🔑 Rejoindre</div><input id="mpg-code" maxlength="6" placeholder="CODE" style="width:100%;padding:9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);text-transform:uppercase;font-family:monospace;font-size:1.3rem;text-align:center;letter-spacing:.15em;margin-bottom:10px"><button class="ap-action primary" onclick="_mpgJoin()" style="width:100%">→ Rejoindre</button></div>';
+    html+='<div style="background:rgba(143,196,235,.08);border:.5px solid rgba(143,196,235,.4);border-radius:9px;padding:16px"><div style="font-family:Goudy Mediaeval,serif;color:#8fc4eb;font-size:1rem;margin-bottom:8px">🔑 Rejoindre</div><input id="mpg-code" maxlength="6" placeholder="CODE" style="width:100%;padding:9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);text-transform:uppercase;font-family:monospace;font-size:1.3rem;text-align:center;letter-spacing:.15em;margin-bottom:10px"><button class="ap-action primary" onclick="_mpgJoin()" style="width:100%;margin-bottom:6px">→ Rejoindre (joueur)</button><button class="ap-action" onclick="_mpgSpectate()" style="width:100%" title="Observer la partie sans y participer">👁 Observer</button></div>';
     html+='</div>';
     html+='<div style="margin-top:12px;font-size:.74rem;color:var(--tx3);font-style:italic;text-align:center">💡 La vidéo/voix : utilise Discord en parallèle. ManaLAB synchronise la partie.</div>';
   }else{
@@ -55260,6 +55315,63 @@ function _mpgCancelCombat(){
   db.collection('play_rooms').doc(_mpg.code).update({combat:null,lastUpdate:Date.now()}).catch(function(){});
   _apLog('Attaque annulée');
   _apRender();
+}
+// ════════════════════════════════════════════════════════════════════════
+// MODE SPECTATEUR — observe une room en lecture seule (boards live)
+// ════════════════════════════════════════════════════════════════════════
+var _mpgSpec=null; // {code, players:{uid:board}, order:[uid], unsubRoom, unsubBoards}
+function _mpgSpectate(){
+  if(!_fsReady()){if(typeof toastError==='function')toastError('Connecte-toi pour observer');return;}
+  var code=((document.getElementById('mpg-code')||{}).value||'').trim().toUpperCase();
+  if(code.length!==6){if(typeof toastError==='function')toastError('Code à 6 caractères');return;}
+  db.collection('play_rooms').doc(code).get().then(function(d){
+    if(!d.exists){if(typeof toastError==='function')toastError('Room introuvable');return;}
+    _mpgSpec={code:code,players:{},order:(d.data().playerOrder||[]).slice(),turn:d.data().turn,activePlayer:d.data().activePlayer,unsubRoom:null,unsubBoards:null};
+    _mpgSpec.unsubRoom=db.collection('play_rooms').doc(code).onSnapshot(function(s){
+      if(!s.exists){_mpgSpecLeave();if(typeof toastError==='function')toastError('Room fermée');return;}
+      var dd=s.data();_mpgSpec.order=(dd.playerOrder||[]).slice();_mpgSpec.turn=dd.turn;_mpgSpec.activePlayer=dd.activePlayer;_mpgRenderSpectator();
+    });
+    _mpgSpec.unsubBoards=db.collection('play_rooms').doc(code).collection('boards').onSnapshot(function(snap){
+      snap.forEach(function(doc){var b=doc.data();_mpgSpec.players[b.uid||doc.id]=b;});_mpgRenderSpectator();
+    });
+    _mpgCloseLobby();_mpgRenderSpectator();
+    if(typeof toastSuccess==='function')toastSuccess('Mode spectateur — room '+code);
+  }).catch(function(){if(typeof toastError==='function')toastError('Connexion impossible');});
+}
+function _mpgSpecLeave(){
+  if(_mpgSpec){if(_mpgSpec.unsubRoom)_mpgSpec.unsubRoom();if(_mpgSpec.unsubBoards)_mpgSpec.unsubBoards();}
+  _mpgSpec=null;
+  var ov=document.getElementById('mpg-spec-ov');if(ov)ov.style.display='none';
+}
+function _mpgRenderSpectator(){
+  if(!_mpgSpec)return;
+  var ov=document.getElementById('mpg-spec-ov');
+  if(!ov){ov=document.createElement('div');ov.id='mpg-spec-ov';ov.style.cssText='position:fixed;inset:0;z-index:6600;background:radial-gradient(ellipse at center,#1a1208,#080503);display:flex;flex-direction:column;overflow-y:auto;padding:12px';document.body.appendChild(ov);}
+  var html='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="font-family:Goudy Mediaeval,serif;font-size:1.3rem;color:#8fc4eb;flex:1">👁 Spectateur — room '+esc(_mpgSpec.code)+' <span style="font-size:.8rem;color:var(--tx3)">· tour '+(_mpgSpec.turn||1)+'</span></div><button class="ap-action" onclick="_mpgSpecLeave()">✕ Quitter</button></div>';
+  if(!_mpgSpec.order.length){html+='<div style="margin:auto;color:var(--tx3)">En attente de joueurs…</div>';}
+  _mpgSpec.order.forEach(function(uid){
+    var b=_mpgSpec.players[uid]||{};
+    var active=uid===_mpgSpec.activePlayer;
+    var lifeCol=(b.life<=10)?'#dc5050':(b.life<=20?'#e8c96e':'#7fb069');
+    html+='<div style="background:'+(active?'rgba(127,176,105,.12)':'rgba(0,0,0,.25)')+';border:1px solid '+(active?'#7fb069':'rgba(201,168,76,.2)')+';border-radius:10px;padding:10px 12px;margin-bottom:8px">';
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><span style="font-family:Goudy Mediaeval,serif;color:var(--gold2)">'+(active?'▶ ':'')+esc(b.name||'Joueur')+'</span>';
+    html+='<span style="font-size:.74rem;color:var(--tx3)">'+esc(b.deckName||'')+'</span>';
+    html+='<span style="margin-left:auto;font-family:Goudy Mediaeval,serif;font-size:1.4rem;font-weight:700;color:'+lifeCol+'">❤ '+(b.life!=null?b.life:'?')+'</span>';
+    html+='<span style="font-size:.74rem;color:var(--tx3)">🤚 '+(b.handCount||0)+'</span>';
+    if(b.result==='lose')html+='<span style="color:#dc5050">☠</span>';
+    html+='</div>';
+    var bf=_apSplitByType((b.battlefield||[]).map(function(x){return x.n||x;}));
+    html+='<div style="display:flex;gap:4px;flex-wrap:wrap">';
+    var cards=(b.battlefield||[]).map(function(x){return x.n||x;});
+    if(!cards.length)html+='<span style="color:var(--tx3);font-size:.74rem;font-style:italic">— pas de permanent —</span>';
+    cards.forEach(function(nm){
+      var meta=_anaData[(nm||'').toLowerCase()];
+      var img=meta&&(meta.imageUri||meta.imgUri)?(meta.imageUri||meta.imgUri):('https://api.scryfall.com/cards/named?format=image&version=normal&fuzzy='+encodeURIComponent(nm));
+      html+='<div class="ap-card" style="width:54px;height:76px;cursor:default" title="'+esc(nm)+'"><img src="'+esc(img)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="ap-card-noimg" style="display:none">'+esc(nm)+'</div></div>';
+    });
+    html+='</div></div>';
+  });
+  ov.innerHTML=html;ov.style.display='flex';
 }
 // ATTAQUANT : applique les dégâts renvoyés à mes attaquants, puis nettoie le combat
 function _mpgApplyCombatResult(combat){
