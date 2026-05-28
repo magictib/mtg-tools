@@ -3349,9 +3349,9 @@ details > summary::-webkit-details-marker{display:none}
       </div>
       <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-left:auto">
         <span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Vue :</span>
-        <button class="dm pur-viewmode active" data-mode="orders" onclick="purSetViewMode('orders')" title="Commandes par vendeur : qui achète quoi, frais de port partagés, suivi de réception">🛒 Commandes</button>
+        <button class="dm pur-viewmode active" data-mode="list" onclick="purSetViewMode('list')" title="Liste complète : carte, deck, à qui, qté, vendeur, prix, reçu — triable et cherchable">📋 Liste</button>
+        <button class="dm pur-viewmode" data-mode="orders" onclick="purSetViewMode('orders')" title="Par vendeur : frais de port partagés + suivi de réception">🛒 Commandes</button>
         <button class="dm pur-viewmode" data-mode="action" onclick="purSetViewMode('action')" title="Prêts / emprunts / échanges entre amis">🤝 Prêts</button>
-        <button class="dm pur-viewmode" data-mode="table" onclick="purSetViewMode('table')" title="Vue tableau brute">📋 Tableau</button>
         <span class="pur-lbl-grouper" style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Grouper :</span>
         <button class="dm pur-groupby active" data-gb="deck" onclick="purSetGroupBy('deck')" title="Regrouper par deck">Deck</button>
         <button class="dm pur-groupby" data-gb="group" onclick="purSetGroupBy('group')" title="Regrouper par groupe d'achat / vendeur">Vendeur</button>
@@ -13758,7 +13758,7 @@ var _sharedListsUnsub=null;
 var _sharedListsRoleFilter='all'; // 'all' | 'mybuys' | 'myborrows' | 'unassigned'
 var _STATUS_FLOW=['proposed','accepted','bought','delivered'];
 var _STATUS_LBL={proposed:'💭 Proposée',accepted:'✋ Acceptée',bought:'🛒 Achetée',delivered:'✅ Livrée',lend_offered:'🤝 Prêt proposé',lend_accepted:'✓ Prêt accepté',lend_refused:'✕ Non disponible'};
-var _purViewMode='orders'; // 'orders' (commandes par vendeur) | 'action' (prêts) | 'table'
+var _purViewMode='list'; // 'list' (tableau triable) | 'orders' (par vendeur) | 'action' (prêts) | 'table' (legacy)
 var _STATUS_COLOR={proposed:'var(--tx3)',accepted:'var(--ac2)',bought:'var(--gold2)',delivered:'var(--gr2)'};
 
 function loadPurchaseLists(){
@@ -15105,7 +15105,7 @@ function _purRenderFriendSel(){
 
 // ===== ACTION CENTER (vue par rôle) =====
 function purSetViewMode(mode){
-  _purViewMode=(mode==='table')?'table':(mode==='action')?'action':'orders';
+  _purViewMode=({list:'list',orders:'orders',action:'action',table:'table'})[mode]||'list';
   document.querySelectorAll('.pur-viewmode').forEach(function(b){b.classList.toggle('active',b.dataset.mode===_purViewMode);});
   renderPurchaseMgr();
 }
@@ -17572,6 +17572,85 @@ function _purOrderCardRow(c,allGroups){
   html+='</div>';
   return html;
 }
+// ════════════════════════════════════════════════════════════════════════
+// VUE LISTE — tableau complet triable + cherchable (le cœur du suivi)
+// Colonnes : vignette(zoom) · carte · deck · à qui · qté · vendeur · prix · reçu
+// ════════════════════════════════════════════════════════════════════════
+var _purTableSearch='';
+var _purSort={key:'deck',dir:1};
+function purTableSearch(v){_purTableSearch=(v||'').toLowerCase();renderPurchaseMgr();}
+function purSortBy(key){if(_purSort.key===key)_purSort.dir*=-1;else{_purSort.key=key;_purSort.dir=1;}renderPurchaseMgr();}
+function _purSellerNameOf(c,lst){
+  if(!c.orderGroupId)return '';
+  var g=(lst.orderGroups||[]).find(function(x){return x.id===c.orderGroupId;});
+  return g?(g.sellerName||g.name||''):'';
+}
+function _purRenderTableV2(cards,lst){
+  cards=cards||[];
+  var mems=_purMembers();var groups=lst.orderGroups||[];var q=_purTableSearch;
+  var rows=cards.filter(function(c){
+    if(_purOnlyMine&&c.buyer!==userId)return false;
+    if(_purHideReceived&&c.received)return false;
+    if(!q)return true;
+    var seller=_purSellerNameOf(c,lst).toLowerCase();
+    var who=(_purMemberName(c.buyer)||'').toLowerCase();
+    return (c.name||'').toLowerCase().indexOf(q)>=0||(c.deckName||'').toLowerCase().indexOf(q)>=0||seller.indexOf(q)>=0||who.indexOf(q)>=0;
+  });
+  var k=_purSort.key,dir=_purSort.dir;
+  function val(c){
+    if(k==='card')return (c.name||'').toLowerCase();
+    if(k==='who')return (c.buyer?(_purMemberName(c.buyer)||''):'~~~').toLowerCase();
+    if(k==='qty')return c.qty||1;
+    if(k==='seller')return _purSellerNameOf(c,lst).toLowerCase()||'~~~';
+    if(k==='price')return (typeof c.actualPrice==='number'?c.actualPrice:(c.price||0))*(c.qty||1);
+    if(k==='received')return c.received?1:0;
+    return (c.deckName||'~~~').toLowerCase(); // deck par défaut
+  }
+  rows.sort(function(a,b){var va=val(a),vb=val(b);if(va<vb)return -dir;if(va>vb)return dir;return (a.name||'').localeCompare(b.name||'');});
+  _zoomList=rows.map(function(c){return {nl:c.nl,name:c.name};});
+  function th(label,key,style){var arr=_purSort.key===key?(_purSort.dir>0?' ▲':' ▼'):'';return '<th style="cursor:pointer;white-space:nowrap;'+(style||'')+'" onclick="purSortBy(\''+key+'\')" title="Trier">'+label+arr+'</th>';}
+  var html='';
+  html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+  html+='<input id="pur-tbl-q" value="'+esc(_purTableSearch)+'" oninput="clearTimeout(window._purTblTO);window._purTblTO=setTimeout(function(){var e=document.getElementById(\'pur-tbl-q\');purTableSearch(e?e.value:\'\');},220)" placeholder="🔍 Carte, vendeur, deck, personne…" style="flex:1;min-width:200px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);padding:7px 11px;font-size:.84rem">';
+  html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purOnlyMine?'checked':'')+' onchange="_purOnlyMine=this.checked;renderPurchaseMgr()"> Mes cartes</label>';
+  html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purHideReceived?'checked':'')+' onchange="_purHideReceived=this.checked;renderPurchaseMgr()"> Masquer reçues</label>';
+  html+='<span style="font-size:.72rem;color:var(--tx3)">'+rows.length+' carte(s)</span>';
+  html+='</div>';
+  html+='<table class="pur-table"><thead><tr>';
+  html+='<th style="width:36px"></th>';
+  html+=th('Carte','card','min-width:130px');
+  html+=th('Deck','deck');
+  html+=th('À qui','who','color:var(--gold2)');
+  html+=th('Qté','qty','text-align:center');
+  html+=th('Vendeur','seller','color:#a8c8ff');
+  html+=th('Prix','price','text-align:right');
+  html+=th('Reçu','received','text-align:center');
+  html+='<th style="width:26px"></th>';
+  html+='</tr></thead><tbody>';
+  if(!rows.length){html+='<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--tx3);font-style:italic">Aucune carte'+(q?' pour « '+esc(q)+' »':'')+'.</td></tr>';}
+  rows.forEach(function(c,i){html+=_purTableV2Row(c,i,mems,groups);});
+  html+='</tbody></table>';
+  return html;
+}
+function _purTableV2Row(c,zi,mems,groups){
+  var sid=(c.id||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var meta=(typeof _anaData!=='undefined'&&_anaData[c.nl])||null;
+  var img=(meta&&(meta.imageUri||meta.imgUri))?(meta.imageUri||meta.imgUri).replace('/normal/','/small/').replace('/large/','/small/'):('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(c.name||''));
+  var buyerOpts='<option value="">—</option>'+mems.map(function(m){return '<option value="'+esc(m.uid)+'"'+(c.buyer===m.uid?' selected':'')+'>'+esc(m.name)+'</option>';}).join('');
+  var grpOpts='<option value="">— vide —</option>'+groups.map(function(g){return '<option value="'+esc(g.id)+'"'+(c.orderGroupId===g.id?' selected':'')+'>'+esc(g.sellerName||g.name||'?')+'</option>';}).join('');
+  var html='<tr class="pur-card-row"'+(c.received?' style="opacity:.62"':'')+'>';
+  html+='<td style="text-align:center"><img src="'+esc(img)+'" alt="" data-no-localize="1" loading="lazy" onclick="openCardZoomAt('+zi+')" title="Zoomer" style="width:30px;height:42px;object-fit:cover;border-radius:3px;cursor:zoom-in;vertical-align:middle" onerror="this.style.visibility=\'hidden\'"></td>';
+  html+='<td'+(c.received?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+esc(c.name)+(c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')+'</td>';
+  html+='<td style="color:var(--tx2);font-size:.78rem">'+esc(c.deckName||'—')+'</td>';
+  html+='<td><select onchange="purBulkAssign([\''+sid+'\'],\'buyer\',this.value||null)" title="À qui va la carte" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:2px 4px;font-size:.74rem;max-width:110px">'+buyerOpts+'</select></td>';
+  html+='<td style="text-align:center"><span class="pur-qty-ctl" onclick="event.stopPropagation()"><button onclick="purChangeCardQty(\''+sid+'\',-1)">−</button><input type="number" min="0" value="'+(c.qty||1)+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetCardQty(\''+sid+'\',this.value);}" onblur="if(this.value!==this.defaultValue)purSetCardQty(\''+sid+'\',this.value)"><button onclick="purChangeCardQty(\''+sid+'\',1)">+</button></span></td>';
+  html+='<td><select onchange="purBulkAssign([\''+sid+'\'],\'orderGroupId\',this.value||null)" title="Vendeur (se remplit après l\'optimisation Cardmarket / une fois la commande passée)" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:'+(c.orderGroupId?'#a8c8ff':'var(--tx3)')+';padding:2px 4px;font-size:.74rem;max-width:120px">'+grpOpts+'</select></td>';
+  html+='<td style="text-align:right;white-space:nowrap"><input type="number" step="0.01" min="0" value="'+(typeof c.actualPrice==='number'?c.actualPrice.toFixed(2):'')+'" placeholder="—" onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetActualPrice(\''+sid+'\',this.value);}" onblur="if(this.value!==this.defaultValue)purSetActualPrice(\''+sid+'\',this.value)" style="width:56px;padding:2px 4px;font-size:.74rem;border-radius:4px;border:.5px solid var(--bd2);background:var(--s2);color:var(--gold2);text-align:right">€</td>';
+  html+='<td style="text-align:center"><input type="checkbox" '+(c.received?'checked':'')+' onchange="purToggleReceived(\''+sid+'\')" title="Reçue ?" style="cursor:pointer"></td>';
+  html+='<td style="text-align:center"><button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;color:var(--rd2);opacity:.55;font-size:.72rem" title="Retirer">✕</button></td>';
+  html+='</tr>';
+  return html;
+}
 // État vide guidé d'une liste partagée : rappelle le parcours (ajouter → répartir → suivre réception)
 function _purWorkflowEmpty(lst){
   var nMembers=(lst&&lst.members||[]).length;
@@ -17667,6 +17746,20 @@ function renderPurchaseMgr(){
     wrap.innerHTML=_purRenderPaidSummary(lst.cards||[],lst.orderGroups||[])+_purRenderImgGrid(cards);
     _purSyncToolbar();
     purFilterDecks();
+    return;
+  }
+  // Mode Liste : tableau complet triable + cherchable (vue principale)
+  if(_purViewMode==='list'){
+    _purInvalidatePossessCache();
+    wrap.innerHTML=_purRenderTableV2(lst.cards||[],lst);
+    _purSyncToolbar();
+    purFilterDecks();
+    _purFetchPricesFor(lst.cards||[],function(){
+      if(_purViewMode==='list'&&_purchaseLists[_activePurListId]===lst){
+        var w=document.getElementById('pur-table-wrap');
+        if(w)w.innerHTML=_purRenderTableV2(lst.cards||[],lst);
+      }
+    });
     return;
   }
   // Mode Commandes : vue centrée vendeur/panier (achat groupé)
