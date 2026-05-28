@@ -3349,15 +3349,16 @@ details > summary::-webkit-details-marker{display:none}
       </div>
       <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-left:auto">
         <span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Vue :</span>
-        <button class="dm pur-viewmode active" data-mode="action" onclick="purSetViewMode('action')" title="Vue par actions : à toi de décider, à acheter, à emprunter, à prêter">🎯 Actions</button>
-        <button class="dm pur-viewmode" data-mode="table" onclick="purSetViewMode('table')" title="Vue tableau">📋 Tableau</button>
-        <span style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Grouper :</span>
+        <button class="dm pur-viewmode active" data-mode="orders" onclick="purSetViewMode('orders')" title="Commandes par vendeur : qui achète quoi, frais de port partagés, suivi de réception">🛒 Commandes</button>
+        <button class="dm pur-viewmode" data-mode="action" onclick="purSetViewMode('action')" title="Prêts / emprunts / échanges entre amis">🤝 Prêts</button>
+        <button class="dm pur-viewmode" data-mode="table" onclick="purSetViewMode('table')" title="Vue tableau brute">📋 Tableau</button>
+        <span class="pur-lbl-grouper" style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Grouper :</span>
         <button class="dm pur-groupby active" data-gb="deck" onclick="purSetGroupBy('deck')" title="Regrouper par deck">Deck</button>
         <button class="dm pur-groupby" data-gb="group" onclick="purSetGroupBy('group')" title="Regrouper par groupe d'achat / vendeur">Vendeur</button>
         <button class="dm pur-groupby" data-gb="profile" onclick="purSetGroupBy('profile')" title="Colonnes : une par acheteur">Profil</button>
         <button class="dm" id="pur-view-btn" onclick="togglePurImgMode()" style="display:none;margin-left:4px">🖼 Images</button>
         <button class="dm" id="pur-toggle-groups" onclick="purToggleGroupsPanel()" title="Panneau de gestion des groupes d'achat">🧺 Groupes</button>
-        <span style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Filtre :</span>
+        <span class="pur-lbl-filtre" style="margin-left:6px;font-size:.72rem;color:var(--tx3)">Filtre :</span>
         <select id="pur-filter-sel" onchange="purSetRoleFilter(this.value)" style="background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:6px;padding:3px 7px;font-size:.76rem">
           <option value="all">Tous</option>
           <option value="mybuys">🛒 Mes achats</option>
@@ -13757,7 +13758,7 @@ var _sharedListsUnsub=null;
 var _sharedListsRoleFilter='all'; // 'all' | 'mybuys' | 'myborrows' | 'unassigned'
 var _STATUS_FLOW=['proposed','accepted','bought','delivered'];
 var _STATUS_LBL={proposed:'💭 Proposée',accepted:'✋ Acceptée',bought:'🛒 Achetée',delivered:'✅ Livrée',lend_offered:'🤝 Prêt proposé',lend_accepted:'✓ Prêt accepté',lend_refused:'✕ Non disponible'};
-var _purViewMode='action'; // 'action' | 'table'
+var _purViewMode='orders'; // 'orders' (commandes par vendeur) | 'action' (prêts) | 'table'
 var _STATUS_COLOR={proposed:'var(--tx3)',accepted:'var(--ac2)',bought:'var(--gold2)',delivered:'var(--gr2)'};
 
 function loadPurchaseLists(){
@@ -14680,6 +14681,11 @@ function _purSyncToolbar(){
   var gb=_purViewByProfile?'profile':(_purViewByGroup?'group':'deck');
   document.querySelectorAll('.pur-groupby').forEach(function(b){b.classList.toggle('active',b.dataset.gb===gb);});
   var fs=document.getElementById('pur-filter-sel');if(fs)fs.value=_sharedListsRoleFilter;
+  // Bouton de vue actif
+  document.querySelectorAll('.pur-viewmode').forEach(function(b){b.classList.toggle('active',b.dataset.mode===_purViewMode);});
+  // Grouper / Filtre ne concernent que la vue Tableau → masqués ailleurs (la vue Commandes a ses propres réglages)
+  var isTable=(_purViewMode==='table');
+  document.querySelectorAll('.pur-groupby,#pur-filter-sel,.pur-lbl-grouper,.pur-lbl-filtre').forEach(function(el){if(el)el.style.display=isTable?'':'none';});
 }
 function purToggleCardSelect(id,checked){
   if(checked)_purSelectedIds[id]=1;
@@ -15099,7 +15105,7 @@ function _purRenderFriendSel(){
 
 // ===== ACTION CENTER (vue par rôle) =====
 function purSetViewMode(mode){
-  _purViewMode=(mode==='table')?'table':'action';
+  _purViewMode=(mode==='table')?'table':(mode==='action')?'action':'orders';
   document.querySelectorAll('.pur-viewmode').forEach(function(b){b.classList.toggle('active',b.dataset.mode===_purViewMode);});
   renderPurchaseMgr();
 }
@@ -17464,6 +17470,108 @@ function _purRenderActionCenter(allCards){
   return html;
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// VUE COMMANDES — centrée vendeur/panier (achat groupé pour mutualiser le port)
+// Réutilise orderGroups + _purRenderPaidSummary (répartition du port existante).
+// ════════════════════════════════════════════════════════════════════════
+var _purHideReceived=false;
+var _purOnlyMine=false;
+function purToggleReceived(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.received=!c.received;
+  if(c.received){if(c.status!=='delivered')c._prevStatus=c.status;c.status='delivered';}
+  else{c.status=c._prevStatus||'bought';}
+  _purStamp(c);savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+function _purMembers(){
+  var l=_activePurListId?_purchaseLists[_activePurListId]:null;
+  var uids=(l&&l.members&&l.members.length)?l.members.slice():[userId];
+  if(uids.indexOf(userId)<0)uids.unshift(userId);
+  return uids.map(function(u){return {uid:u,name:_purMemberName(u)};});
+}
+function _purCardVal(c){return (typeof c.actualPrice==='number'?c.actualPrice:(c.price||0))*(c.qty||1);}
+function _purRenderOrders(cards,groups){
+  cards=cards||[];groups=groups||[];
+  var html='';
+  // Mini-barre contextuelle (remplace les filtres complexes)
+  html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+  html+='<button class="btn btnsm btnp" onclick="purAddOrderGroup()">+ Nouvelle commande (vendeur)</button>';
+  html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purOnlyMine?'checked':'')+' onchange="_purOnlyMine=this.checked;renderPurchaseMgr()"> Seulement mes cartes</label>';
+  html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purHideReceived?'checked':'')+' onchange="_purHideReceived=this.checked;renderPurchaseMgr()"> Masquer les reçues</label>';
+  html+='</div>';
+  // À répartir (cartes sans commande)
+  var inbox=cards.filter(function(c){return !c.orderGroupId;});
+  if(inbox.length)html+=_purRenderOrderBlock(null,inbox,groups);
+  // Commandes
+  if(!groups.length){
+    html+='<div style="text-align:center;padding:1.2rem;color:var(--tx3);font-size:.82rem;border:1px dashed var(--bd2);border-radius:10px">Crée une commande par vendeur pour répartir les cartes et mutualiser les frais de port.<br><button class="btn btnsm btnp" style="margin-top:8px" onclick="purAddOrderGroup()">+ Nouvelle commande</button></div>';
+  }else{
+    groups.forEach(function(g){html+=_purRenderOrderBlock(g,cards.filter(function(c){return c.orderGroupId===g.id;}),groups);});
+  }
+  return html;
+}
+function _purRenderOrderBlock(g,gCards,allGroups){
+  var NONE='__none__';var isInbox=!g;
+  var disp=gCards.filter(function(c){
+    if(_purHideReceived&&c.received)return false;
+    if(_purOnlyMine&&c.buyer!==userId)return false;
+    return true;
+  });
+  if(isInbox&&!disp.length)return '';
+  var nCards=gCards.reduce(function(s,c){return s+(c.qty||1);},0);
+  var total=gCards.reduce(function(s,c){return s+_purCardVal(c);},0);
+  var buyers={};gCards.forEach(function(c){if(c.buyer)buyers[c.buyer]=true;});
+  var nBuyers=Object.keys(buyers).length;
+  var received=gCards.filter(function(c){return c.received;}).reduce(function(s,c){return s+(c.qty||1);},0);
+  var ship=g?(g.shippingCost||0):0;
+  var border=isInbox?'rgba(255,180,60,.5)':'rgba(201,168,76,.4)';
+  var bg=isInbox?'rgba(60,40,10,.16)':'rgba(40,30,10,.13)';
+  var html='<div style="border:1px solid '+border+';background:'+bg+';border-radius:11px;padding:12px 14px;margin-bottom:12px">';
+  if(isInbox){
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><span style="font-size:1.1rem">📥</span><b style="color:#ffc848;font-family:var(--ff-head)">À répartir</b><span style="color:var(--tx3);font-size:.74rem">'+nCards+' carte(s) à placer dans une commande</span></div>';
+  }else{
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">';
+    html+='<span style="font-size:1.1rem">🛒</span>';
+    html+='<input value="'+esc(g.sellerName||g.name||'')+'" onchange="purEditOrderGroup(\''+g.id+'\',\'sellerName\',this.value)" placeholder="Nom du vendeur…" style="font-family:var(--ff-head);color:var(--gold2);background:transparent;border:none;border-bottom:1px dashed var(--bd2);font-size:.95rem;min-width:140px;padding:2px 0">';
+    html+='<span style="color:var(--tx3);font-size:.74rem;margin-left:auto">Port <input value="'+ship+'" onchange="purEditOrderGroup(\''+g.id+'\',\'shippingCost\',this.value)" style="width:46px;background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:2px 4px;font-size:.74rem;text-align:right">€</span>';
+    html+='<button class="btn btnsm" onclick="purDeleteOrderGroup(\''+g.id+'\')" title="Supprimer la commande" style="padding:2px 7px">🗑</button>';
+    html+='</div>';
+    html+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.76rem;color:var(--tx2);margin-bottom:7px">';
+    html+='<span>🃏 '+nCards+' cartes</span><span>👥 '+nBuyers+' acheteur'+(nBuyers>1?'s':'')+'</span><span>💰 '+total.toFixed(2)+'€</span>';
+    if(ship>0)html+='<span style="color:#a8c8ff">📦 '+ship.toFixed(2)+'€ de port'+(nBuyers>1?' · partagé au prorata':'')+'</span>';
+    html+='</div>';
+    var rpct=nCards?Math.round(received/nCards*100):0;
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:.7rem;color:var(--tx3);min-width:70px">Réception</span><div style="flex:1;height:7px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden"><div style="width:'+rpct+'%;height:100%;background:'+(rpct===100?'#7fb069':'#e8c96e')+';transition:width .3s"></div></div><span style="font-size:.7rem;color:'+(rpct===100?'#7fb069':'var(--tx3)')+'">'+received+'/'+nCards+(rpct===100?' ✓ complète':'')+'</span></div>';
+  }
+  if(!disp.length){html+='<div style="color:var(--tx3);font-style:italic;font-size:.76rem;padding:6px 2px">Aucune carte'+(_purHideReceived?' (toutes reçues ✓)':'')+'</div>';}
+  else{
+    var byB={};disp.forEach(function(c){var u=c.buyer||NONE;(byB[u]=byB[u]||[]).push(c);});
+    Object.keys(byB).sort(function(a,b){if(a===userId)return -1;if(b===userId)return 1;if(a===NONE)return 1;if(b===NONE)return -1;return 0;}).forEach(function(u){
+      var nm=u===NONE?'⚠ Sans acheteur':(_purMemberName(u)+(u===userId?' (moi)':''));
+      var col=u===NONE?'var(--am)':(u===userId?'var(--gold2)':'var(--ac2)');
+      html+='<div style="margin-top:3px"><div style="font-size:.72rem;color:'+col+';font-weight:600;margin:5px 0 1px">'+esc(nm)+'</div>';
+      byB[u].forEach(function(c){html+=_purOrderCardRow(c,allGroups);});
+      html+='</div>';
+    });
+  }
+  html+='</div>';
+  return html;
+}
+function _purOrderCardRow(c,allGroups){
+  var sid=(c.id||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var price=(typeof c.actualPrice==='number'?c.actualPrice:(c.price||0));
+  var mems=_purMembers();
+  var buyerOpts='<option value="">— qui achète —</option>'+mems.map(function(m){return '<option value="'+esc(m.uid)+'"'+(c.buyer===m.uid?' selected':'')+'>'+esc(m.name)+'</option>';}).join('');
+  var grpOpts='<option value="">📥 à répartir</option>'+(allGroups||[]).map(function(g){return '<option value="'+esc(g.id)+'"'+(c.orderGroupId===g.id?' selected':'')+'>'+esc(g.sellerName||g.name||'?')+'</option>';}).join('');
+  var html='<div style="display:flex;align-items:center;gap:7px;padding:3px 4px;border-bottom:.5px solid rgba(255,255,255,.04);font-size:.78rem'+(c.received?';opacity:.55':'')+'">';
+  html+='<input type="checkbox" '+(c.received?'checked':'')+' onchange="purToggleReceived(\''+sid+'\')" title="Marquer reçue" style="cursor:pointer">';
+  html+='<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap'+(c.received?';text-decoration:line-through':'')+'">'+(c.qty>1?'<b>'+c.qty+'×</b> ':'')+esc(c.name)+'</span>';
+  html+='<span style="color:var(--tx3);font-variant-numeric:tabular-nums;min-width:46px;text-align:right">'+(price>0?(price*(c.qty||1)).toFixed(2)+'€':'—')+'</span>';
+  html+='<select onchange="purBulkAssign([\''+sid+'\'],\'buyer\',this.value||null)" title="Qui achète cette carte" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:2px 4px;font-size:.7rem;max-width:104px">'+buyerOpts+'</select>';
+  html+='<select onchange="purBulkAssign([\''+sid+'\'],\'orderGroupId\',this.value||null)" title="Déplacer vers une commande" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:2px 4px;font-size:.7rem;max-width:104px">'+grpOpts+'</select>';
+  html+='</div>';
+  return html;
+}
 // État vide guidé d'une liste partagée : rappelle le parcours (ajouter → répartir → suivre réception)
 function _purWorkflowEmpty(lst){
   var nMembers=(lst&&lst.members||[]).length;
@@ -17559,6 +17667,20 @@ function renderPurchaseMgr(){
     wrap.innerHTML=_purRenderPaidSummary(lst.cards||[],lst.orderGroups||[])+_purRenderImgGrid(cards);
     _purSyncToolbar();
     purFilterDecks();
+    return;
+  }
+  // Mode Commandes : vue centrée vendeur/panier (achat groupé)
+  if(_purViewMode==='orders'){
+    _purInvalidatePossessCache();
+    wrap.innerHTML=_purRenderPaidSummary(lst.cards||[],lst.orderGroups||[])+_purRenderOrders(lst.cards||[],lst.orderGroups||[]);
+    _purSyncToolbar();
+    purFilterDecks();
+    _purFetchPricesFor(lst.cards||[],function(){
+      if(_purViewMode==='orders'&&_purchaseLists[_activePurListId]===lst){
+        var w=document.getElementById('pur-table-wrap');
+        if(w)w.innerHTML=_purRenderPaidSummary(lst.cards||[],lst.orderGroups||[])+_purRenderOrders(lst.cards||[],lst.orderGroups||[]);
+      }
+    });
     return;
   }
   // Mode Action Center : vue par rôle
