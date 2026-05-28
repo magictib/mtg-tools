@@ -3288,15 +3288,6 @@ details > summary::-webkit-details-marker{display:none}
 @keyframes ldrOrbPulse{0%,100%{transform:scale(1);opacity:.78}50%{transform:scale(1.35);opacity:1}}
 #ldr-orb-core{animation:ldrOrbPulse 2.4s ease-in-out infinite}
 #ldr-orb-halo{animation:ldrOrbPulse 2.4s ease-in-out .6s infinite}
-/* Fin de chargement : anneaux figés, gemmes éclatent et disparaissent */
-@keyframes ldrGemDone{0%{transform:scale(1);opacity:1}40%{transform:scale(1.7);opacity:1;filter:brightness(2.2)}100%{transform:scale(.25);opacity:0;filter:none}}
-#mtg-loader.ldr-done #ldr-ring-a,#mtg-loader.ldr-done #ldr-ring-b,#mtg-loader.ldr-done #ldr-ring-c{animation-play-state:paused}
-#mtg-loader.ldr-done #ldr-gm-w{animation:ldrGemDone 1.1s ease-out 0s   forwards}
-#mtg-loader.ldr-done #ldr-gm-u{animation:ldrGemDone 1.1s ease-out .1s  forwards}
-#mtg-loader.ldr-done #ldr-gm-b{animation:ldrGemDone 1.1s ease-out .2s  forwards}
-#mtg-loader.ldr-done #ldr-gm-r{animation:ldrGemDone 1.1s ease-out .15s forwards}
-#mtg-loader.ldr-done #ldr-gm-g{animation:ldrGemDone 1.1s ease-out .05s forwards}
-#mtg-loader.ldr-done #ldr-orb-core,#mtg-loader.ldr-done #ldr-orb-halo{animation:ldrGemDone 1.1s ease-out .3s forwards}
 </style>
 
 <!-- BUILDER -->
@@ -31702,6 +31693,10 @@ function bldOptimize(){
     if(isCmd){if(!(themes.protection>1))themes.protection=1;}
     else{themes.protection=0;}
     _anaCurrentThemes=_anaGetEffectiveThemes(null,themes);
+    _anaDeckTypeCounts=_anaBuildTypeCounts(bldMain.map(function(c){
+      var _m=_anaData[c.nl||stripDFC(c.name||'').toLowerCase()];
+      return {typeLine:(_m&&_m.typeLine)||'',qty:c.qty||1};
+    }));
     var deckCi=_anaDeckCi(bldDeckTemp);
 
     var inDeckNls={};
@@ -36278,6 +36273,22 @@ var _ANTI_SYNERGY_RULES=[
 /* ----- Themes du commandant — data-driven, couvre tout commandant sans modification ----- */
 var _anaCurrentThemes={draw:1,removal:1,ramp:1,interaction:1,wincon:1,discard:1,counters:1,lifegain:1,graveyard:1,enchantment:1,artifact:1,protection:0,sacrifice:1,sweeper:0,labels:[]};
 
+// Compte des types/sous-types présents dans le deck courant (mot lowercased → nb de cartes).
+// Sert à pénaliser les cartes dont la valeur/coût dépend d'un type peu ou pas présent
+// (« coûte 1 de moins pour chaque [Type] », affinity, etc.) — voir _anaAntiSynergyPenalty.
+var _anaDeckTypeCounts={};
+function _anaBuildTypeCounts(items){
+  var counts={};
+  (items||[]).forEach(function(it){
+    var tl=(it.typeLine||'').toLowerCase();if(!tl)return;
+    var qty=it.qty||1;
+    tl.replace(/[—–-]/g,' ').split(/\s+/).forEach(function(w){
+      if(w.length>=3)counts[w]=(counts[w]||0)+qty;
+    });
+  });
+  return counts;
+}
+
 /* ----- Personnalisation des thèmes par deck (overrides utilisateur) ----- */
 var _anaUserThemesData={};var _anaThemeEditorOpen={};
 try{var _uTd=localStorage.getItem('mtg_ana_themes');if(_uTd)_anaUserThemesData=JSON.parse(_uTd);}catch(e){}
@@ -38233,6 +38244,24 @@ function _anaAntiSynergyPenalty(cardMeta,deckThemes){
     }
     if(applies)penalty+=rule.penalty;
   });
+  // ── Générique (deck-aware) : valeur/coût dépendant d'un TYPE précis présent dans le deck ──
+  // « coûte 1 de moins pour chaque [Type] que vous contrôlez », affinity/improvise (artefacts)…
+  // Si le deck a trop peu de ce type, la réduction est nulle / le payoff est vide → piège.
+  if(_anaDeckTypeCounts&&Object.keys(_anaDeckTypeCounts).length){
+    if(/affinity for artifacts|\bimprovise\b/.test(o)){
+      var _artC=_anaDeckTypeCounts['artifact']||0;
+      if(_artC<=4)penalty+=-7;else if(_artC<=8)penalty+=-3;
+    }
+    // Capture le type juste avant « you control » (« for each [adj] [Type] you control »)
+    var _excl={permanent:1,card:1,spell:1,color:1,counter:1,player:1,opponent:1,turn:1,token:1,mana:1,life:1,point:1,type:1,them:1,one:1};
+    var _tdRe=/\bfor each\b[^.]{0,30}?\b([a-z][a-z]+)\s+you control\b/g,_tdM,_tdSeen={};
+    while((_tdM=_tdRe.exec(o))){
+      var _w=_tdM[1].replace(/s$/,'');
+      if(_excl[_w]||_tdSeen[_w])continue;_tdSeen[_w]=1;
+      var _cnt=_anaDeckTypeCounts[_w]||0;
+      if(_cnt<=1)penalty+=-8;else if(_cnt<=4)penalty+=-4;
+    }
+  }
   return penalty;
 }
 
@@ -38275,9 +38304,10 @@ function _anaThemeSynergyScore(cardMeta,themes){
   if((th.discard||1)>1){
     if(/madness/.test(o))s+=4;
     if(/flashback|jump-start/.test(o))s+=3;
-    if(/dredge|unearth|cycling/.test(o))s+=2;
+    if(/\bdredge\b|\bunearth\b/.test(o))s+=2;
     if(/when.*you discard|whenever.*discard/.test(o))s+=3;
-    if(/\bdiscard\b/.test(o))s+=1;
+    // Pas de bonus pour le cycling ni le "discard" générique : le cycling fixe du mana,
+    // ne se rejoue pas et ne déclenche pas la défausse du commandant (type Lotleth).
   }
   // ─── DRAW-PAYOFF (Queza, Nekusar, Niv-Mizzet, Mizzix, Psychosis Crawler…) ───
   // Quand le commandant punit/scale sur chaque pioche, TOUS les types de draws comptent,
@@ -39368,6 +39398,10 @@ function anaRender(deckId){
   var cards=deck.cards.slice();
   var totalCards=cards.reduce(function(s,c){return s+(c.qty||1);},0);
   var deckCi=_anaDeckCi(deck);
+  _anaDeckTypeCounts=_anaBuildTypeCounts(cards.map(function(c){
+    var _m=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
+    return {typeLine:(_m&&_m.typeLine)||'',qty:c.qty||1};
+  }));
 
   // Per-card data (UN SEUL DECK)
   // Le score utilisé pour le tri top/bottom intègre le synergy weight des thèmes
@@ -42809,7 +42843,7 @@ function _ldrPickSet(){
 }
 function _ldrNextQuote(){
   var el=document.getElementById('mtg-loader-quote');if(!el)return;
-  if(_ldrQSetIdx>=_ldrQSet.length)_ldrQSetIdx=0;
+  if(_ldrQSetIdx>=_ldrQSet.length)_ldrPickSet(); // re-pioche un set varié → lecture continue, jamais les 3 mêmes
   var q=_ldrQSet[_ldrQSetIdx++];
   el.classList.remove('q-vis');
   clearTimeout(_ldrQTO);
@@ -42841,25 +42875,12 @@ function _hideLoader(){
   if(!el){_loaderActive=false;_ldrStopQuotes();return;}
   if(!_loaderActive){el.style.display='none';_ldrStopQuotes();return;}
   _loaderActive=false;
-  var ref=document.getElementById('ldr-gm-w');
-  var safeTO;
-  function doFinish(){
-    clearTimeout(safeTO);
-    if(ref)ref.removeEventListener('animationiteration',onIter);
-    _ldrStopQuotes(); // arrêt des citations au moment où l'animation de sortie commence
-    el.classList.add('ldr-done');
-    setTimeout(function(){
-      el.style.transition='opacity .4s';el.style.opacity='0';
-      setTimeout(function(){el.style.display='none';el.classList.remove('ldr-done');},400);
-    },1100);
-  }
-  function onIter(){doFinish();}
-  if(ref){
-    ref.addEventListener('animationiteration',onIter);
-    safeTO=setTimeout(doFinish,5500);
-  } else {
-    doFinish();
-  }
+  _ldrStopQuotes();
+  // Fondu de sortie pendant que les anneaux/l'orbe continuent de tourner (pas de gel ni d'implosion).
+  // La disparition n'a lieu qu'ici, à la fin du chargement.
+  el.style.transition='opacity .45s ease';
+  el.style.opacity='0';
+  setTimeout(function(){el.style.display='none';el.style.opacity='';},460);
 }
 
 // Pas de service worker en mode Electron (file://)
