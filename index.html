@@ -50539,7 +50539,8 @@ function _apRender(){
     html+='<div style="padding:11px 8px;text-align:center;font-size:.78rem;color:#e89;background:rgba(120,30,30,.25);border:1px solid rgba(220,80,80,.4);border-radius:7px">⏳ Tour de l\'adversaire</div>';
   }
   html+='<div style="display:flex;gap:4px"><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apDraw(1)" title="Piocher">📚</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apMulligan()" title="Mulligan">🔄</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apTapAllLands()" title="Tap tous les terrains">⚙</button></div>';
-  if(myTurn&&!s.mp&&s.combatMode!=='declare')html+='<button class="ap-action" style="padding:8px;font-size:.8rem;background:rgba(220,120,40,.2);color:#e08a3c;border-color:rgba(220,120,40,.5)" onclick="_apStartCombat()">⚔ Déclarer une attaque</button>';
+  if(myTurn&&s.combatMode!=='declare'&&!(s.mp&&_mpg&&_mpg.awaitingBlocks))html+='<button class="ap-action" style="padding:8px;font-size:.8rem;background:rgba(220,120,40,.2);color:#e08a3c;border-color:rgba(220,120,40,.5)" onclick="_apStartCombat()">⚔ Déclarer une attaque</button>';
+  if(s.mp&&_mpg&&_mpg.awaitingBlocks)html+='<div style="padding:8px;text-align:center;font-size:.74rem;color:#e08a3c;background:rgba(220,120,40,.12);border:1px solid rgba(220,120,40,.4);border-radius:7px">⏳ En attente des blocages adverses…</div>';
   if(!s.mp)html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleBotSpeed()" title="Vitesse de jeu du bot">🤖 Bot : '+(_apBotSpeedFast?'⚡ rapide':'🐢 normal')+'</button>';
   // Mana pool (grille 3×2)
   html+='<div class="ap-rail-sec-lbl">Réserve de mana</div>';
@@ -50788,7 +50789,8 @@ function _apCreatureStats(p){
 }
 function _apStartCombat(){
   if(!_gfState||_gfState.gameOver)return;
-  if(_gfState.mp){if(typeof toastError==='function')toastError('Le combat interactif arrive en multijoueur (v2)');return;}
+  if(_gfState.mp&&_mpg&&_mpg.activePlayer!==_mpg.myUid){if(typeof toastError==='function')toastError('Ce n\'est pas ton tour');return;}
+  if(_gfState.mp&&_mpg&&_mpg.awaitingBlocks){if(typeof toastError==='function')toastError('Combat déjà en cours');return;}
   var elig=_gfState.battlefield.filter(function(p){var st=_apCreatureStats(p);return st.isCreature&&!p.tapped&&!p.enteredThisTurn;});
   if(!elig.length){if(typeof toastError==='function')toastError('Aucune créature ne peut attaquer (engagée, fraîche, ou aucune en jeu)');return;}
   _gfState.phase='combat';
@@ -50845,6 +50847,8 @@ function _apConfirmAttack(){
   var oppIdx=_gfState.combatTarget||0;
   var opp=_gfState.opponents[oppIdx];
   if(!opp){_apCancelCombat();return;}
+  // ─── MULTIJOUEUR : déclare l'attaque au défenseur (qui assignera ses bloqueurs) ───
+  if(_gfState.mp){_mpgDeclareAttack(attackers,oppIdx);return;}
   // Tape les attaquants
   attackers.forEach(function(a){a.p.tapped=true;});
   // Le bot déclare ses bloqueurs
@@ -54834,11 +54838,30 @@ function _mpgOnRoom(data){
   if(_gfState&&_gfState.mp){
     _gfState.turn=_mpg.turn||_gfState.turn;
     _gfState.activePlayer=(_mpg.activePlayer===_mpg.myUid)?'me':'opp';
+    // ─── COMBAT synchronisé ───
+    _mpgHandleCombat(data.combat);
     // Transition : c'est devenu MON tour
     if(prevActive&&prevActive!==_mpg.myUid&&_mpg.activePlayer===_mpg.myUid){_mpgStartMyTurn();}
     else _apRender();
   }else if(_mpg.status==='lobby'){
     _mpgRenderLobby();
+  }
+}
+// Réagit à l'état de combat partagé (déclaration / résolution)
+function _mpgHandleCombat(combat){
+  if(!_gfState||!_gfState.mp)return;
+  var prev=_mpg._combatTs||0;
+  if(!combat){_mpg._combatTs=0;return;}
+  if(combat.ts===prev)return; // déjà traité
+  // Je suis le DÉFENSEUR : on m'a déclaré une attaque → j'assigne mes bloqueurs
+  if(combat.status==='declared'&&combat.target===_mpg.myUid){
+    _mpg._combatTs=combat.ts;
+    _mpgOpenBlockerUI(combat);
+  }
+  // Je suis l'ATTAQUANT : le défenseur a résolu → j'applique les dégâts à mes attaquants
+  else if(combat.status==='resolved'&&combat.attacker===_mpg.myUid){
+    _mpg._combatTs=combat.ts;
+    _mpgApplyCombatResult(combat);
   }
 }
 function _mpgApplyBoards(){
@@ -54929,6 +54952,7 @@ function _mpgStartMyTurn(){
 function _mpgPassTurn(){
   if(!_mpg||!_gfState)return;
   if(_mpg.activePlayer!==_mpg.myUid){if(typeof toastError==='function')toastError('Ce n\'est pas ton tour');return;}
+  if(_mpg.awaitingBlocks){if(typeof toastError==='function')toastError('Attends la résolution du combat');return;}
   _apRecomputeMaxHandSize();
   var excess=_gfState.hand.length-(_gfState.maxHandSize||7);
   if(excess>0){_apPromptDiscard(excess,_mpgDoPassTurn);return;}
@@ -54942,6 +54966,125 @@ function _mpgDoPassTurn(){
   var newTurn=(_mpg.turn||1)+(nextIdx===0?1:0);
   db.collection('play_rooms').doc(_mpg.code).update({activePlayer:nextUid,turn:newTurn,lastUpdate:Date.now()}).catch(function(){});
   _apLog('Tu passes la priorité à '+((_mpg.players[nextUid]||{}).name||'l\'adversaire'));
+  _mpgPushBoard();_apRender();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// COMBAT MULTIJOUEUR v2 — handshake attaquant ↔ défenseur (trust-based)
+// L'attaquant déclare ; le défenseur (autoritaire sur SES créatures/PV)
+// assigne les bloqueurs, applique les dégâts chez lui, et renvoie les
+// dégâts à infliger aux attaquants. L'attaquant les applique à ses créatures.
+// ════════════════════════════════════════════════════════════════════════
+// Appelé depuis _apConfirmAttack quand _gfState.mp : déclare l'attaque dans la room.
+function _mpgDeclareAttack(attackers,targetOppIdx){
+  if(!_mpg||!_gfState)return;
+  var opp=_gfState.opponents[targetOppIdx];
+  if(!opp||!opp.uid){if(typeof toastError==='function')toastError('Cible invalide');return;}
+  // Tape mes attaquants localement
+  attackers.forEach(function(a){a.p.tapped=true;a.p.attacking=false;});
+  _gfState.combatMode=null;
+  var combat={
+    attacker:_mpg.myUid,
+    attackerName:_mpg.myName,
+    target:opp.uid,
+    attackers:attackers.map(function(a){
+      return {id:a.p._id,name:a.p.name,power:a.stats.power,toughness:a.stats.toughness,isCmd:!!(_gfState.commander&&a.p.name===_gfState.commander)};
+    }),
+    status:'declared',ts:Date.now()
+  };
+  _mpg._combatTs=combat.ts; // ne pas re-traiter ma propre déclaration
+  _mpg.awaitingBlocks=true;
+  db.collection('play_rooms').doc(_mpg.code).update({combat:combat,lastUpdate:Date.now()}).catch(function(){});
+  _apLog('⚔ Tu attaques '+((opp.name)||'l\'adversaire')+' avec '+combat.attackers.length+' créature(s) — en attente des blocages');
+  _mpgPushBoard();_apRender();
+}
+// DÉFENSEUR : overlay d'assignation des bloqueurs
+function _mpgOpenBlockerUI(combat){
+  if(!_gfState)return;
+  var ov=document.getElementById('mpg-block-ov');
+  if(!ov){ov=document.createElement('div');ov.id='mpg-block-ov';ov.style.cssText='position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';document.body.appendChild(ov);}
+  var blocks={}; // attackerId → battlefield index (mon bloqueur)
+  // Mes créatures dispo pour bloquer (non engagées)
+  function myBlockers(){
+    return _gfState.battlefield.map(function(p,i){return {p:p,i:i};}).filter(function(x){var st=_apCreatureStats(x.p);return st.isCreature&&!x.p.tapped;});
+  }
+  function render(){
+    var html='<div style="background:var(--s1);border:1px solid #dc5050;border-radius:14px;max-width:760px;width:100%;padding:20px 24px">';
+    html+='<div style="font-family:Goudy Mediaeval,serif;font-size:1.3rem;color:#e89;margin-bottom:4px">🛡 '+esc(combat.attackerName||'Adversaire')+' t\'attaque !</div>';
+    html+='<div style="font-size:.8rem;color:var(--tx2);margin-bottom:12px">Assigne tes bloqueurs (clic sur un attaquant puis sur ta créature). Les attaquants non bloqués te frappent au visage.</div>';
+    var totalFace=combat.attackers.filter(function(a){return blocks[a.id]==null;}).reduce(function(s,a){return s+a.power;},0);
+    html+='<div style="display:flex;flex-direction:column;gap:8px">';
+    combat.attackers.forEach(function(a){
+      var bi=blocks[a.id];
+      var blkP=(bi!=null&&_gfState.battlefield[bi])?_gfState.battlefield[bi]:null;
+      var blkSt=blkP?_apCreatureStats(blkP):null;
+      html+='<div style="display:flex;align-items:center;gap:10px;background:var(--s2);border-radius:8px;padding:8px 12px">';
+      html+='<div style="flex:1"><span style="color:#e89">⚔ '+esc(a.name)+'</span> <span style="color:var(--tx3);font-size:.74rem">'+a.power+'/'+a.toughness+(a.isCmd?' 👑':'')+'</span></div>';
+      html+='<div style="font-size:.78rem;color:'+(blkP?'#7fb069':'#e8c96e')+'">'+(blkP?('🛡 '+esc(blkP.name)+' '+blkSt.power+'/'+blkSt.toughness):'→ '+a.power+' au visage')+'</div>';
+      html+='<select onchange="_mpgBlockAssign(\''+a.id+'\',this.value)" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);padding:4px 8px;font-size:.76rem">';
+      html+='<option value="">— ne pas bloquer —</option>';
+      myBlockers().forEach(function(b){
+        // un bloqueur ne peut bloquer qu'un attaquant
+        var usedElsewhere=Object.keys(blocks).some(function(k){return k!==String(a.id)&&blocks[k]===b.i;});
+        if(usedElsewhere)return;
+        var st=_apCreatureStats(b.p);
+        html+='<option value="'+b.i+'"'+(bi===b.i?' selected':'')+'>'+esc(b.p.name)+' ('+st.power+'/'+st.toughness+')</option>';
+      });
+      html+='</select>';
+      html+='</div>';
+    });
+    html+='</div>';
+    html+='<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div style="font-size:.82rem;color:var(--tx2)">Dégâts non bloqués : <b style="color:#dc5050">'+totalFace+'</b> ('+_gfState.life+' → '+Math.max(0,_gfState.life-totalFace)+' PV)</div>';
+    html+='<button class="ap-action primary" onclick="_mpgConfirmBlocks()">✓ Confirmer les blocages</button></div>';
+    html+='</div>';
+    ov.innerHTML=html;ov.style.display='flex';
+  }
+  window._mpgBlockAssign=function(attId,val){blocks[attId]=(val===''?null:parseInt(val));render();};
+  window._mpgConfirmBlocks=function(){ov.style.display='none';_mpgResolveBlocks(combat,blocks);};
+  render();
+}
+// DÉFENSEUR : résout les blocages, applique chez soi, renvoie les dégâts aux attaquants
+function _mpgResolveBlocks(combat,blocks){
+  if(!_gfState)return;
+  var attackerDamage={};var faceDmg=0,cmdDmg=0;
+  combat.attackers.forEach(function(a){
+    var bi=blocks[a.id];
+    if(bi!=null&&_gfState.battlefield[bi]){
+      var blk=_gfState.battlefield[bi];var bst=_apCreatureStats(blk);
+      attackerDamage[a.id]=bst.power; // l'attaquant encaisse la force de mon bloqueur
+      blk.dmg=(blk.dmg||0)+a.power;    // mon bloqueur encaisse la force de l'attaquant
+      _apLog('🛡 '+blk.name+' bloque '+a.name);
+    }else{
+      faceDmg+=a.power;if(a.isCmd)cmdDmg+=a.power;
+    }
+  });
+  if(faceDmg>0){
+    _gfState.life-=faceDmg;if(_gfState.life<0)_gfState.life=0;
+    _apLog('💥 '+faceDmg+' dégâts de combat reçus');
+    if(cmdDmg>0){
+      var oi=_gfState.opponents.findIndex(function(o){return o.uid===combat.attacker;});
+      if(oi>=0){_gfState.cmdDmgFromOpp=_gfState.cmdDmgFromOpp||{};_gfState.cmdDmgFromOpp[oi]=(_gfState.cmdDmgFromOpp[oi]||0)+cmdDmg;}
+    }
+  }
+  _apCheckStateBased(); // mes bloqueurs morts → mon cimetière
+  // Renvoie le résultat à l'attaquant
+  var resolved=Object.assign({},combat,{status:'resolved',attackerDamage:attackerDamage,faceDamage:faceDmg,ts:Date.now()});
+  _mpg._combatTs=resolved.ts;
+  db.collection('play_rooms').doc(_mpg.code).update({combat:resolved,lastUpdate:Date.now()}).catch(function(){});
+  _mpgPushBoard();_apRender();
+}
+// ATTAQUANT : applique les dégâts renvoyés à mes attaquants, puis nettoie le combat
+function _mpgApplyCombatResult(combat){
+  if(!_gfState)return;
+  _mpg.awaitingBlocks=false;
+  (combat.attackers||[]).forEach(function(a){
+    var dmg=(combat.attackerDamage||{})[a.id]||0;
+    if(dmg>0){var p=_gfState.battlefield.find(function(x){return x._id===a.id;});if(p){p.dmg=(p.dmg||0)+dmg;_apLog('⚔ '+p.name+' encaisse '+dmg);}}
+  });
+  if(combat.faceDamage>0)_apLog('💥 '+combat.faceDamage+' dégâts infligés au visage adverse');
+  _apCheckStateBased(); // mes attaquants morts → mon cimetière
+  // Nettoie le combat partagé
+  db.collection('play_rooms').doc(_mpg.code).update({combat:null,lastUpdate:Date.now()}).catch(function(){});
   _mpgPushBoard();_apRender();
 }
 
