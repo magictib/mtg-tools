@@ -1053,7 +1053,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 #user-menu-wrap{position:fixed;top:10px;right:12px;z-index:300;display:flex;gap:8px;align-items:center}
 #user-menu-btn{width:34px;height:34px;border-radius:50%;background:var(--s2);border:.5px solid var(--bd2);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:1rem;transition:all .15s;box-shadow:0 2px 12px rgba(0,0,0,.4);color:var(--tx2)}
 #user-menu-btn:hover{border-color:var(--gold2);color:var(--gold2)}
-#user-menu-panel{display:none;position:absolute;top:42px;right:0;background:var(--s2);border:.5px solid var(--bd2);border-radius:12px;padding:.85rem 1rem;min-width:210px;box-shadow:0 8px 32px rgba(0,0,0,.6)}
+#user-menu-panel{display:none;position:fixed;top:50px;right:12px;background:var(--s2);border:1px solid var(--bd2);border-radius:12px;padding:.85rem 1rem;min-width:210px;box-shadow:0 12px 40px rgba(0,0,0,.85);z-index:9999}
 #user-menu-panel.open{display:block}
 .um-name{font-family:'Goudy Mediaeval',serif;font-size:.82rem;color:var(--gold2);margin-bottom:.6rem;padding-bottom:.5rem;border-bottom:.5px solid var(--bd);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .um-row{display:flex;flex-direction:column;gap:6px}
@@ -1108,7 +1108,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 #friend-btn{width:34px;height:34px;border-radius:50%;background:var(--s2);border:.5px solid var(--bd2);cursor:pointer;display:none;align-items:center;justify-content:center;font-size:1rem;transition:all .15s;box-shadow:0 2px 12px rgba(0,0,0,.4);color:var(--tx2)}
 #friend-btn:hover{border-color:var(--gold2);color:var(--gold2)}
 #notif-badge{position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;border-radius:8px;background:var(--rd);color:#fff;font-size:.62rem;font-family:'Crimson Pro',serif;display:none;align-items:center;justify-content:center;padding:0 3px;pointer-events:none;line-height:1}
-#notif-panel{display:none;position:absolute;top:42px;right:0;background:var(--s2);border:.5px solid var(--bd2);border-radius:12px;min-width:280px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.6);overflow:hidden;z-index:310}
+#notif-panel{display:none;position:fixed;top:50px;right:12px;background:var(--s2);border:1px solid var(--bd2);border-radius:12px;min-width:280px;max-width:340px;box-shadow:0 12px 40px rgba(0,0,0,.85);overflow:hidden;z-index:9999}
 #notif-panel.open{display:block}
 .notif-head{display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;border-bottom:.5px solid var(--bd);font-family:'Goudy Mediaeval',serif;font-size:.74rem;letter-spacing:.06em;color:var(--gold2)}
 .notif-list{max-height:320px;overflow-y:auto}
@@ -1180,7 +1180,7 @@ body.mana-cursor{cursor:none}
   /* User menu — smaller icons */
   #user-menu-wrap{top:6px;right:8px;gap:5px}
   #notif-btn,#user-menu-btn{width:28px;height:28px;font-size:.85rem}
-  #notif-panel{min-width:260px;max-width:calc(100vw - 20px);right:-8px}
+  #notif-panel{min-width:260px;max-width:calc(100vw - 16px);right:6px;top:42px}
   /* Cards & panels */
   .card{padding:.85rem .75rem}
   .lbl{font-size:.68rem}
@@ -31882,9 +31882,12 @@ function bldRenderSwapsPanel(){
     }
     // Possession (uniquement pertinent pour la carte à AJOUTER)
     var oq=(tp==='add')?_ownQty(card):0;
-    var ownImgBadge=(oq>0&&card.img)?'<span class="bld-sw-own" title="Tu possèdes déjà cette carte (×'+oq+') — pas besoin de l\'acheter">✓'+(oq>1?' ×'+oq:'')+'</span>':'';
+    var ownImgBadge=(oq>0)?'<span class="bld-sw-own" title="Tu possèdes déjà cette carte (×'+oq+') — pas besoin de l\'acheter">✓'+(oq>1?' ×'+oq:'')+'</span>':'';
     var ownTxtBadge=(oq>0)?'<span style="flex-shrink:0;font-size:.54rem;color:var(--gr2);background:rgba(127,176,105,.15);border:.5px solid rgba(127,176,105,.45);border-radius:6px;padding:0 4px;white-space:nowrap" title="Déjà dans ta collection">✓ possédée'+(oq>1?' ×'+oq:'')+'</span>':'';
-    var imgH=card.img?'<div style="position:relative;flex-shrink:0;line-height:0"><img src="'+card.img+'" class="bld-sw-img" onclick="event.stopPropagation();bldSwShowImg('+idx+',\''+tp+'\')" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()" title="'+esc(card.name)+'">'+ownImgBadge+'</div>':'';
+    // Vignette : URL du cache si dispo, sinon fallback Scryfall par nom (data-no-localize → pas réécrite par la localisation FR)
+    var _fuzzy='https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(card.name||'');
+    var _imgSrc=card.img||_fuzzy;
+    var imgH='<div style="position:relative;flex-shrink:0;line-height:0"><img src="'+esc(_imgSrc)+'" class="bld-sw-img" data-no-localize="1" loading="lazy" onclick="event.stopPropagation();bldSwShowImg('+idx+',\''+tp+'\')" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()" title="'+esc(card.name)+'" onerror="this.onerror=null;this.src=\''+_fuzzy+'\'">'+ownImgBadge+'</div>';
     return '<div class="bld-sw-slot '+tp+(isSel?' sel':'')+'" data-swslot="'+slotKey+'"'
       +' draggable="true"'
       +' ondragstart="bldSwCardDragStart(event,'+idx+',\''+tp+'\')"'
