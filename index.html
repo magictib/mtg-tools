@@ -50504,20 +50504,23 @@ function _apRender(){
     html+='<button class="ap-action" onclick="_apCancelTargeting()" style="background:rgba(220,80,80,.3);color:#fff">Annuler</button>';
     html+='</div>';
   }
-  // ─── STACK VISUELLE (sorts en attente) ───
+  // ─── PILE VISUELLE (LIFO, du haut vers le bas) ───
   if(s.stack&&s.stack.length){
     html+='<div style="background:linear-gradient(135deg,rgba(143,196,235,.12),rgba(40,80,130,.18));border:1px solid rgba(143,196,235,.4);border-radius:9px;padding:8px 12px;margin:6px 0">';
-    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-family:Goudy Mediaeval,serif;color:#8fc4eb;font-size:.84rem">📋 Pile ('+s.stack.length+')</div>';
-    html+='<button class="ap-action" onclick="_apResolveTop()" style="background:rgba(143,196,235,.25);color:#8fc4eb;margin-left:auto">▼ Résoudre</button>';
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-family:Goudy Mediaeval,serif;color:#8fc4eb;font-size:.84rem">📋 La pile ('+s.stack.length+') — résout du haut vers le bas</div>';
+    html+='<button class="ap-action" onclick="_apResolveTop()" style="background:rgba(143,196,235,.25);color:#8fc4eb;margin-left:auto">▼ Résoudre le sommet</button>';
     html+='<button class="ap-action" onclick="_apCounterTop()" style="background:rgba(220,80,80,.2);color:#ffaaaa">✗ Contrer</button>';
     html+='</div>';
-    html+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
-    s.stack.forEach(function(item,i){
-      var top=(i===s.stack.length-1);
-      html+='<div style="background:rgba(0,0,0,.5);border:.5px solid '+(top?'#8fc4eb':'rgba(143,196,235,.2)')+';border-radius:6px;padding:5px 10px;font-size:.78rem;color:'+(top?'#fff':'var(--tx2)')+'">';
-      html+=(top?'▶ ':'')+esc(item.name||'?')+(item.kind==='ability'?' (capacité)':'');
+    // Affichage LIFO : sommet en haut
+    html+='<div style="display:flex;flex-direction:column;gap:3px">';
+    for(var si=s.stack.length-1;si>=0;si--){
+      var item=s.stack[si];var top=(si===s.stack.length-1);
+      html+='<div style="display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.5);border:.5px solid '+(top?'#8fc4eb':'rgba(143,196,235,.2)')+';border-left:3px solid '+(top?'#8fc4eb':'rgba(143,196,235,.25)')+';border-radius:6px;padding:5px 10px;font-size:.8rem;color:'+(top?'#fff':'var(--tx2)')+'">';
+      html+='<span>'+(top?'▶ ':'   ')+esc(item.name||'?')+(item.kind==='ability'?' (capacité)':'')+'</span>';
+      html+='<span style="margin-left:auto;font-size:.66rem;color:var(--tx3)">'+(top?'sommet':'#'+(s.stack.length-si))+'</span>';
+      html+='<button class="ap-action" style="padding:2px 7px;font-size:.64rem" onclick="_apManualFx('+si+')" title="Résolution manuelle (effets non auto)">🛠</button>';
       html+='</div>';
-    });
+    }
     html+='</div></div>';
   }
   // ═══ PLATEAU PRINCIPAL pleine largeur (style MTG Arena) ═══
@@ -50603,6 +50606,7 @@ function _apRender(){
   if(s.mp&&_mpg&&_mpg.awaitingBlocks)html+='<div style="padding:8px;text-align:center;font-size:.74rem;color:#e08a3c;background:rgba(220,120,40,.12);border:1px solid rgba(220,120,40,.4);border-radius:7px">⏳ En attente des blocages adverses…<br><button class="ap-action" style="margin-top:5px;padding:3px 8px;font-size:.64rem" onclick="_mpgCancelCombat()">Annuler l\'attaque</button></div>';
   if(s.mp&&_mpg&&_mpg.pendingCast)html+='<div style="padding:8px;text-align:center;font-size:.74rem;color:#8fc4eb;background:rgba(143,196,235,.12);border:1px solid rgba(143,196,235,.4);border-radius:7px">⏳ '+esc(_mpg.pendingCast.name)+' — réponse adverse…<br><button class="ap-action" style="margin-top:5px;padding:3px 8px;font-size:.64rem" onclick="_mpgForceResolveCast()">Forcer la résolution</button></div>';
   if(!s.mp)html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleBotSpeed()" title="Vitesse de jeu du bot">🤖 Bot : '+(_apBotSpeedFast?'⚡ rapide':'🐢 normal')+'</button>';
+  html+='<button class="ap-action" style="padding:7px;font-size:.74rem;background:rgba(143,196,235,.14);color:#8fc4eb;border-color:rgba(143,196,235,.4)" onclick="_apManualFx(-1)" title="Boîte à outils : effets manuels (chercher, défausser, payer PV, jetons…)">🛠 Effet manuel</button>';
   html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleSfx()" title="Effets sonores">'+(_apSfxOn?'🔊 Son : on':'🔇 Son : off')+'</button>';
   // Mana pool (grille 3×2)
   html+='<div class="ap-rail-sec-lbl">Réserve de mana</div>';
@@ -50945,10 +50949,13 @@ function _apCreatureStats(p){
   var plus=(p.counters&&p.counters['+1/+1'])||0;
   var minus=(p.counters&&p.counters['-1/-1'])||0;
   var ab=_apAttachBuff(p._id);
+  var basePow=(typeof p._tokPow==='number')?p._tokPow:(typeof m.power==='number'?m.power:(p.isToken?1:0));
+  var baseTou=(typeof p._tokTou==='number')?p._tokTou:(typeof m.toughness==='number'?m.toughness:(p.isToken?1:1));
+  var tl=(p._typeLine||m.typeLine||'').toLowerCase();
   return {
-    power:Math.max(0,(typeof m.power==='number'?m.power:(p.isToken?2:0))+plus-minus+ab.p),
-    toughness:(typeof m.toughness==='number'?m.toughness:(p.isToken?2:1))+plus-minus+ab.t,
-    isCreature:((m.typeLine||'').toLowerCase().indexOf('creature')>=0)||p.isToken
+    power:Math.max(0,basePow+plus-minus+ab.p),
+    toughness:baseTou+plus-minus+ab.t,
+    isCreature:tl.indexOf('creature')>=0
   };
 }
 function _apStartCombat(){
@@ -51909,6 +51916,78 @@ function _apCounterTop(){
   _apLog('🛡 '+item.name+' contré → cimetière');
   _apCheckStateBased();
   _apRender();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// BOÎTE À OUTILS — RÉSOLUTION MANUELLE (pour les effets non auto-gérés)
+// Zones perso = appliquées direct. Actions sur l'adversaire = requête
+// validée par la cible en multi (anti-triche), ancrée à la carte active.
+// ════════════════════════════════════════════════════════════════════════
+function _apManualFx(stackIdx){
+  if(!_gfState)return;
+  var anchor=(stackIdx>=0&&_gfState.stack&&_gfState.stack[stackIdx])?_gfState.stack[stackIdx].name:null;
+  var content='';
+  if(anchor)content+='<div style="background:rgba(143,196,235,.1);border:.5px solid rgba(143,196,235,.4);border-radius:7px;padding:7px 11px;margin-bottom:10px;font-size:.82rem;color:#8fc4eb">Carte active : <b>'+esc(anchor)+'</b></div>';
+  content+='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:10px">Applique manuellement un effet que la résolution auto ne gère pas.</div>';
+  function grp(title){content+='<div style="font-size:.7rem;color:var(--gold2);letter-spacing:.05em;margin:8px 0 4px">'+title+'</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';}
+  function b(label,fn){content+='<button class="ap-action" style="text-align:left;padding:8px 10px;font-size:.78rem" onclick="'+fn+'">'+label+'</button>';}
+  function endgrp(){content+='</div>';}
+  grp('🔎 Chercher / récupérer');
+  b('🔍 Bibliothèque','_apModalClose();_apViewZone(\'library\')');
+  b('💀 Cimetière','_apModalClose();_apViewZone(\'graveyard\')');
+  b('⛔ Exil','_apModalClose();_apViewZone(\'exile\')');
+  b('📚 Piocher N','_apManualNum(\'draw\')');
+  endgrp();
+  grp('🃏 Ma main / bibliothèque');
+  b('🗑 Défausser une carte','_apModalClose();_apManualDiscard()');
+  b('⛏ Se meuler N','_apManualNum(\'mill\')');
+  b('🔀 Mélanger la biblio','_apShuffleLibrary&&_apShuffleLibrary();_apModalClose()');
+  b('🎁 Créer un jeton','_apManualToken()');
+  endgrp();
+  grp('❤ Vie & marqueurs');
+  b('➖ Payer / perdre X PV','_apManualNum(\'lifeloss\')');
+  b('➕ Gagner X PV','_apManualNum(\'lifegain\')');
+  endgrp();
+  grp('🎯 Sur l\'adversaire'+(_gfState.mp?' (validé par lui)':''));
+  b('👁 Voir sa main','_apManualOpp(\'revealHand\')');
+  b('🃏 Le faire défausser','_apManualOpp(\'discard\')');
+  b('🩸 Lui faire perdre X PV','_apManualOpp(\'loseLife\')');
+  endgrp();
+  _apModal({title:'🛠 Résolution manuelle',content:content,buttons:[{l:'Fermer',act:function(){_apModalClose();}}]});
+}
+function _apManualNum(kind){
+  var lbl={draw:'Combien de cartes piocher ?',mill:'Combien de cartes meuler ?',lifeloss:'Combien de PV perdre ?',lifegain:'Combien de PV gagner ?'}[kind];
+  var v=prompt(lbl,'1');if(v==null)return;var n=parseInt(v);if(isNaN(n)||n<=0)return;
+  _apModalClose();
+  if(kind==='draw')_apDraw(n);
+  else if(kind==='mill')_apMill(n);
+  else if(kind==='lifeloss')_apLife(-n);
+  else if(kind==='lifegain')_apLife(n);
+}
+function _apManualToken(){
+  var v=prompt('Jeton — format "P/T Nom" (ex: "1/1 Soldat" ou "Treasure")','1/1 Jeton');
+  if(v==null)return;_apModalClose();
+  var m=v.match(/(\d+)\s*\/\s*(\d+)\s+(.+)/);
+  var nm,tl,isCrea=false;
+  if(m){nm=m[3].trim()+' '+m[1]+'/'+m[2];tl='Creature — Token';isCrea=true;}
+  else{nm=v.trim();tl='Artifact — Token';}
+  _gfState.battlefield.push({name:nm,tapped:false,isToken:true,_typeLine:tl,enteredThisTurn:isCrea,counters:{},dmg:0,_tokPow:m?parseInt(m[1]):0,_tokTou:m?parseInt(m[2]):0});
+  _apLog('🎁 Jeton créé : '+nm);_apSfx('cast');_apCheckStateBased();_apRender();
+}
+function _apManualDiscard(){
+  if(!_gfState||!_gfState.hand.length){if(typeof toastError==='function')toastError('Main vide');return;}
+  // Réutilise le sélecteur visuel de défausse (1 carte)
+  _apPromptDiscard(1,function(){});
+}
+// Action sur l'adversaire : direct vs bot, requête validée en multi
+function _apManualOpp(type){
+  _apModalClose();
+  if(_gfState.mp){_mpgRequestOpp(type);return;}
+  // Solo (bot) : pas de main détaillée → on simule au mieux
+  var opp=_gfState.opponents[0];if(!opp){if(typeof toastError==='function')toastError('Aucun adversaire');return;}
+  if(type==='revealHand'){if(typeof toastSuccess==='function')toastSuccess('Le bot a '+(opp.handCount||0)+' cartes en main (IA simplifiée, contenu non détaillé)');}
+  else if(type==='discard'){opp.handCount=Math.max(0,(opp.handCount||0)-1);_apLog('🃏 Adv 1 défausse 1 carte');_apRender();}
+  else if(type==='loseLife'){var v=prompt('Combien de PV ?','1');var n=parseInt(v);if(n>0)_apOppLife(0,-n);}
 }
 // Détecte le mana produit par un permanent (land typiquement)
 // Retourne un tableau de couleurs proposées : ['W'], ['U','B'], ['C'], etc.
@@ -55081,6 +55160,8 @@ function _mpgOnRoom(data){
     _mpgHandleCombat(data.combat);
     // ─── PRIORITÉ instant-speed (fenêtre de réponse) ───
     _mpgHandlePriority(data.priority);
+    // ─── REQUÊTES validées (effets sur l'adversaire) ───
+    _mpgHandleRequest(data.request);
     // Transition : c'est devenu MON tour
     if(prevActive&&prevActive!==_mpg.myUid&&_mpg.activePlayer===_mpg.myUid){_mpgStartMyTurn();}
     else _apRender();
@@ -55169,6 +55250,72 @@ function _mpgPriorityCounter(){
   if(!_mpg)return;
   db.collection('play_rooms').doc(_mpg.code).update({'priority.status':'countered',lastUpdate:Date.now()}).catch(function(){});
   _apLog('🛡 Tu contres le sort adverse !');
+}
+// ─── REQUÊTES validées par la cible (anti-triche : effets touchant l'adversaire) ───
+function _mpgReqDesc(req){
+  var p=req.payload||{};
+  if(req.type==='revealHand')return req.byName+' veut voir ta main'+(p.cost?' (a payé '+p.cost+' PV)':'');
+  if(req.type==='discard')return req.byName+' veut te faire défausser '+(p.n||1)+' carte(s)';
+  if(req.type==='loseLife')return req.byName+' veut te faire perdre '+(p.n||1)+' PV';
+  return req.byName+' demande un effet';
+}
+function _mpgRequestOpp(type){
+  if(!_mpg||!_gfState)return;
+  var others=(_mpg.playerOrder||[]).filter(function(u){return u!==_mpg.myUid;});
+  if(!others.length){if(typeof toastError==='function')toastError('Aucun adversaire connecté');return;}
+  var target=others[0];var payload={};
+  if(type==='loseLife'){var v=prompt('Combien de PV lui faire perdre ?','1');var n=parseInt(v);if(!n||n<=0)return;payload.n=n;}
+  else if(type==='revealHand'){var pl=prompt('Payer combien de PV pour voir sa main ? (0 = gratuit)','0');var c=parseInt(pl)||0;if(c>0){_apLife(-c);}payload.cost=c;}
+  else if(type==='discard'){payload.n=1;}
+  var ts=Date.now();_mpg._reqSeen=ts;
+  db.collection('play_rooms').doc(_mpg.code).update({request:{by:_mpg.myUid,byName:_mpg.myName,type:type,target:target,payload:payload,status:'pending',ts:ts},lastUpdate:Date.now()}).catch(function(){});
+  if(typeof toastSuccess==='function')toastSuccess('Requête envoyée — en attente de validation');
+}
+function _mpgHandleRequest(req){
+  if(!_gfState||!_gfState.mp)return;
+  if(!req||req.status==='cleared'){return;}
+  // CIBLE : on me demande de valider
+  if(req.target===_mpg.myUid&&req.status==='pending'){
+    if(_mpg._reqSeen===req.ts)return;_mpg._reqSeen=req.ts;
+    var content='<div style="font-size:.9rem;color:var(--tx);margin-bottom:6px">'+esc(_mpgReqDesc(req))+'</div><div style="font-size:.76rem;color:var(--tx3)">Tu contrôles tes propres zones : accepte pour appliquer l\'effet chez toi.</div>';
+    _apModal({title:'🎯 Requête adverse',content:content,canClose:false,buttons:[
+      {l:'✓ Accepter',primary:true,act:function(){_apModalClose();_mpgFulfillRequest(req);}},
+      {l:'✗ Refuser',act:function(){_apModalClose();db.collection('play_rooms').doc(_mpg.code).update({'request.status':'refused',lastUpdate:Date.now()}).catch(function(){});}}
+    ]});
+    return;
+  }
+  // DEMANDEUR : la cible a répondu
+  if(req.by===_mpg.myUid&&(req.status==='done'||req.status==='refused')){
+    if(_mpg._reqDoneSeen===req.ts)return;_mpg._reqDoneSeen=req.ts;
+    if(req.status==='refused'){if(typeof toastError==='function')toastError('Requête refusée par l\'adversaire');}
+    else{
+      if(req.type==='revealHand'){
+        var hand=req.revealed||[];
+        var c='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:8px">Main de '+esc((_mpg.players[req.target]||{}).name||'l\'adversaire')+' ('+hand.length+') :</div><div style="display:flex;gap:6px;flex-wrap:wrap;max-height:60vh;overflow-y:auto">';
+        hand.forEach(function(nm){var meta=_anaData[(nm||'').toLowerCase()];var img=meta&&(meta.imageUri||meta.imgUri)?(meta.imageUri||meta.imgUri):('https://api.scryfall.com/cards/named?format=image&version=normal&fuzzy='+encodeURIComponent(nm));c+='<div class="ap-card" style="width:90px;height:126px;cursor:default"><img src="'+esc(img)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="ap-card-noimg" style="display:none">'+esc(nm)+'</div><div class="ap-card-name">'+esc(nm)+'</div></div>';});
+        c+='</div>';
+        _apModal({title:'👁 Main révélée',content:c,buttons:[{l:'Fermer',act:function(){_apModalClose();}}]});
+      }else if(typeof toastSuccess==='function')toastSuccess('Effet appliqué chez l\'adversaire');
+    }
+    // Nettoie la requête
+    db.collection('play_rooms').doc(_mpg.code).update({request:null,lastUpdate:Date.now()}).catch(function(){});
+  }
+}
+function _mpgFulfillRequest(req){
+  if(!_gfState)return;var p=req.payload||{};
+  if(req.type==='revealHand'){
+    db.collection('play_rooms').doc(_mpg.code).update({'request.status':'done','request.revealed':_gfState.hand.slice(),lastUpdate:Date.now()}).catch(function(){});
+    _apLog('👁 Tu révèles ta main à '+req.byName);
+  }else if(req.type==='discard'){
+    var n=p.n||1;
+    _apPromptDiscard(n,function(){
+      db.collection('play_rooms').doc(_mpg.code).update({'request.status':'done',lastUpdate:Date.now()}).catch(function(){});
+    });
+  }else if(req.type==='loseLife'){
+    _apLife(-(p.n||1));
+    db.collection('play_rooms').doc(_mpg.code).update({'request.status':'done',lastUpdate:Date.now()}).catch(function(){});
+  }
+  _mpgPushBoard();
 }
 // Force la résolution de mon sort si l'adversaire ne répond pas (AFK)
 function _mpgForceResolveCast(){
