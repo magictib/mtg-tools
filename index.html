@@ -12174,7 +12174,13 @@ function _localThemeScore(typeLine,oracle,roles,cmdThemes){
       if(/distribut.*counter|doubl.*counter|move.*counter/.test(o))score+=2;
     }
     if(th==='vie'){
-      if(/gain.*life|lose.*life|lifelink/.test(o))score+=2;
+      // Thème vie (gain/drain, ex. Queza) → le payoff est ce qui se DÉCLENCHE quand TU gagnes
+      // de la vie ou qu'un ADVERSAIRE en perd (moteur de vol de vie). Le gain/perte ponctuel
+      // n'est que du carburant (le draw qui alimente le commandant est noté via le thème 'draw').
+      if(/when(ever)? you gain life/.test(o))score+=4;                          // payoff sur gain de vie
+      if(/whenever[^.]*(opponent|opponents)[^.]*lose(s)? life/.test(o))score+=4; // payoff : un adversaire perd de la vie
+      if(/lifelink/.test(o))score+=2;             // source de gain de vie répété (fuel)
+      if(/gain.*life|lose.*life/.test(o))score+=1; // gain/perte ponctuel = carburant léger
     }
     if(th==='jetons'){
       if(/create.*token|put.*token/.test(o))score+=3;
@@ -12183,11 +12189,17 @@ function _localThemeScore(typeLine,oracle,roles,cmdThemes){
       if(/whenever.*attack|when.*deal.*damage/.test(o))score+=3;
     }
     if(th==='défausse'){
-      if(/madness/.test(o))score+=4;               // carte idéale à défausser : rejouabilité instantanée
-      if(/flashback|jump-start/.test(o))score+=3;  // rejouabilité depuis le cimetière
-      if(/dredge|unearth|cycling/.test(o))score+=2; // défausse contrôlée ou recyclage
-      if(/when.*you discard|whenever.*discard/.test(o))score+=3; // déclencheurs de défausse
-      if(/discard/.test(o))score+=1;               // synergie générale
+      // Le commandant FOURNIT la défausse (exutoire) → le vrai payoff est de REJOUER
+      // depuis le cimetière. On survalorise la récursion ; on ne récompense PAS les
+      // enablers de défausse génériques (inutiles, le commandant s'en charge déjà).
+      if(/return [^.]*from (your |a |their )?graveyard[^.]*to [^.]*battlefield/.test(o))score+=4; // réanimation
+      if(/(cast|play) [^.]*from your graveyard/.test(o))score+=4;        // lancer depuis le cimetière
+      if(/\bescape\b|\bdisturb\b|\bretrace\b|\bencore\b/.test(o))score+=3; // rejouabilité depuis le cimetière
+      if(/flashback|jump-start/.test(o))score+=3;                        // resort défaussé/cimetière
+      if(/\bunearth\b|\bembalm\b|\beternalize\b/.test(o))score+=2;       // récursion ponctuelle
+      if(/madness/.test(o))score+=4;               // carburant idéal à défausser : rejouabilité instantanée
+      if(/\bdredge\b/.test(o))score+=2;            // remplit le cimetière en se défaussant
+      if(/when(ever)? you discard/.test(o))score+=2; // payoff déclenché par la défausse du commandant
     }
     if(th==='cimetière'){
       if(/graveyard|flashback|escape|unearth|embalm/.test(o))score+=2;
