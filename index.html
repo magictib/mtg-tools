@@ -49759,6 +49759,16 @@ function _registerPhase4Items(){}
 '.ap-card-pt{position:absolute;bottom:2px;right:2px;background:rgba(10,6,2,.92);color:#fff;font-size:.62rem;font-weight:700;padding:1px 5px;border-radius:6px;border:.5px solid rgba(201,168,76,.5);font-family:monospace;line-height:1.1;z-index:2}',
 '.ap-card.attacking{outline:3px solid #e08a3c;outline-offset:-3px;box-shadow:0 0 18px rgba(220,138,60,.8),0 6px 16px rgba(0,0,0,.8)!important;transform:translateY(-8px) rotate(-4deg)!important}',
 '.ap-card.attacking::after{content:"⚔";position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:1rem;filter:drop-shadow(0 1px 2px #000);z-index:5}',
+/* Mal d\'invocation : carte légèrement inclinée + brume sombre sur les bords */
+'.ap-card.summoning-sick{transform:rotate(-12deg);filter:saturate(.6) brightness(.82)}',
+'.ap-card.summoning-sick:hover{transform:rotate(-12deg) translateY(-5px) scale(1.04)}',
+'.ap-card.summoning-sick::before{content:"";position:absolute;inset:0;border-radius:7px;box-shadow:inset 0 0 22px 6px rgba(0,0,0,.85);background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,.55) 100%);pointer-events:none;z-index:2}',
+'.ap-card-zzz{position:absolute;top:3px;left:3px;font-size:.8rem;z-index:3;filter:drop-shadow(0 1px 2px #000);animation:_apZzz 2.2s ease-in-out infinite}',
+'@keyframes _apZzz{0%,100%{opacity:.5;transform:translateY(0)}50%{opacity:1;transform:translateY(-2px)}}',
+/* Mode combat : éligibilité des attaquants */
+'.ap-card.combat-eligible{cursor:pointer;outline:2px dashed rgba(232,201,110,.7);outline-offset:-2px}',
+'.ap-card.combat-eligible:hover{outline:2px solid #e08a3c}',
+'.ap-card.combat-inelig{filter:grayscale(.7) brightness(.55);cursor:not-allowed}',
 '.ap-hand .ap-card{width:100px;height:140px;cursor:grab;margin-left:-32px;transition:transform .25s cubic-bezier(.34,1.56,.64,1),margin-left .25s,box-shadow .25s,filter .25s,z-index 0s .15s;box-shadow:0 4px 12px rgba(0,0,0,.8),0 0 0 1px rgba(0,0,0,.6)}',
 '.ap-hand .ap-card:first-child{margin-left:0}',
 '.ap-hand .ap-card:hover{transform:translateY(-30px) scale(1.18);z-index:50;transition:transform .25s cubic-bezier(.34,1.56,.64,1),margin-left .25s,box-shadow .25s,filter .25s,z-index 0s 0s;box-shadow:0 12px 28px rgba(0,0,0,.9),0 0 24px rgba(201,168,76,.5)}',
@@ -50334,6 +50344,9 @@ function _apStartGame(setup){
         life:startPV,
         commander:null,
         threats:[],
+        handCount:7,
+        lands:0,
+        perm:[],
         nextThreatTurn:1
       };
     }),
@@ -50341,6 +50354,27 @@ function _apStartGame(setup){
   };
   _apApplyTheme();
   _apRender();
+  // Enrichit images + meta des cartes de la partie (mon deck + decks adverses) via Scryfall
+  _apEnrichGameCards(d,setup);
+}
+// Récupère les images/meta manquantes de toutes les cartes de la partie pour un affichage net
+function _apEnrichGameCards(myDeck,setup){
+  if(typeof anaFetchMissing!=='function')return;
+  var names=[];
+  (myDeck&&myDeck.cards||[]).forEach(function(c){names.push(c.name);});
+  if(myDeck&&myDeck.commander&&myDeck.commander.name)names.push(myDeck.commander.name);
+  (setup.players||[]).forEach(function(p){
+    if(p.deckId&&decks[p.deckId]&&decks[p.deckId].cards){decks[p.deckId].cards.forEach(function(c){names.push(c.name);});}
+  });
+  var nls=[],fb=[],seen={};
+  names.forEach(function(nm){
+    if(!nm)return;
+    var nl=(typeof stripDFC==='function'?stripDFC(nm):nm).toLowerCase();
+    if(seen[nl])return;seen[nl]=1;
+    if(!_anaData[nl]||!(_anaData[nl].imageUri))fb.push({nl:nl,name:nm}),nls.push(nl);
+  });
+  if(!nls.length)return;
+  anaFetchMissing(nls,fb,function(){if(_gfState)_apRender();});
 }
 function closeArenaPro(){
   if(_gfState&&_gfState.turn>3&&!(_gfState.gameOver)){
@@ -50506,6 +50540,7 @@ function _apRender(){
   }
   html+='<div style="display:flex;gap:4px"><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apDraw(1)" title="Piocher">📚</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apMulligan()" title="Mulligan">🔄</button><button class="ap-action" style="flex:1;padding:7px 0" onclick="_apTapAllLands()" title="Tap tous les terrains">⚙</button></div>';
   if(myTurn&&!s.mp&&s.combatMode!=='declare')html+='<button class="ap-action" style="padding:8px;font-size:.8rem;background:rgba(220,120,40,.2);color:#e08a3c;border-color:rgba(220,120,40,.5)" onclick="_apStartCombat()">⚔ Déclarer une attaque</button>';
+  if(!s.mp)html+='<button class="ap-action" style="padding:5px;font-size:.66rem" onclick="_apToggleBotSpeed()" title="Vitesse de jeu du bot">🤖 Bot : '+(_apBotSpeedFast?'⚡ rapide':'🐢 normal')+'</button>';
   // Mana pool (grille 3×2)
   html+='<div class="ap-rail-sec-lbl">Réserve de mana</div>';
   html+='<div class="ap-rail-mana">';
@@ -50610,10 +50645,11 @@ function _apBotPool(opp){
       var tl=(m.typeLine||'').toLowerCase();
       var isLand=tl.indexOf('land')>=0||!!(m.tags&&m.tags.isLand);
       var creature=tl.indexOf('creature')>=0;
+      var perm=creature||/artifact|enchantment|planeswalker|battle/.test(tl);
       var pw=(typeof m.power==='number'?m.power:(creature?2:0));
       var tg=(typeof m.toughness==='number'?m.toughness:(creature?2:0));
       var qty=c.qty||1;
-      for(var q=0;q<qty;q++)out.push({name:c.name,isLand:isLand,cmc:m.cmc||0,power:pw,toughness:tg,creature:creature});
+      for(var q=0;q<qty;q++)out.push({name:c.name,isLand:isLand,cmc:m.cmc||0,power:pw,toughness:tg,creature:creature,perm:perm});
     });
   }
   if(out.filter(function(c){return !c.isLand;}).length<4){
@@ -50627,56 +50663,86 @@ function _apBotPool(opp){
       stax:[['Sphere of Resistance',2,0,0],['Thalia, Guardian of Thraben',2,2,1],['Winter Orb',2,0,0],['Smokestack',4,0,0],['Stax Bot',3,2,1]],
       random:[['Grizzly Bears',2,2,1],['Hill Giant',4,3,1],['Divination',3,0,0],['Shock',1,0,0],['Wind Drake',3,2,1]]
     };
-    (fict[opp.aiType]||fict.aggro).forEach(function(a){out.push({name:a[0],cmc:a[1],power:a[2],toughness:a[3]?Math.max(1,a[2]):1,creature:!!a[3],isLand:false});});
+    (fict[opp.aiType]||fict.aggro).forEach(function(a){out.push({name:a[0],cmc:a[1],power:a[2],toughness:a[3]?Math.max(1,a[2]):1,creature:!!a[3],perm:!!a[3],isLand:false});});
     // Terrains de base pour que le bot puisse jouer un terrain par tour
-    for(var l=0;l<14;l++)out.push({name:['Mountain','Forest','Island','Swamp','Plains'][l%5],isLand:true,cmc:0,power:0,toughness:0,creature:false});
+    for(var l=0;l<14;l++)out.push({name:['Mountain','Forest','Island','Swamp','Plains'][l%5],isLand:true,cmc:0,power:0,toughness:0,creature:false,perm:true});
   }
   return out;
 }
-// ─── Le bot joue UN tour complet : 1 terrain + sorts abordables, puis renvoie les dégâts d'attaque ───
-function _apBotTakeTurn(opp,oppIdx){
-  if(!opp)return 0;
-  opp.lands=opp.lands||0;
-  opp.perm=opp.perm||[];
-  // Les créatures posées les tours précédents ne sont plus affectées du mal d'invocation
+// Vitesse du bot (ms entre chaque action). Réglable pour avoir le temps de voir les plays.
+var _apBotSpeedFast=false;
+try{_apBotSpeedFast=localStorage.getItem('mtg_ap_botfast')==='1';}catch(e){}
+function _apBotSpeed(){return _apBotSpeedFast?260:950;}
+function _apToggleBotSpeed(){_apBotSpeedFast=!_apBotSpeedFast;try{localStorage.setItem('mtg_ap_botfast',_apBotSpeedFast?'1':'0');}catch(e){}if(_gfState)_apRender();}
+
+// ─── Le bot joue UN tour, action par action, à vitesse humaine (callback done(atk)) ───
+function _apBotTakeTurn(opp,oppIdx,done){
+  done=done||function(){};
+  if(!opp){done(0);return;}
+  opp.lands=opp.lands||0;opp.perm=opp.perm||[];
+  if(typeof opp.handCount!=='number')opp.handCount=7;
+  // Les créatures posées avant ce tour ne sont plus affectées du mal d'invocation
   opp.perm.forEach(function(p){p.sick=false;});
+  opp.handCount=Math.min(20,opp.handCount+1); // pioche du tour
   var pool=_apBotPool(opp);
-  // 1) Joue un terrain (1/tour) si disponible
+  // Planifie le tour : 1 terrain + sorts abordables (mana = terrains après pose)
+  var plan=[];
   var landsPool=pool.filter(function(c){return c.isLand;});
-  if(landsPool.length&&opp.lands<14){
-    opp.lands++;
-    var land=landsPool[Math.floor(Math.random()*landsPool.length)];
-    opp.perm.push({name:land.name,isLand:true,cmc:0,power:0,sick:false,creature:false});
-  }
-  // 2) Lance des sorts abordables (mana = nb de terrains), en privilégiant la plus haute CMC payable
-  var mana=opp.lands;
+  var willLand=landsPool.length&&opp.lands<14;
+  if(willLand)plan.push({type:'land',card:landsPool[Math.floor(Math.random()*landsPool.length)]});
+  var mana=opp.lands+(willLand?1:0);
   var spells=pool.filter(function(c){return !c.isLand&&c.cmc>0;}).sort(function(a,b){return b.cmc-a.cmc;});
   var casts=0;
   for(var i=0;i<spells.length&&casts<3&&mana>0;i++){
-    var sp=spells[i];
-    if(sp.cmc<=mana){
-      mana-=sp.cmc;casts++;
-      opp.perm.push({name:sp.name,isLand:false,cmc:sp.cmc,power:sp.power,toughness:sp.toughness||Math.max(1,sp.power),creature:sp.creature,sick:true,dmg:0});
-      _apLog('🤖 Adv '+(oppIdx+1)+' joue '+sp.name+' ('+sp.cmc+')');
-    }
+    if(spells[i].cmc<=mana){mana-=spells[i].cmc;casts++;plan.push({type:'spell',card:spells[i]});}
   }
-  if(casts===0&&opp.lands>0)_apLog('🤖 Adv '+(oppIdx+1)+' n\'a rien à jouer ('+opp.lands+' mana)');
-  // 3) Synchronise opp.threats (noms) pour le rendu du champ
-  opp.threats=opp.perm.map(function(p){return p.name;});
-  if(opp.threats.length>50){opp.perm=opp.perm.slice(-50);opp.threats=opp.perm.map(function(p){return p.name;});}
-  // 4) Attaque avec les créatures non affectées du mal d'invocation, réduit par mes bloqueurs
-  var atk=opp.perm.filter(function(p){return p.creature&&!p.sick;}).reduce(function(s,p){return s+(p.power||0);},0);
-  var myBlockers=_gfState.battlefield.filter(function(p){var m=_anaData[(p.name||'').toLowerCase()];return m&&(m.typeLine||'').toLowerCase().indexOf('creature')>=0&&!p.tapped;}).length;
-  atk=Math.max(0,atk-myBlockers*2);
-  return atk;
+  var speed=_apBotSpeed();var k=0;
+  function finish(){
+    // Attaque avec les créatures non affectées du mal d'invocation, réduit par mes bloqueurs
+    var atk=opp.perm.filter(function(p){return p.creature&&!p.sick;}).reduce(function(s,p){return s+(p.power||0);},0);
+    var myBlockers=_gfState.battlefield.filter(function(p){var m=_anaData[(p.name||'').toLowerCase()];return m&&(m.typeLine||'').toLowerCase().indexOf('creature')>=0&&!p.tapped;}).length;
+    atk=Math.max(0,atk-myBlockers*2);
+    opp.threats=opp.perm.map(function(p){return p.name;});
+    if(opp.perm.length>50){opp.perm=opp.perm.slice(-50);opp.threats=opp.perm.map(function(p){return p.name;});}
+    done(atk);
+  }
+  function exec(){
+    if(!_gfState){done(0);return;}
+    if(k>=plan.length){finish();return;}
+    var a=plan[k++];
+    if(a.type==='land'){
+      opp.lands++;
+      opp.perm.push({name:a.card.name,isLand:true,cmc:0,power:0,toughness:0,sick:false,creature:false});
+      _apLog('🤖 Adv '+(oppIdx+1)+' pose '+a.card.name);
+    }else{
+      opp.handCount=Math.max(0,opp.handCount-1);
+      if(a.card.perm){
+        // Permanent : reste sur le champ (mal d'invocation si créature)
+        opp.perm.push({name:a.card.name,isLand:false,cmc:a.card.cmc,power:a.card.power,toughness:a.card.toughness||Math.max(1,a.card.power),creature:a.card.creature,sick:true,dmg:0});
+        _apLog('🤖 Adv '+(oppIdx+1)+' joue '+a.card.name+' ('+a.card.cmc+')');
+      }else{
+        // Instant/rituel/sorcery : se résout puis part au cimetière (ne reste PAS sur le champ)
+        _apLog('🤖 Adv '+(oppIdx+1)+' lance '+a.card.name+' ('+a.card.cmc+') — résolu');
+      }
+    }
+    opp.threats=opp.perm.map(function(p){return p.name;});
+    _apRender();
+    setTimeout(exec,speed);
+  }
+  if(!plan.length){
+    if(opp.lands>0)_apLog('🤖 Adv '+(oppIdx+1)+' n\'a rien à jouer ('+opp.lands+' mana)');
+    opp.threats=opp.perm.map(function(p){return p.name;});
+    _apRender();setTimeout(finish,speed/2);return;
+  }
+  exec();
 }
 // Bouton manuel "+ play" : le bot joue un tour
 function _apOppThreat(idx){
   if(!_gfState||!_gfState.opponents[idx])return;
-  var atk=_apBotTakeTurn(_gfState.opponents[idx],idx);
-  if(atk>0){_gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;_apLog('⚔ Adv '+(idx+1)+' attaque pour '+atk);}
-  _apCheckStateBased();
-  _apRender();
+  _apBotTakeTurn(_gfState.opponents[idx],idx,function(atk){
+    if(atk>0){_gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;_apLog('⚔ Adv '+(idx+1)+' attaque pour '+atk);}
+    _apCheckStateBased();_apRender();
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -50969,7 +51035,18 @@ function _apCardHtml(p,idx,zone,subType){
   else if(zone==='bf'){onClick='_apClickPerm(event,'+idx+')';}
   // Animation de cast (carte fraîchement jouée)
   var animCls=(zone==='bf'&&_gfState._animPlay&&name===_gfState._animPlay)?' played':'';
-  var html='<div class="ap-card'+tapped+playable+attacking+animCls+'" data-card="'+esc(name)+'" onclick="'+onClick+'" oncontextmenu="event.preventDefault();_apCardMenu(event,\''+zone+'\','+idx+')">';
+  // Mal d'invocation (créature fraîche) + éligibilité en mode combat
+  var sickCls='',combatCls='';
+  if(zone==='bf'&&p){
+    var _ctl=(meta&&meta.typeLine||'').toLowerCase();
+    var _isCrea=_ctl.indexOf('creature')>=0||p.isToken;
+    if(_isCrea&&p.enteredThisTurn&&!p.tapped)sickCls=' summoning-sick';
+    if(_gfState.combatMode==='declare'){
+      var _eligible=_isCrea&&!p.tapped&&!p.enteredThisTurn&&_apCreatureStats(p).power>0;
+      combatCls=_eligible?' combat-eligible':' combat-inelig';
+    }
+  }
+  var html='<div class="ap-card'+tapped+playable+attacking+animCls+sickCls+combatCls+'" data-card="'+esc(name)+'" onclick="'+onClick+'" oncontextmenu="event.preventDefault();_apCardMenu(event,\''+zone+'\','+idx+')">';
   html+='<img src="'+esc(img)+'" alt="'+esc(name)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
   html+='<div class="ap-card-noimg" style="display:none">'+esc(name)+'</div>';
   // Mana cost sur cartes en main (affiché en haut-gauche en chips)
@@ -50992,7 +51069,7 @@ function _apCardHtml(p,idx,zone,subType){
     }
     if(p.enteredThisTurn){
       var pmeta=meta;var ptl=(pmeta&&pmeta.typeLine||'').toLowerCase();
-      if(ptl.indexOf('creature')>=0)html+='<div class="ap-card-sickness" title="Mal d\'invocation">😴 fraîche</div>';
+      if((ptl.indexOf('creature')>=0||p.isToken)&&!p.tapped)html+='<div class="ap-card-zzz" title="Mal d\'invocation — ne peut pas attaquer ce tour">💤</div>';
     }
     // Indicateur d'attache (aura/équipement attaché à une créature)
     if(p.attachedTo){
@@ -51119,20 +51196,22 @@ function _apRunBotTurns(done){
   if(!bots.length){done&&done();return;}
   var i=0;
   function step(){
-    if(i>=bots.length){done&&done();return;}
+    if(!_gfState||i>=bots.length){done&&done();return;}
     var opp=bots[i++];
     var oppIdx=_gfState.opponents.indexOf(opp);
     if(oppIdx<0){setTimeout(step,80);return;}
-    // Le bot joue un vrai tour : terrain + sorts abordables, puis attaque
-    var atk=_apBotTakeTurn(opp,oppIdx);
-    if(atk>0){
-      _gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;
-      _apLog('⚔ Adv '+(oppIdx+1)+' attaque pour '+atk);
-    }
-    _apCheckStateBased();
-    _apRender();
-    if(_gfState.gameOver){done&&done();return;}
-    setTimeout(step,450);
+    _apLog('— Tour de l\'Adv '+(oppIdx+1)+' —');
+    // Le bot joue un vrai tour (séquencé, à vitesse humaine), puis attaque
+    _apBotTakeTurn(opp,oppIdx,function(atk){
+      if(!_gfState){done&&done();return;}
+      if(atk>0){
+        _gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;
+        _apLog('⚔ Adv '+(oppIdx+1)+' attaque pour '+atk);
+      }
+      _apCheckStateBased();_apRender();
+      if(_gfState.gameOver){done&&done();return;}
+      setTimeout(step,_apBotSpeed());
+    });
   }
   _apLog('— Tour des adversaires —');
   step();
@@ -51408,17 +51487,67 @@ function _apFireTriggers(when){
   if(!_gfState||!_gfState.triggers||!_gfState.triggers.length)return;
   var fired=_gfState.triggers.filter(function(t){return t.when===when;});
   if(!fired.length)return;
-  // Pour chaque trigger : demander confirmation si "you may", sinon auto-apply
-  fired.forEach(function(t){
+  // Séquence les modales pour ne pas les empiler
+  var queue=fired.slice();var delay=120;
+  queue.forEach(function(t){
+    var isModal=/choose (one or more|one|two|three|up to)/i.test(t.text);
     var isMay=/you may/i.test(t.text);
-    if(isMay){
-      // Modal de choix
-      setTimeout(function(){_apShowTriggerChoice(t,when);},100);
-    }else{
-      // Auto-apply (parse l'oracle minimaliste)
-      _apApplyTriggerEffect(t);
-    }
+    var isSaga=t.saga;
+    if(isSaga){setTimeout(function(){_apSagaChapter(t);},delay);}
+    else if(isModal){setTimeout(function(){_apShowTriggerModes(t,when);},delay);}
+    else if(isMay){setTimeout(function(){_apShowTriggerChoice(t,when);},delay);}
+    else {_apApplyTriggerEffect(t);}
+    delay+=140;
   });
+}
+// Trigger modal (« Choose one [or more] — • … • … ») : présente les modes
+function _apShowTriggerModes(trigger,when){
+  var oracle=trigger.text||'';
+  var mm=oracle.match(/choose (one or more|one|two|three|up to one|up to two|up to three)\s*[—\-]?/i);
+  var after=mm?oracle.substring(mm.index+mm[0].length):oracle;
+  var modes=[];
+  if(after.indexOf('•')>=0)modes=after.split(/\s*•\s*/).map(function(s){return s.trim();}).filter(function(s){return s.length>4;});
+  if(modes.length<2)modes=after.split('\n').map(function(s){return s.replace(/^[•·\-\s]+/,'').trim();}).filter(function(s){return s.length>4;});
+  modes=modes.slice(0,5);
+  if(modes.length<2){_apApplyTriggerEffect(trigger);return;}
+  var multi=/one or more|two|three/i.test(mm?mm[1]:'');
+  var sel=[];
+  function render(){
+    var content='<div style="font-size:.86rem;color:var(--tx2);margin-bottom:8px"><b style="color:var(--gold2)">'+esc(trigger.card)+'</b> — '+(multi?'choisis un ou plusieurs modes':'choisis un mode')+'</div>';
+    content+='<div style="display:flex;flex-direction:column;gap:6px">';
+    modes.forEach(function(m,i){
+      var on=sel.indexOf(i)>=0;
+      content+='<button class="ap-action'+(on?' primary':'')+'" style="text-align:left;white-space:normal;line-height:1.4;padding:9px 12px" onclick="_apTrigModeToggle('+i+','+(multi?'true':'false')+')">'+(multi?(on?'☑ ':'☐ '):'▸ ')+esc(m)+'</button>';
+    });
+    content+='</div>';
+    _apModal({title:'✦ '+trigger.card,content:content,canClose:false,buttons:[
+      {l:multi?('Valider ('+sel.length+')'):'Passer',primary:true,act:function(){
+        sel.forEach(function(i){_apApplyImmediateEffect(trigger.card,modes[i].toLowerCase());});
+        _apModalClose();_apRender();
+      }}
+    ]});
+  }
+  window._apTrigModeToggle=function(i,isMulti){
+    if(isMulti){var p=sel.indexOf(i);if(p>=0)sel.splice(p,1);else sel.push(i);render();}
+    else{_apModalClose();_apApplyImmediateEffect(trigger.card,modes[i].toLowerCase());_apRender();}
+  };
+  render();
+}
+// Saga : avance d'un chapitre (lore counter) chaque tour, sacrifice après le dernier
+function _apSagaChapter(trigger){
+  var perm=_gfState.battlefield.find(function(p){return p.name===trigger.card&&p._isSaga;});
+  if(!perm){return;}
+  perm.counters=perm.counters||{};
+  perm.counters.lore=(perm.counters.lore||0)+1;
+  var ch=perm.counters.lore;
+  _apLog('📖 '+trigger.card+' — chapitre '+['','I','II','III','IV','V'][ch]+' (résous l\'effet manuellement)');
+  if(ch>=(perm._sagaMax||3)){
+    setTimeout(function(){
+      var i=_gfState.battlefield.indexOf(perm);
+      if(i>=0){_gfState.battlefield.splice(i,1);_apRouteToGrave(perm.name,false);_apLog('📖 '+trigger.card+' : dernier chapitre → sacrifiée');}
+      _apRender();
+    },300);
+  }
 }
 function _apShowTriggerChoice(trigger,when){
   // Détecte le coût et l'effet pour le présenter
@@ -52148,35 +52277,56 @@ function _apHandAttachUI(){
   });
   document.addEventListener('mouseup',function(){if(resizing){resizing=false;document.body.style.userSelect='';_apHandSaveUI();}});
 }
+// Clic droit (ou long-press) sur une carte → ZOOM plein écran + actions (si permanent à moi).
 function _apCardMenu(e,zone,idx){
-  // Menu contextuel : ajouter counters / dmg / envoyer GY / exiler
-  e.preventDefault();
-  if(zone!=='bf'||!_gfState||!_gfState.battlefield[idx])return;
-  var p=_gfState.battlefield[idx];
-  var old=document.getElementById('ap-mana-menu');if(old)old.remove();
-  var menu=document.createElement('div');menu.id='ap-mana-menu';menu.className='ap-card-menu';
-  menu.style.left=Math.max(10,Math.min(window.innerWidth-220,e.clientX))+'px';
-  menu.style.top=Math.max(10,Math.min(window.innerHeight-340,e.clientY))+'px';
-  menu.innerHTML='<div style="padding:5px 10px;color:var(--gold2);font-size:.78rem;font-family:Goudy Mediaeval,serif">'+esc(p.name)+'</div>';
-  function row(label,cb){var b=document.createElement('button');b.innerHTML=label;b.onclick=function(){cb();menu.remove();_apCheckStateBased();_apRender();};menu.appendChild(b);}
-  p.counters=p.counters||{};
-  row('+1/+1 marqueur',function(){p.counters['+1/+1']=(p.counters['+1/+1']||0)+1;_apLog('⬆ +1/+1 sur '+p.name);});
-  row('−1/−1 marqueur',function(){p.counters['-1/-1']=(p.counters['-1/-1']||0)+1;_apLog('⬇ −1/−1 sur '+p.name);});
-  row('+1 loyauté (PW)',function(){p.counters['loyalty']=(p.counters['loyalty']||0)+1;_apLog('♣ +1 loyauté sur '+p.name);});
-  row('−1 loyauté (PW)',function(){p.counters['loyalty']=Math.max(0,(p.counters['loyalty']||0)-1);_apLog('♣ −1 loyauté sur '+p.name);});
-  row('+1 dégât',function(){p.dmg=(p.dmg||0)+1;_apLog('🩸 +1 dmg sur '+p.name);});
-  row('Retirer dégâts',function(){p.dmg=0;_apLog('🩹 dmg effacés sur '+p.name);});
-  var sep=document.createElement('div');sep.style.cssText='border-top:.5px solid var(--bd);margin:4px 0';menu.appendChild(sep);
-  row('💀 Envoyer au cimetière',function(){_gfState.battlefield.splice(idx,1);_gfState.graveyard.push(p.name);_apLog('💀 '+p.name+' → cimetière');});
-  row('⛔ Exiler',function(){_gfState.battlefield.splice(idx,1);_gfState.exile.push(p.name);_apLog('⛔ '+p.name+' → exil');});
-  row('↩ Renvoyer en main',function(){_gfState.battlefield.splice(idx,1);_gfState.hand.push(p.name);_apLog('↩ '+p.name+' → main');});
-  var cb=document.createElement('button');cb.innerHTML='Annuler';cb.style.color='var(--tx3)';cb.onclick=function(){menu.remove();};menu.appendChild(cb);
-  document.body.appendChild(menu);
-  setTimeout(function(){
-    document.addEventListener('click',function _close(ev){
-      if(!menu.contains(ev.target)){menu.remove();document.removeEventListener('click',_close);}
-    });
-  },80);
+  if(e&&e.preventDefault)e.preventDefault();
+  if(!_gfState)return;
+  var name='',p=null;
+  if(zone==='hand'){name=_gfState.hand[idx];}
+  else if(zone==='bf'){p=_gfState.battlefield[idx];name=p&&p.name;}
+  if(!name)return;
+  var meta=_anaData[(name||'').toLowerCase()];
+  var img=meta&&(meta.imageUri||meta.imgUri)?(meta.imageUri||meta.imgUri):('https://api.scryfall.com/cards/named?format=image&version=normal&fuzzy='+encodeURIComponent(name));
+  var ov=document.getElementById('ap-zoom-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ap-zoom-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:7200;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:20px;backdrop-filter:blur(3px)';
+    ov.addEventListener('click',function(ev){if(ev.target===ov)ov.remove();});
+    document.body.appendChild(ov);
+  }
+  var h='<img src="'+esc(img)+'" alt="'+esc(name)+'" style="max-width:min(420px,86vw);max-height:72vh;border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.9),0 0 0 2px rgba(232,201,110,.5)" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\'">';
+  h+='<div style="display:none;background:linear-gradient(135deg,#3a2814,#1a1208);color:var(--gold2);font-family:Goudy Mediaeval,serif;font-size:1.4rem;padding:40px 30px;border-radius:18px;text-align:center;max-width:340px">'+esc(name)+'</div>';
+  // Actions si c'est un de MES permanents
+  if(zone==='bf'&&p){
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:480px">';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'p1\','+idx+')">+1/+1</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'m1\','+idx+')">−1/−1</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'loy+\','+idx+')">+1 ♣</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'loy-\','+idx+')">−1 ♣</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'dmg\','+idx+')">+1 🩸</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'heal\','+idx+')">Soin</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'gy\','+idx+')">💀 Cimetière</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'exile\','+idx+')">⛔ Exil</button>';
+    h+='<button class="ap-action" onclick="_apZoomAct(\'hand\','+idx+')">↩ Main</button>';
+    h+='</div>';
+  }
+  h+='<div style="font-size:.74rem;color:var(--tx3)">Clic n\'importe où pour fermer</div>';
+  ov.innerHTML=h;ov.style.display='flex';
+}
+function _apZoomCloseZoom(){var ov=document.getElementById('ap-zoom-ov');if(ov)ov.remove();}
+function _apZoomAct(act,idx){
+  if(!_gfState||!_gfState.battlefield[idx])return;
+  var p=_gfState.battlefield[idx];p.counters=p.counters||{};
+  if(act==='p1'){p.counters['+1/+1']=(p.counters['+1/+1']||0)+1;_apLog('⬆ +1/+1 sur '+p.name);}
+  else if(act==='m1'){p.counters['-1/-1']=(p.counters['-1/-1']||0)+1;_apLog('⬇ −1/−1 sur '+p.name);}
+  else if(act==='loy+'){p.counters.loyalty=(p.counters.loyalty||0)+1;_apLog('♣ +1 loyauté sur '+p.name);}
+  else if(act==='loy-'){p.counters.loyalty=Math.max(0,(p.counters.loyalty||0)-1);_apLog('♣ −1 loyauté sur '+p.name);}
+  else if(act==='dmg'){p.dmg=(p.dmg||0)+1;_apLog('🩸 +1 dmg sur '+p.name);}
+  else if(act==='heal'){p.dmg=0;_apLog('🩹 dmg effacés sur '+p.name);}
+  else if(act==='gy'){_gfState.battlefield.splice(idx,1);_apRouteToGrave(p.name,p.isToken);_apLog('💀 '+p.name+' → cimetière');_apZoomCloseZoom();}
+  else if(act==='exile'){_gfState.battlefield.splice(idx,1);_gfState.exile.push(p.name);_apLog('⛔ '+p.name+' → exil');_apZoomCloseZoom();}
+  else if(act==='hand'){_gfState.battlefield.splice(idx,1);_gfState.hand.push(p.name);_apLog('↩ '+p.name+' → main');_apZoomCloseZoom();}
+  _apCheckStateBased();_apRender();
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -52302,6 +52452,18 @@ function _apModalChooseMode(cardName,modeIdx,nChoices,upTo){
 function _apRegisterPermanentEffects(cardName,oracle,oLow){
   _gfState.triggers=_gfState.triggers||[];
   _gfState.statics=_gfState.statics||{extraLands:0,noMaxHand:false,creaturesGain:[]};
+  // ─ SAGA : compteur de lore + chapitre par tour, sacrifice après le dernier ─
+  var _m0=_anaData[(cardName||'').toLowerCase()]||{};
+  if((_m0.typeLine||'').toLowerCase().indexOf('saga')>=0){
+    var chapters=(oracle.match(/(?:^|\n)\s*(?:I{1,3}|IV|V)(?:\s*,\s*(?:I{1,3}|IV|V))*\s*[—\-]/g)||[]).length;
+    var maxCh=Math.max(3,chapters||3);
+    var perm=null;for(var bi=_gfState.battlefield.length-1;bi>=0;bi--){if(_gfState.battlefield[bi].name===cardName&&!_gfState.battlefield[bi]._isSaga){perm=_gfState.battlefield[bi];break;}}
+    if(perm){perm._isSaga=true;perm._sagaMax=maxCh;perm.counters=perm.counters||{};}
+    _gfState.triggers.push({card:cardName,when:'precombat main phase',text:oracle,saga:true});
+    _apLog('📖 Saga : '+cardName+' ('+maxCh+' chapitres)');
+    setTimeout(function(){_apSagaChapter({card:cardName});_apRender();},160);
+    return true;
+  }
   // ─ STATIC : extra land par tour ─
   // "you may play an additional land each turn" / "you may play X additional lands on each of your turns"
   if(/may play an additional land(?: each turn)?/i.test(oracle)){
