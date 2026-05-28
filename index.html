@@ -54096,7 +54096,7 @@ function _sbRender(){
     html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">';
     byYear[y].forEach(function(s){
       html+='<div style="background:var(--s2);border:.5px solid var(--bd2);border-radius:8px;padding:10px 12px;cursor:pointer;transition:transform .12s" onclick="openSetDetail(\''+escJs(s.code)+'\')" onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'translateY(0)\'">';
-      if(s.icon_svg_uri)html+='<img src="'+esc(s.icon_svg_uri)+'" alt="" style="width:30px;height:30px;float:right;filter:invert(.9)" loading="lazy">';
+      if(s.icon_svg_uri)html+='<img src="'+esc(s.icon_svg_uri)+'" alt="" data-no-localize="1" referrerpolicy="no-referrer" style="width:30px;height:30px;float:right;filter:invert(.9)" loading="lazy" onerror="this.style.display=\'none\'">';
       html+='<div style="font-size:.86rem;color:var(--tx);font-weight:600;margin-bottom:2px">'+esc(s.name)+'</div>';
       html+='<div style="font-size:.7rem;color:var(--tx3)">'+esc(s.code.toUpperCase())+' · '+(s.card_count||'?')+' cartes</div>';
       html+='</div>';
@@ -54152,13 +54152,16 @@ function _sbRenderSetDetail(code,cards){
     byRarity[r].forEach(function(c){
       var has=!!owned[(c.name||'').toLowerCase()];
       var qty=owned[(c.name||'').toLowerCase()]||0;
-      var img=c.image_uris&&c.image_uris.small?c.image_uris.small:(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris&&c.card_faces[0].image_uris.small)||'';
-      html+='<div class="sb-card" data-owned="'+(has?'1':'0')+'" style="position:relative;border-radius:6px;overflow:hidden;background:var(--s3);'+(has?'':'filter:grayscale(.7) brightness(.6);opacity:.85')+'">';
-      if(img)html+='<img src="'+esc(img)+'" alt="'+esc(c.name)+'" loading="lazy" style="width:100%;display:block">';
-      else html+='<div style="padding:10px;font-size:.7rem;color:var(--tx3);text-align:center">'+esc(c.name)+'</div>';
-      if(has)html+='<div style="position:absolute;top:3px;right:3px;background:#7fb069;color:#000;padding:1px 6px;border-radius:5px;font-size:.62rem;font-weight:700">✓ '+qty+'</div>';
-      else html+='<div style="position:absolute;top:3px;right:3px;background:rgba(220,80,80,.85);color:#fff;padding:1px 6px;border-radius:5px;font-size:.62rem">✗</div>';
-      html+='<div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,transparent,rgba(0,0,0,.85));color:#fff;font-size:.62rem;padding:8px 4px 3px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(c.name)+'</div>';
+      // Source d'image fiable : image_uris direct, sinon endpoint API par id (suit la redirection — celui qui marche dans l'Arène)
+      var iu=c.image_uris||(c.card_faces&&c.card_faces[0]&&c.card_faces[0].image_uris)||null;
+      var img=(iu&&(iu.normal||iu.small))||(c.id?('https://api.scryfall.com/cards/'+encodeURIComponent(c.id)+'?format=image&version=normal'):'');
+      html+='<div class="sb-card" data-owned="'+(has?'1':'0')+'" style="position:relative;border-radius:6px;overflow:hidden;background:var(--s3);aspect-ratio:5/7;'+(has?'':'filter:grayscale(.7) brightness(.6);opacity:.85')+'">';
+      if(img)html+='<img src="'+esc(img)+'" alt="'+esc(c.name)+'" data-no-localize="1" referrerpolicy="no-referrer" loading="lazy" style="width:100%;height:100%;display:block;object-fit:cover" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\'">';
+      // Dos de carte (fallback propre, sans texte en double — le nom est dans le bandeau bas)
+      html+='<div style="'+(img?'display:none;':'')+'width:100%;height:100%;background:radial-gradient(ellipse at center,#3a2814,#15100a);border-radius:6px"></div>';
+      if(has)html+='<div style="position:absolute;top:3px;right:3px;background:#7fb069;color:#000;padding:1px 6px;border-radius:5px;font-size:.62rem;font-weight:700;z-index:2">✓ '+qty+'</div>';
+      else html+='<div style="position:absolute;top:3px;right:3px;background:rgba(220,80,80,.85);color:#fff;padding:1px 6px;border-radius:5px;font-size:.62rem;z-index:2">✗</div>';
+      html+='<div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(180deg,transparent,rgba(0,0,0,.9));color:#fff;font-size:.62rem;padding:10px 4px 3px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2">'+esc(c.name)+'</div>';
       html+='</div>';
     });
     html+='</div></div>';
