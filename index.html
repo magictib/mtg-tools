@@ -17582,6 +17582,25 @@ var _purOrderFilter='all'; // 'all' (séparé en sections) | 'ordered' (avec ven
 function purTableSearch(v){_purTableSearch=(v||'').toLowerCase();renderPurchaseMgr();}
 function purSortBy(key){if(_purSort.key===key)_purSort.dir*=-1;else{_purSort.key=key;_purSort.dir=1;}renderPurchaseMgr();}
 function purSetOrderFilter(f){_purOrderFilter=f;renderPurchaseMgr();}
+// Statuts d'acquisition (vue Liste). 'handed' (remis) et 'lent' (prêtée) = états finals → ligne rayée.
+var _PUR_BUYFLOW=[{v:'tobuy',l:'🕗 À acheter'},{v:'bought',l:'🛒 Acheté'},{v:'delivered',l:'📦 Livré'},{v:'handed',l:'✅ Remis'},{v:'lent',l:'🤝 Prêtée'}];
+var _PUR_BUYRANK={tobuy:0,bought:1,delivered:2,handed:3,lent:3};
+function _purBuyStatus(c){
+  var s=c.status;
+  if(s==='bought')return 'bought';
+  if(s==='delivered')return 'delivered';
+  if(s==='handed')return 'handed';
+  if(s==='lent'||s==='lend_accepted')return 'lent';
+  return 'tobuy'; // proposed / accepted / vide → à acheter
+}
+function _purIsFinal(c){var s=_purBuyStatus(c);return s==='handed'||s==='lent';}
+function purSetBuyStatus(cardId,val){
+  var c=_purFindCard(cardId);if(!c)return;
+  c.status=val;
+  // received synchronisé pour le suivi (vue Commandes) : livré/remis/prêtée = acquis
+  c.received=(val==='delivered'||val==='handed'||val==='lent');
+  _purStamp(c);savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
 function _purSellerNameOf(c,lst){
   if(!c.orderGroupId)return '';
   var g=(lst.orderGroups||[]).find(function(x){return x.id===c.orderGroupId;});
@@ -17592,7 +17611,7 @@ function _purRenderTableV2(cards,lst){
   var mems=_purMembers();var groups=lst.orderGroups||[];var q=_purTableSearch;
   var rows=cards.filter(function(c){
     if(_purOnlyMine&&c.buyer!==userId)return false;
-    if(_purHideReceived&&c.received)return false;
+    if(_purHideReceived&&_purIsFinal(c))return false; // « Masquer terminées »
     if(!q)return true;
     var seller=_purSellerNameOf(c,lst).toLowerCase();
     var who=(_purMemberName(c.buyer)||'').toLowerCase();
@@ -17605,10 +17624,14 @@ function _purRenderTableV2(cards,lst){
     if(k==='qty')return c.qty||1;
     if(k==='seller')return _purSellerNameOf(c,lst).toLowerCase()||'~~~';
     if(k==='price')return (typeof c.actualPrice==='number'?c.actualPrice:(c.price||0))*(c.qty||1);
-    if(k==='received')return c.received?1:0;
+    if(k==='status')return _PUR_BUYRANK[_purBuyStatus(c)]||0;
     return (c.deckName||'~~~').toLowerCase(); // deck par défaut
   }
-  rows.sort(function(a,b){var va=val(a),vb=val(b);if(va<vb)return -dir;if(va>vb)return dir;return (a.name||'').localeCompare(b.name||'');});
+  // Les cartes terminées (rayées) descendent toujours en bas, puis tri par colonne.
+  rows.sort(function(a,b){
+    var fa=_purIsFinal(a)?1:0,fb=_purIsFinal(b)?1:0;if(fa!==fb)return fa-fb;
+    var va=val(a),vb=val(b);if(va<vb)return -dir;if(va>vb)return dir;return (a.name||'').localeCompare(b.name||'');
+  });
   // Séparation commandées (avec vendeur) / à commander (sans vendeur)
   var nOrdered=rows.filter(function(c){return c.orderGroupId;}).length;
   var nTodo=rows.length-nOrdered;
@@ -17620,7 +17643,7 @@ function _purRenderTableV2(cards,lst){
   html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">';
   html+='<input id="pur-tbl-q" value="'+esc(_purTableSearch)+'" oninput="clearTimeout(window._purTblTO);window._purTblTO=setTimeout(function(){var e=document.getElementById(\'pur-tbl-q\');purTableSearch(e?e.value:\'\');},220)" placeholder="🔍 Carte, vendeur, deck, personne…" style="flex:1;min-width:200px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);padding:7px 11px;font-size:.84rem">';
   html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purOnlyMine?'checked':'')+' onchange="_purOnlyMine=this.checked;renderPurchaseMgr()"> Mes cartes</label>';
-  html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purHideReceived?'checked':'')+' onchange="_purHideReceived=this.checked;renderPurchaseMgr()"> Masquer reçues</label>';
+  html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purHideReceived?'checked':'')+' onchange="_purHideReceived=this.checked;renderPurchaseMgr()"> Masquer terminées</label>';
   html+='</div>';
   // Filtre statut de commande
   html+='<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Commande :</span>';
@@ -17634,7 +17657,7 @@ function _purRenderTableV2(cards,lst){
   html+=th('Qté','qty','text-align:center');
   html+=th('Vendeur','seller','color:#a8c8ff');
   html+=th('Prix','price','text-align:right');
-  html+=th('Reçu','received','text-align:center');
+  html+=th('Statut','status','text-align:center');
   html+='<th style="width:26px"></th>';
   html+='</tr></thead><tbody>';
   if(!rows.length){
@@ -17667,15 +17690,18 @@ function _purTableV2Row(c,zi,mems,groups){
   var img=(meta&&(meta.imageUri||meta.imgUri))?(meta.imageUri||meta.imgUri).replace('/normal/','/small/').replace('/large/','/small/'):('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(c.name||''));
   var buyerOpts='<option value="">—</option>'+mems.map(function(m){return '<option value="'+esc(m.uid)+'"'+(c.buyer===m.uid?' selected':'')+'>'+esc(m.name)+'</option>';}).join('');
   var grpOpts='<option value="">— vide —</option>'+groups.map(function(g){return '<option value="'+esc(g.id)+'"'+(c.orderGroupId===g.id?' selected':'')+'>'+esc(g.sellerName||g.name||'?')+'</option>';}).join('');
-  var html='<tr class="pur-card-row"'+(c.received?' style="opacity:.62"':'')+'>';
+  var fin=_purIsFinal(c);
+  var html='<tr class="pur-card-row"'+(fin?' style="opacity:.55"':'')+'>';
   html+='<td style="text-align:center"><img src="'+esc(img)+'" alt="" data-no-localize="1" loading="lazy" onclick="openCardZoomAt('+zi+')" title="Zoomer" style="width:30px;height:42px;object-fit:cover;border-radius:3px;cursor:zoom-in;vertical-align:middle" onerror="this.style.visibility=\'hidden\'"></td>';
-  html+='<td'+(c.received?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+esc(c.name)+(c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')+'</td>';
+  html+='<td'+(fin?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+esc(c.name)+(c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')+'</td>';
   html+='<td style="color:var(--tx2);font-size:.78rem">'+esc(c.deckName||'—')+'</td>';
   html+='<td><select onchange="purBulkAssign([\''+sid+'\'],\'buyer\',this.value||null)" title="À qui va la carte" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:2px 4px;font-size:.74rem;max-width:110px">'+buyerOpts+'</select></td>';
   html+='<td style="text-align:center"><span class="pur-qty-ctl" onclick="event.stopPropagation()"><button onclick="purChangeCardQty(\''+sid+'\',-1)">−</button><input type="number" min="0" value="'+(c.qty||1)+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetCardQty(\''+sid+'\',this.value);}" onblur="if(this.value!==this.defaultValue)purSetCardQty(\''+sid+'\',this.value)"><button onclick="purChangeCardQty(\''+sid+'\',1)">+</button></span></td>';
   html+='<td><select onchange="purBulkAssign([\''+sid+'\'],\'orderGroupId\',this.value||null)" title="Vendeur (se remplit après l\'optimisation Cardmarket / une fois la commande passée)" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:'+(c.orderGroupId?'#a8c8ff':'var(--tx3)')+';padding:2px 4px;font-size:.74rem;max-width:120px">'+grpOpts+'</select></td>';
   html+='<td style="text-align:right;white-space:nowrap"><input type="number" step="0.01" min="0" value="'+(typeof c.actualPrice==='number'?c.actualPrice.toFixed(2):'')+'" placeholder="—" onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetActualPrice(\''+sid+'\',this.value);}" onblur="if(this.value!==this.defaultValue)purSetActualPrice(\''+sid+'\',this.value)" style="width:56px;padding:2px 4px;font-size:.74rem;border-radius:4px;border:.5px solid var(--bd2);background:var(--s2);color:var(--gold2);text-align:right">€</td>';
-  html+='<td style="text-align:center"><input type="checkbox" '+(c.received?'checked':'')+' onchange="purToggleReceived(\''+sid+'\')" title="Reçue ?" style="cursor:pointer"></td>';
+  var curSt=_purBuyStatus(c);
+  var stOpts=_PUR_BUYFLOW.map(function(s){return '<option value="'+s.v+'"'+(curSt===s.v?' selected':'')+'>'+s.l+'</option>';}).join('');
+  html+='<td style="text-align:center"><select onchange="purSetBuyStatus(\''+sid+'\',this.value)" title="Statut d\'acquisition" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:'+(fin?'#7fb069':'var(--tx)')+';padding:2px 4px;font-size:.72rem;max-width:104px">'+stOpts+'</select></td>';
   html+='<td style="text-align:center"><button onclick="removePurCard(\''+sid+'\')" style="background:none;border:none;cursor:pointer;color:var(--rd2);opacity:.55;font-size:.72rem" title="Retirer">✕</button></td>';
   html+='</tr>';
   return html;
