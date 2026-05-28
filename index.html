@@ -49974,8 +49974,14 @@ function _apRenderLobby(){
         html+='<option value="'+esc(d.id)+'"'+(p.deckId===d.id?' selected':'')+'>'+esc(d.name)+(d.fmt?' ['+d.fmt+']':'')+'</option>';
       });
       html+='</select>';
+      if(p.deckId&&decks[p.deckId])html+='<button class="ap-action" onclick="_apOpenDeckEditor(\''+escJs(p.deckId)+'\')" style="font-size:.72rem">✏ Modifier</button>';
       html+='<button class="ap-action" onclick="openDiscover()" style="font-size:.72rem">🔮 Proposer un deck</button>';
       html+='</div>';
+      // Indicateur de version modifiée non sauvegardée
+      if(_apDeckDraft&&_apDeckDraft.unsaved&&_apDeckDraft.baseId===p.deckId){
+        var nMain=_apDeckDraft.main.reduce(function(a,c){return a+c.qty;},0);
+        html+='<div style="margin-top:7px;display:flex;align-items:center;gap:8px;background:rgba(232,201,110,.1);border:.5px solid rgba(232,201,110,.4);border-radius:7px;padding:6px 10px;font-size:.74rem;color:#e8c96e">⚠ Version modifiée active ('+nMain+' cartes, non sauvegardée) <button class="ap-action" onclick="_apDeckSaveDraft()" style="font-size:.66rem;padding:2px 8px">💾 Sauvegarder</button> <button class="ap-action" onclick="_apDeckDiscardDraft()" style="font-size:.66rem;padding:2px 8px">↺ Annuler les modifs</button></div>';
+      }
     }else{
       // IA : choix d'archétype
       html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.74rem;color:var(--tx3)">ARCHÉTYPE :';
@@ -50005,8 +50011,239 @@ function _apLobbySetBo(n){_apLobby.bo=n;_apSaveLobby();_apRenderLobby();}
 function _apLobbyAddPlayer(){if(_apLobby.players.length<4){_apLobby.players.push({type:'ai',aiType:'aggro'});_apSaveLobby();_apRenderLobby();}}
 function _apLobbyRemovePlayer(){if(_apLobby.players.length>2){_apLobby.players.pop();_apSaveLobby();_apRenderLobby();}}
 function _apLobbySetType(idx,t){_apLobby.players[idx].type=t;_apSaveLobby();_apRenderLobby();}
-function _apLobbySetDeck(idx,deckId){_apLobby.players[idx].deckId=deckId;_apSaveLobby();_apRenderLobby();}
+function _apLobbySetDeck(idx,deckId){
+  _apLobby.players[idx].deckId=deckId;
+  // Si on change de deck, la version modifiée précédente n'est plus pertinente
+  if(_apDeckDraft&&_apDeckDraft.baseId!==deckId)_apDeckDraft=null;
+  _apSaveLobby();_apRenderLobby();
+}
 function _apLobbySetAiType(idx,a){_apLobby.players[idx].aiType=a;_apSaveLobby();_apRenderLobby();}
+
+// ════════════════════════════════════════════════════════════════════════
+// ÉDITEUR DE DECK DANS LE LOBBY (sideboard + recherche + tri, save optionnel)
+// ════════════════════════════════════════════════════════════════════════
+var _apDeckDraft=null;      // {baseId,name,format,main:[{name,qty,nl}],side:[...],commander,unsaved,sort}
+var _apDeckSearchRes=[];    // résultats de recherche en cours
+
+// Signature d'un deck (pour comparer modifié vs sauvegardé)
+function _apDeckSig(mainArr,sideArr,commander){
+  var lines=[];
+  if(commander)lines.push('C:'+commander.toLowerCase());
+  (mainArr||[]).forEach(function(c){lines.push('M:'+c.qty+'|'+c.name.toLowerCase());});
+  (sideArr||[]).forEach(function(c){lines.push('S:'+c.qty+'|'+c.name.toLowerCase());});
+  return lines.sort().join('\n');
+}
+// Décompose un deck sauvegardé en {main,side,commander}
+function _apDeckZones(deck){
+  var main=[],side=[],commander=null;
+  (deck.cards||[]).forEach(function(c){
+    var sec=(c.sec||'').toLowerCase();
+    var entry={name:c.name,qty:c.qty||1,nl:(c.nl||(c.name||'').toLowerCase())};
+    if(/^commander|^commandant/.test(sec)){if(!commander)commander=c.name;return;}
+    if(sec.indexOf('side')>=0){side.push(entry);return;}
+    if(/companion|maybe|consider|token/.test(sec))return; // ignore zones annexes
+    main.push(entry);
+  });
+  if(!commander&&deck.commander&&deck.commander.name)commander=deck.commander.name;
+  return {main:main,side:side,commander:commander};
+}
+function _apOpenDeckEditor(deckId){
+  var d=decks[deckId];if(!d){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  // Si un draft existe déjà pour ce deck, on le réutilise, sinon on clone le deck
+  if(!_apDeckDraft||_apDeckDraft.baseId!==deckId){
+    var z=_apDeckZones(d);
+    _apDeckDraft={baseId:deckId,name:d.name,format:d.format||_apLobby.format,
+      main:z.main.map(function(c){return {name:c.name,qty:c.qty,nl:c.nl};}),
+      side:z.side.map(function(c){return {name:c.name,qty:c.qty,nl:c.nl};}),
+      commander:z.commander,unsaved:false,sort:'name'};
+  }
+  _apDeckSearchRes=[];
+  _apRenderDeckEditor();
+}
+function _apRenderDeckEditor(){
+  var ov=document.getElementById('ap-deck-ed');
+  if(!ov){
+    ov=document.createElement('div');ov.id='ap-deck-ed';
+    ov.style.cssText='position:fixed;inset:0;z-index:6950;background:rgba(0,0,0,.9);display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)_apCloseDeckEditor();});
+  }
+  var dr=_apDeckDraft;if(!dr){ov.style.display='none';return;}
+  var sortMode=dr.sort||'name';
+  var nMain=dr.main.reduce(function(a,c){return a+c.qty;},0);
+  var nSide=dr.side.reduce(function(a,c){return a+c.qty;},0);
+  var isCmd=(dr.format==='commander'||dr.format==='paupercmd');
+  var target=isCmd?(dr.commander?99:100):60;
+  var countCol=(nMain===target)?'#7fb069':(nMain>target?'#dc5050':'#e8c96e');
+  // Tri
+  function sortCards(arr){
+    var a=arr.slice();
+    if(sortMode==='cmc')a.sort(function(x,y){var mx=_anaData[x.nl]||{},my=_anaData[y.nl]||{};return (mx.cmc||0)-(my.cmc||0)||x.name.localeCompare(y.name);});
+    else if(sortMode==='type')a.sort(function(x,y){var tx=((_anaData[x.nl]||{}).typeLine||'zzz'),ty=((_anaData[y.nl]||{}).typeLine||'zzz');return tx.localeCompare(ty)||x.name.localeCompare(y.name);});
+    else a.sort(function(x,y){return x.name.localeCompare(y.name);});
+    return a;
+  }
+  var dirty=_apDeckSig(dr.main,dr.side,dr.commander)!==_apDeckSig.apply(null,(function(){var z=_apDeckZones(decks[dr.baseId]||{cards:[]});return [z.main,z.side,z.commander];})());
+  var html='<div style="background:var(--s1);border:1px solid var(--gold2);border-radius:14px;max-width:1080px;width:100%;padding:18px 22px">';
+  // Header
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">';
+  html+='<div style="flex:1"><div style="font-family:Goudy Mediaeval,serif;font-size:1.3rem;color:var(--gold2)">✏ '+esc(dr.name)+'</div>';
+  html+='<div style="font-size:.74rem;color:'+countCol+'">'+nMain+(isCmd?'/'+target:'/60')+' cartes'+(dr.commander?' + commandant':'')+(nSide?' · '+nSide+' sideboard':'')+(dirty?' · <span style="color:#e8c96e">⚠ modifié</span>':'')+'</div></div>';
+  html+='<button class="ap-action" onclick="_apCloseDeckEditor()">✕</button>';
+  html+='</div>';
+  // Commander (si EDH)
+  if(isCmd){
+    html+='<div style="display:flex;align-items:center;gap:8px;background:rgba(232,201,110,.08);border:.5px solid rgba(232,201,110,.3);border-radius:8px;padding:7px 11px;margin-bottom:10px;font-size:.82rem">👑 <b style="color:var(--gold2)">'+esc(dr.commander||'— aucun —')+'</b><span style="color:var(--tx3);font-size:.72rem;margin-left:auto">Le commandant se change depuis le Deck Builder</span></div>';
+  }
+  // Barre recherche + tri
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">';
+  html+='<input id="ap-deck-search" placeholder="🔍 Ajouter une carte (nom)…" onkeydown="if(event.key===\'Enter\')_apDeckSearch()" style="flex:1;min-width:200px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);padding:8px 12px;font-size:.84rem">';
+  html+='<button class="ap-action" onclick="_apDeckSearch()">Chercher</button>';
+  html+='<span style="font-size:.72rem;color:var(--tx3)">Tri :</span>';
+  ['name','cmc','type'].forEach(function(m){
+    html+='<button class="ap-action'+(sortMode===m?' primary':'')+'" onclick="_apDeckEdSort(\''+m+'\')" style="font-size:.72rem;padding:5px 10px">'+({name:'A-Z',cmc:'CMC',type:'Type'}[m])+'</button>';
+  });
+  html+='</div>';
+  // Résultats de recherche
+  if(_apDeckSearchRes.length){
+    html+='<div style="background:rgba(0,0,0,.3);border-radius:8px;padding:8px 10px;margin-bottom:10px;max-height:180px;overflow-y:auto">';
+    html+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:5px">Résultats — clic pour ajouter au deck</div>';
+    _apDeckSearchRes.forEach(function(r){
+      var owned=r.owned?' <span style="color:#7fb069;font-size:.66rem">(possédée ×'+r.owned+')</span>':'';
+      html+='<div onclick="_apDeckEdAdd(\''+escJs(r.name)+'\')" style="cursor:pointer;padding:5px 8px;border-radius:6px;font-size:.8rem;color:var(--tx);display:flex;align-items:center;gap:6px" onmouseover="this.style.background=\'rgba(201,168,76,.12)\'" onmouseout="this.style.background=\'\'">+ '+esc(r.name)+(r.type?' <span style="color:var(--tx3);font-size:.7rem">'+esc(r.type)+'</span>':'')+owned+'</div>';
+    });
+    html+='</div>';
+  }
+  // Deux colonnes : Main + Sideboard
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  // MAIN
+  html+='<div><div style="font-family:Goudy Mediaeval,serif;color:var(--gold2);font-size:.9rem;margin-bottom:6px">🃏 Deck principal ('+nMain+')</div>';
+  html+='<div style="max-height:42vh;overflow-y:auto;display:flex;flex-direction:column;gap:2px">';
+  if(!dr.main.length)html+='<div style="color:var(--tx3);font-style:italic;font-size:.8rem;padding:10px">Vide</div>';
+  sortCards(dr.main).forEach(function(c){html+=_apDeckEdRow(c,'main');});
+  html+='</div></div>';
+  // SIDEBOARD
+  html+='<div><div style="font-family:Goudy Mediaeval,serif;color:var(--gold2);font-size:.9rem;margin-bottom:6px">📋 Sideboard ('+nSide+')</div>';
+  html+='<div style="max-height:42vh;overflow-y:auto;display:flex;flex-direction:column;gap:2px">';
+  if(!dr.side.length)html+='<div style="color:var(--tx3);font-style:italic;font-size:.8rem;padding:10px">Vide — utilise « → side » pour réserver des cartes</div>';
+  sortCards(dr.side).forEach(function(c){html+=_apDeckEdRow(c,'side');});
+  html+='</div></div>';
+  html+='</div>';
+  // Actions
+  html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">';
+  html+='<button class="ap-action" onclick="_apCloseDeckEditor()">Annuler</button>';
+  html+='<button class="ap-action" onclick="_apDeckUseDraft()" '+(dirty?'':'disabled style="opacity:.5"')+'>▶ Utiliser sans sauvegarder</button>';
+  html+='<button class="ap-action primary" onclick="_apDeckSaveDraft(true)">💾 Sauvegarder le deck</button>';
+  html+='</div>';
+  html+='</div>';
+  ov.innerHTML=html;ov.style.display='flex';
+}
+function _apDeckEdRow(c,zone){
+  var meta=_anaData[c.nl]||{};
+  var cmc=(typeof meta.cmc==='number')?meta.cmc:'';
+  var html='<div style="display:flex;align-items:center;gap:6px;background:var(--s2);border-radius:6px;padding:4px 8px;font-size:.8rem">';
+  html+='<span style="color:var(--gold2);font-variant-numeric:tabular-nums;min-width:18px">'+c.qty+'</span>';
+  html+='<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+(cmc!==''?' <span style="color:var(--tx3);font-size:.68rem">·'+cmc+'</span>':'')+'</span>';
+  html+='<button class="ap-action" style="padding:1px 6px;font-size:.7rem" onclick="_apDeckEdQty(\''+zone+'\',\''+escJs(c.nl)+'\',-1)">−</button>';
+  html+='<button class="ap-action" style="padding:1px 6px;font-size:.7rem" onclick="_apDeckEdQty(\''+zone+'\',\''+escJs(c.nl)+'\',1)">+</button>';
+  html+='<button class="ap-action" style="padding:1px 6px;font-size:.66rem" title="Déplacer vers '+(zone==='main'?'sideboard':'deck principal')+'" onclick="_apDeckEdMove(\''+zone+'\',\''+escJs(c.nl)+'\')">'+(zone==='main'?'→ side':'→ main')+'</button>';
+  html+='</div>';
+  return html;
+}
+function _apDeckEdSort(m){if(_apDeckDraft){_apDeckDraft.sort=m;_apRenderDeckEditor();}}
+function _apDeckEdQty(zone,nl,delta){
+  if(!_apDeckDraft)return;
+  var arr=_apDeckDraft[zone];var c=arr.find(function(x){return x.nl===nl;});if(!c)return;
+  c.qty+=delta;
+  if(c.qty<=0){_apDeckDraft[zone]=arr.filter(function(x){return x.nl!==nl;});}
+  _apRenderDeckEditor();
+}
+function _apDeckEdMove(zone,nl){
+  if(!_apDeckDraft)return;
+  var from=_apDeckDraft[zone];var to=_apDeckDraft[zone==='main'?'side':'main'];
+  var c=from.find(function(x){return x.nl===nl;});if(!c)return;
+  // Déplace 1 exemplaire
+  var dest=to.find(function(x){return x.nl===nl;});
+  if(dest)dest.qty++;else to.push({name:c.name,qty:1,nl:c.nl});
+  c.qty--;if(c.qty<=0)_apDeckDraft[zone]=from.filter(function(x){return x.nl!==nl;});
+  _apRenderDeckEditor();
+}
+function _apDeckEdAdd(name){
+  if(!_apDeckDraft||!name)return;
+  var nl=name.toLowerCase();
+  var c=_apDeckDraft.main.find(function(x){return x.nl===nl;});
+  if(c)c.qty++;else _apDeckDraft.main.push({name:name,qty:1,nl:nl});
+  if(typeof toastSuccess==='function')toastSuccess('+ '+name);
+  _apRenderDeckEditor();
+}
+// Recherche : d'abord dans la collection (rapide), puis Scryfall
+function _apDeckSearch(){
+  var inp=document.getElementById('ap-deck-search');if(!inp)return;
+  var q=(inp.value||'').trim();if(q.length<2){_apDeckSearchRes=[];_apRenderDeckEditor();return;}
+  var ql=q.toLowerCase();
+  // Collection possédée
+  var coll=[];try{coll=getProfCards(0)||[];}catch(e){}
+  var ownedMap={};coll.forEach(function(c){var nl=(c.name||'').toLowerCase();ownedMap[nl]=(ownedMap[nl]||0)+(c.qty||1);});
+  var res=[];var seen={};
+  Object.keys(ownedMap).forEach(function(nl){
+    if(nl.indexOf(ql)>=0&&!seen[nl]){
+      var meta=_anaData[nl]||{};
+      // retrouve le nom propre
+      var nm=(coll.find(function(c){return (c.name||'').toLowerCase()===nl;})||{}).name||nl;
+      res.push({name:nm,type:(meta.typeLine||'').split(' — ')[0],owned:ownedMap[nl]});seen[nl]=1;
+    }
+  });
+  res.sort(function(a,b){return a.name.localeCompare(b.name);});
+  _apDeckSearchRes=res.slice(0,20);
+  _apRenderDeckEditor();
+  // Complément Scryfall si peu de résultats possédés
+  if(res.length<8){
+    fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent(q)+'&order=name&unique=cards',{headers:{'Accept':'application/json'}})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(data){
+        if(!data||!data.data)return;
+        data.data.slice(0,20).forEach(function(card){
+          var nl=(card.name||'').toLowerCase();
+          if(_apDeckSearchRes.find(function(x){return x.name.toLowerCase()===nl;}))return;
+          _apDeckSearchRes.push({name:card.name,type:(card.type_line||'').split(' — ')[0],owned:ownedMap[nl]||0});
+        });
+        _apDeckSearchRes=_apDeckSearchRes.slice(0,30);
+        _apRenderDeckEditor();
+      }).catch(function(){});
+  }
+}
+function _apCloseDeckEditor(){var ov=document.getElementById('ap-deck-ed');if(ov)ov.style.display='none';_apDeckSearchRes=[];}
+// Sauvegarde le draft dans le deck réel
+function _apDeckSaveDraft(fromEditor){
+  if(!_apDeckDraft)return;
+  var d=decks[_apDeckDraft.baseId];if(!d){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  var lines=[];
+  if(_apDeckDraft.commander){lines.push('Commander');lines.push('1 '+_apDeckDraft.commander);}
+  lines.push('Deck');
+  _apDeckDraft.main.forEach(function(c){lines.push(c.qty+' '+c.name);});
+  if(_apDeckDraft.side.length){lines.push('Sideboard');_apDeckDraft.side.forEach(function(c){lines.push(c.qty+' '+c.name);});}
+  var raw=lines.join('\n');
+  d.rawName=raw;
+  d.cards=(typeof parseList==='function')?parseList(raw):d.cards;
+  d.updatedAt=Date.now();
+  if(typeof saveDecks==='function')saveDecks();
+  _apDeckDraft.unsaved=false;
+  if(typeof toastSuccess==='function')toastSuccess('✓ Deck « '+d.name+' » sauvegardé');
+  if(fromEditor)_apCloseDeckEditor();
+  _apRenderLobby();
+}
+// Utilise le draft pour la partie SANS sauvegarder
+function _apDeckUseDraft(){
+  if(!_apDeckDraft)return;
+  _apDeckDraft.unsaved=true;
+  if(typeof toastSuccess==='function')toastSuccess('Version modifiée prête (non sauvegardée)');
+  _apCloseDeckEditor();
+  _apRenderLobby();
+}
+function _apDeckDiscardDraft(){
+  _apDeckDraft=null;
+  _apRenderLobby();
+}
 function _apStartFromLobby(){
   // Validation : moi a un deck
   var me=_apLobby.players[0];
@@ -50022,6 +50259,18 @@ function _apStartFromLobby(){
 function _apStartGame(setup){
   var me=setup.players[0];
   var d=decks[me.deckId];if(!d||!d.cards||!d.cards.length){if(typeof toastError==='function')toastError('Deck vide');return;}
+  // ─── Version modifiée non sauvegardée active pour ce deck ? ───
+  var usedDraft=false;var draftSig=null;
+  if(_apDeckDraft&&_apDeckDraft.unsaved&&_apDeckDraft.baseId===me.deckId){
+    usedDraft=true;
+    draftSig=_apDeckSig(_apDeckDraft.main,_apDeckDraft.side,_apDeckDraft.commander);
+    d={
+      name:_apDeckDraft.name+' (modifié)',
+      format:_apDeckDraft.format,
+      commander:_apDeckDraft.commander?{name:_apDeckDraft.commander}:(d.commander||null),
+      cards:_apDeckDraft.main.map(function(c){return {name:c.name,qty:c.qty,nl:c.nl,sec:'Deck'};})
+    };
+  }
   // Init state
   var library=[];(d.cards||[]).forEach(function(c){
     if(/^commander|^commandant/i.test(c.sec||''))return;
@@ -50057,6 +50306,9 @@ function _apStartGame(setup){
     activePlayer:'me', // 'me' | 'opp0' | 'opp1'…
     targeting:null, // {sourceName, sourceCard, effect, candidates:[]}
     landTaxLimit:1, // override (Exploration, Azusa…)
+    usedDraft:usedDraft, // a-t-on joué avec une version modifiée non sauvegardée ?
+    draftBaseId:usedDraft?me.deckId:null,
+    draftSig:draftSig, // signature de la version jouée (pour proposer la sauvegarde après)
     phase:'main1',
     log:['T1 — Main d\'ouverture'],
     selected:null,
@@ -50379,8 +50631,10 @@ function _apOppRemoveThreat(oppIdx,tIdx){
 function _apQuitConfirm(){
   if(!_gfState){closeArenaPro();return;}
   if(confirm('Quitter cette partie et retourner au lobby ?')){
-    _gfState=null;
-    _apOpenLobby();
+    _apMaybePromptSaveDraft(function(){
+      _gfState=null;
+      _apOpenLobby();
+    });
   }
 }
 
@@ -50782,9 +51036,30 @@ function _apEndGame(result,reason){
     buttons:[
       {l:'📊 Logger la partie',primary:true,act:function(){_apModalClose();if(typeof _apEndGameFlow==='function')_apEndGameFlow();}},
       {l:'🔄 Revanche',act:function(){_apModalClose();var s=JSON.parse(JSON.stringify(_gfState.setup));_apStartGame(s);}},
-      {l:'Fermer',act:function(){_apModalClose();closeArenaPro();}}
+      {l:'Fermer',act:function(){_apModalClose();_apMaybePromptSaveDraft(function(){closeArenaPro();});}}
     ]
   });},250);
+}
+// Après la partie : si on a joué avec une version modifiée non sauvegardée qui diffère
+// toujours du deck enregistré, proposer de la sauvegarder ("finalement ce deck est mieux").
+function _apMaybePromptSaveDraft(after){
+  after=after||function(){};
+  var s=_gfState;
+  if(!s||!s.usedDraft||!_apDeckDraft||!_apDeckDraft.unsaved||_apDeckDraft.baseId!==s.draftBaseId){after();return;}
+  // Compare la version jouée à la version actuellement sauvegardée
+  var d=decks[s.draftBaseId];if(!d){after();return;}
+  var z=_apDeckZones(d);
+  var savedSig=_apDeckSig(z.main,z.side,z.commander);
+  if(savedSig===s.draftSig){after();return;} // identique → rien à proposer
+  var content='<div style="font-size:.88rem;color:var(--tx2);line-height:1.6">Tu viens de jouer avec une <b style="color:var(--gold2)">version modifiée</b> de « '+esc(d.name)+' » qui n\'est pas sauvegardée.<br><br>Si elle te plaît mieux, sauvegarde-la pour la conserver.</div>';
+  _apModal({
+    title:'💾 Sauvegarder les modifications ?',
+    content:content,canClose:false,
+    buttons:[
+      {l:'💾 Oui, sauvegarder',primary:true,act:function(){_apModalClose();_apDeckSaveDraft(false);_apDeckDraft=null;after();}},
+      {l:'Non merci',act:function(){_apModalClose();after();}}
+    ]
+  });
 }
 
 // ─── Targeting visuel : place le joueur en mode "choisis une cible" ───
