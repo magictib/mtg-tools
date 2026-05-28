@@ -17601,6 +17601,63 @@ function purSetBuyStatus(cardId,val){
   c.received=(val==='delivered'||val==='handed'||val==='lent');
   _purStamp(c);savePurchaseList(_activePurListId);renderPurchaseMgr();
 }
+// Règlement : un membre a-t-il remboursé le commandeur ?
+function purToggleSettled(uid){
+  var l=_purchaseLists[_activePurListId];if(!l)return;
+  l.settlements=l.settlements||{};
+  l.settlements[uid]=!l.settlements[uid];
+  savePurchaseList(_activePurListId);renderPurchaseMgr();
+}
+// Bulk : passe toutes les cartes destinées à un membre au statut « Remis »
+function purHandAll(uid){
+  var l=_purchaseLists[_activePurListId];if(!l)return;
+  var n=0;(l.cards||[]).forEach(function(c){
+    if(c.buyer!==uid)return;var s=_purBuyStatus(c);if(s==='handed'||s==='lent')return;
+    c.status='handed';c.received=true;_purStamp(c);n++;
+  });
+  if(n){savePurchaseList(_activePurListId);renderPurchaseMgr();if(typeof toastSuccess==='function')toastSuccess(n+' carte(s) remises à '+_purMemberName(uid));}
+  else if(typeof toastInfo==='function')toastInfo('Rien à remettre pour '+_purMemberName(uid));
+}
+// Choisir la version/édition d'une carte (clic sur le nom)
+function purPickVersion(cardId){
+  var c=_purFindCard(cardId);if(!c)return;
+  var ov=document.getElementById('pur-ver-ov');
+  if(!ov){ov=document.createElement('div');ov.id='pur-ver-ov';ov.style.cssText='position:fixed;inset:0;z-index:6300;background:rgba(0,0,0,.9);display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto';ov.addEventListener('click',function(e){if(e.target===ov)ov.style.display='none';});document.body.appendChild(ov);}
+  ov.style.display='flex';
+  ov.innerHTML='<div style="background:var(--s1);border:1px solid var(--gold2);border-radius:14px;max-width:920px;width:100%;padding:20px"><div style="text-align:center;color:var(--tx3);padding:24px"><div style="width:30px;height:30px;border:3px solid var(--bd2);border-top-color:var(--gold2);border-radius:50%;animation:_anaSpin .85s linear infinite;margin:0 auto 10px"></div>Versions de '+esc(c.name)+'…</div></div>';
+  var sid=(c.id||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  fetch('https://api.scryfall.com/cards/search?q='+encodeURIComponent('!"'+(c.name||'').replace(/"/g,'')+'" game:paper')+'&unique=prints&order=released&dir=desc',{headers:{'Accept':'application/json'}})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(data){
+      if(!data||!data.data||!data.data.length){ov.querySelector('div').innerHTML='<div style="color:#dc5050;text-align:center;padding:20px">Aucune version trouvée.<br><button class="btn btnsm" onclick="document.getElementById(\'pur-ver-ov\').style.display=\'none\'" style="margin-top:8px">Fermer</button></div>';return;}
+      var h='<div style="background:var(--s1);border:1px solid var(--gold2);border-radius:14px;max-width:920px;width:100%;padding:18px 22px">';
+      h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="font-family:Goudy Mediaeval,serif;font-size:1.2rem;color:var(--gold2);flex:1">Version de '+esc(c.name)+'</div><button class="btn btnsm" onclick="document.getElementById(\'pur-ver-ov\').style.display=\'none\'">✕</button></div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px">'+data.data.length+' édition(s) — clique pour choisir.</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px;max-height:70vh;overflow-y:auto">';
+      data.data.forEach(function(card){
+        var iu=card.image_uris||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)||{};
+        var img=iu.small||iu.normal||'';
+        var cur=(c.set&&c.set.toLowerCase()===(card.set||'').toLowerCase()&&(String(c.num||'')===String(card.collector_number||'')));
+        var payload=encodeURIComponent(JSON.stringify({set:(card.set||'').toUpperCase(),num:card.collector_number||'',img:(iu.small||iu.normal||'')}));
+        h+='<div onclick="purSetVersion(\''+sid+'\',\''+payload+'\')" style="cursor:pointer;border:'+(cur?'2px solid var(--gold2)':'.5px solid var(--bd2)')+';border-radius:8px;overflow:hidden;background:var(--s3);position:relative" title="'+esc(card.set_name||'')+' · #'+esc(card.collector_number||'')+(card.lang&&card.lang!=='en'?' ['+card.lang+']':'')+'">';
+        if(img)h+='<img src="'+esc(img)+'" data-no-localize="1" loading="lazy" style="width:100%;display:block">';
+        else h+='<div style="padding:16px 6px;font-size:.66rem;color:var(--tx3);text-align:center">'+esc(card.set_name||card.set)+'</div>';
+        h+='<div style="font-size:.6rem;color:var(--tx2);padding:3px 4px;text-align:center">'+esc((card.set||'').toUpperCase())+' · #'+esc(card.collector_number||'')+'</div>';
+        if(cur)h+='<div style="position:absolute;top:3px;right:3px;background:var(--gold2);color:#000;border-radius:5px;font-size:.58rem;padding:1px 5px;font-weight:700">actuelle</div>';
+        h+='</div>';
+      });
+      h+='</div></div>';ov.innerHTML=h;
+    }).catch(function(){ov.querySelector('div').innerHTML='<div style="color:#dc5050;text-align:center;padding:20px">Erreur Scryfall.<br><button class="btn btnsm" onclick="document.getElementById(\'pur-ver-ov\').style.display=\'none\'" style="margin-top:8px">Fermer</button></div>';});
+}
+function purSetVersion(cardId,payload){
+  var c=_purFindCard(cardId);if(!c)return;
+  var v;try{v=JSON.parse(decodeURIComponent(payload));}catch(e){return;}
+  if(v.set)c.set=v.set;if(v.num)c.num=v.num;if(v.img)c.versionImg=v.img;
+  _purStamp(c);savePurchaseList(_activePurListId);
+  var ov=document.getElementById('pur-ver-ov');if(ov)ov.style.display='none';
+  renderPurchaseMgr();
+  if(typeof toastSuccess==='function')toastSuccess('Version : '+(v.set||'')+(v.num?' #'+v.num:''));
+}
 function _purSellerNameOf(c,lst){
   if(!c.orderGroupId)return '';
   var g=(lst.orderGroups||[]).find(function(x){return x.id===c.orderGroupId;});
@@ -17687,13 +17744,14 @@ function _purRenderTableV2(cards,lst){
 function _purTableV2Row(c,zi,mems,groups){
   var sid=(c.id||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   var meta=(typeof _anaData!=='undefined'&&_anaData[c.nl])||null;
-  var img=(meta&&(meta.imageUri||meta.imgUri))?(meta.imageUri||meta.imgUri).replace('/normal/','/small/').replace('/large/','/small/'):('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(c.name||''));
+  var img=c.versionImg||((meta&&(meta.imageUri||meta.imgUri))?(meta.imageUri||meta.imgUri).replace('/normal/','/small/').replace('/large/','/small/'):('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(c.name||'')));
   var buyerOpts='<option value="">—</option>'+mems.map(function(m){return '<option value="'+esc(m.uid)+'"'+(c.buyer===m.uid?' selected':'')+'>'+esc(m.name)+'</option>';}).join('');
   var grpOpts='<option value="">— vide —</option>'+groups.map(function(g){return '<option value="'+esc(g.id)+'"'+(c.orderGroupId===g.id?' selected':'')+'>'+esc(g.sellerName||g.name||'?')+'</option>';}).join('');
   var fin=_purIsFinal(c);
   var html='<tr class="pur-card-row"'+(fin?' style="opacity:.55"':'')+'>';
   html+='<td style="text-align:center"><img src="'+esc(img)+'" alt="" data-no-localize="1" loading="lazy" onclick="openCardZoomAt('+zi+')" title="Zoomer" style="width:30px;height:42px;object-fit:cover;border-radius:3px;cursor:zoom-in;vertical-align:middle" onerror="this.style.visibility=\'hidden\'"></td>';
-  html+='<td'+(fin?' style="text-decoration:line-through;color:var(--tx3)"':'')+'>'+esc(c.name)+(c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')+'</td>';
+  var verBadge=c.set?' <span style="font-size:.6rem;color:#a8c8ff;background:rgba(168,200,255,.12);border-radius:4px;padding:0 4px">'+esc(c.set)+(c.num?' #'+esc(c.num):'')+'</span>':'';
+  html+='<td'+(fin?' style="text-decoration:line-through;color:var(--tx3)"':'')+'><span onclick="purPickVersion(\''+sid+'\')" title="Changer l\'édition / version" style="cursor:pointer;border-bottom:1px dotted var(--bd2)">'+esc(c.name)+'</span>'+verBadge+(c.note?' <span style="font-size:.66rem;color:var(--tx3)">('+esc(c.note)+')</span>':'')+'</td>';
   html+='<td style="color:var(--tx2);font-size:.78rem">'+esc(c.deckName||'—')+'</td>';
   html+='<td><select onchange="purBulkAssign([\''+sid+'\'],\'buyer\',this.value||null)" title="À qui va la carte" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:5px;color:var(--tx);padding:2px 4px;font-size:.74rem;max-width:110px">'+buyerOpts+'</select></td>';
   html+='<td style="text-align:center"><span class="pur-qty-ctl" onclick="event.stopPropagation()"><button onclick="purChangeCardQty(\''+sid+'\',-1)">−</button><input type="number" min="0" value="'+(c.qty||1)+'" onkeydown="if(event.key===\'Enter\'){event.preventDefault();purSetCardQty(\''+sid+'\',this.value);}" onblur="if(this.value!==this.defaultValue)purSetCardQty(\''+sid+'\',this.value)"><button onclick="purChangeCardQty(\''+sid+'\',1)">+</button></span></td>';
@@ -18148,6 +18206,10 @@ function _purRenderPaidSummary(cards,orderGroups){
   var totCards=0,totShip=0;
   uids.forEach(function(u){totCards+=bk[u].cards;totShip+=bk[u].ship;});
   var grand=totCards+totShip;
+  // Règlement : qui a remboursé
+  var _psLst=_purchaseLists[_activePurListId]||{};var _psSettled=_psLst.settlements||{};
+  var _psDebtors=uids.filter(function(u){return u!==NONE&&(bk[u].cards+bk[u].ship)>0;});
+  var _psPaid=_psDebtors.filter(function(u){return _psSettled[u];}).length;
   // ── Tableau ──
   var html='<div style="background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:.5px solid var(--bd2);border-radius:8px;padding:9px 12px;margin-bottom:10px">';
   // Bannière personnelle : ce que MOI je dois payer
@@ -18161,29 +18223,42 @@ function _purRenderPaidSummary(cards,orderGroups){
       +'<span style="color:var(--tx3);font-size:.7rem">('+mine.cards.toFixed(2)+'€ cartes'+(mine.ship?' + '+mine.ship.toFixed(2)+'€ port':'')+')</span>'
       +'</div>';
   }
-  html+='<div style="font-family:var(--ff-head);color:var(--gold2);font-size:.85rem;margin-bottom:6px">💰 Récap achats — qui paye combien</div>';
+  html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.85rem">💰 Récap achats — qui paye combien</div>'
+    +(_psDebtors.length?'<span style="font-size:.7rem;color:'+(_psPaid===_psDebtors.length?'#7fb069':'var(--am)')+';background:rgba(255,255,255,.05);border-radius:9px;padding:1px 8px">💸 '+_psPaid+'/'+_psDebtors.length+' remboursé'+(_psPaid>1?'s':'')+(_psPaid===_psDebtors.length?' ✓':'')+'</span>':'')+'</div>';
   html+='<table style="width:100%;border-collapse:collapse;font-size:.8rem">';
   html+='<thead><tr style="color:var(--tx3);font-size:.68rem;text-align:right;border-bottom:.5px solid var(--bd)">'
     +'<th style="text-align:left;padding:3px 6px">Profil</th>'
     +'<th style="padding:3px 6px">Cartes</th>'
     +'<th style="padding:3px 6px">Frais de port</th>'
-    +'<th style="padding:3px 6px">À payer</th></tr></thead><tbody>';
+    +'<th style="padding:3px 6px">À payer</th>'
+    +'<th style="padding:3px 6px;text-align:center">Réglé</th></tr></thead><tbody>';
   uids.forEach(function(u){
     var b=bk[u];var isNone=(u===NONE);var isMe=(u===userId);
     var nm=isNone?'⚠ Non assigné':(_purMemberName(u)+(isMe?' (moi)':''));
     var col=isNone?'var(--am)':(isMe?'var(--gold2)':'var(--ac2)');
     var tot=b.cards+b.ship;
+    var regCell='';
+    if(isNone){regCell='<td></td>';}
+    else{
+      var paid=!!_psSettled[u];
+      regCell='<td style="text-align:center;white-space:nowrap">'
+        +'<label style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;font-size:.7rem;color:'+(paid?'#7fb069':'var(--tx3)')+'"><input type="checkbox" '+(paid?'checked':'')+' onchange="purToggleSettled(\''+esc(u)+'\')">'+(paid?'payé':'à régler')+'</label>'
+        +' <button onclick="purHandAll(\''+esc(u)+'\')" title="Passer toutes ses cartes en « Remis »" style="background:none;border:.5px solid var(--bd2);border-radius:5px;color:var(--tx3);cursor:pointer;font-size:.62rem;padding:1px 5px">✅ remettre</button>'
+        +'</td>';
+    }
     html+='<tr style="text-align:right;border-bottom:.5px solid rgba(255,255,255,.05)">'
       +'<td style="text-align:left;padding:4px 6px;color:'+col+';font-weight:600">'+esc(nm)+'<span style="color:var(--tx3);font-weight:400;font-size:.68rem"> · '+b.nCards+' c.</span></td>'
       +'<td style="padding:4px 6px;color:var(--tx2)">'+b.cards.toFixed(2)+'€</td>'
       +'<td style="padding:4px 6px;color:#a8c8ff">'+b.ship.toFixed(2)+'€</td>'
-      +'<td style="padding:4px 6px;color:'+col+';font-weight:700">'+tot.toFixed(2)+'€</td></tr>';
+      +'<td style="padding:4px 6px;color:'+col+';font-weight:700">'+tot.toFixed(2)+'€</td>'
+      +regCell+'</tr>';
   });
   html+='<tr style="text-align:right;border-top:1.5px solid var(--bd2)">'
     +'<td style="text-align:left;padding:5px 6px;color:var(--gold2);font-weight:700;font-family:var(--ff-head)">TOTAL</td>'
     +'<td style="padding:5px 6px;color:var(--tx)">'+totCards.toFixed(2)+'€</td>'
     +'<td style="padding:5px 6px;color:#a8c8ff">'+totShip.toFixed(2)+'€</td>'
-    +'<td style="padding:5px 6px;color:var(--gold2);font-weight:800">'+grand.toFixed(2)+'€</td></tr>';
+    +'<td style="padding:5px 6px;color:var(--gold2);font-weight:800">'+grand.toFixed(2)+'€</td>'
+    +'<td></td></tr>';
   html+='</tbody></table>';
   // ── Détail par commande ──
   if(orderDetails.length){
