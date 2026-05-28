@@ -38518,6 +38518,11 @@ function _anaThemeSynergyScore(cardMeta,themes){
   if(/commander damage|deals damage to a player.*equal to/.test(o)) s+=2;
   // Finisher drain par dévotion (Gray Merchant of Asphodel) : payoff/wincon en deck mono ou lourd d'une couleur
   if(/devotion to (?:white|blue|black|red|green)/.test(o)) s+=4;
+  // Avantage de cartes : PREMIUM dans tout deck Commander (le scoring brut le sous-estime → ne pas
+  // couper Night's Whisper / Read the Bones / Sign in Blood / Blood Pact pour un upgrade marginal).
+  if((cardMeta.cmc||0)<=3&&/draw (?:two|three|four|x) cards|draw cards equal to/.test(o)) s+=5;
+  else if((cardMeta.cmc||0)<=2&&/draw a card/.test(o)) s+=2;            // cantrips
+  if(/at the beginning of (?:your |each )?(?:upkeep|draw step)[^.]*draw|draws? an additional card/.test(o)) s+=5; // moteurs récurrents (Phyrexian Arena, Sylvan Library…)
   // Mill wincons (Bruvac, Maddening Cacophony, Traumatize)
   if(/(?:exiles?|put) the top (?:half|\d+) cards of (?:that player's|target player's) library/.test(o)) s+=2;
   if(/(?:double|twice) the number of cards (?:milled|put into)/.test(o)) s+=3;
@@ -39051,6 +39056,14 @@ function anaRefreshMatrix(){
     var _arcSz=_isCmd?libUser.length:40;
     var _simRuns=150;
     var _rawSwaps=fullOpt&&fullOpt.swaps?fullOpt.swaps:[];
+    // Pro-filtre AVANT toute validation : on ne propose que des upgrades francs.
+    //  - jamais un downgrade individuel (carte entrante moins bien notée que la sortante) → évite
+    //    de couper une carte premium (Night's Whisper, Read the Bones…) pour rééquilibrer une catégorie ;
+    //  - gain en dessous de ~2 pts = bruit de la simulation goldfish → on ne le présente pas.
+    _rawSwaps=_rawSwaps.filter(function(sw){
+      if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
+      return (sw.gain==null)||sw.gain>=2;
+    });
     // Étape 1 : matrice du deck actuel
     var matrixCurrent=archetypes.map(function(a){return {arch:a,wr:anaWinRate(libUser,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
     var avgCur=matrixCurrent.reduce(function(s,m){return s+m.wr;},0)/matrixCurrent.length;
