@@ -31727,7 +31727,10 @@ function bldOptimize(){
       var sv=_anaSynergyValue(nl,meta,detectedArch,freqMatrix,edhrecFreq);
       var antiP=_anaAntiSynergyPenalty(meta,_anaCurrentThemes);
       var synP=_anaThemeSynergyScore(meta,_anaCurrentThemes);
-      var adjScore=Math.max(0,sv.score+antiP+synP*0.4);
+      var adjScore=sv.score+antiP+synP*0.4;
+      // Hors-plan : pas dans l'EDHREC du commandant + aucune synergie thème → décote forte (cf. vue analyse)
+      if(edhrecFreq&&sv.source!=='edhrec'&&synP<1)adjScore*=0.45;
+      adjScore=Math.max(0,adjScore);
       pool.push({nl:nl,name:meta.name||nl,meta:meta,score:adjScore});
     });
     pool.sort(function(a,b){return b.score-a.score;});
@@ -38513,6 +38516,8 @@ function _anaThemeSynergyScore(cardMeta,themes){
   if(/(?:double|twice) (?:that much|the damage|combat damage)/.test(o)) s+=3;
   // Commander damage payoffs (commander damage devient une wincon claire)
   if(/commander damage|deals damage to a player.*equal to/.test(o)) s+=2;
+  // Finisher drain par dévotion (Gray Merchant of Asphodel) : payoff/wincon en deck mono ou lourd d'une couleur
+  if(/devotion to (?:white|blue|black|red|green)/.test(o)) s+=4;
   // Mill wincons (Bruvac, Maddening Cacophony, Traumatize)
   if(/(?:exiles?|put) the top (?:half|\d+) cards of (?:that player's|target player's) library/.test(o)) s+=2;
   if(/(?:double|twice) the number of cards (?:milled|put into)/.test(o)) s+=3;
@@ -39577,7 +39582,12 @@ function anaRender(deckId){
     var sv=_anaSynergyValue(nl,meta,detectedArch,freqMatrix,edhrecFreq);
     var _antiP=_anaAntiSynergyPenalty(meta,_anaCurrentThemes);
     var _synP=_anaThemeSynergyScore(meta,_anaCurrentThemes);
-    var adjScore=Math.max(0,sv.score+_antiP+_synP*0.4);
+    var adjScore=sv.score+_antiP+_synP*0.4;
+    // Hors-plan : commandant doté de données EDHREC, mais cette carte n'y figure PAS et n'a aucune
+    // synergie de thème → c'est de la puissance brute non pertinente. On la décote fortement pour
+    // qu'elle ne remonte pas au-dessus des cartes thématiques (évite de couper une bonne carte pour elle).
+    if(edhrecFreq&&sv.source!=='edhrec'&&_synP<1)adjScore*=0.45;
+    adjScore=Math.max(0,adjScore);
     suggestions.push({nl:nl,name:meta.name||nl,meta:meta,score:adjScore,synergy:sv.synergy,source:sv.source,edhrecSyn:sv.edhrecSyn||0});
   });
   // EDHREC : ajouter top cartes pas encore en cache (placeholders, fetch async)
