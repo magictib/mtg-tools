@@ -35131,7 +35131,8 @@ function _anaIngestCard(card,nlHint){
   var _mc=card.mana_cost||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].mana_cost)||'';
   var _pr=card.prices||{};
   var _priceEur=parseFloat(_pr.eur)||parseFloat(_pr.eur_foil)||(parseFloat(_pr.usd)*0.92)||(parseFloat(_pr.usd_foil)*0.92)||0;
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc,producedMana:card.produced_mana||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].produced_mana)||[],priceEur:_priceEur};
+  var _loy=card.loyalty||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].loyalty)||null;
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc,producedMana:card.produced_mana||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].produced_mana)||[],priceEur:_priceEur,loyalty:_loy};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -50357,6 +50358,7 @@ function _apRender(){
   if(!_gfState||!_gfState.setup)return;
   var ov=document.getElementById('ap-ov');if(!ov)return;
   var s=_gfState;
+  _apNormalizePerms();
   // Group battlefield par type
   var bf={creatures:[],lands:[],others:[]};
   s.battlefield.forEach(function(p,idx){
@@ -50681,14 +50683,40 @@ function _apOppThreat(idx){
 // P1 — COMBAT FORMEL (déclaration attaquants → bloqueurs → dégâts)
 // Jeu local vs bot. En multijoueur le combat interactif arrivera en v2.
 // ════════════════════════════════════════════════════════════════════════
-// Force/endurance effective d'une de MES créatures (avec compteurs)
+// Normalise les permanents : id stable + loyauté initiale des planeswalkers.
+// Couvre TOUS les chemins d'arrivée (cast, jeton, reanimate, commandant…) sans toucher chaque push.
+function _apNormalizePerms(){
+  if(!_gfState||!_gfState.battlefield)return;
+  _gfState._permSeq=_gfState._permSeq||0;
+  _gfState.battlefield.forEach(function(p){
+    if(!p._id)p._id=++_gfState._permSeq;
+    var m=_anaData[(p.name||'').toLowerCase()]||{};
+    var tl=(p._typeLine||m.typeLine||'').toLowerCase();
+    if(tl.indexOf('planeswalker')>=0&&!p._loyInit){
+      p.counters=p.counters||{};
+      if(!(p.counters.loyalty>0))p.counters.loyalty=parseInt(m.loyalty)||3;
+      p._loyInit=true;
+    }
+  });
+}
+// Somme des bonus P/T apportés par les auras/équipements attachés à un hôte (_id)
+function _apAttachBuff(hostId){
+  var pb=0,tb=0;
+  if(!_gfState||!hostId)return {p:0,t:0};
+  _gfState.battlefield.forEach(function(a){
+    if(a.attachedTo===hostId&&a.attachBuff){pb+=a.attachBuff.p||0;tb+=a.attachBuff.t||0;}
+  });
+  return {p:pb,t:tb};
+}
+// Force/endurance effective d'une de MES créatures (compteurs + auras/équipements)
 function _apCreatureStats(p){
   var m=_anaData[(p.name||'').toLowerCase()]||{};
   var plus=(p.counters&&p.counters['+1/+1'])||0;
   var minus=(p.counters&&p.counters['-1/-1'])||0;
+  var ab=_apAttachBuff(p._id);
   return {
-    power:Math.max(0,(typeof m.power==='number'?m.power:(p.isToken?2:0))+plus-minus),
-    toughness:(typeof m.toughness==='number'?m.toughness:(p.isToken?2:1))+plus-minus,
+    power:Math.max(0,(typeof m.power==='number'?m.power:(p.isToken?2:0))+plus-minus+ab.p),
+    toughness:(typeof m.toughness==='number'?m.toughness:(p.isToken?2:1))+plus-minus+ab.t,
     isCreature:((m.typeLine||'').toLowerCase().indexOf('creature')>=0)||p.isToken
   };
 }
@@ -50795,6 +50823,67 @@ function _apConfirmAttack(){
   _gfState.phase='main2';
   _apCheckStateBased();
   _apRender();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// P1 — PLANESWALKERS (abilités de loyauté) + AURAS/ÉQUIPEMENTS (attache)
+// ════════════════════════════════════════════════════════════════════════
+function _apMenuAt(e){
+  var old=document.getElementById('ap-mana-menu');if(old)old.remove();
+  var menu=document.createElement('div');menu.id='ap-mana-menu';menu.className='ap-card-menu';
+  var x=(e&&e.clientX)||window.innerWidth/2,y=(e&&e.clientY)||window.innerHeight/2;
+  menu.style.left=Math.max(10,Math.min(window.innerWidth-220,x))+'px';
+  menu.style.top=Math.max(10,Math.min(window.innerHeight-300,y))+'px';
+  document.body.appendChild(menu);
+  setTimeout(function(){document.addEventListener('click',function _c(ev){if(!menu.contains(ev.target)){menu.remove();document.removeEventListener('click',_c);}});},80);
+  return menu;
+}
+// Planeswalker : activer UNE abilité de loyauté par tour (+/- générique)
+function _apPwAbility(idx,e){
+  if(!_gfState)return;var p=_gfState.battlefield[idx];if(!p)return;
+  p.counters=p.counters||{};
+  if(p.loyaltyUsedTurn===_gfState.turn){if(typeof toastError==='function')toastError(p.name+' a déjà activé une abilité ce tour');return;}
+  var menu=_apMenuAt(e);
+  menu.innerHTML='<div style="padding:5px 10px;color:#b464dc;font-size:.78rem;font-family:Goudy Mediaeval,serif">♣ '+esc(p.name)+' — loyauté '+(p.counters.loyalty||0)+'</div>';
+  function row(delta,lbl){var b=document.createElement('button');b.innerHTML=lbl;b.onclick=function(){menu.remove();_apPwActivate(idx,delta);};menu.appendChild(b);}
+  row(1,'+1 loyauté');row(-1,'−1 loyauté');row(-2,'−2 loyauté');row(-3,'−3 loyauté');
+  var c=document.createElement('button');c.innerHTML='Ultime / autre…';c.onclick=function(){menu.remove();var v=prompt('Variation de loyauté (ex: +2 ou -7) ?','-6');if(v!=null){var n=parseInt(v);if(!isNaN(n))_apPwActivate(idx,n);}};menu.appendChild(c);
+}
+function _apPwActivate(idx,delta){
+  if(!_gfState)return;var p=_gfState.battlefield[idx];if(!p)return;
+  p.counters=p.counters||{};
+  p.counters.loyalty=(p.counters.loyalty||0)+delta;
+  p.loyaltyUsedTurn=_gfState.turn;
+  _apLog('♣ '+p.name+' : '+(delta>=0?'+':'')+delta+' loyauté → '+p.counters.loyalty);
+  _apCheckStateBased();_apRender();
+}
+// Parse le bonus P/T d'une aura/équipement depuis l'oracle
+function _apParseAttachBuff(name){
+  var m=_anaData[(name||'').toLowerCase()]||{};
+  var o=(m.oracleText||'');
+  var mm=o.match(/(?:enchanted|equipped) creature gets \+(\d+)\/\+(\d+)/i)||o.match(/gets \+(\d+)\/\+(\d+)/i)||o.match(/\+(\d+)\/\+(\d+)/);
+  if(mm)return {p:parseInt(mm[1])||0,t:parseInt(mm[2])||0};
+  return {p:0,t:0};
+}
+// Menu d'un équipement : équiper une créature / déplacer / détacher
+function _apEquipMenu(idx,e){
+  if(!_gfState)return;var p=_gfState.battlefield[idx];if(!p)return;
+  var creatures=_gfState.battlefield.map(function(c,i){return {c:c,i:i};}).filter(function(x){return _apCreatureStats(x.c).isCreature;});
+  var menu=_apMenuAt(e);
+  menu.innerHTML='<div style="padding:5px 10px;color:var(--gold2);font-size:.78rem;font-family:Goudy Mediaeval,serif">🔗 '+esc(p.name)+(p.attachedTo?' (équipé)':'')+'</div>';
+  if(!creatures.length){var n=document.createElement('div');n.style.cssText='padding:6px 12px;color:var(--tx3);font-size:.74rem';n.textContent='Aucune créature à équiper';menu.appendChild(n);}
+  creatures.forEach(function(x){
+    var b=document.createElement('button');b.innerHTML='→ '+esc(x.c.name);
+    b.onclick=function(){menu.remove();_apAttach(idx,x.c._id,x.c.name);};
+    menu.appendChild(b);
+  });
+  if(p.attachedTo){var d=document.createElement('button');d.innerHTML='Détacher';d.style.color='var(--tx3)';d.onclick=function(){menu.remove();p.attachedTo=null;p.attachBuff=null;_apLog('🔗 '+p.name+' détaché');_apRender();};menu.appendChild(d);}
+}
+function _apAttach(equipIdx,hostId,hostName){
+  if(!_gfState)return;var p=_gfState.battlefield[equipIdx];if(!p)return;
+  p.attachedTo=hostId;p.attachBuff=_apParseAttachBuff(p.name);
+  _apLog('🔗 '+p.name+' équipe '+hostName+(p.attachBuff&&(p.attachBuff.p||p.attachBuff.t)?' (+'+p.attachBuff.p+'/+'+p.attachBuff.t+')':''));
+  _apCheckStateBased();_apRender();
 }
 
 // ─── Sépare une liste de noms en créatures / terrains / autres (selon meta Scryfall) ───
@@ -50904,6 +50993,11 @@ function _apCardHtml(p,idx,zone,subType){
     if(p.enteredThisTurn){
       var pmeta=meta;var ptl=(pmeta&&pmeta.typeLine||'').toLowerCase();
       if(ptl.indexOf('creature')>=0)html+='<div class="ap-card-sickness" title="Mal d\'invocation">😴 fraîche</div>';
+    }
+    // Indicateur d'attache (aura/équipement attaché à une créature)
+    if(p.attachedTo){
+      var host=_gfState.battlefield.find(function(h){return h._id===p.attachedTo;});
+      html+='<div class="ap-card-sickness" style="background:rgba(180,100,220,.9);bottom:2px" title="Attaché à '+esc(host?host.name:'?')+'">🔗'+(p.attachBuff&&(p.attachBuff.p||p.attachBuff.t)?' +'+p.attachBuff.p+'/+'+p.attachBuff.t:'')+'</div>';
     }
     // Force/endurance pour les créatures (lisibilité du combat)
     var ptl2=(meta&&meta.typeLine||'').toLowerCase();
@@ -51184,26 +51278,48 @@ function _apPayCost(cost){
 
 // ─── State-Based Actions (vérif après chaque action) ───
 // Réf : règles MTG 704.5 — créatures à 0 PV meurent, joueurs à 0 PV perdent, etc.
+// Remplacement : un effet de hate de cimetière est-il actif ? (Rest in Peace, Leyline of the Void…)
+function _apGraveHateActive(){
+  if(!_gfState)return false;
+  return _gfState.battlefield.some(function(p){
+    var nm=(p.name||'').toLowerCase();
+    if(/rest in peace|leyline of the void|planar void/.test(nm))return true;
+    var m=_anaData[nm];if(!m)return false;
+    var o=(m.oracleText||'').toLowerCase();
+    return /(would (be put into|go to|die)[^.]*graveyard[^.]*exile|exile it instead|exiled instead|if .* would (be put into|go to) a graveyard[^.]*exile)/.test(o);
+  });
+}
+// Route un objet qui quitte le jeu : jeton → disparaît ; hate active → exil ; sinon cimetière.
+function _apRouteToGrave(name,isToken){
+  if(_apGraveHateActive()){_gfState.exile.push(name);_apLog('⛔ '+name+' → exil (effet de remplacement)');return;}
+  if(isToken){_apLog('✨ '+name+' (jeton) cesse d\'exister');return;}
+  _gfState.graveyard.push(name);
+}
 function _apCheckStateBased(){
   if(!_gfState||_gfState.gameOver)return;
-  // 1. Créatures avec marqueurs de dmg ≥ toughness → cimetière
+  // 1. Créatures (dégâts ≥ endurance / endurance ≤ 0) + planeswalkers (loyauté ≤ 0) quittent le jeu
   var died=[];
   _gfState.battlefield.forEach(function(p,i){
-    var meta=_anaData[(p.name||'').toLowerCase()];if(!meta)return;
-    var tl=(meta.typeLine||'').toLowerCase();
-    if(tl.indexOf('creature')<0)return;
-    var tough=meta.toughness;if(typeof tough!=='number'||isNaN(tough))return;
+    var meta=_anaData[(p.name||'').toLowerCase()]||{};
+    var tl=(p._typeLine||meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('planeswalker')>=0){
+      if(p.counters&&p.counters.loyalty<=0)died.push({i:i,reason:'loyauté épuisée',token:p.isToken});
+      return;
+    }
+    var st=_apCreatureStats(p);
+    if(!st.isCreature)return;
+    if(typeof meta.toughness!=='number'&&!p.isToken)return; // pas assez d'info pour trancher
     var dmg=p.dmg||0;
-    var t=tough+(p.counters?(p.counters['+1/+1']||0)-(p.counters['-1/-1']||0):0);
-    if(t<=0||dmg>=t){died.push(i);}
+    if(st.toughness<=0||dmg>=st.toughness)died.push({i:i,reason:st.toughness<=0?'0 endurance':'dégâts létaux',token:p.isToken});
   });
   if(died.length){
-    died.sort(function(a,b){return b-a;}).forEach(function(i){
-      var p=_gfState.battlefield.splice(i,1)[0];
-      _gfState.graveyard.push(p.name);
-      _apLog('💀 SBA : '+p.name+' meurt');
+    died.sort(function(a,b){return b.i-a.i;}).forEach(function(d){
+      var p=_gfState.battlefield.splice(d.i,1)[0];
+      // Les auras/équipements attachés à ce permanent se détachent (et tombent au cimetière si auras)
+      _gfState.battlefield.forEach(function(a){if(a.attachedTo===p._id){a.attachedTo=null;a.attachBuff=null;}});
+      _apRouteToGrave(p.name,p.isToken);
+      _apLog('💀 SBA : '+p.name+' ('+d.reason+')');
     });
-    // Récursif (un mort peut déclencher des morts en chaîne)
     setTimeout(_apCheckStateBased,30);
   }
   // 2. Joueur à 0 PV ou moins → défaite
@@ -51386,13 +51502,27 @@ function _apResolveTop(){
     var isCreature=tl.indexOf('creature')>=0;
     var oracle=(meta&&meta.oracleText||'').toLowerCase();
     var hasHaste=/\bhaste\b/i.test(oracle)||/célérité/i.test(oracle);
-    _gfState.battlefield.push({
-      name:nm,tapped:false,
-      enteredThisTurn:isCreature&&!hasHaste,
-      counters:{},dmg:0
-    });
+    var isAura=/\baura\b/.test(tl);
+    var perm={name:nm,tapped:false,enteredThisTurn:isCreature&&!hasHaste,counters:{},dmg:0};
+    _gfState.battlefield.push(perm);
     _gfState._animPlay=nm; // déclenche l'animation de cast au prochain rendu
     _apLog('✓ '+nm+' arrive en jeu');
+    // Aura : doit s'attacher à une créature (choix de cible)
+    if(isAura){
+      _apNormalizePerms();
+      _apEnterTargetMode({
+        sourceName:nm,
+        label:'Attache '+nm+' à une créature (clic sur ton champ ou adverse)',
+        candidates:'permanents',
+        onPick:function(kind,i){
+          if(kind==='bf'&&_gfState.battlefield[i]){
+            perm.attachedTo=_gfState.battlefield[i]._id;perm.attachBuff=_apParseAttachBuff(nm);
+            _apLog('🔗 '+nm+' enchante '+_gfState.battlefield[i].name+(perm.attachBuff&&(perm.attachBuff.p||perm.attachBuff.t)?' (+'+perm.attachBuff.p+'/+'+perm.attachBuff.t+')':''));
+            _apCheckStateBased();
+          }
+        }
+      });
+    }
   }else{
     _gfState.graveyard.push(nm);
     _apLog('✓ '+nm+' résolu → cimetière');
@@ -51472,8 +51602,13 @@ function _apClickPerm(e,idx){
     _apPickTarget('bf',idx);
     return;
   }
-  if(p.tapped){_apTogglePerm(idx);return;} // untap simple
   var meta=_anaData[(p.name||'').toLowerCase()];
+  var tlc=(p._typeLine||(meta&&meta.typeLine)||'').toLowerCase();
+  // ─── PLANESWALKER : clic = activer une abilité de loyauté (1/tour) ───
+  if(tlc.indexOf('planeswalker')>=0){_apPwAbility(idx,e);return;}
+  // ─── ÉQUIPEMENT : clic = menu équiper/déplacer ───
+  if(tlc.indexOf('equipment')>=0){_apEquipMenu(idx,e);return;}
+  if(p.tapped){_apTogglePerm(idx);return;} // untap simple
   var isLand=meta&&meta.tags&&meta.tags.isLand;
   // ─── SUMMONING SICKNESS : créature fraîche ne peut pas se tap (capacité {T} ou attaque) ───
   if(!isLand&&p.enteredThisTurn){
@@ -52771,7 +52906,7 @@ function _apScryConfirm(){
 function _apMill(n){
   if(!_gfState)return;
   var milled=[];for(var i=0;i<n&&_gfState.library.length>0;i++){milled.push(_gfState.library.shift());}
-  milled.forEach(function(nm){_gfState.graveyard.push(nm);});
+  milled.forEach(function(nm){_apRouteToGrave(nm,false);}); // respecte la hate de cimetière (→ exil)
   _apLog('📚 Mill '+milled.length+' : '+milled.join(', '));
   _apRender();
 }
