@@ -43225,16 +43225,19 @@ function _shareDismiss(){
     var au=document.getElementById('auth-overlay');if(!au)return;
     if(document.getElementById('auth-landing'))return; // déjà injecté
     var inner=au.firstElementChild;if(!inner)return;
-    // Élargit le conteneur sur grand écran
-    inner.style.maxWidth='960px';
+    // Regroupe les éléments d'auth existants (logo, bannière, formulaire,
+    // cartes pending/banned) dans UNE seule colonne : sinon la grille
+    // éparpille ces 6 éléments et le formulaire se retrouve orphelin.
+    var authCol=document.createElement('div');
+    authCol.id='auth-col';
+    authCol.style.cssText='width:100%;max-width:360px;margin:0 auto';
+    while(inner.firstChild){authCol.appendChild(inner.firstChild);}
+    // Héro 2 colonnes : marketing à gauche, formulaire à droite.
+    inner.style.maxWidth='1040px';
     inner.style.width='100%';
     inner.style.display='grid';
-    inner.style.gap='28px';
-    inner.style.gridTemplateColumns='minmax(0,1fr)';
-    // Sur ≥860px : 2 colonnes
-    var mq=window.matchMedia('(min-width:860px)');
-    var applyCols=function(){inner.style.gridTemplateColumns=mq.matches?'minmax(0,1.1fr) minmax(0,360px)':'minmax(0,1fr)';};
-    applyCols();try{mq.addEventListener('change',applyCols);}catch(_){mq.addListener&&mq.addListener(applyCols);}
+    inner.style.gap='44px';
+    inner.style.alignItems='center';
     var landing=document.createElement('div');
     landing.id='auth-landing';
     landing.innerHTML=''
@@ -43255,7 +43258,16 @@ function _shareDismiss(){
         +'<a href="/legal/mentions.html" target="_blank" style="color:var(--tx3);text-decoration:none;margin:0 8px">Mentions légales</a>·'
         +'<a href="/legal/privacy.html" target="_blank" style="color:var(--tx3);text-decoration:none;margin:0 8px">Confidentialité</a>'
       +'</div>';
-    inner.insertBefore(landing,inner.firstChild);
+    // ≥880px : 2 colonnes. <880px : 1 colonne, formulaire EN PREMIER
+    // (les habitués se connectent sans scroller tout le marketing).
+    var mq=window.matchMedia('(min-width:880px)');
+    var applyCols=function(){
+      if(mq.matches){inner.style.gridTemplateColumns='minmax(0,1fr) minmax(320px,380px)';landing.style.order='';authCol.style.order='';}
+      else{inner.style.gridTemplateColumns='minmax(0,1fr)';landing.style.order='2';authCol.style.order='1';}
+    };
+    applyCols();try{mq.addEventListener('change',applyCols);}catch(_){mq.addListener&&mq.addListener(applyCols);}
+    inner.appendChild(landing);
+    inner.appendChild(authCol);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);
   else run();
