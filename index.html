@@ -1432,6 +1432,7 @@ body.mana-cursor{cursor:none}
 .bld-sw-empty.drop-tgt{border-color:var(--gold2);color:var(--gold2);background:rgba(201,168,76,.08)}
 .bld-sw-empty.sel{border-color:var(--gold2)!important;color:var(--gold2)!important;background:rgba(201,168,76,.1)!important;box-shadow:0 0 0 1.5px rgba(201,168,76,.35)!important}
 .bld-sw-img{width:42px;min-width:42px;height:59px;border-radius:3px;object-fit:cover;cursor:pointer;flex-shrink:0;display:block}
+.bld-sw-own{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);background:rgba(127,176,105,.95);color:#0b1a0b;font-size:.5rem;font-weight:800;line-height:1;padding:1px 4px;border-radius:6px;border:.5px solid rgba(0,0,0,.4);box-shadow:0 1px 3px rgba(0,0,0,.6);pointer-events:none;white-space:nowrap}
 .bld-deck-drag-h{color:var(--tx3);cursor:grab;font-size:.82rem;padding:0 2px;flex-shrink:0;opacity:.45;touch-action:none;line-height:1;user-select:none}
 .bld-deck-drag-h:hover{color:var(--gold2);opacity:1}
 .ar-field-card.ar-multi-sel{border-color:#4af!important;box-shadow:0 0 0 2px rgba(68,170,255,.5),0 4px 16px rgba(0,0,0,.7)!important}
@@ -31862,6 +31863,9 @@ function bldSwApply(idx){
 
 function bldRenderSwapsPanel(){
   var panel=document.getElementById('bld-swaps-panel');if(!panel)return;
+  // Carte possédée dans ma collection ? (pour badge sur la carte à ajouter)
+  var _ownSet={};try{(getProfCards(0)||[]).forEach(function(c){var k=(c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'')).toLowerCase();_ownSet[k]=(_ownSet[k]||0)+(c.qty||1);});}catch(e){}
+  function _ownQty(card){return _ownSet[(card.nl||card.name||'').toLowerCase()]||0;}
   function mkSlot(card,tp,idx,isSel){
     var lbl=tp==='cut'?'COUPER':'AJOUTER';
     var lc=tp==='cut'?'var(--rd2)':'var(--gold2)';
@@ -31876,7 +31880,11 @@ function bldRenderSwapsPanel(){
         +'<div><div style="font-size:.5rem;color:'+lc+';margin-bottom:3px;letter-spacing:.05em">'+lbl+'</div>'+(isSel?'Clique une carte →':'Glisse ici')+'</div>'
         +'</div>';
     }
-    var imgH=card.img?'<img src="'+card.img+'" class="bld-sw-img" onclick="event.stopPropagation();bldSwShowImg('+idx+',\''+tp+'\')" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()" title="'+esc(card.name)+'">':'';
+    // Possession (uniquement pertinent pour la carte à AJOUTER)
+    var oq=(tp==='add')?_ownQty(card):0;
+    var ownImgBadge=(oq>0&&card.img)?'<span class="bld-sw-own" title="Tu possèdes déjà cette carte (×'+oq+') — pas besoin de l\'acheter">✓'+(oq>1?' ×'+oq:'')+'</span>':'';
+    var ownTxtBadge=(oq>0)?'<span style="flex-shrink:0;font-size:.54rem;color:var(--gr2);background:rgba(127,176,105,.15);border:.5px solid rgba(127,176,105,.45);border-radius:6px;padding:0 4px;white-space:nowrap" title="Déjà dans ta collection">✓ possédée'+(oq>1?' ×'+oq:'')+'</span>':'';
+    var imgH=card.img?'<div style="position:relative;flex-shrink:0;line-height:0"><img src="'+card.img+'" class="bld-sw-img" onclick="event.stopPropagation();bldSwShowImg('+idx+',\''+tp+'\')" onmouseenter="edhZoomIn(this,event)" onmousemove="edhZoomPos(event)" onmouseleave="edhZoomOut()" title="'+esc(card.name)+'">'+ownImgBadge+'</div>':'';
     return '<div class="bld-sw-slot '+tp+(isSel?' sel':'')+'" data-swslot="'+slotKey+'"'
       +' draggable="true"'
       +' ondragstart="bldSwCardDragStart(event,'+idx+',\''+tp+'\')"'
@@ -31888,7 +31896,7 @@ function bldRenderSwapsPanel(){
       +imgH
       +'<div style="min-width:0;flex:1;overflow:hidden">'
       +'<div style="font-size:.5rem;color:'+lc+';letter-spacing:.05em;margin-bottom:1px">'+lbl+'</div>'
-      +'<div style="font-size:.7rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">'+esc(card.name)+'</div>'
+      +'<div style="display:flex;align-items:center;gap:4px;min-width:0"><span style="font-size:.7rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">'+esc(card.name)+'</span>'+ownTxtBadge+'</div>'
       +(card.type?'<div style="font-size:.56rem;color:var(--tx3)">'+esc(bldTypeKey(card.type))+(card.cmc!=null?' \xb7 '+card.cmc:'')+'</div>':'')
       +'</div>'
       +'</div>';
@@ -38981,7 +38989,8 @@ function anaRefreshMatrix(){
     if(_anaState)_anaState.validatedSwaps=_validSwaps;
     _anaRenderOptPanel(_validSwaps);
     var lifeHint=_isDuel?(_isCmd?'20 PV, 16 tours max':'20 PV, 12 tours max'):(_isCmd?'40 PV, 20 tours max':'20 PV, 12 tours max');
-    var h='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Win rate sur '+_simRuns+' parties simulées contre chaque archétype ('+lifeHint+'). Estimations simulées.</div>';
+    var h='<div style="font-size:11px;color:var(--tx2);background:rgba(91,140,245,.08);border-left:3px solid #5b8cf5;border-radius:0 7px 7px 0;padding:7px 10px;margin-bottom:8px;line-height:1.5">🎯 <b>À quoi sert cette matrice :</b> on estime ton taux de victoire contre 8 stratégies-types (ligne <b>ACTUEL</b>) pour voir tes bons et mauvais matchups. Puis on rejoue la simulation avec les swaps proposés (ligne <b style="color:#78c890">OPT. SIM.</b>, avec le gain ±) — et <b>seuls les échanges qui augmentent réellement</b> le win rate moyen sont conservés dans les propositions. C\'est le filtre qui distingue un « beau » swap d\'un swap qui aide vraiment.</div>';
+    h+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Win rate sur '+_simRuns+' parties simulées contre chaque archétype ('+lifeHint+'). Estimations simulées.</div>';
     h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:separate;border-spacing:3px;font-size:11px;min-width:600px">';
     h+='<thead><tr><th style="text-align:left;padding:4px 6px;color:var(--tx3);font-family:Goudy Mediaeval,serif;font-size:10px;letter-spacing:.06em">VOTRE DECK</th>';
     archetypes.forEach(function(a){h+='<th style="padding:4px 6px;color:var(--tx2);font-size:10px;text-align:center;font-family:Goudy Mediaeval,serif;letter-spacing:.04em" title="'+esc(a.hint)+'">'+a.ico+'<br>'+esc(a.label)+'</th>';});
