@@ -17578,8 +17578,10 @@ function _purOrderCardRow(c,allGroups){
 // ════════════════════════════════════════════════════════════════════════
 var _purTableSearch='';
 var _purSort={key:'deck',dir:1};
+var _purOrderFilter='all'; // 'all' (séparé en sections) | 'ordered' (avec vendeur) | 'todo' (sans vendeur)
 function purTableSearch(v){_purTableSearch=(v||'').toLowerCase();renderPurchaseMgr();}
 function purSortBy(key){if(_purSort.key===key)_purSort.dir*=-1;else{_purSort.key=key;_purSort.dir=1;}renderPurchaseMgr();}
+function purSetOrderFilter(f){_purOrderFilter=f;renderPurchaseMgr();}
 function _purSellerNameOf(c,lst){
   if(!c.orderGroupId)return '';
   var g=(lst.orderGroups||[]).find(function(x){return x.id===c.orderGroupId;});
@@ -17607,14 +17609,22 @@ function _purRenderTableV2(cards,lst){
     return (c.deckName||'~~~').toLowerCase(); // deck par défaut
   }
   rows.sort(function(a,b){var va=val(a),vb=val(b);if(va<vb)return -dir;if(va>vb)return dir;return (a.name||'').localeCompare(b.name||'');});
-  _zoomList=rows.map(function(c){return {nl:c.nl,name:c.name};});
+  // Séparation commandées (avec vendeur) / à commander (sans vendeur)
+  var nOrdered=rows.filter(function(c){return c.orderGroupId;}).length;
+  var nTodo=rows.length-nOrdered;
+  if(_purOrderFilter==='ordered')rows=rows.filter(function(c){return c.orderGroupId;});
+  else if(_purOrderFilter==='todo')rows=rows.filter(function(c){return !c.orderGroupId;});
   function th(label,key,style){var arr=_purSort.key===key?(_purSort.dir>0?' ▲':' ▼'):'';return '<th style="cursor:pointer;white-space:nowrap;'+(style||'')+'" onclick="purSortBy(\''+key+'\')" title="Trier">'+label+arr+'</th>';}
+  function chip(f,lbl){var on=_purOrderFilter===f;return '<button class="dm'+(on?' active':'')+'" onclick="purSetOrderFilter(\''+f+'\')" style="font-size:.72rem;padding:3px 9px">'+lbl+'</button>';}
   var html='';
-  html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+  html+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">';
   html+='<input id="pur-tbl-q" value="'+esc(_purTableSearch)+'" oninput="clearTimeout(window._purTblTO);window._purTblTO=setTimeout(function(){var e=document.getElementById(\'pur-tbl-q\');purTableSearch(e?e.value:\'\');},220)" placeholder="🔍 Carte, vendeur, deck, personne…" style="flex:1;min-width:200px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);padding:7px 11px;font-size:.84rem">';
   html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purOnlyMine?'checked':'')+' onchange="_purOnlyMine=this.checked;renderPurchaseMgr()"> Mes cartes</label>';
   html+='<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--tx3);cursor:pointer"><input type="checkbox" '+(_purHideReceived?'checked':'')+' onchange="_purHideReceived=this.checked;renderPurchaseMgr()"> Masquer reçues</label>';
-  html+='<span style="font-size:.72rem;color:var(--tx3)">'+rows.length+' carte(s)</span>';
+  html+='</div>';
+  // Filtre statut de commande
+  html+='<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span style="font-size:.72rem;color:var(--tx3);margin-right:2px">Commande :</span>';
+  html+=chip('all','Toutes')+chip('todo','🕗 À commander ('+nTodo+')')+chip('ordered','🛒 Commandées ('+nOrdered+')');
   html+='</div>';
   html+='<table class="pur-table"><thead><tr>';
   html+='<th style="width:36px"></th>';
@@ -17627,8 +17637,27 @@ function _purRenderTableV2(cards,lst){
   html+=th('Reçu','received','text-align:center');
   html+='<th style="width:26px"></th>';
   html+='</tr></thead><tbody>';
-  if(!rows.length){html+='<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--tx3);font-style:italic">Aucune carte'+(q?' pour « '+esc(q)+' »':'')+'.</td></tr>';}
-  rows.forEach(function(c,i){html+=_purTableV2Row(c,i,mems,groups);});
+  if(!rows.length){
+    html+='<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--tx3);font-style:italic">Aucune carte'+(q?' pour « '+esc(q)+' »':'')+'.</td></tr>';
+    _zoomList=[];
+  }else if(_purOrderFilter==='all'){
+    // Deux sections : à commander d'abord (actionnable), puis commandées
+    var todo=rows.filter(function(c){return !c.orderGroupId;});
+    var ordered=rows.filter(function(c){return c.orderGroupId;});
+    _zoomList=todo.concat(ordered).map(function(c){return {nl:c.nl,name:c.name};});
+    var zi=0;
+    if(todo.length){
+      html+='<tr class="pur-dk-hdr"><td colspan="9">🕗 À commander <span style="color:var(--tx3);font-weight:400">— sans vendeur ('+todo.length+')</span></td></tr>';
+      todo.forEach(function(c){html+=_purTableV2Row(c,zi++,mems,groups);});
+    }
+    if(ordered.length){
+      html+='<tr class="pur-dk-hdr"><td colspan="9">🛒 Commandées <span style="color:var(--tx3);font-weight:400">— vendeur attribué ('+ordered.length+')</span></td></tr>';
+      ordered.forEach(function(c){html+=_purTableV2Row(c,zi++,mems,groups);});
+    }
+  }else{
+    _zoomList=rows.map(function(c){return {nl:c.nl,name:c.name};});
+    rows.forEach(function(c,i){html+=_purTableV2Row(c,i,mems,groups);});
+  }
   html+='</tbody></table>';
   return html;
 }
