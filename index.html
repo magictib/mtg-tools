@@ -3248,6 +3248,8 @@ details > summary::-webkit-details-marker{display:none}
 .ana-img-card img{width:100%;height:auto;display:block;border-radius:10px}
 .ana-img-fallback{padding:8px;font-size:10px;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;color:var(--tx2);font-family:'Goudy Mediaeval',serif;line-height:1.2;aspect-ratio:5/7;min-height:140px}
 .ana-img-badge{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.85);padding:3px 7px;border-radius:6px;font-size:11px;font-weight:bold;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.6);border:.5px solid rgba(255,255,255,.15)}
+.ana-img-own{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);background:rgba(127,176,105,.96);color:#0b1a0b;font-size:9px;font-weight:800;line-height:1;padding:2px 6px;border-radius:6px;border:.5px solid rgba(0,0,0,.4);box-shadow:0 1px 3px rgba(0,0,0,.6);white-space:nowrap;pointer-events:none}
+.ana-img-buy{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#f5b95b;font-size:9px;font-weight:700;line-height:1;padding:2px 6px;border-radius:6px;border:.5px solid rgba(245,185,91,.5);box-shadow:0 1px 3px rgba(0,0,0,.6);white-space:nowrap;pointer-events:none}
 .ana-img-fallback-bdg{position:static!important;margin-top:6px}
 .ana-img-roles{position:absolute;bottom:6px;left:6px;background:rgba(0,0,0,.7);padding:3px 6px;border-radius:6px;font-size:10px}
 .ana-view-toggle{display:inline-flex;gap:0;border-radius:6px;overflow:hidden;border:.5px solid var(--bd2);font-size:10px;margin-left:auto;flex-shrink:0}
@@ -37773,18 +37775,26 @@ function _anaPct(v){return Math.round(v*100)+'%';}
 function _anaTStr(v){return v?'T'+v.toFixed(1):'—';}
 
 /* Carte image autonome (utilisable hors de anaRender) */
-function _anaOptImgCard(name,meta,scoreStr,scoreCol){
+function _anaOptImgCard(name,meta,scoreStr,scoreCol,ownQty){
   var img=anaImageUrl(name,meta||{});
   var safeName=esc(name);
+  // ownQty : null/undefined → pas de badge (carte coupée). 0 → « à acheter ». >0 → « possédée ».
+  var ownBadge='';
+  if(ownQty!=null){
+    ownBadge=ownQty>0
+      ?'<div class="ana-img-own" title="Dans ta collection (×'+ownQty+') — pas besoin de l\'acheter">✓ possédée'+(ownQty>1?' ×'+ownQty:'')+'</div>'
+      :'<div class="ana-img-buy" title="Absente de ta collection — à acheter">à acheter</div>';
+  }
   if(img){
     var safeImg=img.replace(/"/g,'&quot;');
     return '<div class="ana-img-card" data-img="'+safeImg+'" onclick="anaZoom(this.dataset.img)" title="'+safeName+'">'
       +'<img src="'+img+'" loading="lazy" alt="'+safeName+'" onerror="_anaImgFallback(this)">'
       +(scoreStr?'<div class="ana-img-badge" style="color:'+scoreCol+'">'+scoreStr+'</div>':'')
+      +ownBadge
       +'</div>';
   }
   return '<div class="ana-img-card ana-img-noimg" title="'+safeName+'"><div style="padding:8px;font-size:10px;color:var(--tx2);text-align:center">'+safeName+'</div>'
-    +(scoreStr?'<div class="ana-img-badge" style="color:'+scoreCol+'">'+scoreStr+'</div>':'')+'</div>';
+    +(scoreStr?'<div class="ana-img-badge" style="color:'+scoreCol+'">'+scoreStr+'</div>':'')+ownBadge+'</div>';
 }
 /* ----- Rendu du panel "Proposition 100%" avec les swaps validés par simulation ----- */
 function _anaRenderOptPanel(validatedSwaps){
@@ -37808,6 +37818,9 @@ function _anaRenderOptPanel(validatedSwaps){
     h='<div style="color:var(--tx3);font-size:11px;font-style:italic">Aucun des '+rawCount+' swaps proposés n\'améliore le win rate simulé — le deck est déjà bien optimisé pour ce méta.</div>';
     el.innerHTML=h;return;
   }
+  // Possession dans ma collection (pour badge « possédée / à acheter » sur la carte à ajouter)
+  var _ownSetOpt={};try{(getProfCards(0)||[]).forEach(function(c){var k=(c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'')).toLowerCase();_ownSetOpt[k]=(_ownSetOpt[k]||0)+(c.qty||1);});}catch(e){}
+  function _ownQOpt(card){return _ownSetOpt[((card&&card.nl)||(card&&card.name)||'').toLowerCase()]||0;}
   // Score avec les swaps validés seulement
   var nc={land:counts.land,ramp:counts.ramp,draw:counts.draw,removal:counts.removal,interaction:counts.interaction,wincon:counts.wincon};
   validatedSwaps.forEach(function(sw){
@@ -37836,7 +37849,7 @@ function _anaRenderOptPanel(validatedSwaps){
       h+='<div class="ana-swap-img">';
       h+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+_anaOptImgCard(sw.cut.name,cutMeta,sw.cutScore!=null?sw.cutScore.toFixed(1):'','#e07070')+'</div>';
       h+='<div class="ana-swap-arrow">→</div>';
-      h+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+_anaOptImgCard(sw.add.name,addMeta,sw.addScore!=null?sw.addScore.toFixed(1):'','var(--gold2)')+'</div>';
+      h+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+_anaOptImgCard(sw.add.name,addMeta,sw.addScore!=null?sw.addScore.toFixed(1):'','var(--gold2)',_ownQOpt(sw.add))+'</div>';
       h+='</div></div>';
     });
   }else{
@@ -37848,6 +37861,10 @@ function _anaRenderOptPanel(validatedSwaps){
       h+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span>';
       if(sw.addScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
       if(sw.gain!=null)h+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(1)+' pts</span>';
+      var _aqL=_ownQOpt(sw.add);
+      h+=_aqL>0
+        ?' <span style="font-size:9px;color:var(--gr2);background:rgba(127,176,105,.15);border:.5px solid rgba(127,176,105,.45);border-radius:6px;padding:0 5px;white-space:nowrap" title="Déjà dans ta collection">✓ possédée'+(_aqL>1?' ×'+_aqL:'')+'</span>'
+        :' <span style="font-size:9px;color:var(--am);background:rgba(245,185,91,.1);border:.5px solid rgba(245,185,91,.4);border-radius:6px;padding:0 5px;white-space:nowrap" title="Absente de ta collection">à acheter</span>';
       h+='</div></div>';
     });
   }
