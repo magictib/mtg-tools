@@ -50647,6 +50647,16 @@ function _apTakeCmdDmg(oppIdx,delta){
   _apCheckStateBased();
   _apRender();
 }
+// Détecte le rôle d'une carte (pour l'IA) : removal / sweep / ramp / draw / creature
+function _apBotRole(name,tl,creature){
+  var m=_anaData[(name||'').toLowerCase()]||{};
+  var o=(m.oracleText||'').toLowerCase();
+  if(/destroy all|exile all|each creature gets -|wrath|damnation/.test(o))return 'sweep';
+  if(/(destroy|exile) target (creature|permanent|nonland)|deals? \d+ damage to (target|any target)|target creature gets -\d/.test(o))return 'removal';
+  if(/search your library for[^.]*land|add \{[wubrgc]\}|add (one|two|three) mana/.test(o)&&!creature)return 'ramp';
+  if(/draw (a|one|two|three|\w+) cards?/.test(o)&&!creature)return 'draw';
+  return creature?'creature':'other';
+}
 // ─── Pool de cartes jouables par un bot (depuis son deck OU pool fictif par archétype) ───
 function _apBotPool(opp){
   var out=[];
@@ -50660,24 +50670,24 @@ function _apBotPool(opp){
       var perm=creature||/artifact|enchantment|planeswalker|battle/.test(tl);
       var pw=(typeof m.power==='number'?m.power:(creature?2:0));
       var tg=(typeof m.toughness==='number'?m.toughness:(creature?2:0));
+      var role=isLand?'land':_apBotRole(c.name,tl,creature);
       var qty=c.qty||1;
-      for(var q=0;q<qty;q++)out.push({name:c.name,isLand:isLand,cmc:m.cmc||0,power:pw,toughness:tg,creature:creature,perm:perm});
+      for(var q=0;q<qty;q++)out.push({name:c.name,isLand:isLand,cmc:m.cmc||0,power:pw,toughness:tg,creature:creature,perm:perm,role:role});
     });
   }
   if(out.filter(function(c){return !c.isLand;}).length<4){
-    // Pool fictif par archétype (cmc + power assignés) + terrains de base
+    // Pool fictif par archétype : [nom, cmc, power, creature?, role]
     var fict={
-      aggro:[['Goblin Guide',1,2,1],['Monastery Swiftspear',1,1,1],['Lightning Bolt',1,0,0],['Lava Spike',1,0,0],['Eidolon of the Great Revel',2,1,1],['Goblin Rabblemaster',3,2,1],['Hellrider',4,3,1]],
-      combo:[['Ponder',1,0,0],['Brainstorm',1,0,0],['Sakura-Tribe Elder',2,1,1],['Grapeshot',2,0,0],['Past in Flames',4,0,0],['Goblin Electromancer',2,2,1]],
-      control:[['Opt',1,0,0],['Counterspell',2,0,0],['Fatal Push',1,0,0],['Wrath of God',4,0,0],['Teferi, Hero of Dominaria',5,0,0],['Snapcaster Mage',2,2,1]],
-      midrange:[['Llanowar Elves',1,1,1],['Tarmogoyf',2,4,1],['Bloodbraid Elf',4,3,1],['Liliana of the Veil',3,0,0],['Tireless Tracker',3,3,1],['Questing Beast',4,4,1]],
-      tribal:[['Goblin Warchief',3,2,1],['Goblin Chieftain',3,2,1],['Goblin Rabblemaster',3,2,1],['Krenko, Mob Boss',4,3,1],['Goblin Piledriver',2,1,1]],
-      stax:[['Sphere of Resistance',2,0,0],['Thalia, Guardian of Thraben',2,2,1],['Winter Orb',2,0,0],['Smokestack',4,0,0],['Stax Bot',3,2,1]],
-      random:[['Grizzly Bears',2,2,1],['Hill Giant',4,3,1],['Divination',3,0,0],['Shock',1,0,0],['Wind Drake',3,2,1]]
+      aggro:[['Goblin Guide',1,2,1,'creature'],['Monastery Swiftspear',1,1,1,'creature'],['Lightning Bolt',1,0,0,'removal'],['Lava Spike',1,0,0,'other'],['Eidolon of the Great Revel',2,1,1,'creature'],['Goblin Rabblemaster',3,2,1,'creature'],['Hellrider',4,3,1,'creature']],
+      combo:[['Ponder',1,0,0,'draw'],['Brainstorm',1,0,0,'draw'],['Sakura-Tribe Elder',2,1,1,'ramp'],['Grapeshot',2,0,0,'removal'],['Past in Flames',4,0,0,'other'],['Goblin Electromancer',2,2,1,'creature']],
+      control:[['Opt',1,0,0,'draw'],['Counterspell',2,0,0,'other'],['Fatal Push',1,0,0,'removal'],['Wrath of God',4,0,0,'sweep'],['Teferi, Hero of Dominaria',5,0,0,'other'],['Snapcaster Mage',2,2,1,'creature']],
+      midrange:[['Llanowar Elves',1,1,1,'ramp'],['Tarmogoyf',2,4,1,'creature'],['Bloodbraid Elf',4,3,1,'creature'],['Liliana of the Veil',3,0,0,'removal'],['Tireless Tracker',3,3,1,'creature'],['Questing Beast',4,4,1,'creature']],
+      tribal:[['Goblin Warchief',3,2,1,'creature'],['Goblin Chieftain',3,2,1,'creature'],['Goblin Rabblemaster',3,2,1,'creature'],['Krenko, Mob Boss',4,3,1,'creature'],['Goblin Piledriver',2,1,1,'creature']],
+      stax:[['Sphere of Resistance',2,0,0,'other'],['Thalia, Guardian of Thraben',2,2,1,'creature'],['Winter Orb',2,0,0,'other'],['Smokestack',4,0,0,'other'],['Stax Bot',3,2,1,'creature']],
+      random:[['Grizzly Bears',2,2,1,'creature'],['Hill Giant',4,3,1,'creature'],['Divination',3,0,0,'draw'],['Shock',1,0,0,'removal'],['Wind Drake',3,2,1,'creature']]
     };
-    (fict[opp.aiType]||fict.aggro).forEach(function(a){out.push({name:a[0],cmc:a[1],power:a[2],toughness:a[3]?Math.max(1,a[2]):1,creature:!!a[3],perm:!!a[3],isLand:false});});
-    // Terrains de base pour que le bot puisse jouer un terrain par tour
-    for(var l=0;l<14;l++)out.push({name:['Mountain','Forest','Island','Swamp','Plains'][l%5],isLand:true,cmc:0,power:0,toughness:0,creature:false,perm:true});
+    (fict[opp.aiType]||fict.aggro).forEach(function(a){out.push({name:a[0],cmc:a[1],power:a[2],toughness:a[3]?Math.max(1,a[2]):1,creature:!!a[3],perm:!!a[3],isLand:false,role:a[4]||'other'});});
+    for(var l=0;l<14;l++)out.push({name:['Mountain','Forest','Island','Swamp','Plains'][l%5],isLand:true,cmc:0,power:0,toughness:0,creature:false,perm:true,role:'land'});
   }
   return out;
 }
@@ -50697,48 +50707,69 @@ function _apBotTakeTurn(opp,oppIdx,done){
   opp.perm.forEach(function(p){p.sick=false;});
   opp.handCount=Math.min(20,opp.handCount+1); // pioche du tour
   var pool=_apBotPool(opp);
-  // Planifie le tour : 1 terrain + sorts abordables (mana = terrains après pose)
+  var turn=_gfState.turn||1;var aggro=(opp.aiType==='aggro'||opp.aiType==='tribal');var control=(opp.aiType==='control'||opp.aiType==='stax');
+  // ─── Plan de jeu intelligent ───
   var plan=[];
   var landsPool=pool.filter(function(c){return c.isLand;});
   var willLand=landsPool.length&&opp.lands<14;
   if(willLand)plan.push({type:'land',card:landsPool[Math.floor(Math.random()*landsPool.length)]});
   var mana=opp.lands+(willLand?1:0);
-  var spells=pool.filter(function(c){return !c.isLand&&c.cmc>0;}).sort(function(a,b){return b.cmc-a.cmc;});
-  var casts=0;
-  for(var i=0;i<spells.length&&casts<3&&mana>0;i++){
-    if(spells[i].cmc<=mana){mana-=spells[i].cmc;casts++;plan.push({type:'spell',card:spells[i]});}
-  }
+  // Mes créatures (cibles potentielles), triées par force décroissante
+  function myCreas(){return _gfState.battlefield.map(function(p,i){return {p:p,i:i,st:_apCreatureStats(p)};}).filter(function(x){return x.st.isCreature;}).sort(function(a,b){return b.st.power-a.st.power;});}
+  var used={};
+  function take(pred){for(var i=0;i<pool.length;i++){if(used[i]||pool[i].isLand||pool[i].cmc<=0)continue;if(pool[i].cmc<=mana&&pred(pool[i])){used[i]=1;mana-=pool[i].cmc;return pool[i];}}return null;}
+  var nCasts=0;var MAXC=3;
+  // 1) Ramp tôt (T≤4)
+  if(turn<=4){var r=take(function(c){return c.role==='ramp';});if(r&&nCasts<MAXC){plan.push({type:'spell',card:r});nCasts++;}}
+  // 2) Sweeper si je suis large (≥3 créatures) — surtout control
+  if(myCreas().length>=3){var sw=take(function(c){return c.role==='sweep';});if(sw&&nCasts<MAXC){plan.push({type:'sweep',card:sw});nCasts++;}}
+  // 3) Removal sur ma plus grosse menace (control: toute créature ; autres: power≥3)
+  var threats=myCreas();
+  if(threats.length){var th=threats[0];if(control||th.st.power>=3){var rm=take(function(c){return c.role==='removal';});if(rm&&nCasts<MAXC){plan.push({type:'removal',card:rm});nCasts++;}}}
+  // 4) Pioche si control et rien d'urgent
+  if(control&&nCasts<MAXC){var dr=take(function(c){return c.role==='draw';});if(dr){plan.push({type:'spell',card:dr});nCasts++;}}
+  // 5) Développe la courbe : plus grosse créature/permanent payable d'abord
+  var byCmc=pool.map(function(c,i){return {c:c,i:i};}).filter(function(x){return !x.c.isLand&&x.c.cmc>0&&x.c.perm;}).sort(function(a,b){return b.c.cmc-a.c.cmc;});
+  for(var bi=0;bi<byCmc.length&&nCasts<MAXC;bi++){var x=byCmc[bi];if(used[x.i])continue;if(x.c.cmc<=mana){used[x.i]=1;mana-=x.c.cmc;plan.push({type:'perm',card:x.c});nCasts++;}}
   var speed=_apBotSpeed();var k=0;
   function finish(){
-    // Attaque avec les créatures non affectées du mal d'invocation, réduit par mes bloqueurs
-    var atk=opp.perm.filter(function(p){return p.creature&&!p.sick;}).reduce(function(s,p){return s+(p.power||0);},0);
-    var myBlockers=_gfState.battlefield.filter(function(p){var m=_anaData[(p.name||'').toLowerCase()];return m&&(m.typeLine||'').toLowerCase().indexOf('creature')>=0&&!p.tapped;}).length;
-    atk=Math.max(0,atk-myBlockers*2);
     opp.threats=opp.perm.map(function(p){return p.name;});
-    if(opp.perm.length>50){opp.perm=opp.perm.slice(-50);opp.threats=opp.perm.map(function(p){return p.name;});}
-    done(atk);
+    if(opp.perm.length>60){opp.perm=opp.perm.slice(-60);opp.threats=opp.perm.map(function(p){return p.name;});}
+    // ─── Attaque : sélection intelligente, puis TU déclares tes bloqueurs ───
+    var attackers=_apBotChooseAttackers(opp,aggro);
+    if(!attackers.length){_apRender();done(0);return;}
+    _apRender();
+    setTimeout(function(){_apOpenDefenseUI(opp,oppIdx,attackers,function(){done(0);});},speed/2);
   }
   function exec(){
     if(!_gfState){done(0);return;}
     if(k>=plan.length){finish();return;}
-    var a=plan[k++];
+    var a=plan[k++];var c=a.card;
     if(a.type==='land'){
-      opp.lands++;
-      opp.perm.push({name:a.card.name,isLand:true,cmc:0,power:0,toughness:0,sick:false,creature:false});
-      _apLog('🤖 Adv '+(oppIdx+1)+' pose '+a.card.name);
+      opp.lands++;opp.perm.push({name:c.name,isLand:true,cmc:0,power:0,toughness:0,sick:false,creature:false});
+      _apLog('🤖 Adv '+(oppIdx+1)+' pose '+c.name);_apSfx('land');
+    }else if(a.type==='perm'){
+      opp.handCount=Math.max(0,opp.handCount-1);
+      opp.perm.push({name:c.name,isLand:false,cmc:c.cmc,power:c.power,toughness:c.toughness||Math.max(1,c.power),creature:c.creature,sick:true,dmg:0});
+      _apLog('🤖 Adv '+(oppIdx+1)+' joue '+c.name+' ('+c.cmc+')');_apSfx('cast');
+    }else if(a.type==='removal'){
+      opp.handCount=Math.max(0,opp.handCount-1);
+      var tg=myCreas()[0];
+      if(tg){_gfState.battlefield.splice(tg.i,1);_apRouteToGrave(tg.p.name,tg.p.isToken);_apLog('🤖 Adv '+(oppIdx+1)+' '+c.name+' détruit ta '+tg.p.name);_apFx('💀 '+tg.p.name,{color:'#dc5050',y:window.innerHeight*0.62});_apSfx('damage');}
+      else _apLog('🤖 Adv '+(oppIdx+1)+' lance '+c.name);
+    }else if(a.type==='sweep'){
+      opp.handCount=Math.max(0,opp.handCount-1);
+      var killed=myCreas();
+      killed.forEach(function(x){var i=_gfState.battlefield.indexOf(x.p);if(i>=0){_gfState.battlefield.splice(i,1);_apRouteToGrave(x.p.name,x.p.isToken);}});
+      // le sweeper détruit aussi les créatures du bot (réalisme)
+      opp.perm=opp.perm.filter(function(p){return !p.creature;});
+      _apLog('🤖 Adv '+(oppIdx+1)+' '+c.name+' — fléau ! '+killed.length+' de tes créatures détruites');_apScreenFlash('rgba(180,60,200,.4)');_apSfx('damage');
     }else{
       opp.handCount=Math.max(0,opp.handCount-1);
-      if(a.card.perm){
-        // Permanent : reste sur le champ (mal d'invocation si créature)
-        opp.perm.push({name:a.card.name,isLand:false,cmc:a.card.cmc,power:a.card.power,toughness:a.card.toughness||Math.max(1,a.card.power),creature:a.card.creature,sick:true,dmg:0});
-        _apLog('🤖 Adv '+(oppIdx+1)+' joue '+a.card.name+' ('+a.card.cmc+')');
-      }else{
-        // Instant/rituel/sorcery : se résout puis part au cimetière (ne reste PAS sur le champ)
-        _apLog('🤖 Adv '+(oppIdx+1)+' lance '+a.card.name+' ('+a.card.cmc+') — résolu');
-      }
+      _apLog('🤖 Adv '+(oppIdx+1)+' lance '+c.name+' ('+c.cmc+') — résolu');_apSfx('cast');
     }
     opp.threats=opp.perm.map(function(p){return p.name;});
-    _apRender();
+    _apCheckStateBased();_apRender();
     setTimeout(exec,speed);
   }
   if(!plan.length){
@@ -50748,13 +50779,80 @@ function _apBotTakeTurn(opp,oppIdx,done){
   }
   exec();
 }
-// Bouton manuel "+ play" : le bot joue un tour
+// IA : choisit les attaquants rentables (race en aggro ; sinon attaque ce qui survit/est gros)
+function _apBotChooseAttackers(opp,aggro){
+  var creatures=opp.perm.filter(function(p){return p.creature&&!p.sick&&(p.power||0)>0;});
+  if(!creatures.length)return [];
+  var myBlockers=_gfState.battlefield.map(function(p){return _apCreatureStats(p);}).filter(function(st){return st.isCreature;});
+  var maxBlkPow=myBlockers.reduce(function(m,b){return Math.max(m,b.power);},0);
+  return creatures.filter(function(c){
+    if(aggro)return true;            // aggro/tribal : on course
+    if(!myBlockers.length)return true; // pas de bloqueur → on frappe
+    return (c.toughness||1)>maxBlkPow || (c.power||0)>=4; // survit au meilleur bloqueur, ou grosse menace
+  });
+}
+// LE JOUEUR déclare ses bloqueurs face à l'attaque du bot (combat équitable local)
+function _apOpenDefenseUI(opp,oppIdx,attackers,doneCb){
+  if(!_gfState){doneCb&&doneCb();return;}
+  var myBlockers=_gfState.battlefield.map(function(p,i){return {p:p,i:i,st:_apCreatureStats(p)};}).filter(function(x){return x.st.isCreature&&!x.p.tapped;});
+  // Aucun bloqueur possible → dégâts directs au visage
+  if(!myBlockers.length){
+    var face=attackers.reduce(function(s,a){return s+(a.power||0);},0);
+    if(face>0){_gfState.life-=face;if(_gfState.life<0)_gfState.life=0;var _a=_apAnchor('me');_apFx('-'+face,{color:'#ff6060',x:_a.x,y:_a.y});if(face>=3)_apScreenFlash('rgba(220,60,60,.4)');_apSfx('attack');_apLog('⚔ Adv '+(oppIdx+1)+' attaque pour '+face+' (aucun bloqueur)');}
+    _apCheckStateBased();_apRender();doneCb&&doneCb();return;
+  }
+  var ov=document.getElementById('mpg-block-ov');
+  if(!ov){ov=document.createElement('div');ov.id='mpg-block-ov';ov.style.cssText='position:fixed;inset:0;z-index:7000;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';document.body.appendChild(ov);}
+  var blocks={}; // attackerIndex → my battlefield index
+  function render(){
+    var html='<div style="background:var(--s1);border:1px solid #dc5050;border-radius:14px;max-width:760px;width:100%;padding:20px 24px">';
+    html+='<div style="font-family:Goudy Mediaeval,serif;font-size:1.3rem;color:#e89;margin-bottom:4px">🛡 Adv '+(oppIdx+1)+' t\'attaque !</div>';
+    html+='<div style="font-size:.8rem;color:var(--tx2);margin-bottom:12px">Assigne tes bloqueurs. Les attaquants non bloqués te frappent au visage.</div>';
+    var totalFace=attackers.filter(function(a,ai){return blocks[ai]==null;}).reduce(function(s,a){return s+(a.power||0);},0);
+    html+='<div style="display:flex;flex-direction:column;gap:8px">';
+    attackers.forEach(function(a,ai){
+      var bi=blocks[ai];var blkP=(bi!=null&&_gfState.battlefield[bi])?_gfState.battlefield[bi]:null;var bst=blkP?_apCreatureStats(blkP):null;
+      html+='<div style="display:flex;align-items:center;gap:10px;background:var(--s2);border-radius:8px;padding:8px 12px">';
+      html+='<div style="flex:1"><span style="color:#e89">⚔ '+esc(a.name)+'</span> <span style="color:var(--tx3);font-size:.74rem">'+(a.power||0)+'/'+(a.toughness||1)+'</span></div>';
+      html+='<div style="font-size:.78rem;color:'+(blkP?'#7fb069':'#e8c96e')+'">'+(blkP?('🛡 '+esc(blkP.name)+' '+bst.power+'/'+bst.toughness):'→ '+(a.power||0)+' au visage')+'</div>';
+      html+='<select onchange="_apDefBlock('+ai+',this.value)" style="background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);padding:4px 8px;font-size:.76rem">';
+      html+='<option value="">— ne pas bloquer —</option>';
+      myBlockers.forEach(function(b){var usedElse=Object.keys(blocks).some(function(kk){return kk!==String(ai)&&blocks[kk]===b.i;});if(usedElse)return;html+='<option value="'+b.i+'"'+(bi===b.i?' selected':'')+'>'+esc(b.p.name)+' ('+b.st.power+'/'+b.st.toughness+')</option>';});
+      html+='</select></div>';
+    });
+    html+='</div>';
+    html+='<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div style="font-size:.82rem;color:var(--tx2)">Dégâts non bloqués : <b style="color:#dc5050">'+totalFace+'</b> ('+_gfState.life+' → '+Math.max(0,_gfState.life-totalFace)+' PV)</div>';
+    html+='<button class="ap-action primary" onclick="_apDefConfirm()">✓ Confirmer les blocages</button></div>';
+    html+='</div>';
+    ov.innerHTML=html;ov.style.display='flex';
+  }
+  window._apDefBlock=function(ai,val){blocks[ai]=(val===''?null:parseInt(val));render();};
+  window._apDefConfirm=function(){
+    ov.style.display='none';
+    var face=0,deadAtk=[];
+    attackers.forEach(function(a,ai){
+      var bi=blocks[ai];
+      if(bi!=null&&_gfState.battlefield[bi]){
+        var blk=_gfState.battlefield[bi];var bst=_apCreatureStats(blk);
+        blk.dmg=(blk.dmg||0)+(a.power||0);          // mon bloqueur encaisse
+        a.dmg=(a.dmg||0)+bst.power;                  // l'attaquant du bot encaisse
+        _apLog('🛡 '+blk.name+' bloque '+a.name);
+        if(a.dmg>=(a.toughness||1))deadAtk.push(a);
+      }else{face+=(a.power||0);}
+    });
+    // attaquants du bot morts → retirés de son champ
+    deadAtk.forEach(function(a){var i=opp.perm.indexOf(a);if(i>=0){opp.perm.splice(i,1);_apLog('💀 '+a.name+' (Adv '+(oppIdx+1)+') meurt');_apFx('💀 '+a.name,{color:'#c0c4d4',y:window.innerHeight*0.3});}});
+    opp.threats=opp.perm.map(function(p){return p.name;});
+    if(face>0){_gfState.life-=face;if(_gfState.life<0)_gfState.life=0;var _a=_apAnchor('me');_apFx('-'+face,{color:'#ff6060',x:_a.x,y:_a.y});if(face>=3)_apScreenFlash('rgba(220,60,60,.4)');_apSfx('attack');_apLog('⚔ '+face+' dégâts de combat reçus');}
+    _apCheckStateBased();_apRender();
+    doneCb&&doneCb();
+  };
+  render();
+}
+// Bouton manuel "+ play" : le bot joue un tour (dégâts gérés via la phase de défense)
 function _apOppThreat(idx){
   if(!_gfState||!_gfState.opponents[idx])return;
-  _apBotTakeTurn(_gfState.opponents[idx],idx,function(atk){
-    if(atk>0){_gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;_apLog('⚔ Adv '+(idx+1)+' attaque pour '+atk);}
-    _apCheckStateBased();_apRender();
-  });
+  _apBotTakeTurn(_gfState.opponents[idx],idx,function(){_apCheckStateBased();_apRender();});
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -51285,14 +51383,8 @@ function _apRunBotTurns(done){
     if(oppIdx<0){setTimeout(step,80);return;}
     _apLog('— Tour de l\'Adv '+(oppIdx+1)+' —');
     // Le bot joue un vrai tour (séquencé, à vitesse humaine), puis attaque
-    _apBotTakeTurn(opp,oppIdx,function(atk){
+    _apBotTakeTurn(opp,oppIdx,function(){
       if(!_gfState){done&&done();return;}
-      if(atk>0){
-        _gfState.life-=atk;if(_gfState.life<0)_gfState.life=0;
-        _apLog('⚔ Adv '+(oppIdx+1)+' attaque pour '+atk);
-        var _a=_apAnchor('me');_apFx('-'+atk,{color:'#ff6060',x:_a.x,y:_a.y});_apSfx('attack');
-        if(atk>=3)_apScreenFlash('rgba(220,60,60,.4)');
-      }
       _apCheckStateBased();_apRender();
       if(_gfState.gameOver){done&&done();return;}
       setTimeout(step,_apBotSpeed());
