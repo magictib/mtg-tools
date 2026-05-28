@@ -50439,6 +50439,86 @@ function _apEnrichGameCards(myDeck,setup){
   if(!nls.length)return;
   anaFetchMissing(nls,fb,function(){if(_gfState)_apRender();});
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// PRÉCHARGEMENT EN TÂCHE DE FOND (idle) — méta + images de TA collection
+// Borné, respecte le mode éco-données, ne tourne que quand le navigateur est
+// idle (requestIdleCallback) → ne ralentit pas l'usage actif. Rend
+// Analytics Pro / Arène / analyse de deck quasi instantanés.
+// ════════════════════════════════════════════════════════════════════════
+var _apBg={started:false,imgCount:0,imgCap:4000};
+function _apIdle(fn,timeout){
+  if(window.requestIdleCallback)return window.requestIdleCallback(fn,{timeout:timeout||3000});
+  return setTimeout(function(){fn();},400);
+}
+function _apBgConn(){
+  var c=navigator.connection||navigator.mozConnection||navigator.webkitConnection||{};
+  return {saveData:!!c.saveData,slow:/(^|[^0-9])2g$/.test(c.effectiveType||'')};
+}
+function _apBgPrefetchStart(){
+  if(_apBg.started)return;
+  try{if(localStorage.getItem('mtg_bg_prefetch')==='0')return;}catch(e){}
+  var coll=[];try{coll=getProfCards(0)||[];}catch(e){}
+  if(!coll.length)return; // collection pas encore chargée (un retry est planifié par l'appelant)
+  _apBg.started=true;
+  _apBgMeta(coll);
+}
+// Phase 1 : enrichit _anaData (JSON, léger) — un lot de 75 par idle-callback
+function _apBgMeta(coll){
+  var nls=[],fb=[],seen={};
+  coll.forEach(function(c){
+    var nm=c.name||'';if(!nm)return;
+    var nl=(typeof stripDFC==='function'?stripDFC(nm):nm).toLowerCase();
+    if(seen[nl])return;seen[nl]=1;
+    if(!_anaData[nl]||!_anaData[nl].imageUri)fb.push(nm),nls.push(nl);
+  });
+  if(!nls.length){_apBgImages(coll);return;}
+  var i=0;
+  function step(){
+    if(i>=fb.length){if(typeof _anaSaveCache==='function')try{_anaSaveCache();}catch(e){}_apBgImages(coll);return;}
+    var batch=fb.slice(i,i+75);i+=75;
+    fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:batch.map(function(n){return {name:n};})})})
+      .then(function(r){return r.json();})
+      .then(function(data){
+        (data.data||[]).forEach(function(card){try{_anaIngestCard(card,null);}catch(e){}});
+        if(typeof _anaSaveCache==='function')try{_anaSaveCache();}catch(e){}
+        _apIdle(step,4000);
+      }).catch(function(){_apIdle(step,4000);});
+  }
+  _apIdle(step,4000);
+}
+// Phase 2 : préchauffe les vignettes small dans le cache navigateur (sauf éco-données / 2g)
+function _apBgImages(coll){
+  var conn=_apBgConn();
+  if(conn.saveData||conn.slow)return; // respecte le mode économie de données
+  var urls=[],seen={};
+  coll.forEach(function(c){
+    var nm=c.name||'';if(!nm)return;
+    var nl=(typeof stripDFC==='function'?stripDFC(nm):nm).toLowerCase();
+    var m=_anaData[nl];
+    var u=(m&&m.imageUri)?m.imageUri.replace('/normal/','/small/').replace('/large/','/small/').replace('/png/','/small/'):('https://api.scryfall.com/cards/named?format=image&version=small&fuzzy='+encodeURIComponent(nm));
+    if(u&&!seen[u]){seen[u]=1;urls.push(u);}
+  });
+  var i=0;
+  function step(){
+    if(i>=urls.length||_apBg.imgCount>=_apBg.imgCap)return;
+    var n=0;
+    while(i<urls.length&&n<6&&_apBg.imgCount<_apBg.imgCap){var im=new Image();im.src=urls[i++];_apBg.imgCount++;n++;}
+    _apIdle(step,5000);
+  }
+  _apIdle(step,5000);
+}
+// Lancement après chargement : attend que la collection soit prête (auth+Firestore)
+window.addEventListener('load',function(){
+  var tries=0;
+  function tryStart(){
+    tries++;
+    var coll=[];try{coll=getProfCards(0)||[];}catch(e){}
+    if(coll.length){_apIdle(function(){_apBgPrefetchStart();},4000);return;}
+    if(tries<12)setTimeout(tryStart,3000);
+  }
+  setTimeout(tryStart,4000);
+});
 function closeArenaPro(){
   if(_gfState&&_gfState.turn>3&&!(_gfState.gameOver)){
     if(!confirm('Quitter la partie ? Tu peux la logger ensuite.'))return;
