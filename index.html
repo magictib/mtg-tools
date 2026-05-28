@@ -49822,6 +49822,10 @@ function _registerPhase4Items(){}
 '.ap-card.drawn{animation:_apDrawn .55s cubic-bezier(.34,1.56,.64,1)}',
 '@keyframes _apPlayed{0%{transform:translateY(180px) scale(1.4);opacity:0;box-shadow:0 0 60px rgba(232,201,110,1)}60%{opacity:1}100%{transform:translateY(0) scale(1);opacity:1;box-shadow:0 3px 8px rgba(0,0,0,.7)}}',
 '.ap-card.played{animation:_apPlayed .55s cubic-bezier(.34,1.56,.64,1)}',
+'@keyframes _apLifeDn{0%{transform:scale(1)}30%{transform:scale(1.4);text-shadow:0 0 20px #ff4444;color:#ff5555!important}100%{transform:scale(1)}}',
+'@keyframes _apLifeUp{0%{transform:scale(1)}30%{transform:scale(1.35);text-shadow:0 0 20px #6dff6d;color:#7fff7f!important}100%{transform:scale(1)}}',
+'#ap-rail-life.ap-life-dn{animation:_apLifeDn .55s ease-out}',
+'#ap-rail-life.ap-life-up{animation:_apLifeUp .55s ease-out}',
 '/* ═══ Tap rotation fluide ═══ */',
 '.ap-card{transition:transform .35s cubic-bezier(.34,1.56,.64,1),box-shadow .2s,filter .2s,opacity .2s}',
 '/* ═══ Entrée du commandant cinématique ═══ */',
@@ -50627,7 +50631,7 @@ function _apRender(){
   var myLifeCol=s.life<=10?'#dc5050':s.life<=20?'#e8c96e':'#7fb069';
   var pvTgt=s.targeting?' style="cursor:crosshair;outline:2px solid #dc5050;border-radius:8px" onclick="_apPickTarget(\'me\',0)"':'';
   html+='<div class="ap-rail-sec-lbl">Tes points de vie</div>';
-  html+='<div'+pvTgt+' style="text-align:center;font-family:Goudy Mediaeval,serif;color:'+myLifeCol+';font-size:1.9rem;font-weight:700;line-height:1">❤ '+s.life+'</div>';
+  html+='<div id="ap-rail-life"'+pvTgt+' style="text-align:center;font-family:Goudy Mediaeval,serif;color:'+myLifeCol+';font-size:1.9rem;font-weight:700;line-height:1">❤ '+s.life+'</div>';
   // Cmd dmg reçus
   var cdVals=Object.values(s.cmdDmgFromOpp||{});
   if(cdVals.length){var cdMax=Math.max.apply(null,cdVals);if(cdMax>0)html+='<div style="text-align:center;font-size:.66rem;color:'+(cdMax>=15?'#dc5050':'#e8c96e')+'">⚔ '+cdMax+'/21 cmd reçus</div>';}
@@ -52184,13 +52188,16 @@ function _apLife(n){
   if(n<=-3){_apScreenFlash('rgba(220,60,60,.45)');_apSfx('damage');}
   _apCheckStateBased();
   _apRender();
-  // Animation flash sur le compteur PV
+  _apFlashLife(n>=0);
+}
+// Flash rouge (perte) / vert (gain) sur le compteur de PV du rail
+function _apFlashLife(isGain){
   setTimeout(function(){
-    var stat=document.querySelector('.ap-stat.life');
-    if(stat){
-      stat.classList.add(n<0?'damaging':'healing');
-      setTimeout(function(){stat.classList.remove('damaging','healing');},500);
-    }
+    var el=document.getElementById('ap-rail-life');
+    if(!el)return;
+    el.classList.remove('ap-life-up','ap-life-dn');
+    void el.offsetWidth; // reflow → relance l'animation
+    el.classList.add(isGain?'ap-life-up':'ap-life-dn');
   },10);
 }
 function _apMulligan(){
