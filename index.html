@@ -3322,30 +3322,21 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm" id="pur-invite-btn" onclick="inviteFriendToList()" style="display:none">👥 Inviter</button>
       <select id="pur-friend-sel" onchange="purSetFriend(this.value)" style="display:none"></select>
       <input type="file" id="pur-file-in" accept=".txt,.csv" style="display:none" onchange="purHandleFileImport(event)">
-      <!-- Importer ▾ -->
-      <div class="pur-menu-wrap">
-        <button class="btn btnsm" onclick="purToggleMenu('pur-menu-import')">📥 Importer ▾</button>
-        <div id="pur-menu-import" class="pur-dropdown" style="display:none">
-          <button class="pur-dd-btn" onclick="purImportFile();purCloseMenus()">📂 Depuis un fichier .txt / .csv</button>
-          <button class="pur-dd-btn" onclick="purTogglePastePanel();purCloseMenus()">📋 Coller une liste de cartes</button>
-          <button class="pur-dd-btn" onclick="purOpenCardmarketImport();purCloseMenus()">🛒 Commandes Cardmarket (e-mail / panier)</button>
-          <button class="pur-dd-btn" id="pur-import-btn" onclick="importAchatToPurchase();purCloseMenus()" style="display:none">⬇ Importer l'achat du deck ouvert</button>
-        </div>
-      </div>
-      <!-- Exporter ▾ -->
-      <div class="pur-menu-wrap">
-        <button class="btn btnsm" onclick="purToggleMenu('pur-menu-export')">⤓ Exporter ▾</button>
-        <div id="pur-menu-export" class="pur-dropdown" style="display:none">
-          <button class="pur-dd-btn" id="pur-export-btn" onclick="exportPurchaseList();purCloseMenus()">📄 Exporter la liste en .txt</button>
-          <button class="pur-dd-btn" id="pur-cm-btn" onclick="purExportCardmarket();purCloseMenus()">🛒 Liste pour Cardmarket Wants Builder</button>
-        </div>
-      </div>
-      <!-- Plus ▾ -->
+      <!-- Plus ▾ (import / export / outils regroupés — on garde la barre légère) -->
       <div class="pur-menu-wrap">
         <button class="btn btnsm" onclick="purToggleMenu('pur-menu-more')">⋯ Plus ▾</button>
         <div id="pur-menu-more" class="pur-dropdown" style="display:none">
-          <button class="pur-dd-btn" onclick="mlScanWishlistMatching();purCloseMenus()">🎁 Scan wishlist (qui a quoi)</button>
+          <div style="font-size:.64rem;color:var(--tx3);padding:5px 10px 2px;letter-spacing:.05em;text-transform:uppercase">📥 Importer</div>
+          <button class="pur-dd-btn" onclick="purImportFile();purCloseMenus()">📂 Fichier .txt / .csv</button>
+          <button class="pur-dd-btn" onclick="purTogglePastePanel();purCloseMenus()">📋 Coller une liste de cartes</button>
+          <button class="pur-dd-btn" onclick="purOpenCardmarketImport();purCloseMenus()">🛒 Commande Cardmarket</button>
+          <button class="pur-dd-btn" id="pur-import-btn" onclick="importAchatToPurchase();purCloseMenus()" style="display:none">⬇ Achat du deck ouvert</button>
           <div class="pur-dd-sep"></div>
+          <div style="font-size:.64rem;color:var(--tx3);padding:5px 10px 2px;letter-spacing:.05em;text-transform:uppercase">⤓ Exporter</div>
+          <button class="pur-dd-btn" id="pur-export-btn" onclick="exportPurchaseList();purCloseMenus()">📄 Liste en .txt</button>
+          <button class="pur-dd-btn" id="pur-cm-btn" onclick="purExportCardmarket();purCloseMenus()">🛒 Cardmarket Wants Builder</button>
+          <div class="pur-dd-sep"></div>
+          <button class="pur-dd-btn" onclick="mlScanWishlistMatching();purCloseMenus()">🎁 Scan wishlist (qui a quoi)</button>
           <button class="pur-dd-btn" id="pur-del-btn" onclick="deletePurchaseList();purCloseMenus()" style="color:var(--rd2)">🗑 Supprimer la liste</button>
         </div>
       </div>
@@ -17473,6 +17464,33 @@ function _purRenderActionCenter(allCards){
   return html;
 }
 
+// État vide guidé d'une liste partagée : rappelle le parcours (ajouter → répartir → suivre réception)
+function _purWorkflowEmpty(lst){
+  var nMembers=(lst&&lst.members||[]).length;
+  var soloHint=nMembers<=1?'<div style="margin-top:4px;font-size:.74rem;color:var(--am)">💡 Tu es seul sur cette liste — invite tes amis pour une commande groupée.</div>':'';
+  function step(n,ico,title,desc,btns){
+    return '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;background:rgba(0,0,0,.18);border:.5px solid var(--bd);border-radius:10px">'
+      +'<div style="font-size:1.5rem;flex-shrink:0">'+ico+'</div>'
+      +'<div style="flex:1"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:.92rem">'+n+'. '+title+'</div>'
+      +'<div style="font-size:.78rem;color:var(--tx2);line-height:1.5;margin:2px 0 6px">'+desc+'</div>'
+      +(btns||'')+'</div></div>';
+  }
+  var html='<div style="max-width:680px;margin:8px auto;display:flex;flex-direction:column;gap:10px">';
+  html+='<div style="text-align:center;margin-bottom:4px"><div style="font-family:var(--ff-head);color:var(--gold2);font-size:1.15rem">🤝 «&nbsp;'+esc((lst&&lst.name)||'Liste')+'&nbsp;» est prête</div><div style="font-size:.8rem;color:var(--tx3)">Une commande groupée en 3 temps :</div></div>';
+  html+=step(1,'🃏','Ajoute les cartes à commander',
+    'Colle une liste, importe l\'achat d\'un deck, ou récupère une commande Cardmarket.',
+    '<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btnsm btnp" onclick="purTogglePastePanel()">📋 Coller des cartes</button>'
+    +'<button class="btn btnsm" onclick="purOpenCardmarketImport()">🛒 Cardmarket</button>'
+    +(_achatRecap?'<button class="btn btnsm" onclick="importAchatToPurchase()">⬇ Achat du deck ouvert</button>':'')+'</div>');
+  html+=step(2,'👥','Répartis qui achète quoi',
+    'Assigne chaque carte à un profil pour la commande groupée'+(nMembers<=1?' (après avoir invité tes amis)':'')+'. Utilise la sélection multiple pour aller vite.',
+    '<button class="btn btnsm" onclick="inviteFriendToList()">👥 Inviter un ami</button>'+soloHint);
+  html+=step(3,'📦','Suis la réception, vendeur par vendeur',
+    'Regroupe par <b>Vendeur</b> et coche les cartes reçues au fur et à mesure des colis. Chacun voit l\'avancement en temps réel.',
+    '<button class="btn btnsm" onclick="purSetGroupBy(\'group\')">📦 Vue par vendeur</button>');
+  html+='</div>';
+  return html;
+}
 function renderPurchaseMgr(){
   renderPurListSel();
   var importBtn=document.getElementById('pur-import-btn');
@@ -17521,6 +17539,13 @@ function renderPurchaseMgr(){
       if(!isMe&&lst.createdBy===userId)rmBtn=' <span style="cursor:pointer;color:var(--rd2);margin-left:3px;opacity:.6" title="Retirer" onclick="removeFriendFromList(\''+esc(uid)+'\')">✕</span>';
       return '<span style="display:inline-flex;align-items:center;background:'+(isMe?'rgba(201,168,76,.18)':'rgba(148,103,189,.18)')+';border:.5px solid '+(isMe?'rgba(201,168,76,.35)':'rgba(148,103,189,.35)')+';color:'+(isMe?'var(--gold2)':'var(--ac2)')+';border-radius:10px;padding:1px 7px;font-size:.7rem">'+(isCreator?'★ ':'')+esc(nm)+rmBtn+'</span>';
     }).join('');
+  }
+  // État vide guidé : la liste existe mais ne contient encore aucune carte → on explique le workflow
+  if(!(lst.cards&&lst.cards.length)){
+    wrap.innerHTML=_purWorkflowEmpty(lst);
+    if(typeof _purSyncToolbar==='function')_purSyncToolbar();
+    purFilterDecks();
+    return;
   }
   // Filtre rôle
   var cards=(lst.cards||[]).filter(function(c){
