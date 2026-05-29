@@ -39,6 +39,8 @@ window.addEventListener('appinstalled',function(){
     window.location.reload(true);
   });
 })();
+// Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
+window.APP_BUILD='2026-05-29-1';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -2396,6 +2398,12 @@ details > summary::-webkit-details-marker{display:none}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
       <span style="font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.9rem;letter-spacing:.08em">⚙ ADMINISTRATION</span>
       <button class="btn btnsm" onclick="closeAdminPanel()">✕</button>
+    </div>
+    <!-- Version / déploiement -->
+    <div id="admin-version" style="font-size:.72rem;color:var(--tx3);margin-bottom:1rem;padding:7px 10px;background:var(--s2);border-radius:8px;line-height:1.7;border:.5px solid var(--bd)">
+      <div>🏷 Version chargée : <b style="color:var(--gold2)" id="admin-version-loaded">…</b></div>
+      <div id="admin-version-live">Commit déployé : <span style="color:var(--tx2)">vérification…</span></div>
+      <div id="admin-version-status" style="margin-top:3px"></div>
     </div>
     <!-- Notifications section -->
     <div style="border:.5px solid var(--bd);border-radius:8px;margin-bottom:1rem;overflow:hidden">
@@ -6787,9 +6795,26 @@ function _initTradesListener(uid){
 }
 
 // ===== ADMIN PANEL =====
+function _adminLoadVersion(){
+  var loaded=window.APP_BUILD||'?';
+  var elL=document.getElementById('admin-version-loaded');if(elL)elL.textContent=loaded;
+  var elLive=document.getElementById('admin-version-live');
+  var elStatus=document.getElementById('admin-version-status');
+  fetch('/api/version',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    if(elLive)elLive.innerHTML='Commit déployé : <b style="color:var(--tx2)">'+esc(d.sha||'?')+'</b>'+(d.ref?' <span style="color:var(--tx3)">('+esc(d.ref)+')</span>':'')+(d.msg?'<br><span style="color:var(--tx3);font-style:italic">'+esc(d.msg)+'</span>':'');
+    // Comparaison best-effort : si le message du commit déployé contient le build chargé, ou si on est en dev.
+    if(elStatus){
+      if(d.env==='dev'||!d.sha||d.sha==='dev'){elStatus.innerHTML='<span style="color:var(--tx3)">(environnement local)</span>';}
+      else{elStatus.innerHTML='<span style="color:var(--gr2)">✓ Recharge la page ; si « Version chargée » correspond au dernier push, tu es à jour.</span>';}
+    }
+  }).catch(function(){
+    if(elLive)elLive.innerHTML='Commit déployé : <span style="color:var(--am)">indisponible</span>';
+  });
+}
 function openAdminPanel(){
   if(_userRole!=='admin')return;
   document.getElementById('admin-overlay').style.display='flex';
+  _adminLoadVersion();
   _loadAdminUsers();
   _loadAdminScryfallStatus();
   _loadAdminImportUsers();
