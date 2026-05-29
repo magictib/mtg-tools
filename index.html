@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-29-1';
+window.APP_BUILD='2026-05-29-2';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -31744,8 +31744,12 @@ function bldOptimize(){
     var edhrecFreq=_anaCurrentEDHREC;
     var detectedArch=_anaDetectArchetype(bldDeckTemp);
     var pool=[];
+    // PERF : idem analyse — restreindre aux cartes EDHREC du commandant si données riches (évite de
+    // scorer des dizaines de milliers de cartes et de geler le thread).
+    var _edhrecRichB=edhrecFreq&&Object.keys(edhrecFreq).length>=50;
     Object.keys(_anaData).forEach(function(nl){
       if(inDeckNls[nl]||_anaIsBasicLandNl(nl))return;
+      if(_edhrecRichB&&!edhrecFreq[nl])return;
       var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
       if(isPauper&&meta.rarity!=='common')return;
       if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
@@ -39634,8 +39638,13 @@ function anaRender(deckId){
   // Suggestions : cache global + cartes EDHREC pas encore analysees (placeholders)
   var deckNlSet={};cards.forEach(function(c){deckNlSet[c.nl]=1;});
   var suggestions=[];
+  // PERF : avec un cache de dizaines de milliers de cartes, scorer tout le pool (regex par carte)
+  // gèle le thread plusieurs secondes. Si on a des données EDHREC riches, on ne score que les cartes
+  // que le commandant joue (~300) — les autres seraient de toute façon décotées comme hors-plan.
+  var _edhrecRich=edhrecFreq&&Object.keys(edhrecFreq).length>=50;
   Object.keys(_anaData).forEach(function(nl){
     if(deckNlSet[nl]||_anaIsBasicLandNl(nl))return;
+    if(_edhrecRich&&!edhrecFreq[nl])return;
     var meta=_anaData[nl];if(!meta||!meta.tags||meta.tags.isLand)return;
     if(!_passPauper(meta))return;
     if(deckCi&&!_anaInColors(meta.colorIdentity,deckCi))return;
