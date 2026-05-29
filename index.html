@@ -40,12 +40,14 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-29-5';
+window.APP_BUILD='2026-05-29-6';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
   var _swReloaded=false;
-  navigator.serviceWorker.addEventListener('controllerchange',function(){if(!_swReloaded){_swReloaded=true;window.location.reload();}});
+  function _swDoReload(){if(!_swReloaded){_swReloaded=true;window.location.reload();}}
+  navigator.serviceWorker.addEventListener('controllerchange',_swDoReload);
+  navigator.serviceWorker.addEventListener('message',function(e){if(e.data&&e.data.type==='sw-activated')_swDoReload();});
 }
 </script>
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
@@ -2404,6 +2406,7 @@ details > summary::-webkit-details-marker{display:none}
       <div>🏷 Version chargée : <b style="color:var(--gold2)" id="admin-version-loaded">…</b></div>
       <div id="admin-version-live">Commit déployé : <span style="color:var(--tx2)">vérification…</span></div>
       <div id="admin-version-status" style="margin-top:3px"></div>
+      <button class="btn btnsm" onclick="_adminForceUpdate()" style="margin-top:7px;font-size:.72rem;border-color:var(--gold2);color:var(--gold2)">🔄 Forcer la mise à jour (purge cache + recharge)</button>
     </div>
     <!-- Notifications section -->
     <div style="border:.5px solid var(--bd);border-radius:8px;margin-bottom:1rem;overflow:hidden">
@@ -6795,6 +6798,15 @@ function _initTradesListener(uid){
 }
 
 // ===== ADMIN PANEL =====
+function _adminForceUpdate(){
+  // Désinscrit le service worker + purge tous les caches + recharge → garantit la dernière version.
+  var done=function(){try{location.reload(true);}catch(e){location.reload();}};
+  if(!('serviceWorker' in navigator)){done();return;}
+  navigator.serviceWorker.getRegistrations()
+    .then(function(regs){return Promise.all(regs.map(function(r){return r.unregister();}));})
+    .then(function(){return (typeof caches!=='undefined')?caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k);}));}):null;})
+    .then(done).catch(done);
+}
 function _adminLoadVersion(){
   var loaded=window.APP_BUILD||'?';
   var elL=document.getElementById('admin-version-loaded');if(elL)elL.textContent=loaded;

@@ -1,4 +1,4 @@
-const CACHE = 'manalab-v236';
+const CACHE = 'manalab-v237';
 const STATIC = [
   './manifest.json',
   './icon.svg'
@@ -31,11 +31,16 @@ self.addEventListener('activate', function(e) {
     caches.keys().then(function(keys) {
       return Promise.all(keys.map(function(k) { return caches.delete(k); }));
     }).then(function(){
-      // Re-crée le cache courant vide (sera repeuplé au prochain fetch)
-      return caches.open(CACHE);
-    })
+      return caches.open(CACHE); // re-crée le cache courant vide
+    }).then(function(){
+      return self.clients.claim();
+    }).then(function(){
+      // Prévient les pages ouvertes qu'une nouvelle version est active → rechargement auto
+      return self.clients.matchAll({ type: 'window' });
+    }).then(function(cs){
+      cs.forEach(function(c){ try { c.postMessage({ type: 'sw-activated' }); } catch(_){} });
+    }).catch(function(){})
   );
-  self.clients.claim();
 });
 
 // === Push notifications ===
