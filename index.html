@@ -39047,7 +39047,7 @@ function anaRefreshMatrix(){
   var grade=anaGrade(overall);
   if(!libUser||libUser.length<20){wrap.innerHTML='<div style="color:var(--tx3);font-size:11px;font-style:italic">Pas assez de cartes en cache (min. 20).</div>';return;}
   wrap.innerHTML='<div style="color:var(--tx3);font-size:11px;font-style:italic;padding:8px">⏳ Simulation en cours…</div>';
-  setTimeout(function(){
+  setTimeout(async function(){
     var archetypes=[
       {key:'aggro',label:'Aggro',ico:'🔥',hint:'Créatures rapides + burn'},
       {key:'midrange',label:'Midrange',ico:'🌳',hint:'Threats équilibrés + answers'},
@@ -39063,7 +39063,19 @@ function anaRefreshMatrix(){
     var _base=_isCmd?(_isDuel?{startLife:20,maxTurns:16}:{startLife:40,maxTurns:20}):{startLife:20,maxTurns:12};
     var _simOpts=cmdUser?Object.assign({},_base,{cmdA:cmdUser}):_base;
     var _arcSz=_isCmd?libUser.length:40;
-    var _simRuns=150;
+    var _simRuns=90;
+    // Non-bloquant : yield au navigateur entre chaque archétype → l'animation et l'UI ne gèlent
+    // pas pendant les milliers de parties simulées (le thread principal respire entre les chunks).
+    var _yield=function(){return new Promise(function(r){setTimeout(r,0);});};
+    async function _simMatrix(lib){
+      var out=[];
+      for(var _ai=0;_ai<archetypes.length;_ai++){
+        var _a=archetypes[_ai];
+        out.push({arch:_a,wr:anaWinRate(lib,(function(k){return function(){return _archetypeDeck(k,_arcSz);};})(_a.key),_simRuns,_simOpts)});
+        await _yield();
+      }
+      return out;
+    }
     var _rawSwaps=fullOpt&&fullOpt.swaps?fullOpt.swaps:[];
     // Pro-filtre AVANT toute validation : on ne propose que des upgrades francs.
     //  - jamais un downgrade individuel (carte entrante moins bien notée que la sortante) → évite
@@ -39074,7 +39086,7 @@ function anaRefreshMatrix(){
       return (sw.gain==null)||sw.gain>=2;
     });
     // Étape 1 : matrice du deck actuel
-    var matrixCurrent=archetypes.map(function(a){return {arch:a,wr:anaWinRate(libUser,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
+    var matrixCurrent=await _simMatrix(libUser);
     var avgCur=matrixCurrent.reduce(function(s,m){return s+m.wr;},0)/matrixCurrent.length;
     // Mise à jour du badge simulation (le badge composition reste inchangé)
     (function(){
@@ -39092,7 +39104,7 @@ function anaRefreshMatrix(){
     })();
     // Étape 2 : tester TOUS les swaps avec les mêmes archétypes/runs que la matrice affichée
     var _libOptAll=_rawSwaps.length?_anaApplyOptToLib(libUser,_rawSwaps):null;
-    var _matrixOptAll=_libOptAll?archetypes.map(function(a){return {arch:a,wr:anaWinRate(_libOptAll,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};}):null;
+    var _matrixOptAll=_libOptAll?await _simMatrix(_libOptAll):null;
     var _avgOptAll=_matrixOptAll?_matrixOptAll.reduce(function(s,m){return s+m.wr;},0)/archetypes.length:null;
     // Étape 3 : valider — n'accepter que des swaps qui améliorent réellement le win rate
     var _validSwaps,matrixOpt,avgOpt;
@@ -39103,10 +39115,11 @@ function anaRefreshMatrix(){
       _validSwaps=_rawSwaps;matrixOpt=_matrixOptAll;avgOpt=_avgOptAll;
     } else {
       // Scan linéaire : trouver le sous-ensemble optimal
+      await _yield();
       _validSwaps=_anaSimValidateSwaps(_rawSwaps,libUser,cmdUser,_simOpts,_arcSz,archetypes,_simRuns,avgCur);
       if(_validSwaps.length){
         var _libOptV=_anaApplyOptToLib(libUser,_validSwaps);
-        matrixOpt=archetypes.map(function(a){return {arch:a,wr:anaWinRate(_libOptV,function(){return _archetypeDeck(a.key,_arcSz);},_simRuns,_simOpts)};});
+        matrixOpt=await _simMatrix(_libOptV);
         avgOpt=matrixOpt.reduce(function(s,m){return s+m.wr;},0)/archetypes.length;
         // Vérification finale : rejeter si ça n'améliore toujours pas
         if(avgOpt<=avgCur){_validSwaps=[];matrixOpt=null;avgOpt=null;}
