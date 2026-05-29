@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-29-4';
+window.APP_BUILD='2026-05-29-5';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -38760,8 +38760,15 @@ function _anaMetaSwaps(deckRows,edhrecFreq,n){
 function anaScoreOptimize(rows,pool,weights,targets,maxIter){
   maxIter=maxIter||40;
   var current=rows.slice();
+  var _th=_anaCurrentThemes;
   // Exclure les cartes en attente de fetch et les terrains du pool
   var poolCopy=pool.filter(function(s){return !s.pending&&s.meta&&s.meta.tags&&!s.meta.tags.isLand;});
+  // PERF CRITIQUE : précalculer rôles + synergie + anti-synergie UNE fois par carte. Sinon ces
+  // fonctions à base de regex étaient rappelées des MILLIONS de fois dans la double boucle
+  // ci-dessous (deck × pool × itérations) → gel multi-secondes du thread.
+  poolCopy.forEach(function(s){s._aRoles=anaRoles(s.meta);s._synP=_anaThemeSynergyScore(s.meta,_th);s._antiP=_anaAntiSynergyPenalty(s.meta,_th);});
+  var _cutCache={};
+  function _cutInfo(r){var k=r.card.nl;if(!_cutCache[k])_cutCache[k]={roles:anaRoles(r.meta),synP:_anaThemeSynergyScore(r.meta,_th)};return _cutCache[k];}
   var swaps=[];var addedNls={};
   // Compte catégories incrémental
   var cnt={land:0,ramp:0,draw:0,removal:0,interaction:0,wincon:0};
@@ -38788,9 +38795,9 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
     var curScore=score(cnt);
     var bestGain=0;var bestSwap=null;
     nonLand.forEach(function(cutRow){
-      var cr=anaRoles(cutRow.meta);var q=cutRow.card.qty||1;
+      var _ci=_cutInfo(cutRow);var cr=_ci.roles;var q=cutRow.card.qty||1;
       poolCopy.forEach(function(addCard){
-        var ar=anaRoles(addCard.meta);
+        var ar=addCard._aRoles;
         var sim={
           land:cnt.land-cr.land*q+ar.land, ramp:cnt.ramp-cr.ramp*q+ar.ramp,
           draw:cnt.draw-cr.draw*q+ar.draw, removal:cnt.removal-cr.removal*q+ar.removal,
@@ -38803,10 +38810,8 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
           if(targets[k]&&targets[k][0]>0&&sim[k]<targets[k][0]&&cnt[k]>=targets[k][0])_underMin=true;
         });
         if(_underMin)return;
-        // gain = amélioration catégories + synergie ajout - synergie coupe + pénalités
-        var synergyAdd=_anaThemeSynergyScore(addCard.meta,_anaCurrentThemes);
-        var synergyCut=_anaThemeSynergyScore(cutRow.meta,_anaCurrentThemes);
-        var gain=score(sim)-curScore+(synergyAdd-synergyCut)*0.4+_anaAntiSynergyPenalty(addCard.meta,_anaCurrentThemes);
+        // gain = amélioration catégories + synergie ajout - synergie coupe + pénalités (valeurs précalculées)
+        var gain=score(sim)-curScore+(addCard._synP-_ci.synP)*0.4+addCard._antiP;
         if(gain>bestGain){bestGain=gain;bestSwap={cut:cutRow,add:addCard,sim:sim,gain:gain};}
       });
     });
