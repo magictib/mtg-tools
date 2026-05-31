@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-2';
+window.APP_BUILD='2026-05-31-3';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -37272,7 +37272,7 @@ function _anaExtractCustomTribes(oracle){
   var tribes=[],seen={};
   var excl={turn:1,turns:1,opponent:1,opponents:1,player:1,players:1,card:1,cards:1,spell:1,spells:1,permanent:1,permanents:1,creature:1,creatures:1,land:1,lands:1,counter:1,counters:1,token:1,tokens:1,color:1,colors:1,one:1,time:1,artifact:1,artifacts:1,enchantment:1,enchantments:1,nontoken:1,nonland:1};
   // Multi-type : « on each X, Y, …, and Z you control » (ou « put a +1/+1 counter on each X, … »)
-  var re=/each\s+([a-z]+(?:,\s*(?:each\s+)?[a-z]+){1,}(?:,?\s*and\s+(?:each\s+)?[a-z]+))\s+you control/g,m;
+  var re=/each\s+([a-z]+(?:,\s*(?:each\s+)?[a-z]+){1,}(?:,?\s*(?:and|or)\s+(?:each\s+)?[a-z]+))\s+you control/g,m;
   while((m=re.exec(oracle))){
     m[1].split(/\s*,\s*and\s+|\s*,\s*|\s+and\s+/).forEach(function(p){
       var t=p.replace(/^each\s+/,'').trim();
@@ -37949,36 +37949,8 @@ function _anaRenderOptPanel(validatedSwaps){
   h+='<div style="margin-left:auto;text-align:right"><div style="font-size:9px;color:var(--tx3)">SWAPS VALIDÉS</div><div style="font-size:24px;color:var(--gold2);font-weight:bold;line-height:1">'+validatedSwaps.length+'</div>';
   if(rawCount>validatedSwaps.length)h+='<div style="font-size:9px;color:var(--tx3)">/'+rawCount+' candidats scoring</div>';
   h+='</div></div>';
-  var _optImg=(_anaViewMode.opt==='image');
-  h+='<details style="margin-top:8px" open><summary style="cursor:pointer;color:var(--tx2);font-size:11px;padding:4px 0">Voir les '+validatedSwaps.length+' swaps validés ▾</summary>';
-  if(_optImg){
-    validatedSwaps.forEach(function(sw,i){
-      var cutMeta=_anaData[sw.cut.nl]||{};var addMeta=_anaData[sw.add.nl]||{};
-      h+='<div style="padding:8px 0;border-bottom:.5px solid var(--bd2)">';
-      h+='<div style="font-size:10px;color:var(--tx3);margin-bottom:5px">#'+(i+1)+(sw.gain!=null?' · gain +'+sw.gain.toFixed(1)+' pts':'')+'</div>';
-      h+='<div class="ana-swap-img">';
-      h+='<div style="text-align:center"><div style="font-size:10px;color:#e07070;margin-bottom:4px">– Couper</div>'+_anaOptImgCard(sw.cut.name,cutMeta,sw.cutScore!=null?sw.cutScore.toFixed(1):'','#e07070')+'</div>';
-      h+='<div class="ana-swap-arrow">→</div>';
-      h+='<div style="text-align:center"><div style="font-size:10px;color:var(--gold2);margin-bottom:4px">+ Ajouter</div>'+_anaOptImgCard(sw.add.name,addMeta,sw.addScore!=null?sw.addScore.toFixed(1):'','var(--gold2)',_ownQOpt(sw.add))+'</div>';
-      h+='</div></div>';
-    });
-  }else{
-    validatedSwaps.forEach(function(sw,i){
-      h+='<div class="ana-swap-row"><div style="font-size:11px;line-height:1.5">';
-      h+='<span style="color:var(--tx3);font-size:10px">#'+(i+1)+'</span> ';
-      h+='<span style="color:#e07070">– '+esc(sw.cut.name)+'</span>';
-      if(sw.cutScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.cutScore.toFixed(1)+')</span>';
-      h+=' → <span style="color:var(--gold2)">+ '+esc(sw.add.name)+'</span>';
-      if(sw.addScore!=null)h+=' <span style="color:var(--tx3);font-size:10px">('+sw.addScore.toFixed(1)+')</span>';
-      if(sw.gain!=null)h+=' <span style="color:var(--gold2);font-size:10px">+'+sw.gain.toFixed(1)+' pts</span>';
-      var _aqL=_ownQOpt(sw.add);
-      h+=_aqL>0
-        ?' <span style="font-size:9px;color:var(--gr2);background:rgba(127,176,105,.15);border:.5px solid rgba(127,176,105,.45);border-radius:6px;padding:0 5px;white-space:nowrap" title="Déjà dans ta collection">✓ possédée'+(_aqL>1?' ×'+_aqL:'')+'</span>'
-        :' <span style="font-size:9px;color:var(--am);background:rgba(245,185,91,.1);border:.5px solid rgba(245,185,91,.4);border-radius:6px;padding:0 5px;white-space:nowrap" title="Absente de ta collection">à acheter</span>';
-      h+='</div></div>';
-    });
-  }
-  h+='</details>';
+  // Liste détaillée déplacée dans la section « 🌐 Méta vs 🔧 Maison — deux regards » (plus haut).
+  h+='<div style="font-size:10.5px;color:var(--tx3);font-style:italic;margin:6px 0 4px">↑ Voir le détail des swaps dans la section « 🌐 Méta vs 🔧 Maison » plus haut.</div>';
   // Simulation de main du deck validé
   var _simOptDeck={cards:deck.cards.filter(function(c){return !validatedSwaps.some(function(sw){return sw.cut.nl===c.nl;});}).concat(validatedSwaps.map(function(sw){return {name:sw.add.name,nl:sw.add.nl,qty:1,sec:''};}))} ;
   var _simOpt=anaSimulate(_simOptDeck,100);
@@ -39708,8 +39680,18 @@ function anaRender(deckId){
     return true;
   });
   var topRows=nonLandRows.slice().sort(function(a,b){return b.score-a.score;}).slice(0,7);
-  // Exclure les mana rocks du bas : ce sont des cartes d'infrastructure, pas des cartes inefficaces
-  var bottomRows=nonLandRows.filter(function(r){return !(r.meta&&r.meta.tags&&r.meta.tags.manarock);}).sort(function(a,b){return a.score-b.score;}).slice(0,7);
+  // Exclure les mana rocks du bas : cartes d'infrastructure, pas inefficaces.
+  // Exclure aussi les cartes des tribus ciblées par le commandant : ce sont des cibles VOLONTAIRES
+  // du plan de jeu (ex. Insectes pour Bleck) — elles ne doivent jamais apparaître comme « inefficaces ».
+  var _bottomTribes=(_anaCurrentThemes&&_anaCurrentThemes.customTribes)||[];
+  var bottomRows=nonLandRows.filter(function(r){
+    if(r.meta&&r.meta.tags&&r.meta.tags.manarock)return false;
+    if(_bottomTribes.length&&r.meta&&r.meta.typeLine){
+      var _tl=r.meta.typeLine.toLowerCase();
+      for(var _bi=0;_bi<_bottomTribes.length;_bi++){if(_tl.indexOf(_bottomTribes[_bi])>=0)return false;}
+    }
+    return true;
+  }).sort(function(a,b){return a.score-b.score;}).slice(0,7);
 
   // Detection archetype + matrice de frequence (EDHREC-like) + EDHREC reel si dispo
   var detectedArch=_anaResolveArchetype(deck,deckId);
@@ -40881,7 +40863,7 @@ function anaRender(deckId){
     html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
     // Colonne Méta
     html+='<div><div style="font-size:11px;color:#c8a8ff;font-family:Goudy Mediaeval,serif;margin-bottom:6px;letter-spacing:.05em">🌐 MÉTA (EDHREC)</div>';
-    if(!_metaSwaps.length)html+='<div style="font-size:10px;color:var(--tx3);font-style:italic">Pas de données EDHREC.</div>';
+    if(!_metaSwaps.length)html+='<div style="font-size:10px;color:var(--tx3);font-style:italic;line-height:1.5">Pas de données EDHREC pour ce commandant (carte trop récente ou peu jouée). La colonne maison reste fiable.</div>';
     _metaSwaps.forEach(function(s){
       var cons=!!maisonAddSet[s.add.nl];
       html+='<div style="font-size:10.5px;line-height:1.5;padding:3px 0;border-bottom:.5px solid var(--bd2)">'
