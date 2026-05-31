@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-29-6';
+window.APP_BUILD='2026-05-31-1';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -37260,6 +37260,23 @@ function _anaApplyDeckThemeSignals(deck,bump,labels){
   axis('artifact',sig.artifact,20,13,'Artefacts');
   axis('tokens',sig.tokens,9,5,'Tokens');
 }
+// Extrait la liste de tribus/types ciblés par le commandant depuis son oracle.
+// Couvre les patrons « each [Type1], [Type2], …, and [TypeN] you control » (ex. Bleck, Loafing Pest :
+// « put a +1/+1 counter on each Parasite, Bat, Insect, Snake, and Spider you control »).
+function _anaExtractCustomTribes(oracle){
+  if(!oracle)return [];
+  var tribes=[],seen={};
+  var excl={turn:1,turns:1,opponent:1,opponents:1,player:1,players:1,card:1,cards:1,spell:1,spells:1,permanent:1,permanents:1,creature:1,creatures:1,land:1,lands:1,counter:1,counters:1,token:1,tokens:1,color:1,colors:1,one:1,time:1,artifact:1,artifacts:1,enchantment:1,enchantments:1,nontoken:1,nonland:1};
+  // Multi-type : « on each X, Y, …, and Z you control » (ou « put a +1/+1 counter on each X, … »)
+  var re=/each\s+([a-z]+(?:,\s*(?:each\s+)?[a-z]+){1,}(?:,?\s*and\s+(?:each\s+)?[a-z]+))\s+you control/g,m;
+  while((m=re.exec(oracle))){
+    m[1].split(/\s*,\s*and\s+|\s*,\s*|\s+and\s+/).forEach(function(p){
+      var t=p.replace(/^each\s+/,'').trim();
+      if(t.length>=3&&t.length<=20&&!excl[t]&&!seen[t]){seen[t]=1;tribes.push(t);}
+    });
+  }
+  return tribes;
+}
 function _anaCommanderThemes(deck){
   var m={
     // Core (existants)
@@ -37311,6 +37328,13 @@ function _anaCommanderThemes(deck){
         }
       });
       _anaApplyCommanderSignals(oracle,bump,labels);
+      // Tribus ciblées : extraites du texte oracle (ex. Bleck → Parasite/Bat/Insect/Snake/Spider).
+      // Les cartes de ces types reçoivent un bonus dans _anaThemeSynergyScore (cf. customTribes).
+      m.customTribes=_anaExtractCustomTribes(oracle);
+      if(m.customTribes.length){
+        var _tcap=function(s){return s.charAt(0).toUpperCase()+s.slice(1);};
+        labels.push('Tribus : '+m.customTribes.slice(0,5).map(_tcap).join(' / '));
+      }
       // Commandant fragile : créature à toughness ≤ 3, sans hexproof/indestructible natifs
       // → bump fragile_commander pour activer les anti-synergies AoE damage et bumper la protection
       try{
@@ -38367,6 +38391,13 @@ function _anaThemeSynergyScore(cardMeta,themes){
   var o=cardMeta.oracleText.toLowerCase();
   var t=(cardMeta.typeLine||'').toLowerCase();
   var s=0;var th=themes||{};
+  // Tribus ciblées par le commandant (extraites de son oracle, ex. Bleck → Parasite/Bat/Insect/Snake/Spider).
+  // Si la carte EST un de ces types, gros bonus : c'est exactement ce que le commandant boost.
+  if(th.customTribes&&th.customTribes.length){
+    for(var _ti=0;_ti<th.customTribes.length;_ti++){
+      if(t.indexOf(th.customTribes[_ti])>=0){s+=5;break;}
+    }
+  }
   // Spellslinger — valorise les éphémères/rituels quand le commandant a un trigger
   // sur instant/sorcery (Gelectrode, Guttersnipe, Niv-Mizzet, Mizzix, Talrand…).
   // Indispensable pour que des cartes comme Mitraille, Twincast, Past in Flames
