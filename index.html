@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-1';
+window.APP_BUILD='2026-05-31-2';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -5703,13 +5703,17 @@ function _hideLoading(){
   setTimeout(function(){ov.style.display='none';},520);
 }
 
+// Portail : déplace le panneau dans <body> à l'ouverture pour qu'aucun parent (transform/filter/etc.)
+// ne le contienne et qu'il passe TOUJOURS au-dessus de toutes les bandes/sticky.
+function _hubPortal(panel){if(panel&&panel.parentElement!==document.body)document.body.appendChild(panel);}
 function toggleHub(){
   var panel=document.getElementById('hub-panel');
   if(panel.classList.contains('open')){closeHub();}
-  else{panel.classList.add('open');}
+  else{_hubPortal(panel);panel.classList.add('open');}
 }
 function openHubTab(tab){
   var panel=document.getElementById('hub-panel');
+  _hubPortal(panel);
   panel.classList.add('open');
   ['notifs','friends','settings'].forEach(function(t){
     var sec=document.getElementById('hub-sec-'+t);
@@ -34462,7 +34466,7 @@ function anaInit(){
 // Mapping label-card → catégorie d'onglet (regex pour matcher robustement)
 var _ANA_TAB_RULES=[
   {tab:'overview',  pats:[/répartition par type/i,/courbe de mana/i,/heatmap par tour/i]},
-  {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i]},
+  {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i,/méta vs.*maison/i,/deux regards/i]},
   {tab:'manabase',  pats:[/analyse des terrains/i,/manabase/i]},
   {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i,/mulligan/i]},
   {tab:'strategy',  pats:[/combos/i,/game changers/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
@@ -39590,14 +39594,24 @@ function anaRender(deckId){
   // Le score utilisé pour le tri top/bottom intègre le synergy weight des thèmes
   // — sinon une carte comme Mitraille (excellente en deck spellslinger) reste
   // dans les "moins efficaces" car son score brut est faible.
+  // Bonus tribu ciblée par le commandant (ex. Bleck → Parasite/Bat/Insect/Snake/Spider) :
+  // ×1.5 sur le score affiché, en plus du synP, pour vraiment sortir ces cartes des « moins efficaces ».
+  var _tribesForRows=(_anaCurrentThemes&&_anaCurrentThemes.customTribes)||[];
   var rows=cards.map(function(c){
     var meta=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
     var baseScore=meta?anaCardScore(meta):0;
     var synWeight=meta?_anaSynergyWeight(meta,_anaCurrentThemes||{}):1;
+    var sc=baseScore*synWeight;
+    if(_tribesForRows.length&&meta&&meta.typeLine){
+      var _tl=meta.typeLine.toLowerCase();
+      for(var _trI=0;_trI<_tribesForRows.length;_trI++){
+        if(_tl.indexOf(_tribesForRows[_trI])>=0){sc*=1.5;break;}
+      }
+    }
     return {
       card:c, meta:meta||{}, roles:anaRoles(meta),
-      score:baseScore*synWeight, // score AFFICHÉ et trié — intègre synergie deck
-      baseScore:baseScore,        // score brut (sans thèmes du deck) — pour debug/comparaison
+      score:sc, // score AFFICHÉ et trié — intègre synergie deck + bonus tribu ciblée
+      baseScore:baseScore,
       synWeight:synWeight,
       inCache:!!meta
     };
