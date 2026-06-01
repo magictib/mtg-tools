@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-3';
+window.APP_BUILD='2026-05-31-4';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -37579,6 +37579,13 @@ function _extractEDHRECFreqMap(data){
 function anaFetchEDHRECCommander(commanderName,fmt,callback){
   if(typeof fmt==='function'){callback=fmt;fmt='';}// rétrocompat
   if(!commanderName){callback(null);return;}
+  // Normalisation : si le deck stocke le nom traduit (ex. « Blech, parasite irritant »), on bascule
+  // sur le nom anglais canonique des métas Scryfall (« Blex, Vexing Pest ») avant de générer le slug.
+  try{
+    var _nlIn=commanderName.split(' // ')[0].toLowerCase();
+    var _metaCmd=(typeof _anaData!=='undefined')?(_anaData[_nlIn]||_anaData[(typeof stripDFC==='function')?stripDFC(_nlIn):_nlIn]):null;
+    if(_metaCmd&&_metaCmd.name&&_metaCmd.name.toLowerCase()!==_nlIn)commanderName=_metaCmd.name;
+  }catch(_){}
   var slug=_anaCommanderSlug(commanderName);
   if(!slug){callback(null);return;}
   var isPauperCmd=(fmt||'').toLowerCase()==='paupercmd';
@@ -39543,7 +39550,7 @@ function _anaFormatWarnings(deck,fmt,totalCards){
     +'</div>';
 }
 
-function anaRender(deckId){
+async function anaRender(deckId){
   var deck=_anaGetDeck(deckId);if(!deck)return;
   _anaCurDeckId=deckId;
   try{_progNoteAnalyse(deckId);}catch(e){}
@@ -39785,6 +39792,9 @@ function anaRender(deckId){
 
   // Plan d'optimisation
   var optResult=anaOptimize(nonLandRows,suggPool.slice(),10,counts,targets,avgCmc);
+  // Yield au navigateur après les optimiseurs lourds : laisse le loader et ses citations respirer
+  // entre le compute synchrone et la génération du gros HTML qui suit.
+  await new Promise(function(r){setTimeout(r,0);});
   // Transparence : attache un raisonnement lisible à chaque swap
   (function(){
     var _swCtx={arch:_anaDetectArchetype(deck),edhrecFreq:_anaCurrentEDHREC,counts:counts,targets:targets};
