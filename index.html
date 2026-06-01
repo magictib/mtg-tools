@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-7';
+window.APP_BUILD='2026-05-31-8';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -33110,6 +33110,62 @@ function _anaFlagFilter(q){
     r.style.display=(!q||name.indexOf(q)>=0)?'flex':'none';
   });
 }
+// Applique au deck les swaps suggérés des cartes flaggées 🔄 « change ».
+// Préférence : consensus (maison ET méta d'accord) > maison > méta.
+function _anaApplyTriageChanges(deckId){
+  var flags=_anaFlags[deckId]||{};
+  var d=(typeof decks!=='undefined')?decks[deckId]:null;
+  if(!d){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  var swapMap=(_anaState&&_anaState.swapByCutNl)||{};
+  // Collecte des swaps à appliquer
+  var toApply=[];
+  Object.keys(flags).forEach(function(nl){
+    if(flags[nl]!=='change')return;
+    var s=swapMap[nl];if(!s)return;
+    // Préférence : consensus, sinon maison, sinon méta
+    var pick=(s.maison&&s.meta&&s.maison.nl===s.meta.nl)?s.maison:(s.maison||s.meta);
+    if(pick)toApply.push({cutNl:nl,add:pick});
+  });
+  if(!toApply.length){
+    if(typeof toastInfo==='function')toastInfo('Aucun swap à appliquer : marque des cartes 🔄 et clique encore.');
+    else alert('Aucun swap à appliquer (rien à marquer 🔄, ou pas de suggestion pour ces cartes).');
+    return;
+  }
+  var preview=toApply.slice(0,5).map(function(s){return '• '+s.cutNl+' → '+s.add.name;}).join('\n');
+  if(!confirm('Appliquer '+toApply.length+' swap(s) au deck « '+(d.name||'?')+' » ?\n\n'+preview+(toApply.length>5?'\n…':'')+'\n\nCette action modifie ta decklist.')){return;}
+  var applied=0;
+  toApply.forEach(function(sw){
+    var cardIdx=-1;
+    for(var i=0;i<d.cards.length;i++){
+      var c=d.cards[i];var cnl=c.nl||(typeof stripDFC==='function'?stripDFC(c.name||'').toLowerCase():(c.name||'').toLowerCase());
+      if(cnl===sw.cutNl){cardIdx=i;break;}
+    }
+    if(cardIdx<0)return;
+    var oldCard=d.cards[cardIdx];
+    var sec=oldCard.sec||'';
+    if((oldCard.qty||1)>1){oldCard.qty=(oldCard.qty||1)-1;}
+    else{d.cards.splice(cardIdx,1);}
+    var addNl=sw.add.nl||(typeof stripDFC==='function'?stripDFC(sw.add.name||'').toLowerCase():(sw.add.name||'').toLowerCase());
+    // Si la carte ajoutée existe déjà → incrémente
+    var existing=-1;
+    for(var j=0;j<d.cards.length;j++){
+      var cnl2=d.cards[j].nl||(typeof stripDFC==='function'?stripDFC(d.cards[j].name||'').toLowerCase():(d.cards[j].name||'').toLowerCase());
+      if(cnl2===addNl){existing=j;break;}
+    }
+    if(existing>=0){d.cards[existing].qty=(d.cards[existing].qty||1)+1;}
+    else{d.cards.push({name:sw.add.name,nl:addNl,qty:1,sec:sec});}
+    delete flags[sw.cutNl];
+    applied++;
+  });
+  if(applied){
+    d.updatedAt=Date.now();
+    _anaFlagsSave();
+    if(typeof saveDecks==='function')saveDecks();
+    if(typeof anaRender==='function')anaRender(deckId);
+    if(typeof toastSuccess==='function')toastSuccess('✓ '+applied+' swap(s) appliqué(s) au deck');
+    else alert('✓ '+applied+' swap(s) appliqué(s)');
+  }
+}
 try{var __aV=localStorage.getItem('mtg_ana_view');if(__aV){var __aVP=JSON.parse(__aV);if(__aVP)Object.keys(_anaViewMode).forEach(function(k){if(__aVP[k])_anaViewMode[k]=__aVP[k];});}}catch(e){}
 function anaSetView(section,mode){
   _anaViewMode[section]=mode;
@@ -40918,6 +40974,20 @@ async function anaRender(deckId){
   }
   html+='</div></div>';
 
+  // === Pré-calcul des swaps (utilisés par Triage + Méta vs Maison) ===
+  var _optPool=suggPool.slice();
+  var fullOpt=anaScoreOptimize(nonLandRows,_optPool,weights,targets,60);
+  var _metaSwaps=_anaMetaSwaps(nonLandRows,edhrecFreq,10);
+  var _maisonSwaps=(fullOpt.swaps||[]).filter(function(sw){
+    if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
+    return (sw.gain==null)||sw.gain>=2;
+  }).slice(0,10);
+  // Index swaps par carte coupée (pour affichage côté Triage + application)
+  var _swapByCutNl={};
+  _maisonSwaps.forEach(function(sw){if(sw.cut&&sw.cut.nl){_swapByCutNl[sw.cut.nl]=_swapByCutNl[sw.cut.nl]||{};_swapByCutNl[sw.cut.nl].maison={name:sw.add.name,nl:sw.add.nl,gain:sw.gain};}});
+  _metaSwaps.forEach(function(s){if(s.cut&&s.cut.nl){_swapByCutNl[s.cut.nl]=_swapByCutNl[s.cut.nl]||{};_swapByCutNl[s.cut.nl].meta={name:s.add.name,nl:s.add.nl,addFreq:s.addFreq};}});
+  if(_anaState){_anaState.swapByCutNl=_swapByCutNl;}
+
   // === Triage du deck : flags par carte (garde / à voir / change) ===
   (function(){
     if(!nonLandRows||!nonLandRows.length)return;
@@ -40925,8 +40995,10 @@ async function anaRender(deckId){
     html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Marque chaque carte selon ce que tu décides : <b style="color:#78c890">✅ garde</b>, <b style="color:#f5b95b">🤔 à voir</b>, ou <b style="color:#e07070">🔄 change</b>. Sauvegardé par deck (re-clic = retire).</div>';
     html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
       +'<div style="font-size:11px;color:var(--tx2)" id="ana-flag-counts">…</div>'
-      +'<input type="text" placeholder="🔎 filtrer par nom…" oninput="_anaFlagFilter(this.value)" style="font-size:11px;padding:3px 8px;max-width:200px">'
-      +'</div>';
+      +'<div style="display:flex;gap:6px;align-items:center">'
+        +'<input type="text" placeholder="🔎 filtrer par nom…" oninput="_anaFlagFilter(this.value)" style="font-size:11px;padding:3px 8px;max-width:180px">'
+        +'<button class="btn btnsm" onclick="_anaApplyTriageChanges(\''+escJs(deckId)+'\')" style="font-size:11px;padding:3px 10px;border-color:var(--gold2);color:var(--gold2)" title="Applique au deck les swaps des cartes flaggées 🔄 change">⚡ Appliquer les 🔄</button>'
+      +'</div></div>';
     html+='<div class="thin-scroll" id="ana-flag-list" style="max-height:420px;overflow-y:auto">';
     // Tri : type primaire puis nom
     var sorted=nonLandRows.slice().sort(function(a,b){
@@ -40940,16 +41012,35 @@ async function anaRender(deckId){
       var flag=_anaFlagGet(deckId,nl);
       var tl=(r.meta&&r.meta.typeLine||'').split(' — ')[0];
       var cmc=(r.meta&&r.meta.cmc!=null)?r.meta.cmc:'?';
+      var sug=_swapByCutNl[nl];
+      // Colonne « swap suggéré » : maison (🔧) et/ou méta (🌐), consensus en vert
+      var sugHtml='<span style="color:var(--tx3);font-style:italic">—</span>';
+      if(sug){
+        var consensus=sug.maison&&sug.meta&&sug.maison.nl===sug.meta.nl;
+        if(consensus){
+          sugHtml='<span style="color:#78c890" title="🌐 EDHREC et 🔧 maison sont d\'accord">✓ '+esc(sug.maison.name)+'</span>';
+        } else {
+          var parts=[];
+          if(sug.maison)parts.push('<span style="color:var(--gold2)" title="Suggestion de l\'analyse maison">🔧 '+esc(sug.maison.name)+'</span>');
+          if(sug.meta)parts.push('<span style="color:#c8a8ff" title="Joué dans les decks EDHREC du commandant">🌐 '+esc(sug.meta.name)+'</span>');
+          sugHtml=parts.join(' <span style="color:var(--tx3)">/</span> ');
+        }
+      }
       var btn=function(k,emo,lab,col){return '<button data-flag-btn="'+k+'" class="ana-flag-btn'+(flag===k?' active':'')+'" title="'+lab+'" onclick="_anaFlagSet(\''+escJs(deckId)+'\',\''+escJs(nl)+'\',\''+(flag===k?'':k)+'\')" style="background:'+(flag===k?col:'transparent')+';border:.5px solid '+(flag===k?col:'var(--bd2)')+';border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:13px;padding:0;line-height:1;color:'+(flag===k?'#0a0a0a':'var(--tx2)')+'">'+emo+'</button>';};
-      html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--bd2)">'
-        +'<div style="flex:1;min-width:0">'
-          +'<div style="font-size:11.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.card.name)+'</div>'
+      // Étiquette d'état selon flag (✅=swap non fait, 🔄=swap accepté, 🤔=en attente)
+      var rowStyle='display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--bd2)';
+      if(flag==='change')rowStyle+=';background:rgba(224,112,112,.07)';
+      else if(flag==='maybe')rowStyle+=';background:rgba(245,185,91,.06)';
+      html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="'+rowStyle+'">'
+        +'<div style="flex:1.2;min-width:0">'
+          +'<div style="font-size:11.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"'+(flag==='change'?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(r.card.name)+'</div>'
           +'<div style="font-size:9px;color:var(--tx3)">'+esc(tl)+' · '+cmc+' mana</div>'
         +'</div>'
+        +'<div style="flex:1.3;min-width:0;font-size:10.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Swap suggéré pour cette carte">→ '+sugHtml+'</div>'
         +'<div style="display:flex;gap:3px;flex-shrink:0">'
-          +btn('keep','✅','Je garde','rgba(120,200,144,.85)')
-          +btn('maybe','🤔','À voir','rgba(245,185,91,.85)')
-          +btn('change','🔄','Je change','rgba(224,112,112,.85)')
+          +btn('keep','✅','Je garde (swap non fait)','rgba(120,200,144,.85)')
+          +btn('maybe','🤔','À voir (en attente)','rgba(245,185,91,.85)')
+          +btn('change','🔄','Je change (swap accepté)','rgba(224,112,112,.85)')
         +'</div>'
         +'</div>';
     });
@@ -40958,9 +41049,8 @@ async function anaRender(deckId){
   })();
 
   // === Suggestions + Plan (mode toggle : Composition vs Simulation) ===
+  // _optPool, fullOpt, _metaSwaps, _maisonSwaps déjà pré-calculés plus haut (avant le Triage).
   var _dMode=_anaDisplayMode[deckId]||'compo';
-  var _optPool=suggPool.slice();
-  var fullOpt=anaScoreOptimize(nonLandRows,_optPool,weights,targets,60);
   var _modeToggle='<div style="display:inline-flex;background:var(--s3);border:.5px solid var(--bd);border-radius:22px;padding:2px;gap:2px">'
     +'<button onclick="_anaSetDisplayMode(\''+deckId+'\',\'compo\')" style="padding:5px 16px;font-size:11px;border:none;border-radius:20px;cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;transition:background .15s;background:'+(_dMode==='compo'?'var(--gold2)':'transparent')+';color:'+(_dMode==='compo'?'#1a1206':'var(--tx3)')+'" title="Suggestions basées sur les cibles théoriques de composition">🎯 Composition</button>'
     +'<button onclick="_anaSetDisplayMode(\''+deckId+'\',\'perf\')" style="padding:5px 16px;font-size:11px;border:none;border-radius:20px;cursor:pointer;font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;transition:background .15s;background:'+(_dMode==='perf'?'#3d5a9e':'transparent')+';color:'+(_dMode==='perf'?'#c0d4ff':'var(--tx3)')+'" title="Swaps validés uniquement par simulation de parties">⚡ Simulation</button>'
@@ -40968,12 +41058,8 @@ async function anaRender(deckId){
   // Toggle centré entre les sections — pill autonome visible dans les deux modes
   html+='<div style="display:flex;justify-content:center;margin:4px 0 4px">'+_modeToggle+'</div>';
   // === Méta (EDHREC) vs Maison (analyse) — deux regards côte à côte ===
+  // _metaSwaps et _maisonSwaps sont pré-calculés plus haut (utilisés aussi par Triage).
   (function(){
-    var _metaSwaps=_anaMetaSwaps(nonLandRows,edhrecFreq,10);
-    var _maisonSwaps=(fullOpt.swaps||[]).filter(function(sw){
-      if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
-      return (sw.gain==null)||sw.gain>=2;
-    }).slice(0,10);
     if(!_metaSwaps.length&&!_maisonSwaps.length)return;
     var metaAddSet={};_metaSwaps.forEach(function(s){metaAddSet[s.add.nl]=1;});
     var maisonAddSet={};_maisonSwaps.forEach(function(s){if(s.add)maisonAddSet[s.add.nl]=1;});
