@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-8';
+window.APP_BUILD='2026-05-31-9';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -33081,7 +33081,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
 function _anaSaveCache(){_anaData.__version=24;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
-var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list',mvm:'list'};
+var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list',mvm:'list',flags:'list'};
 // Triage manuel : flags par carte ({deckId: {cardNl: 'keep'|'maybe'|'change'}})
 var _anaFlags={};
 try{var __af=localStorage.getItem('mtg_ana_flags');if(__af)_anaFlags=JSON.parse(__af)||{};}catch(e){}
@@ -37389,12 +37389,38 @@ function _anaExtractCustomTribes(oracle){
   var tribes=[],seen={};
   var excl={turn:1,turns:1,opponent:1,opponents:1,player:1,players:1,card:1,cards:1,spell:1,spells:1,permanent:1,permanents:1,creature:1,creatures:1,land:1,lands:1,counter:1,counters:1,token:1,tokens:1,color:1,colors:1,one:1,time:1,artifact:1,artifacts:1,enchantment:1,enchantments:1,nontoken:1,nonland:1};
   // Multi-type : « on each X, Y, …, and Z you control » (ou « put a +1/+1 counter on each X, … »)
+  // Multi-types : « each X, Y, …, and Z you control » (ex. Bleck)
   var re=/each\s+([a-z]+(?:,\s*(?:each\s+)?[a-z]+){1,}(?:,?\s*(?:and|or)\s+(?:each\s+)?[a-z]+))\s+you control/g,m;
   while((m=re.exec(oracle))){
     m[1].split(/\s*,\s*and\s+|\s*,\s*|\s+and\s+/).forEach(function(p){
       var t=p.replace(/^each\s+/,'').trim();
       if(t.length>=3&&t.length<=20&&!excl[t]&&!seen[t]){seen[t]=1;tribes.push(t);}
     });
+  }
+  // Tribu unique en payoff : « [other|one or more] Rogues you control deal/get/attack/enter… »
+  // (ex. Soaring Thought-Thief, Krenko, Edgar Markov…)
+  var re2=/(?:other |one or more |another )?([a-z][a-z]+)s? you control (?:deal|get|gain|have|attack|enter|are)/g;
+  while((m=re2.exec(oracle))){
+    var t2=m[1].replace(/s$/,'');
+    if(t2.length>=3&&t2.length<=20&&!excl[t2]&&!seen[t2]){seen[t2]=1;tribes.push(t2);}
+  }
+  // « [Tribu] spells you cast » (ex. cost reducers tribaux)
+  var re3=/([a-z][a-z]+) spells you (?:cast|play)/g;
+  while((m=re3.exec(oracle))){
+    var t3=m[1].replace(/s$/,'');
+    if(t3.length>=3&&t3.length<=20&&!excl[t3]&&!seen[t3]){seen[t3]=1;tribes.push(t3);}
+  }
+  // « cast (another) [Tribu] spell » (ex. Edgar Markov : « cast another vampire spell »)
+  var re4=/(?:cast|play) (?:another |a |an |this )?([a-z][a-z]+) (?:spell|creature)/g;
+  while((m=re4.exec(oracle))){
+    var t4=m[1].replace(/s$/,'');
+    if(t4.length>=3&&t4.length<=20&&!excl[t4]&&!seen[t4]){seen[t4]=1;tribes.push(t4);}
+  }
+  // « number of [Tribu]s you control » / « each [Tribu] you control » (single, ex. Krenko)
+  var re5=/(?:number of|count of|each) ([a-z][a-z]+)s? you control/g;
+  while((m=re5.exec(oracle))){
+    var t5=m[1].replace(/s$/,'');
+    if(t5.length>=3&&t5.length<=20&&!excl[t5]&&!seen[t5]){seen[t5]=1;tribes.push(t5);}
   }
   return tribes;
 }
@@ -40988,18 +41014,31 @@ async function anaRender(deckId){
   _metaSwaps.forEach(function(s){if(s.cut&&s.cut.nl){_swapByCutNl[s.cut.nl]=_swapByCutNl[s.cut.nl]||{};_swapByCutNl[s.cut.nl].meta={name:s.add.name,nl:s.add.nl,addFreq:s.addFreq};}});
   if(_anaState){_anaState.swapByCutNl=_swapByCutNl;}
 
-  // === Triage du deck : flags par carte (garde / à voir / change) ===
+  // === Triage du deck : flags par carte + swaps maison/méta séparés ===
   (function(){
     if(!nonLandRows||!nonLandRows.length)return;
-    html+='<div class="card"><div class="lbl">📋 Triage du deck — flagger les cartes</div>';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Marque chaque carte selon ce que tu décides : <b style="color:#78c890">✅ garde</b>, <b style="color:#f5b95b">🤔 à voir</b>, ou <b style="color:#e07070">🔄 change</b>. Sauvegardé par deck (re-clic = retire).</div>';
-    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+    var _flagsView=_anaViewMode.flags||'list';
+    // Helper « possédée »
+    var _ownSetFl={};try{(getProfCards(0)||[]).forEach(function(c){var k=(c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'')).toLowerCase();_ownSetFl[k]=(_ownSetFl[k]||0)+(c.qty||1);});}catch(e){}
+    function _ownQFl(nm){return _ownSetFl[(nm||'').toLowerCase()]||0;}
+    html+='<div class="card"><div class="ana-section-head"><div class="lbl">📋 Triage du deck — flagger les cartes</div>'+viewToggle('flags')+'</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Pour chaque carte du deck : à gauche le swap que <b style="color:var(--gold2)">🔧 notre analyse</b> propose, à droite celui du <b style="color:#c8a8ff">🌐 méta EDHREC</b>. Marque ta décision : <b style="color:#78c890">✅ garde</b> (swap non fait), <b style="color:#f5b95b">🤔 à voir</b>, ou <b style="color:#e07070">🔄 change</b> (swap accepté).</div>';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">'
       +'<div style="font-size:11px;color:var(--tx2)" id="ana-flag-counts">…</div>'
       +'<div style="display:flex;gap:6px;align-items:center">'
         +'<input type="text" placeholder="🔎 filtrer par nom…" oninput="_anaFlagFilter(this.value)" style="font-size:11px;padding:3px 8px;max-width:180px">'
         +'<button class="btn btnsm" onclick="_anaApplyTriageChanges(\''+escJs(deckId)+'\')" style="font-size:11px;padding:3px 10px;border-color:var(--gold2);color:var(--gold2)" title="Applique au deck les swaps des cartes flaggées 🔄 change">⚡ Appliquer les 🔄</button>'
       +'</div></div>';
-    html+='<div class="thin-scroll" id="ana-flag-list" style="max-height:420px;overflow-y:auto">';
+    // En-têtes de colonne (mode liste seulement)
+    if(_flagsView!=='image'){
+      html+='<div style="display:grid;grid-template-columns:1.4fr 1.3fr 1.3fr 100px;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd2);font-size:9.5px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.04em;margin-bottom:3px">'
+        +'<div>CARTE DU DECK</div>'
+        +'<div>🔧 SWAP MAISON</div>'
+        +'<div>🌐 SWAP MÉTA (EDHREC)</div>'
+        +'<div style="text-align:center">DÉCISION</div>'
+        +'</div>';
+    }
+    html+='<div class="thin-scroll" id="ana-flag-list" style="max-height:520px;overflow-y:auto">';
     // Tri : type primaire puis nom
     var sorted=nonLandRows.slice().sort(function(a,b){
       var ta=((a.meta&&a.meta.typeLine||'').split(' — ')[0]||'').toLowerCase();
@@ -41012,37 +41051,47 @@ async function anaRender(deckId){
       var flag=_anaFlagGet(deckId,nl);
       var tl=(r.meta&&r.meta.typeLine||'').split(' — ')[0];
       var cmc=(r.meta&&r.meta.cmc!=null)?r.meta.cmc:'?';
-      var sug=_swapByCutNl[nl];
-      // Colonne « swap suggéré » : maison (🔧) et/ou méta (🌐), consensus en vert
-      var sugHtml='<span style="color:var(--tx3);font-style:italic">—</span>';
-      if(sug){
-        var consensus=sug.maison&&sug.meta&&sug.maison.nl===sug.meta.nl;
-        if(consensus){
-          sugHtml='<span style="color:#78c890" title="🌐 EDHREC et 🔧 maison sont d\'accord">✓ '+esc(sug.maison.name)+'</span>';
-        } else {
-          var parts=[];
-          if(sug.maison)parts.push('<span style="color:var(--gold2)" title="Suggestion de l\'analyse maison">🔧 '+esc(sug.maison.name)+'</span>');
-          if(sug.meta)parts.push('<span style="color:#c8a8ff" title="Joué dans les decks EDHREC du commandant">🌐 '+esc(sug.meta.name)+'</span>');
-          sugHtml=parts.join(' <span style="color:var(--tx3)">/</span> ');
-        }
-      }
+      var sug=_swapByCutNl[nl]||{};
+      var consensus=sug.maison&&sug.meta&&sug.maison.nl===sug.meta.nl;
+      // Bouton flag
       var btn=function(k,emo,lab,col){return '<button data-flag-btn="'+k+'" class="ana-flag-btn'+(flag===k?' active':'')+'" title="'+lab+'" onclick="_anaFlagSet(\''+escJs(deckId)+'\',\''+escJs(nl)+'\',\''+(flag===k?'':k)+'\')" style="background:'+(flag===k?col:'transparent')+';border:.5px solid '+(flag===k?col:'var(--bd2)')+';border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:13px;padding:0;line-height:1;color:'+(flag===k?'#0a0a0a':'var(--tx2)')+'">'+emo+'</button>';};
-      // Étiquette d'état selon flag (✅=swap non fait, 🔄=swap accepté, 🤔=en attente)
-      var rowStyle='display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--bd2)';
-      if(flag==='change')rowStyle+=';background:rgba(224,112,112,.07)';
-      else if(flag==='maybe')rowStyle+=';background:rgba(245,185,91,.06)';
-      html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="'+rowStyle+'">'
-        +'<div style="flex:1.2;min-width:0">'
-          +'<div style="font-size:11.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"'+(flag==='change'?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(r.card.name)+'</div>'
-          +'<div style="font-size:9px;color:var(--tx3)">'+esc(tl)+' · '+cmc+' mana</div>'
-        +'</div>'
-        +'<div style="flex:1.3;min-width:0;font-size:10.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Swap suggéré pour cette carte">→ '+sugHtml+'</div>'
-        +'<div style="display:flex;gap:3px;flex-shrink:0">'
-          +btn('keep','✅','Je garde (swap non fait)','rgba(120,200,144,.85)')
-          +btn('maybe','🤔','À voir (en attente)','rgba(245,185,91,.85)')
-          +btn('change','🔄','Je change (swap accepté)','rgba(224,112,112,.85)')
-        +'</div>'
+      var flagsHtml='<div style="display:flex;gap:3px;flex-shrink:0;justify-content:center">'
+        +btn('keep','✅','Je garde (swap non fait)','rgba(120,200,144,.85)')
+        +btn('maybe','🤔','À voir (en attente)','rgba(245,185,91,.85)')
+        +btn('change','🔄','Je change (swap accepté)','rgba(224,112,112,.85)')
+      +'</div>';
+      var rowBg='';
+      if(flag==='change')rowBg=';background:rgba(224,112,112,.07)';
+      else if(flag==='maybe')rowBg=';background:rgba(245,185,91,.06)';
+      if(_flagsView==='image'){
+        // Mode image : carte + miniatures cut→add pour maison et méta
+        var rMeta=r.meta||{};
+        var maisonImg=sug.maison?_anaOptImgCard(sug.maison.name,_anaData[sug.maison.nl]||{},'',(consensus?'#78c890':'var(--gold2)'),_ownQFl(sug.maison.name)):'<div style="font-size:10px;color:var(--tx3);font-style:italic;text-align:center;padding:30px 10px">—</div>';
+        var metaImg=sug.meta?_anaOptImgCard(sug.meta.name,_anaData[sug.meta.nl]||{},'',(consensus?'#78c890':'#c8a8ff'),_ownQFl(sug.meta.name)):'<div style="font-size:10px;color:var(--tx3);font-style:italic;text-align:center;padding:30px 10px">—</div>';
+        html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="display:grid;grid-template-columns:1fr 1fr 1fr 100px;gap:10px;align-items:center;padding:8px 0;border-bottom:.5px solid var(--bd2)'+rowBg+'">'
+          +'<div>'+_anaOptImgCard(r.card.name,rMeta,'','#e07070')+'<div style="font-size:9px;color:var(--tx3);text-align:center;margin-top:2px">'+esc(tl)+' · '+cmc+'</div></div>'
+          +'<div title="Swap suggéré par notre analyse">'+maisonImg+'</div>'
+          +'<div title="Swap suggéré d\'après les decks EDHREC">'+metaImg+'</div>'
+          +flagsHtml
         +'</div>';
+      } else {
+        // Mode liste : grille 4 colonnes
+        var maisonHtml=sug.maison
+          ?'<span style="color:'+(consensus?'#78c890':'var(--gold2)')+'">+ '+esc(sug.maison.name)+(consensus?' ✓':'')+'</span>'+(sug.maison.gain!=null?' <span style="color:var(--tx3);font-size:9px">+'+sug.maison.gain.toFixed(1)+'</span>':'')
+          :'<span style="color:var(--tx3);font-style:italic">—</span>';
+        var metaHtml=sug.meta
+          ?'<span style="color:'+(consensus?'#78c890':'#c8a8ff')+'">+ '+esc(sug.meta.name)+(consensus?' ✓':'')+'</span>'+(sug.meta.addFreq!=null?' <span style="color:var(--tx3);font-size:9px">'+Math.round(sug.meta.addFreq*100)+'%</span>':'')
+          :'<span style="color:var(--tx3);font-style:italic">—</span>';
+        html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="display:grid;grid-template-columns:1.4fr 1.3fr 1.3fr 100px;gap:8px;align-items:center;padding:6px 0;border-bottom:.5px solid var(--bd2)'+rowBg+'">'
+          +'<div style="min-width:0">'
+            +'<div style="font-size:11.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap'+(flag==='change'?';text-decoration:line-through;opacity:.7':'')+'">'+esc(r.card.name)+'</div>'
+            +'<div style="font-size:9px;color:var(--tx3)">'+esc(tl)+' · '+cmc+' mana</div>'
+          +'</div>'
+          +'<div style="min-width:0;font-size:10.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+maisonHtml+'</div>'
+          +'<div style="min-width:0;font-size:10.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+metaHtml+'</div>'
+          +flagsHtml
+        +'</div>';
+      }
     });
     html+='</div></div>';
     setTimeout(function(){_anaFlagRefreshCounts(deckId);},0);
@@ -41057,65 +41106,8 @@ async function anaRender(deckId){
     +'</div>';
   // Toggle centré entre les sections — pill autonome visible dans les deux modes
   html+='<div style="display:flex;justify-content:center;margin:4px 0 4px">'+_modeToggle+'</div>';
-  // === Méta (EDHREC) vs Maison (analyse) — deux regards côte à côte ===
-  // _metaSwaps et _maisonSwaps sont pré-calculés plus haut (utilisés aussi par Triage).
-  (function(){
-    if(!_metaSwaps.length&&!_maisonSwaps.length)return;
-    var metaAddSet={};_metaSwaps.forEach(function(s){metaAddSet[s.add.nl]=1;});
-    var maisonAddSet={};_maisonSwaps.forEach(function(s){if(s.add)maisonAddSet[s.add.nl]=1;});
-    var _mvm=_anaViewMode.mvm||'list';
-    html+='<div class="card"><div class="ana-section-head"><div class="lbl">🌐 Méta vs 🔧 Maison — deux regards</div>'+viewToggle('mvm')+'</div>';
-    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">À gauche, ce que jouent les decks EDHREC de ton commandant ; à droite, ce que recommande notre analyse (synergie, courbe, récursion…). Une entrée <span style="color:#78c890">verte ✓</span> apparaît dans les deux = <b>consensus fort</b>. Les divergences, c\'est là que ton jugement tranche.</div>';
-    // Rendu d'un swap en mode image (cut → add)
-    function _mvmImg(cutName,addName,extraBadge,consensus){
-      var cMeta=_anaData[(cutName||'').toLowerCase()]||{};
-      var aMeta=_anaData[(addName||'').toLowerCase()]||{};
-      var col=consensus?'#78c890':'var(--gold2)';
-      return '<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:.5px solid var(--bd2)">'
-        +'<div style="flex:1;min-width:0">'+_anaOptImgCard(cutName,cMeta,'','#e07070')+'</div>'
-        +'<div style="color:'+col+';font-size:14px;flex-shrink:0">→</div>'
-        +'<div style="flex:1;min-width:0">'+_anaOptImgCard(addName,aMeta,'',col,_ownQOpt({nl:(addName||'').toLowerCase(),name:addName}))+'</div>'
-        +(extraBadge?'<div style="font-size:9px;color:var(--tx3);flex-shrink:0;writing-mode:vertical-rl">'+extraBadge+'</div>':'')
-        +'</div>';
-    }
-    // Helper « possédée » pour mode image (cf. _anaRenderOptPanel)
-    var _ownSetMvm={};try{(getProfCards(0)||[]).forEach(function(c){var k=(c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'')).toLowerCase();_ownSetMvm[k]=(_ownSetMvm[k]||0)+(c.qty||1);});}catch(e){}
-    function _ownQOpt(card){return _ownSetMvm[((card&&card.nl)||(card&&card.name)||'').toLowerCase()]||0;}
-    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
-    // Colonne Méta
-    html+='<div><div style="font-size:11px;color:#c8a8ff;font-family:Goudy Mediaeval,serif;margin-bottom:6px;letter-spacing:.05em">🌐 MÉTA (EDHREC)</div>';
-    if(!_metaSwaps.length)html+='<div style="font-size:10px;color:var(--tx3);font-style:italic;line-height:1.5">Pas de données EDHREC pour ce commandant (carte trop récente ou peu jouée). La colonne maison reste fiable.</div>';
-    _metaSwaps.forEach(function(s){
-      var cons=!!maisonAddSet[s.add.nl];
-      if(_mvm==='image'){
-        html+=_mvmImg(s.cut.name,s.add.name,Math.round(s.cutFreq*100)+'%→'+Math.round(s.addFreq*100)+'%',cons);
-      } else {
-        html+='<div style="font-size:10.5px;line-height:1.5;padding:3px 0;border-bottom:.5px solid var(--bd2)">'
-          +'<span style="color:#e07070">– '+esc(s.cut.name)+'</span> → '
-          +'<span style="color:'+(cons?'#78c890':'var(--gold2)')+'"'+(cons?' title="Consensus avec l\'analyse maison"':'')+'>+ '+esc(s.add.name)+(cons?' ✓':'')+'</span>'
-          +' <span style="color:var(--tx3);font-size:9px" title="% de decks EDHREC : carte coupée → carte ajoutée">('+Math.round(s.cutFreq*100)+'%→'+Math.round(s.addFreq*100)+'%)</span>'
-          +'</div>';
-      }
-    });
-    html+='</div>';
-    // Colonne Maison
-    html+='<div><div style="font-size:11px;color:var(--gold2);font-family:Goudy Mediaeval,serif;margin-bottom:6px;letter-spacing:.05em">🔧 ANALYSE MAISON</div>';
-    if(!_maisonSwaps.length)html+='<div style="font-size:10px;color:var(--tx3);font-style:italic">Aucun upgrade franc.</div>';
-    _maisonSwaps.forEach(function(sw){
-      var cons=!!(sw.add&&metaAddSet[sw.add.nl]);
-      if(_mvm==='image'){
-        html+=_mvmImg(sw.cut.name,sw.add.name,sw.gain!=null?'+'+sw.gain.toFixed(1):'',cons);
-      } else {
-        html+='<div style="font-size:10.5px;line-height:1.5;padding:3px 0;border-bottom:.5px solid var(--bd2)">'
-          +'<span style="color:#e07070">– '+esc(sw.cut.name)+'</span> → '
-          +'<span style="color:'+(cons?'#78c890':'var(--gold2)')+'"'+(cons?' title="Consensus avec le méta EDHREC"':'')+'>+ '+esc(sw.add.name)+(cons?' ✓':'')+'</span>'
-          +(sw.gain!=null?' <span style="color:var(--tx3);font-size:9px" title="Gain de score de l\'analyse">+'+sw.gain.toFixed(1)+'</span>':'')
-          +'</div>';
-      }
-    });
-    html+='</div>';
-    html+='</div></div>';
-  })();
+  // (Section « Méta vs Maison » retirée : redondante avec les colonnes du Triage qui montrent
+  // maison + méta côte à côte par carte.)
   function synergyBadge(s){
     var syn=s.synergy||0;if(syn<0.05)return '';
     var pct=Math.round(syn*100);var isEd=s.source==='edhrec';
