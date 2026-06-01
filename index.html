@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-9';
+window.APP_BUILD='2026-06-01-1';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -38916,7 +38916,7 @@ function _anaThemeSynergyScore(cardMeta,themes){
 // coupe les cartes du deck les MOINS jouées dans le méta, ajoute les plus jouées qui manquent.
 function _anaMetaSwaps(deckRows,edhrecFreq,n){
   if(!edhrecFreq||Object.keys(edhrecFreq).length<10)return [];
-  n=n||10;
+  n=n||60;
   var _tc=function(nl){return (nl||'').replace(/\b\w/g,function(c){return c.toUpperCase();});};
   var deckSet={};deckRows.forEach(function(r){deckSet[r.card.nl]=1;});
   var cuts=deckRows.filter(function(r){return r.meta&&r.meta.tags&&!r.meta.tags.isLand;})
@@ -38928,10 +38928,16 @@ function _anaMetaSwaps(deckRows,edhrecFreq,n){
     return true;
   }).map(function(nl){return {nl:nl,freq:(edhrecFreq[nl].freq)||0,name:(_anaData[nl]&&_anaData[nl].name)||_tc(nl)};})
     .sort(function(a,b){return b.freq-a.freq;});
-  var swaps=[];
-  for(var i=0;i<n&&i<cuts.length&&i<adds.length;i++){
-    if(adds[i].freq<=cuts[i].freq)break; // ne pas ajouter une carte moins jouée que celle coupée
-    swaps.push({cut:cuts[i].row.card,add:{name:adds[i].name,nl:adds[i].nl},cutFreq:cuts[i].freq,addFreq:adds[i].freq});
+  // Pairing par curseur glissant : pour chaque cut (par freq ascendante), on prend le prochain
+  // add (par freq descendante) strictement plus joué — on ne `break` plus au premier échec, on
+  // `continue`, ce qui permet de saturer toutes les cartes du deck candidates au remplacement
+  // (avant : 10 swaps max, avec un break précoce qui laissait souvent la colonne vide).
+  var swaps=[];var addIdx=0;
+  for(var i=0;i<cuts.length&&swaps.length<n;i++){
+    while(addIdx<adds.length&&adds[addIdx].freq<=cuts[i].freq)addIdx++;
+    if(addIdx>=adds.length)break;
+    swaps.push({cut:cuts[i].row.card,add:{name:adds[addIdx].name,nl:adds[addIdx].nl},cutFreq:cuts[i].freq,addFreq:adds[addIdx].freq});
+    addIdx++;
   }
   return swaps;
 }
@@ -41000,14 +41006,17 @@ async function anaRender(deckId){
   }
   html+='</div></div>';
 
-  // === Pré-calcul des swaps (utilisés par Triage + Méta vs Maison) ===
+  // === Pré-calcul des swaps (utilisés par Triage + simulation) ===
+  // Pas de slice : on expose **tous** les swaps valides de fullOpt pour que la colonne maison du
+  // triage matche le nombre annoncé par la sim (« 27 swaps validés »). Idem côté méta : on monte n
+  // jusqu'à 60 pour saturer une carte par cut potentielle.
   var _optPool=suggPool.slice();
   var fullOpt=anaScoreOptimize(nonLandRows,_optPool,weights,targets,60);
-  var _metaSwaps=_anaMetaSwaps(nonLandRows,edhrecFreq,10);
+  var _metaSwaps=_anaMetaSwaps(nonLandRows,edhrecFreq,60);
   var _maisonSwaps=(fullOpt.swaps||[]).filter(function(sw){
     if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
     return (sw.gain==null)||sw.gain>=2;
-  }).slice(0,10);
+  });
   // Index swaps par carte coupée (pour affichage côté Triage + application)
   var _swapByCutNl={};
   _maisonSwaps.forEach(function(sw){if(sw.cut&&sw.cut.nl){_swapByCutNl[sw.cut.nl]=_swapByCutNl[sw.cut.nl]||{};_swapByCutNl[sw.cut.nl].maison={name:sw.add.name,nl:sw.add.nl,gain:sw.gain};}});
@@ -41023,6 +41032,16 @@ async function anaRender(deckId){
     function _ownQFl(nm){return _ownSetFl[(nm||'').toLowerCase()]||0;}
     html+='<div class="card"><div class="ana-section-head"><div class="lbl">📋 Triage du deck — flagger les cartes</div>'+viewToggle('flags')+'</div>';
     html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Pour chaque carte du deck : à gauche le swap que <b style="color:var(--gold2)">🔧 notre analyse</b> propose, à droite celui du <b style="color:#c8a8ff">🌐 méta EDHREC</b>. Marque ta décision : <b style="color:#78c890">✅ garde</b> (swap non fait), <b style="color:#f5b95b">🤔 à voir</b>, ou <b style="color:#e07070">🔄 change</b> (swap accepté).</div>';
+    // Compteurs : combien de cartes du deck ont un swap maison / méta proposé
+    var _nMaisonSug=0,_nMetaSug=0;
+    Object.keys(_swapByCutNl).forEach(function(k){if(_swapByCutNl[k].maison)_nMaisonSug++;if(_swapByCutNl[k].meta)_nMetaSug++;});
+    var _edhrecOk=edhrecFreq&&Object.keys(edhrecFreq).length>=10;
+    html+='<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+      +'<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(218,180,107,.12);color:var(--gold2);border:.5px solid var(--gold2)">🔧 '+_nMaisonSug+' swap'+(_nMaisonSug>1?'s':'')+' maison</span>'
+      +(_edhrecOk
+        ?'<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(200,168,255,.12);color:#c8a8ff;border:.5px solid #c8a8ff">🌐 '+_nMetaSug+' swap'+(_nMetaSug>1?'s':'')+' méta'+(_nMetaSug===0?' (le deck colle déjà au méta)':'')+'</span>'
+        :'<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(224,112,112,.12);color:#e07070;border:.5px solid #e07070" title="Les données EDHREC du commandant ne sont pas encore arrivées (ou indisponibles).">🌐 EDHREC indisponible — colonne méta vide</span>')
+      +'</div>';
     html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">'
       +'<div style="font-size:11px;color:var(--tx2)" id="ana-flag-counts">…</div>'
       +'<div style="display:flex;gap:6px;align-items:center">'
