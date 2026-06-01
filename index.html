@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-5';
+window.APP_BUILD='2026-05-31-6';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -5735,7 +5735,10 @@ function closeHub(){
 function toggleUserMenu(){openHubTab('settings');}
 document.addEventListener('click',function(e){
   var wrap=document.getElementById('hub-wrap');
-  if(wrap&&!wrap.contains(e.target)){closeHub();}
+  var panel=document.getElementById('hub-panel');
+  // Tolère les clics dans #hub-panel (qui peut être déporté dans <body> par _hubPortal pour
+  // passer au-dessus des bandes) — sinon cliquer une tab du panneau fermerait le hub.
+  if(wrap&&!wrap.contains(e.target)&&!(panel&&panel.contains(e.target))){closeHub();}
 });
 
 function umShowRename(){
@@ -33078,7 +33081,7 @@ try{var __aR=localStorage.getItem('mtg_ana_cache');if(__aR){var __aP=JSON.parse(
 function _anaSaveCache(){_anaData.__version=24;try{localStorage.setItem('mtg_ana_cache',JSON.stringify(_anaData));}catch(e){}}
 
 // Mode d'affichage (liste/image) par section, persiste
-var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list'};
+var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list',mvm:'list'};
 try{var __aV=localStorage.getItem('mtg_ana_view');if(__aV){var __aVP=JSON.parse(__aV);if(__aVP)Object.keys(_anaViewMode).forEach(function(k){if(__aVP[k])_anaViewMode[k]=__aVP[k];});}}catch(e){}
 function anaSetView(section,mode){
   _anaViewMode[section]=mode;
@@ -37600,12 +37603,21 @@ function anaFetchEDHRECCommander(commanderName,fmt,callback){
   if(typeof fmt==='function'){callback=fmt;fmt='';}// rétrocompat
   if(!commanderName){callback(null);return;}
   // Normalisation : si le deck stocke le nom traduit (ex. « Blech, parasite irritant »), on bascule
-  // sur le nom anglais canonique des métas Scryfall (« Blex, Vexing Pest ») avant de générer le slug.
+  // sur le nom anglais canonique des métas Scryfall avant de générer le slug EDHREC.
   try{
     var _nlIn=commanderName.split(' // ')[0].toLowerCase();
     var _metaCmd=(typeof _anaData!=='undefined')?(_anaData[_nlIn]||_anaData[(typeof stripDFC==='function')?stripDFC(_nlIn):_nlIn]):null;
+    // Fallback : recherche par printed_name (nom traduit) si la clé directe ne match pas
+    if(!_metaCmd&&typeof _anaData!=='undefined'){
+      for(var _k in _anaData){
+        var _m=_anaData[_k];if(!_m)continue;
+        var _pn=(_m.printedName||_m.printed_name||'').toLowerCase();
+        if(_pn&&_pn===_nlIn){_metaCmd=_m;break;}
+      }
+    }
     if(_metaCmd&&_metaCmd.name&&_metaCmd.name.toLowerCase()!==_nlIn)commanderName=_metaCmd.name;
   }catch(_){}
+  console.log('[EDHREC] slug pour « '+commanderName+' » → '+_anaCommanderSlug(commanderName));
   var slug=_anaCommanderSlug(commanderName);
   if(!slug){callback(null);return;}
   var isPauperCmd=(fmt||'').toLowerCase()==='paupercmd';
@@ -40888,19 +40900,39 @@ async function anaRender(deckId){
     if(!_metaSwaps.length&&!_maisonSwaps.length)return;
     var metaAddSet={};_metaSwaps.forEach(function(s){metaAddSet[s.add.nl]=1;});
     var maisonAddSet={};_maisonSwaps.forEach(function(s){if(s.add)maisonAddSet[s.add.nl]=1;});
-    html+='<div class="card"><div class="lbl">🌐 Méta vs 🔧 Maison — deux regards</div>';
+    var _mvm=_anaViewMode.mvm||'list';
+    html+='<div class="card"><div class="ana-section-head"><div class="lbl">🌐 Méta vs 🔧 Maison — deux regards</div>'+viewToggle('mvm')+'</div>';
     html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">À gauche, ce que jouent les decks EDHREC de ton commandant ; à droite, ce que recommande notre analyse (synergie, courbe, récursion…). Une entrée <span style="color:#78c890">verte ✓</span> apparaît dans les deux = <b>consensus fort</b>. Les divergences, c\'est là que ton jugement tranche.</div>';
+    // Rendu d'un swap en mode image (cut → add)
+    function _mvmImg(cutName,addName,extraBadge,consensus){
+      var cMeta=_anaData[(cutName||'').toLowerCase()]||{};
+      var aMeta=_anaData[(addName||'').toLowerCase()]||{};
+      var col=consensus?'#78c890':'var(--gold2)';
+      return '<div style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:.5px solid var(--bd2)">'
+        +'<div style="flex:1;min-width:0">'+_anaOptImgCard(cutName,cMeta,'','#e07070')+'</div>'
+        +'<div style="color:'+col+';font-size:14px;flex-shrink:0">→</div>'
+        +'<div style="flex:1;min-width:0">'+_anaOptImgCard(addName,aMeta,'',col,_ownQOpt({nl:(addName||'').toLowerCase(),name:addName}))+'</div>'
+        +(extraBadge?'<div style="font-size:9px;color:var(--tx3);flex-shrink:0;writing-mode:vertical-rl">'+extraBadge+'</div>':'')
+        +'</div>';
+    }
+    // Helper « possédée » pour mode image (cf. _anaRenderOptPanel)
+    var _ownSetMvm={};try{(getProfCards(0)||[]).forEach(function(c){var k=(c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'')).toLowerCase();_ownSetMvm[k]=(_ownSetMvm[k]||0)+(c.qty||1);});}catch(e){}
+    function _ownQOpt(card){return _ownSetMvm[((card&&card.nl)||(card&&card.name)||'').toLowerCase()]||0;}
     html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
     // Colonne Méta
     html+='<div><div style="font-size:11px;color:#c8a8ff;font-family:Goudy Mediaeval,serif;margin-bottom:6px;letter-spacing:.05em">🌐 MÉTA (EDHREC)</div>';
     if(!_metaSwaps.length)html+='<div style="font-size:10px;color:var(--tx3);font-style:italic;line-height:1.5">Pas de données EDHREC pour ce commandant (carte trop récente ou peu jouée). La colonne maison reste fiable.</div>';
     _metaSwaps.forEach(function(s){
       var cons=!!maisonAddSet[s.add.nl];
-      html+='<div style="font-size:10.5px;line-height:1.5;padding:3px 0;border-bottom:.5px solid var(--bd2)">'
-        +'<span style="color:#e07070">– '+esc(s.cut.name)+'</span> → '
-        +'<span style="color:'+(cons?'#78c890':'var(--gold2)')+'"'+(cons?' title="Consensus avec l\'analyse maison"':'')+'>+ '+esc(s.add.name)+(cons?' ✓':'')+'</span>'
-        +' <span style="color:var(--tx3);font-size:9px" title="% de decks EDHREC : carte coupée → carte ajoutée">('+Math.round(s.cutFreq*100)+'%→'+Math.round(s.addFreq*100)+'%)</span>'
-        +'</div>';
+      if(_mvm==='image'){
+        html+=_mvmImg(s.cut.name,s.add.name,Math.round(s.cutFreq*100)+'%→'+Math.round(s.addFreq*100)+'%',cons);
+      } else {
+        html+='<div style="font-size:10.5px;line-height:1.5;padding:3px 0;border-bottom:.5px solid var(--bd2)">'
+          +'<span style="color:#e07070">– '+esc(s.cut.name)+'</span> → '
+          +'<span style="color:'+(cons?'#78c890':'var(--gold2)')+'"'+(cons?' title="Consensus avec l\'analyse maison"':'')+'>+ '+esc(s.add.name)+(cons?' ✓':'')+'</span>'
+          +' <span style="color:var(--tx3);font-size:9px" title="% de decks EDHREC : carte coupée → carte ajoutée">('+Math.round(s.cutFreq*100)+'%→'+Math.round(s.addFreq*100)+'%)</span>'
+          +'</div>';
+      }
     });
     html+='</div>';
     // Colonne Maison
@@ -40908,11 +40940,15 @@ async function anaRender(deckId){
     if(!_maisonSwaps.length)html+='<div style="font-size:10px;color:var(--tx3);font-style:italic">Aucun upgrade franc.</div>';
     _maisonSwaps.forEach(function(sw){
       var cons=!!(sw.add&&metaAddSet[sw.add.nl]);
-      html+='<div style="font-size:10.5px;line-height:1.5;padding:3px 0;border-bottom:.5px solid var(--bd2)">'
-        +'<span style="color:#e07070">– '+esc(sw.cut.name)+'</span> → '
-        +'<span style="color:'+(cons?'#78c890':'var(--gold2)')+'"'+(cons?' title="Consensus avec le méta EDHREC"':'')+'>+ '+esc(sw.add.name)+(cons?' ✓':'')+'</span>'
-        +(sw.gain!=null?' <span style="color:var(--tx3);font-size:9px" title="Gain de score de l\'analyse">+'+sw.gain.toFixed(1)+'</span>':'')
-        +'</div>';
+      if(_mvm==='image'){
+        html+=_mvmImg(sw.cut.name,sw.add.name,sw.gain!=null?'+'+sw.gain.toFixed(1):'',cons);
+      } else {
+        html+='<div style="font-size:10.5px;line-height:1.5;padding:3px 0;border-bottom:.5px solid var(--bd2)">'
+          +'<span style="color:#e07070">– '+esc(sw.cut.name)+'</span> → '
+          +'<span style="color:'+(cons?'#78c890':'var(--gold2)')+'"'+(cons?' title="Consensus avec le méta EDHREC"':'')+'>+ '+esc(sw.add.name)+(cons?' ✓':'')+'</span>'
+          +(sw.gain!=null?' <span style="color:var(--tx3);font-size:9px" title="Gain de score de l\'analyse">+'+sw.gain.toFixed(1)+'</span>':'')
+          +'</div>';
+      }
     });
     html+='</div>';
     html+='</div></div>';
