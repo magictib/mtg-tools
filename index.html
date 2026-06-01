@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-05-31-6';
+window.APP_BUILD='2026-05-31-7';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -33082,6 +33082,34 @@ function _anaSaveCache(){_anaData.__version=24;try{localStorage.setItem('mtg_ana
 
 // Mode d'affichage (liste/image) par section, persiste
 var _anaViewMode={top:'list',bottom:'list',sugg:'list',opt:'list',mvm:'list'};
+// Triage manuel : flags par carte ({deckId: {cardNl: 'keep'|'maybe'|'change'}})
+var _anaFlags={};
+try{var __af=localStorage.getItem('mtg_ana_flags');if(__af)_anaFlags=JSON.parse(__af)||{};}catch(e){}
+function _anaFlagsSave(){try{localStorage.setItem('mtg_ana_flags',JSON.stringify(_anaFlags));}catch(e){}}
+function _anaFlagGet(deckId,nl){return (_anaFlags[deckId]||{})[nl]||null;}
+function _anaFlagSet(deckId,nl,flag){
+  if(!_anaFlags[deckId])_anaFlags[deckId]={};
+  if(flag)_anaFlags[deckId][nl]=flag;else delete _anaFlags[deckId][nl];
+  _anaFlagsSave();
+  // Mise à jour visuelle sans full re-render
+  var row=document.querySelector('[data-flag-row="'+CSS.escape(nl)+'"]');
+  if(row){row.querySelectorAll('[data-flag-btn]').forEach(function(b){b.classList.toggle('active',b.dataset.flagBtn===flag);});}
+  _anaFlagRefreshCounts(deckId);
+}
+function _anaFlagRefreshCounts(deckId){
+  var f=_anaFlags[deckId]||{};var k=0,m=0,c=0;
+  Object.keys(f).forEach(function(nl){var v=f[nl];if(v==='keep')k++;else if(v==='maybe')m++;else if(v==='change')c++;});
+  var el=document.getElementById('ana-flag-counts');
+  if(el)el.innerHTML='<span style="color:#78c890">✅ '+k+'</span> · <span style="color:#f5b95b">🤔 '+m+'</span> · <span style="color:#e07070">🔄 '+c+'</span>';
+}
+function _anaFlagFilter(q){
+  q=(q||'').trim().toLowerCase();
+  var list=document.getElementById('ana-flag-list');if(!list)return;
+  list.querySelectorAll('[data-flag-row]').forEach(function(r){
+    var name=r.dataset.nameLc||'';
+    r.style.display=(!q||name.indexOf(q)>=0)?'flex':'none';
+  });
+}
 try{var __aV=localStorage.getItem('mtg_ana_view');if(__aV){var __aVP=JSON.parse(__aV);if(__aVP)Object.keys(_anaViewMode).forEach(function(k){if(__aVP[k])_anaViewMode[k]=__aVP[k];});}}catch(e){}
 function anaSetView(section,mode){
   _anaViewMode[section]=mode;
@@ -34478,7 +34506,7 @@ function anaInit(){
 // Mapping label-card → catégorie d'onglet (regex pour matcher robustement)
 var _ANA_TAB_RULES=[
   {tab:'overview',  pats:[/répartition par type/i,/courbe de mana/i,/heatmap par tour/i]},
-  {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i,/méta vs.*maison/i,/deux regards/i]},
+  {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i,/méta vs.*maison/i,/deux regards/i,/triage du deck/i,/flagger les cartes/i]},
   {tab:'manabase',  pats:[/analyse des terrains/i,/manabase/i]},
   {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i,/mulligan/i]},
   {tab:'strategy',  pats:[/combos/i,/game changers/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
@@ -35745,9 +35773,19 @@ function anaAnalyze(){
       _res.innerHTML='<div class="card" style="text-align:center;padding:40px 20px 44px"><div style="width:38px;height:38px;border:3.5px solid var(--bd2);border-top-color:var(--gold2);border-radius:50%;animation:_anaSpin .85s linear infinite;margin:0 auto 18px"></div><div style="font-size:14px;font-weight:bold;color:var(--tx2);margin-bottom:7px;font-family:\'Goudy Mediaeval\',serif">Analyse en cours…</div><div style="font-size:11px;color:var(--tx3);font-style:italic">Simulation de 150 parties et calcul des recommandations…</div></div>';
     }
     // EDHREC async — démarre immédiatement pour profiter du délai de chargement
-    if(deck.commander&&deck.commander.name&&anaIsCommanderFormat(deck.format)){
+    // Récupère le nom du commandant : soit via deck.commander, soit via une carte dont la section
+    // commence par « commander »/« commandant » (les deux conventions de stockage existent).
+    var _edhCmdName=(deck.commander&&deck.commander.name)||null;
+    if(!_edhCmdName&&deck.cards){
+      for(var _ci=0;_ci<deck.cards.length;_ci++){
+        if(/^commander|^commandant/.test((deck.cards[_ci].sec||'').toLowerCase())){
+          _edhCmdName=deck.cards[_ci].name;break;
+        }
+      }
+    }
+    if(_edhCmdName&&anaIsCommanderFormat(deck.format)){
       var preStatus=st.textContent;
-      anaFetchEDHRECCommander(deck.commander.name,deck.format,function(edhrecFreq){
+      anaFetchEDHRECCommander(_edhCmdName,deck.format,function(edhrecFreq){
         if(edhrecFreq){
           _anaCurrentEDHREC=edhrecFreq;
           st.textContent=preStatus+' · ✓ EDHREC ('+Object.keys(edhrecFreq).length+' cartes)';
@@ -40879,6 +40917,45 @@ async function anaRender(deckId){
     });
   }
   html+='</div></div>';
+
+  // === Triage du deck : flags par carte (garde / à voir / change) ===
+  (function(){
+    if(!nonLandRows||!nonLandRows.length)return;
+    html+='<div class="card"><div class="lbl">📋 Triage du deck — flagger les cartes</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:8px;font-style:italic">Marque chaque carte selon ce que tu décides : <b style="color:#78c890">✅ garde</b>, <b style="color:#f5b95b">🤔 à voir</b>, ou <b style="color:#e07070">🔄 change</b>. Sauvegardé par deck (re-clic = retire).</div>';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">'
+      +'<div style="font-size:11px;color:var(--tx2)" id="ana-flag-counts">…</div>'
+      +'<input type="text" placeholder="🔎 filtrer par nom…" oninput="_anaFlagFilter(this.value)" style="font-size:11px;padding:3px 8px;max-width:200px">'
+      +'</div>';
+    html+='<div class="thin-scroll" id="ana-flag-list" style="max-height:420px;overflow-y:auto">';
+    // Tri : type primaire puis nom
+    var sorted=nonLandRows.slice().sort(function(a,b){
+      var ta=((a.meta&&a.meta.typeLine||'').split(' — ')[0]||'').toLowerCase();
+      var tb=((b.meta&&b.meta.typeLine||'').split(' — ')[0]||'').toLowerCase();
+      if(ta!==tb)return ta<tb?-1:1;
+      return (a.card.name||'').localeCompare(b.card.name||'');
+    });
+    sorted.forEach(function(r){
+      var nl=r.card.nl;if(!nl)return;
+      var flag=_anaFlagGet(deckId,nl);
+      var tl=(r.meta&&r.meta.typeLine||'').split(' — ')[0];
+      var cmc=(r.meta&&r.meta.cmc!=null)?r.meta.cmc:'?';
+      var btn=function(k,emo,lab,col){return '<button data-flag-btn="'+k+'" class="ana-flag-btn'+(flag===k?' active':'')+'" title="'+lab+'" onclick="_anaFlagSet(\''+escJs(deckId)+'\',\''+escJs(nl)+'\',\''+(flag===k?'':k)+'\')" style="background:'+(flag===k?col:'transparent')+';border:.5px solid '+(flag===k?col:'var(--bd2)')+';border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:13px;padding:0;line-height:1;color:'+(flag===k?'#0a0a0a':'var(--tx2)')+'">'+emo+'</button>';};
+      html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--bd2)">'
+        +'<div style="flex:1;min-width:0">'
+          +'<div style="font-size:11.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.card.name)+'</div>'
+          +'<div style="font-size:9px;color:var(--tx3)">'+esc(tl)+' · '+cmc+' mana</div>'
+        +'</div>'
+        +'<div style="display:flex;gap:3px;flex-shrink:0">'
+          +btn('keep','✅','Je garde','rgba(120,200,144,.85)')
+          +btn('maybe','🤔','À voir','rgba(245,185,91,.85)')
+          +btn('change','🔄','Je change','rgba(224,112,112,.85)')
+        +'</div>'
+        +'</div>';
+    });
+    html+='</div></div>';
+    setTimeout(function(){_anaFlagRefreshCounts(deckId);},0);
+  })();
 
   // === Suggestions + Plan (mode toggle : Composition vs Simulation) ===
   var _dMode=_anaDisplayMode[deckId]||'compo';
