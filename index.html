@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-8';
+window.APP_BUILD='2026-06-02-9';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -37108,47 +37108,105 @@ var _ANA_POWER_GC=['ancient tomb','bolas\'s citadel','chrome mox','coalition vic
 var _ANA_POWER_FASTMANA=['sol ring','mana crypt','mana vault','grim monolith','mox diamond','chrome mox','mox opal','jeweled lotus','lotus petal','dark ritual','cabal ritual','jeska\'s will','simian spirit guide','elvish spirit guide','lion\'s eye diamond','arcane signet'];
 var _ANA_POWER_LABELS=['','Exhibition','Cœur','Amélioré','Optimisé','cEDH'];
 
-// ─── Staples « intouchables » EDH ───────────────────────────────────────────
-// Cartes dont la valeur intrinsèque dépasse n'importe quel upgrade local de scoring (+2/+8).
-// Un pro ne les coupe JAMAIS pour gagner « +5.3 sur Grixis Slavedriver ». Conséquences :
-//  1. Bonus +10 dans _anaThemeSynergyScore → elles ne tombent jamais en « moins efficaces ».
-//  2. Filtrées en sortie de _maisonSwaps → elles n'apparaissent jamais comme « cut » dans le triage.
-// Liste volontairement restreinte aux cartes vraiment irremplaçables dans leur identité de couleur,
-// pour éviter de geler le scoring. À étendre avec parcimonie quand on identifie de nouveaux faux-cuts.
-var _ANA_UNTOUCHABLE_STAPLES={
-  // Counters bleus de référence
-  'counterspell':1,'mana drain':1,'force of will':1,'force of negation':1,
-  'fierce guardianship':1,'pact of negation':1,'mana leak':1,'arcane denial':1,
-  'swan song':1,'negate':1,
-  // Removal noir cheap (le standard)
-  'doom blade':1,'go for the throat':1,'fatal push':1,'infernal grasp':1,
-  'hero\'s downfall':1,'feed the swarm':1,'cast down':1,'bloodchief\'s thirst':1,
-  // Removal blanc cheap
-  'swords to plowshares':1,'path to exile':1,'generous gift':1,
-  // Removal multi-cible / mass changeant le rythme
-  'cyclonic rift':1,'toxic deluge':1,'damnation':1,'wrath of god':1,'farewell':1,
-  'blasphemous act':1,'merciless eviction':1,'austere command':1,'anguished unmaking':1,
-  'assassin\'s trophy':1,'utter end':1,'vindicate':1,
-  // Tutors top tier
-  'demonic tutor':1,'vampiric tutor':1,'mystical tutor':1,'enlightened tutor':1,
-  'imperial seal':1,'grim tutor':1,
-  // Ramp universel
-  'sol ring':1,'mana crypt':1,'arcane signet':1,'thought vessel':1,'mind stone':1,
-  'fellwar stone':1,'commander\'s sphere':1,
-  // Draw moteur premium
-  'rhystic study':1,'mystic remora':1,'phyrexian arena':1,'esper sentinel':1,
-  'sylvan library':1,'necropotence':1,'night\'s whisper':1,'sign in blood':1,
-  'read the bones':1,'blood pact':1,'painful truths':1,
-  // Hand attack premium (proactif anti-combo, irremplaçable en combat)
-  'duress':1,'thoughtseize':1,'inquisition of kozilek':1,
-  // Couleur-fixe / mana
-  'chromatic lantern':1,'birds of paradise':1,'noble hierarch':1
+// ─── Staples EDH par archétype ──────────────────────────────────────────────
+// Un pro ne coupe pas Counterspell pour Crawl from the Cellar — mais Counterspell n'est PAS
+// universel pour autant : en aristocrats sacrificiel, le slot est mieux occupé par un Blood
+// Artist ou un sac outlet. De même Phyrexian Arena est terrible en burn/aggro (trop lent),
+// Distant Melody est nul hors tribal, Duress est marginal en midrange.
+//
+// On classe donc les staples par BUCKET d'archétype. Un cut est bloqué SEULEMENT si la carte
+// matche un bucket actif pour l'archétype détecté du deck. Le scoring bonus est appliqué de
+// la même façon — pas de +12 universel.
+var _ANA_STAPLE_BUCKETS={
+  // Vraiment universel : marche dans n'importe quel archétype/couleur. À garder très court.
+  universal:{
+    'sol ring':1,'mana crypt':1,'arcane signet':1,'commander\'s sphere':1,
+    'fellwar stone':1,'mind stone':1,'thought vessel':1,
+    'demonic tutor':1,'vampiric tutor':1,'mystical tutor':1,'enlightened tutor':1,
+    'imperial seal':1,'grim tutor':1
+  },
+  // Removal cheap : premium dans tout deck qui veut interagir (midrange, control, tempo,
+  // combo, toolbox, prison). Excluant aggro pur / bigmana / group_hug où la pression ou
+  // les big spells priment et où le slot d'interaction est marginal.
+  removal_cheap:{
+    'swords to plowshares':1,'path to exile':1,'generous gift':1,
+    'doom blade':1,'go for the throat':1,'fatal push':1,'infernal grasp':1,
+    'hero\'s downfall':1,'cast down':1,'bloodchief\'s thirst':1,'feed the swarm':1,
+    'lightning bolt':1,'unholy heat':1,'galvanic blast':1,
+    'anguished unmaking':1,'assassin\'s trophy':1,'utter end':1,'vindicate':1
+  },
+  // Counters : key en control/tempo/combo/toolbox. Inutiles en aggro/bigmana/group_hug.
+  counters:{
+    'counterspell':1,'mana drain':1,'force of will':1,'force of negation':1,
+    'fierce guardianship':1,'pact of negation':1,'mana leak':1,'arcane denial':1,
+    'swan song':1,'negate':1,'spell pierce':1,'flusterstorm':1
+  },
+  // Mass removal : changement de rythme — pertinent partout SAUF aggro/group_hug/voltron
+  // (où un wrath efface ton plan).
+  mass_removal:{
+    'cyclonic rift':1,'toxic deluge':1,'damnation':1,'wrath of god':1,'farewell':1,
+    'blasphemous act':1,'merciless eviction':1,'austere command':1,'damn':1,
+    'crippling fear':1
+  },
+  // Draw « grindy » : moteurs lents qui payent sur la durée. Top en midrange/control/toolbox/
+  // bigmana/prison/stax. Mauvais en aggro/burn (trop lents).
+  grindy_draw:{
+    'rhystic study':1,'mystic remora':1,'phyrexian arena':1,'esper sentinel':1,
+    'sylvan library':1,'necropotence':1,'the one ring':1
+  },
+  // Draw cheap (cantrips + petits draws) : bon partout sauf bigmana pur où on veut du draw massif.
+  cheap_draw:{
+    'night\'s whisper':1,'sign in blood':1,'read the bones':1,'blood pact':1,
+    'painful truths':1,'preordain':1,'ponder':1,'brainstorm':1,'opt':1,
+    'consider':1,'thought scour':1
+  },
+  // Hand attack : proactif anti-combo, payoff en control/combo/tempo/prison/toolbox.
+  // En midrange/aggro/bigmana c'est souvent un blank-card en milieu de partie.
+  proactive_disruption:{
+    'duress':1,'thoughtseize':1,'inquisition of kozilek':1,'unmask':1,
+    'hymn to tourach':1,'mind twist':1
+  },
+  // Fixe mana premium : payent leur slot partout en multi-couleur.
+  color_fixing:{
+    'chromatic lantern':1,'birds of paradise':1,'noble hierarch':1,
+    'three visits':1,'nature\'s lore':1,'cultivate':1,'kodama\'s reach':1,
+    'rampant growth':1,'farseek':1
+  }
 };
-// Helper : vrai si la carte est une staple intouchable.
-function _anaIsUntouchable(meta){
-  if(!meta||!meta.name)return false;
-  return !!_ANA_UNTOUCHABLE_STAPLES[meta.name.toLowerCase()];
+// Mapping archétype → liste des buckets actifs. Un staple est « protégé » si la carte
+// appartient à au moins un bucket actif pour l'archétype courant.
+var _ANA_ARCH_BUCKETS={
+  aggro:    ['universal','removal_cheap','cheap_draw','color_fixing'],
+  midrange: ['universal','removal_cheap','mass_removal','grindy_draw','cheap_draw','color_fixing'],
+  control:  ['universal','removal_cheap','counters','mass_removal','grindy_draw','cheap_draw','proactive_disruption','color_fixing'],
+  combo:    ['universal','removal_cheap','counters','cheap_draw','proactive_disruption','color_fixing'],
+  tempo:    ['universal','removal_cheap','counters','cheap_draw','proactive_disruption','color_fixing'],
+  bigmana:  ['universal','removal_cheap','mass_removal','grindy_draw','color_fixing'],
+  toolbox:  ['universal','removal_cheap','counters','mass_removal','grindy_draw','cheap_draw','proactive_disruption','color_fixing'],
+  prison:   ['universal','removal_cheap','counters','mass_removal','grindy_draw','proactive_disruption','color_fixing']
+};
+// Bonus de score par bucket. Universal et removal_cheap valent un peu plus que les autres
+// parce que leur valeur est moins discutable.
+var _ANA_STAPLE_BONUS={universal:12,removal_cheap:10,counters:10,mass_removal:9,
+  grindy_draw:8,cheap_draw:5,proactive_disruption:7,color_fixing:6};
+// Helper : vrai si la carte est une staple intouchable pour l'archétype du deck courant.
+// Renvoie aussi le bonus pour _anaThemeSynergyScore.
+function _anaStapleBonusFor(meta,archetype){
+  if(!meta||!meta.name)return 0;
+  var nm=meta.name.toLowerCase();
+  var buckets=_ANA_ARCH_BUCKETS[archetype]||_ANA_ARCH_BUCKETS.midrange;
+  for(var i=0;i<buckets.length;i++){
+    var b=buckets[i];
+    if(_ANA_STAPLE_BUCKETS[b]&&_ANA_STAPLE_BUCKETS[b][nm])return _ANA_STAPLE_BONUS[b]||0;
+  }
+  return 0;
 }
+function _anaIsUntouchable(meta,archetype){
+  return _anaStapleBonusFor(meta,archetype||_anaCurrentArchetype)>0;
+}
+// Archétype courant (set par anaRender). Permet à _anaThemeSynergyScore et au filtre des
+// swaps d'utiliser le bon bucket sans avoir à passer l'archétype partout.
+var _anaCurrentArchetype='midrange';
 function _anaDeckPower(deck){
   if(!deck||!deck.cards||!deck.cards.length)return null;
   var gc=0,fastMana=0,tutors=0,extraTurns=0,landDenial=0,freeSpells=0,n=0,cmcSum=0,gcNames=[];
@@ -38615,9 +38673,11 @@ function _anaThemeSynergyScore(cardMeta,themes){
   var o=cardMeta.oracleText.toLowerCase();
   var t=(cardMeta.typeLine||'').toLowerCase();
   var s=0;var th=themes||{};
-  // Staples intouchables : bonus massif qui les sort des « moins efficaces » et empêche
-  // tout swap local de paraître valable. Un pro ne coupe pas Counterspell pour gagner +5.
-  if(_anaIsUntouchable(cardMeta))s+=12;
+  // Staples : bonus dépendant de l'archétype du deck. Counterspell vaut +10 en control/tempo
+  // mais 0 en aggro pur (le tap-out est mortel). Phyrexian Arena +8 en midrange mais 0 en
+  // burn. Sol Ring +12 partout. Le bonus sort la carte des « moins efficaces » sans figer
+  // tous les decks sur la même liste.
+  s+=_anaStapleBonusFor(cardMeta,_anaCurrentArchetype);
   // Tribal draw scalable : « draw cards equal to the number of [Tribu] you control »
   // (Distant Melody, Shamanic Revelation type) — la carte explose en valeur en deck tribal,
   // le scoring brut la traite comme un simple gros draw. Détection générique via customTribes.
@@ -39487,7 +39547,7 @@ function anaRefreshMatrix(){
       if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
       if((sw.gain!=null)&&sw.gain<2)return false;
       // Staples intouchables : jamais en cut (même côté simulation goldfish).
-      if(sw.cut&&sw.cut.name&&_ANA_UNTOUCHABLE_STAPLES[sw.cut.name.toLowerCase()])return false;
+      if(sw.cut&&_anaIsUntouchable(sw.cut))return false;
       return true;
     });
     // Étape 1 : matrice du deck actuel
@@ -39894,6 +39954,8 @@ async function anaRender(deckId){
     if(_m&&(_m.typeLine||'').toLowerCase().indexOf('aura')>=0)_auraCount+=(c.qty||1);
   });
   _anaCurrentThemes._auraCount=_auraCount;
+  // Archétype courant pour le scoring des staples (Counterspell≠staple en aggro, etc.)
+  _anaCurrentArchetype=_anaResolveArchetype(deck,deckId)||'midrange';
 
   // Per-card data (UN SEUL DECK)
   // Le score utilisé pour le tri top/bottom intègre le synergy weight des thèmes
@@ -41184,10 +41246,9 @@ async function anaRender(deckId){
   var _maisonSwaps=(fullOpt.swaps||[]).filter(function(sw){
     if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
     if((sw.gain!=null)&&sw.gain<2)return false;
-    // Staples intouchables : on ne propose JAMAIS de couper Counterspell pour Crawl from
-    // the Cellar, ou Doom Blade pour Banishing Betrayal. Un pro ne le ferait pas, le
-    // scoring local ne capture pas leur valeur intrinsèque.
-    if(sw.cut&&sw.cut.name&&_ANA_UNTOUCHABLE_STAPLES[sw.cut.name.toLowerCase()])return false;
+    // Staples intouchables (archétype-sensible) : Counterspell ne peut pas être proposé
+    // en cut en deck control/tempo/combo, mais l'est en aggro pur. Cf. _ANA_ARCH_BUCKETS.
+    if(sw.cut&&_anaIsUntouchable(sw.cut))return false;
     return true;
   });
   // Index swaps par carte coupée (pour affichage côté Triage + application)
