@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-3';
+window.APP_BUILD='2026-06-02-4';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -10380,25 +10380,29 @@ function _syncProfsForCtx(ctx){
 function renderProfSlots(ctx,containerId){
   _syncProfsForCtx(ctx);
   var container=document.getElementById(containerId);if(!container)return;
-  var extras=_epSlots[ctx]||[];
+  // Contexte « deck » : on n'autorise QUE le profil du user comme propriétaire d'un deck.
+  // Permettre de créer un deck pour un ami n'a pas de sens (les listes partagées passent par
+  // un autre système). On masque donc les slots amis et le bouton « + » dans ce contexte.
+  var isDeck=(ctx==='deck');
+  var extras=isDeck?[]:(_epSlots[ctx]||[]);
   var html='';
   // Slot 0 = vous (always, can't remove)
   var cards0=getProfCards(0);
   var tot0=cards0.reduce(function(s,c){return s+(c.qty||1);},0);
   var info0=tot0>0?tot0+' cartes':(profs[0]&&profs[0].length?profs[0].length+' entrées':'Vide');
-  var active0=(ctx==='coll'?collP===0:ctx==='deck'?dOwner===0:actP===0);
+  var active0=(ctx==='coll'?collP===0:isDeck?dOwner===0:actP===0);
   html+='<div class="pb pb-self'+(active0?' active':'')+(tot0>0?' hasdata':'')+'" onclick="_onProfClick(\''+ctx+'\',0)">'
     +'<div class="pdot"></div>'
     +'<div class="pname">'+esc(PN[0]||'Moi')+'</div>'
     +'<div class="pinfo">'+info0+'</div>'
     +'</div>';
-  // Extra slots
+  // Extra slots (uniquement hors contexte deck)
   extras.forEach(function(ep,idx){
     var i=idx+1;
     var cards=getProfCards(i);
     var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
     var info=_epCards[ep.uid]===undefined?'Chargement…':(tot>0?tot+' cartes':(_epCards[ep.uid]&&_epCards[ep.uid].length?_epCards[ep.uid].length+' entrées':'Vide'));
-    var active=(ctx==='coll'?collP===i:ctx==='deck'?dOwner===i:actP===i);
+    var active=(ctx==='coll'?collP===i:actP===i);
     html+='<div class="pb'+(active?' active':'')+(tot>0?' hasdata':'')+'" onclick="_onProfClick(\''+ctx+'\','+i+')">'
       +'<div class="pdot"></div>'
       +'<div class="pname">'+esc(ep.name)+'</div>'
@@ -10406,8 +10410,8 @@ function renderProfSlots(ctx,containerId){
       +'<button class="pb-rm" onclick="event.stopPropagation();removeExtraProf(\''+ctx+'\',\''+ep.uid+'\')" title="Retirer">✕</button>'
       +'</div>';
   });
-  // + button
-  html+='<div class="pb-plus" onclick="openProfilePicker(\''+ctx+'\')">＋</div>';
+  // + button (caché en contexte deck)
+  if(!isDeck)html+='<div class="pb-plus" onclick="openProfilePicker(\''+ctx+'\')">＋</div>';
   container.innerHTML=html;
 }
 
