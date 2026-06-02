@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-2';
+window.APP_BUILD='2026-06-02-3';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -41090,11 +41090,24 @@ async function anaRender(deckId){
     var _nMaisonSug=0,_nMetaSug=0;
     Object.keys(_swapByCutNl).forEach(function(k){if(_swapByCutNl[k].maison)_nMaisonSug++;if(_swapByCutNl[k].meta)_nMetaSug++;});
     var _edhrecOk=edhrecFreq&&Object.keys(edhrecFreq).length>=10;
+    // Si EDHREC ne renvoie rien, le cas le plus fréquent en pratique est : le commandant
+    // n'est pas légendaire (donc pas de page « commanders/ » sur EDHREC). On le dit clairement.
+    var _cmdMetaInfo=null;
+    try{
+      var _cmdNm2=(deck.commander&&deck.commander.name)||null;
+      if(!_cmdNm2&&deck.cards){for(var __c2=0;__c2<deck.cards.length;__c2++){if(/^commander|^commandant/i.test(deck.cards[__c2].sec||'')){_cmdNm2=deck.cards[__c2].name;break;}}}
+      if(_cmdNm2){var _cmdNl2=(typeof stripDFC==='function'?stripDFC(_cmdNm2):_cmdNm2).toLowerCase();_cmdMetaInfo=_anaData[_cmdNl2]||null;}
+    }catch(_e){}
+    var _cmdIsLeg=_cmdMetaInfo&&(_cmdMetaInfo.typeLine||'').toLowerCase().indexOf('legendary')>=0;
+    var _metaMsg=_edhrecOk
+      ? '🌐 '+_nMetaSug+' swap'+(_nMetaSug>1?'s':'')+' méta'+(_nMetaSug===0?' (le deck colle déjà au méta)':'')
+      : (_cmdMetaInfo&&!_cmdIsLeg
+          ? '🌐 Pas de page EDHREC : « '+esc(_cmdMetaInfo.name||'commandant')+' » n\'est pas une créature légendaire'
+          : '🌐 EDHREC indisponible (réseau ou commandant trop rare)');
+    var _metaCol=_edhrecOk?'#c8a8ff':(_cmdMetaInfo&&!_cmdIsLeg?'#f5b95b':'#e07070');
     html+='<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
       +'<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(218,180,107,.12);color:var(--gold2);border:.5px solid var(--gold2)">🔧 '+_nMaisonSug+' swap'+(_nMaisonSug>1?'s':'')+' maison</span>'
-      +(_edhrecOk
-        ?'<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(200,168,255,.12);color:#c8a8ff;border:.5px solid #c8a8ff">🌐 '+_nMetaSug+' swap'+(_nMetaSug>1?'s':'')+' méta'+(_nMetaSug===0?' (le deck colle déjà au méta)':'')+'</span>'
-        :'<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:rgba(224,112,112,.12);color:#e07070;border:.5px solid #e07070" title="Les données EDHREC du commandant ne sont pas encore arrivées (ou indisponibles).">🌐 EDHREC indisponible — colonne méta vide</span>')
+      +'<span style="font-size:10px;padding:3px 8px;border-radius:4px;background:rgba('+(_edhrecOk?'200,168,255':(_cmdMetaInfo&&!_cmdIsLeg?'245,185,91':'224,112,112'))+',.12);color:'+_metaCol+';border:.5px solid '+_metaCol+'">'+_metaMsg+'</span>'
       +'</div>';
     html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">'
       +'<div style="font-size:11px;color:var(--tx2)" id="ana-flag-counts">…</div>'
