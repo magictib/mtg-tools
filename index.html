@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-7';
+window.APP_BUILD='2026-06-02-8';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -37107,6 +37107,48 @@ function _anaApplyCommanderSignals(o,bump,labels){
 var _ANA_POWER_GC=['ancient tomb','bolas\'s citadel','chrome mox','coalition victory','cyclonic rift','deflecting swat','demonic tutor','drannith magistrate','enlightened tutor','expropriate','fierce guardianship','field of the dead','force of will','gaea\'s cradle','gifts ungiven','glacial chasm','grand arbiter augustin iv','grim monolith','imperial seal','intuition','jeska\'s will','jeweled lotus','kinnan, bonder prodigy','mana drain','mana vault','mishra\'s workshop','mox diamond','mystic remora','najeela, the blade-blossom','necropotence','notion thief','opposition agent','orcish bowmasters','rhystic study','seedborn muse','serra\'s sanctum','smothering tithe','survival of the fittest','tergrid, god of fright','thassa\'s oracle','the one ring','the tabernacle at pendrell vale','trinisphere','underworld breach','urza, lord high artificer','vampiric tutor','yuriko, the tiger\'s shadow'];
 var _ANA_POWER_FASTMANA=['sol ring','mana crypt','mana vault','grim monolith','mox diamond','chrome mox','mox opal','jeweled lotus','lotus petal','dark ritual','cabal ritual','jeska\'s will','simian spirit guide','elvish spirit guide','lion\'s eye diamond','arcane signet'];
 var _ANA_POWER_LABELS=['','Exhibition','Cœur','Amélioré','Optimisé','cEDH'];
+
+// ─── Staples « intouchables » EDH ───────────────────────────────────────────
+// Cartes dont la valeur intrinsèque dépasse n'importe quel upgrade local de scoring (+2/+8).
+// Un pro ne les coupe JAMAIS pour gagner « +5.3 sur Grixis Slavedriver ». Conséquences :
+//  1. Bonus +10 dans _anaThemeSynergyScore → elles ne tombent jamais en « moins efficaces ».
+//  2. Filtrées en sortie de _maisonSwaps → elles n'apparaissent jamais comme « cut » dans le triage.
+// Liste volontairement restreinte aux cartes vraiment irremplaçables dans leur identité de couleur,
+// pour éviter de geler le scoring. À étendre avec parcimonie quand on identifie de nouveaux faux-cuts.
+var _ANA_UNTOUCHABLE_STAPLES={
+  // Counters bleus de référence
+  'counterspell':1,'mana drain':1,'force of will':1,'force of negation':1,
+  'fierce guardianship':1,'pact of negation':1,'mana leak':1,'arcane denial':1,
+  'swan song':1,'negate':1,
+  // Removal noir cheap (le standard)
+  'doom blade':1,'go for the throat':1,'fatal push':1,'infernal grasp':1,
+  'hero\'s downfall':1,'feed the swarm':1,'cast down':1,'bloodchief\'s thirst':1,
+  // Removal blanc cheap
+  'swords to plowshares':1,'path to exile':1,'generous gift':1,
+  // Removal multi-cible / mass changeant le rythme
+  'cyclonic rift':1,'toxic deluge':1,'damnation':1,'wrath of god':1,'farewell':1,
+  'blasphemous act':1,'merciless eviction':1,'austere command':1,'anguished unmaking':1,
+  'assassin\'s trophy':1,'utter end':1,'vindicate':1,
+  // Tutors top tier
+  'demonic tutor':1,'vampiric tutor':1,'mystical tutor':1,'enlightened tutor':1,
+  'imperial seal':1,'grim tutor':1,
+  // Ramp universel
+  'sol ring':1,'mana crypt':1,'arcane signet':1,'thought vessel':1,'mind stone':1,
+  'fellwar stone':1,'commander\'s sphere':1,
+  // Draw moteur premium
+  'rhystic study':1,'mystic remora':1,'phyrexian arena':1,'esper sentinel':1,
+  'sylvan library':1,'necropotence':1,'night\'s whisper':1,'sign in blood':1,
+  'read the bones':1,'blood pact':1,'painful truths':1,
+  // Hand attack premium (proactif anti-combo, irremplaçable en combat)
+  'duress':1,'thoughtseize':1,'inquisition of kozilek':1,
+  // Couleur-fixe / mana
+  'chromatic lantern':1,'birds of paradise':1,'noble hierarch':1
+};
+// Helper : vrai si la carte est une staple intouchable.
+function _anaIsUntouchable(meta){
+  if(!meta||!meta.name)return false;
+  return !!_ANA_UNTOUCHABLE_STAPLES[meta.name.toLowerCase()];
+}
 function _anaDeckPower(deck){
   if(!deck||!deck.cards||!deck.cards.length)return null;
   var gc=0,fastMana=0,tutors=0,extraTurns=0,landDenial=0,freeSpells=0,n=0,cmcSum=0,gcNames=[];
@@ -38573,6 +38615,33 @@ function _anaThemeSynergyScore(cardMeta,themes){
   var o=cardMeta.oracleText.toLowerCase();
   var t=(cardMeta.typeLine||'').toLowerCase();
   var s=0;var th=themes||{};
+  // Staples intouchables : bonus massif qui les sort des « moins efficaces » et empêche
+  // tout swap local de paraître valable. Un pro ne coupe pas Counterspell pour gagner +5.
+  if(_anaIsUntouchable(cardMeta))s+=12;
+  // Tribal draw scalable : « draw cards equal to the number of [Tribu] you control »
+  // (Distant Melody, Shamanic Revelation type) — la carte explose en valeur en deck tribal,
+  // le scoring brut la traite comme un simple gros draw. Détection générique via customTribes.
+  if(th.customTribes&&th.customTribes.length){
+    if(/draw cards? equal to (?:the number of|twice)|draw an? card for each/.test(o)){
+      // Vérifie qu'au moins une tribu ciblée apparaît dans la phrase (évite Glimpse the Unthinkable etc.)
+      for(var _tdI=0;_tdI<th.customTribes.length;_tdI++){
+        var _trb=th.customTribes[_tdI];
+        if(o.indexOf(_trb)>=0||o.indexOf('creature you control')>=0||o.indexOf('creatures you control')>=0){s+=8;break;}
+      }
+    }
+    // Lord/anthem de la tribu (« other [Tribu] you control get +X/+X ») : payoff direct
+    for(var _trJ=0;_trJ<th.customTribes.length;_trJ++){
+      var _trb2=th.customTribes[_trJ];
+      if(new RegExp('other '+_trb2+'s? you control (?:get|gain|have)').test(o))s+=6;
+      if(new RegExp(_trb2+'s? you control (?:get|gain|have) [+\\-]').test(o))s+=5;
+    }
+  }
+  // Chaîne d'auras : commandant à push évasif tribal + déjà ≥3 auras dans le deck →
+  // les auras-buff deviennent un MOTEUR (chaque aura supplémentaire amplifie les autres
+  // via les effets « other enchantments » type Magemark). Bonus +3 pour toute aura cheap.
+  if(_anaCurrentThemes&&_anaCurrentThemes._auraCount>=3&&(t.indexOf('aura')>=0)&&(cardMeta.cmc||0)<=2){
+    s+=3;
+  }
   // Tribus ciblées par le commandant (extraites de son oracle, ex. Bleck → Parasite/Bat/Insect/Snake/Spider).
   // Si la carte EST un de ces types, bonus dégressif selon le cmc : un Rogue à 1 mana en deck tempo
   // mérite +5, mais un Rogue à 5 mana (Vectis Agents) ne doit pas remonter comme « plus efficace »
@@ -39416,7 +39485,10 @@ function anaRefreshMatrix(){
     //  - gain en dessous de ~2 pts = bruit de la simulation goldfish → on ne le présente pas.
     _rawSwaps=_rawSwaps.filter(function(sw){
       if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
-      return (sw.gain==null)||sw.gain>=2;
+      if((sw.gain!=null)&&sw.gain<2)return false;
+      // Staples intouchables : jamais en cut (même côté simulation goldfish).
+      if(sw.cut&&sw.cut.name&&_ANA_UNTOUCHABLE_STAPLES[sw.cut.name.toLowerCase()])return false;
+      return true;
     });
     // Étape 1 : matrice du deck actuel
     var matrixCurrent=await _simMatrix(libUser);
@@ -39814,6 +39886,14 @@ async function anaRender(deckId){
     var _m=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
     return {typeLine:(_m&&_m.typeLine)||'',qty:c.qty||1};
   }));
+  // Comptage des auras dans le deck (utilisé par le scoring « chaîne d'auras » :
+  // Magemark + Aspect of Lamprey + autres = moteur, pas isolé).
+  var _auraCount=0;
+  cards.forEach(function(c){
+    var _m=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
+    if(_m&&(_m.typeLine||'').toLowerCase().indexOf('aura')>=0)_auraCount+=(c.qty||1);
+  });
+  _anaCurrentThemes._auraCount=_auraCount;
 
   // Per-card data (UN SEUL DECK)
   // Le score utilisé pour le tri top/bottom intègre le synergy weight des thèmes
@@ -41103,7 +41183,12 @@ async function anaRender(deckId){
   var _metaSwaps=_anaMetaSwaps(nonLandRows,edhrecFreq,60);
   var _maisonSwaps=(fullOpt.swaps||[]).filter(function(sw){
     if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
-    return (sw.gain==null)||sw.gain>=2;
+    if((sw.gain!=null)&&sw.gain<2)return false;
+    // Staples intouchables : on ne propose JAMAIS de couper Counterspell pour Crawl from
+    // the Cellar, ou Doom Blade pour Banishing Betrayal. Un pro ne le ferait pas, le
+    // scoring local ne capture pas leur valeur intrinsèque.
+    if(sw.cut&&sw.cut.name&&_ANA_UNTOUCHABLE_STAPLES[sw.cut.name.toLowerCase()])return false;
+    return true;
   });
   // Index swaps par carte coupée (pour affichage côté Triage + application)
   var _swapByCutNl={};
