@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-5';
+window.APP_BUILD='2026-06-02-6';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -35844,17 +35844,26 @@ function anaAnalyze(){
         }
       }
     }
-    if(_edhCmdName&&anaIsCommanderFormat(deck.format)){
+    // Dès qu'un commandant est identifié on tente EDHREC, même si deck.format n'est pas exactement
+    // « commander » : la casse peut différer (Commander/COMMANDER), être null pour les vieux decks,
+    // ou être un format custom (commanderprecon, commander1v1…). La requête EDHREC est cachée et
+    // pas chère — si le slug ne match pas, on tombe sur un 403/404 silencieux.
+    var _fmtLc=((deck.format||'')+'').toLowerCase();
+    if(_edhCmdName){
       var preStatus=st.textContent;
-      anaFetchEDHRECCommander(_edhCmdName,deck.format,function(edhrecFreq){
+      console.log('[EDHREC] fetch pour commandant=« '+_edhCmdName+' », format=« '+_fmtLc+' »');
+      anaFetchEDHRECCommander(_edhCmdName,_fmtLc,function(edhrecFreq){
         if(edhrecFreq){
           _anaCurrentEDHREC=edhrecFreq;
           st.textContent=preStatus+' · ✓ EDHREC ('+Object.keys(edhrecFreq).length+' cartes)';
           if(_anaState&&_anaState.deck)try{anaRender(deckId);}catch(e){console.error('[Analyse] Re-render EDHREC',e);}
         } else {
-          st.textContent=preStatus+' · ⚠ EDHREC indispo';
+          st.textContent=preStatus+' · ⚠ EDHREC indispo (commandant introuvable sur EDHREC)';
+          console.warn('[EDHREC] aucune donnée — slug essayé : ' + (typeof _anaCommanderSlug==='function'?_anaCommanderSlug(_edhCmdName):'?'));
         }
       });
+    } else {
+      console.log('[EDHREC] aucun commandant détecté dans le deck — fetch ignoré');
     }
     // Staples en arrière-plan
     var stapleFb=_anaStaples.map(function(n){return {nl:n.toLowerCase(),name:n};});
@@ -37769,7 +37778,27 @@ function anaFetchEDHRECCommander(commanderName,fmt,callback){
   // → on tape directement le proxy Vercel qui injecte les bons headers same-site.
   fetch('/api/edhrec?path='+encodeURIComponent(path))
     .then(function(r){return r.ok?r.json():null;})
-    .then(function(d){_gotData(d);})
+    .then(function(d){
+      if(d){_gotData(d);return;}
+      // Slug introuvable : essai de normalisation via Scryfall (cas typique : nom localisé,
+      // espace/apostrophe/ponctuation différente, etc.). On lookup la carte par fuzzy, on
+      // récupère son `name` canonique anglais et on retente avec le slug correspondant.
+      console.warn('[EDHREC] slug « '+slug+' » introuvable — fallback Scryfall pour « '+commanderName+' »');
+      fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(commanderName))
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(card){
+          if(!card||!card.name){callback(null);return;}
+          var slug2=_anaCommanderSlug(card.name);
+          if(!slug2||slug2===slug){callback(null);return;}
+          var path2=(isPauperCmd?'pages/pauper-commanders/':'pages/commanders/')+slug2+'.json';
+          console.log('[EDHREC] retry avec slug canonique « '+slug2+' » (Scryfall : « '+card.name+' »)');
+          fetch('/api/edhrec?path='+encodeURIComponent(path2))
+            .then(function(r){return r.ok?r.json():null;})
+            .then(function(d2){_gotData(d2);})
+            .catch(function(){callback(null);});
+        })
+        .catch(function(){callback(null);});
+    })
     .catch(function(){callback(null);});
 }
 
