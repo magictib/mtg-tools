@@ -8,12 +8,22 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    // Cloudflare devant json.edhrec.com bloque (403) toute requête qui ressemble à un bot.
+    // Pour passer, on doit mimer un fetch « same-site » du SPA edhrec.com :
+    // - Origin + Referer sur edhrec.com (obligatoires)
+    // - Sec-Fetch-Site: same-site (sinon CF voit cross-site → bot)
+    // - User-Agent moderne (le UA Chrome 124 d'il y a 18 mois était devenu suspect)
     var r = await fetch('https://json.edhrec.com/' + path, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://edhrec.com/'
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Origin': 'https://edhrec.com',
+        'Referer': 'https://edhrec.com/',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site'
       }
     });
     if (!r.ok) return res.status(r.status).json({ error: 'EDHREC ' + r.status });

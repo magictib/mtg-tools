@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-01-1';
+window.APP_BUILD='2026-06-02-1';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -37081,6 +37081,11 @@ function _anaApplyCommanderSignals(o,bump,labels){
   if(/discard/.test(o)){bump('discard',1.6);lbl('Défausse');}
   if(/graveyard/.test(o)){bump('graveyard',1.7);lbl('Cimetière');}
   if(/create .{0,30}\btokens?\b|populate/.test(o)){bump('tokens',1.8);lbl('Tokens');}
+  // Meule : commandant qui scale sur le mill adverse (Soaring Thought-Thief, Bruvac…) ou qui meule lui-même.
+  if(/\bmill\b|mills? \w+ cards?|puts? the top \d+ cards? of[^.]*library[^.]*graveyard|library has \d+ or fewer cards/.test(o)){
+    bump('mill',1.8);lbl('Meule');
+    bump('graveyard',1.4); // qui dit mill dit GY plein → réanim/escape deviennent crédibles
+  }
 }
 // ----- Niveau de puissance estimé (bracket EDH 1-5) -----
 // Liste « Game Changers » des règles de brackets Commander de Wizards.
@@ -37754,17 +37759,13 @@ function anaFetchEDHRECCommander(commanderName,fmt,callback){
     if(n>0){_anaEDHRECCache[cacheKey]={timestamp:Date.now(),freqMap:freqMap};_anaSaveEDHRECCache();}
     callback(n>0?freqMap:null);
   }
-  function _tryProxy(){
-    fetch('/api/edhrec?path='+encodeURIComponent(path))
-      .then(function(r){return r.ok?r.json():null;})
-      .then(function(d){_gotData(d);})
-      .catch(function(){callback(null);});
-  }
-  // CDN direct d'abord, proxy Vercel en fallback
-  fetch('https://json.edhrec.com/'+path)
-    .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+  // Direct CDN bloqué : (a) CSP du site n'autorise pas json.edhrec.com en connect-src
+  // (b) Cloudflare EDHREC renvoie 403 sur tout fetch en Sec-Fetch-Site:cross-site.
+  // → on tape directement le proxy Vercel qui injecte les bons headers same-site.
+  fetch('/api/edhrec?path='+encodeURIComponent(path))
+    .then(function(r){return r.ok?r.json():null;})
     .then(function(d){_gotData(d);})
-    .catch(_tryProxy);
+    .catch(function(){callback(null);});
 }
 
 /* ----- Labels des archetypes (humanisation) ----- */
@@ -38506,6 +38507,18 @@ function _anaAntiSynergyPenalty(cardMeta,deckThemes){
       penalty+=-5;
     }
   }
+  // Créature chère (cmc ≥ 4) qui entre engagée (Undersea Invader, Vectis Agents) : tempo terrible
+  // — on perd un tour entier — sauf en deck ramp/Big Mana où la courbe l'absorbe.
+  if((cardMeta.cmc||0)>=4&&/creature/.test((cardMeta.typeLine||'').toLowerCase())
+     &&/enters[^.]*tapped/.test(o)&&!((th.ramp||1)>1.6)){
+    penalty+=-3;
+  }
+  // Créature qui fait perdre des PV au contrôleur sur ETB/attaque/combat (Audacious Thief
+  // « lose 1 life ») dans un deck sans gain de vie : drain auto-infligé qui s'accumule pour rien.
+  if(/you lose \d+ life/.test(o)&&/(?:whenever|when) (?:this|[a-z]+) (?:creature )?(?:enters|deals combat damage|attacks)/.test(o)
+     &&(th.lifegain||1)<1.5){
+    penalty+=-2;
+  }
   return penalty;
 }
 
@@ -38527,11 +38540,49 @@ function _anaThemeSynergyScore(cardMeta,themes){
   var t=(cardMeta.typeLine||'').toLowerCase();
   var s=0;var th=themes||{};
   // Tribus ciblées par le commandant (extraites de son oracle, ex. Bleck → Parasite/Bat/Insect/Snake/Spider).
-  // Si la carte EST un de ces types, gros bonus : c'est exactement ce que le commandant boost.
+  // Si la carte EST un de ces types, bonus dégressif selon le cmc : un Rogue à 1 mana en deck tempo
+  // mérite +5, mais un Rogue à 5 mana (Vectis Agents) ne doit pas remonter comme « plus efficace »
+  // juste parce qu'il porte le type — le coût annule la synergie tribale.
   if(th.customTribes&&th.customTribes.length){
     for(var _ti=0;_ti<th.customTribes.length;_ti++){
-      if(t.indexOf(th.customTribes[_ti])>=0){s+=5;break;}
+      if(t.indexOf(th.customTribes[_ti])>=0){
+        var _ctc=cardMeta.cmc||0;
+        s+= _ctc<=2?5 : _ctc<=3?4 : _ctc<=4?2 : 0;
+        break;
+      }
     }
+  }
+  // Auras/équipements bon marché (cmc ≤ 2) qui buffent l'évasion ou les mots-clés : **clés** en deck
+  // à tribu évasive ciblée (Rogues, Ninjas) ou en voltron. Exemples : Infiltrator's Magemark (unblockable),
+  // Arcane Flight (+1/+1 + flying), Spectral Flight, Curiosity, Cartouche of Knowledge, Unholy Strength…
+  // Le scoring brut les rate parce qu'elles n'ont pas de rôle catégoriel (ramp/draw/removal/wincon).
+  if((cardMeta.cmc||0)<=2&&(t.indexOf('aura')>=0||/—\s*equipment/.test(t))){
+    var _wantsBuff=(th.customTribes&&th.customTribes.length)||(th.voltron||1)>1.3;
+    if(_wantsBuff){
+      if(/(?:can't be blocked|unblockable)/.test(o))s+=6;
+      else if(/(?:enchanted|equipped) creature[^.]*(?:has|gains?)[^.]*(?:flying|menace|trample|skulk|first strike|double strike|deathtouch|lifelink|hexproof|indestructible|shroud)/.test(o))s+=4;
+      else if(/(?:enchanted|equipped) creature[^.]*get(?:s)? \+\d+\/\+\d+/.test(o))s+=3;
+    }
+  }
+  // Aura qui rejoue la créature enchantée quand elle meurt/est exilée (Kaya's Ghostform-like) :
+  // protection + récursion gratuite. Excellente en deck graveyard/discard/mill (réanim implicite).
+  if((th.graveyard||1)>1.3||(th.discard||1)>1.3||(th.mill||0)>1){
+    if(t.indexOf('aura')>=0&&/when enchanted (?:creature|permanent)[^.]*(?:dies|is put into exile from the battlefield|leaves the battlefield)[^.]*return[^.]*battlefield/.test(o))s+=6;
+  }
+  // Mill enablers bon marché : aura/permanent qui meule via {T} ou trigger combat (Evanescent
+  // Intellect, Drowner Initiate-like). En deck mill commandant c'est de la cible directe.
+  if((th.mill||0)>1){
+    if((t.indexOf('aura')>=0||/—\s*equipment/.test(t))&&/\{t\}[^.]*(?:mill|put[^.]*top[^.]*library[^.]*graveyard)/.test(o))s+=6;
+    if((cardMeta.cmc||0)<=2&&/(?:mill|put[^.]*top \d+[^.]*library[^.]*graveyard)/.test(o))s+=3;
+    // Aura à trigger combat qui meule/discard (Aspect of Lamprey, Curious Obsession-like)
+    if(t.indexOf('aura')>=0&&/whenever enchanted creature deals combat damage to (?:a player|target opponent|target player|that player)/.test(o)&&/(?:mill|discard|draws? a card)/.test(o))s+=4;
+  }
+  // Tricks instants bon marché (deathtouch/trample/+X/+Y) qui sécurisent le passage combat —
+  // crucial pour commandants à trigger « combat damage » (Soaring, Yuriko, Edric) ou tribu évasive.
+  if((cardMeta.cmc||0)<=2&&t.indexOf('instant')>=0&&((th.customTribes&&th.customTribes.length)||(th.voltron||1)>1.3)){
+    if(/target creature gains? deathtouch/.test(o))s+=4;
+    if(/target creature gains? (?:trample|flying|menace|first strike|double strike|hexproof|indestructible|shroud)/.test(o))s+=3;
+    if(/\bregenerate\b/.test(o))s+=2;
   }
   // Spellslinger — valorise les éphémères/rituels quand le commandant a un trigger
   // sur instant/sorcery (Gelectrode, Guttersnipe, Niv-Mizzet, Mizzix, Talrand…).
