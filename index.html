@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-12';
+window.APP_BUILD='2026-06-03-1';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -34570,7 +34570,7 @@ var _ANA_TAB_RULES=[
   {tab:'composition',pats:[/analyse par cat/i,/top.*cartes/i,/cartes les plus/i,/cartes les moins/i,/suggestions/i,/propositions/i,/proposition de deck/i,/matrice de matchups/i,/matchups méta/i,/méta vs.*maison/i,/deux regards/i,/triage du deck/i,/flagger les cartes/i]},
   {tab:'manabase',  pats:[/analyse des terrains/i,/manabase/i]},
   {tab:'simulation',pats:[/simulation de main/i,/simulation 100/i,/goldfish/i,/mulligan/i]},
-  {tab:'strategy',  pats:[/combos/i,/game changers/i,/faiblesses/i,/anti-synerg/i,/synergies/i]},
+  {tab:'strategy',  pats:[/combos/i,/game changers/i,/faiblesses/i,/anti-synerg/i,/synergies/i,/statistiques pro/i]},
   {tab:'versions',  pats:[/versions sauveg/i,/snapshot/i]}
 ];
 var _ANA_TAB_DEFS=[
@@ -35393,6 +35393,175 @@ function anaFormatRules(fmt){
   if(f==='pauper')                    return{deckTarget:60, deckMin:60, maxCopies:4,isSingleton:false,idealLands:22};
   if(f==='pioneer')                   return{deckTarget:60, deckMin:60, maxCopies:4,isSingleton:false,idealLands:23};
   /* standard + fallback */           return{deckTarget:60, deckMin:60, maxCopies:4,isSingleton:false,idealLands:24};
+}
+
+/* ===================================================================== *
+ *  STATISTIQUES PRO : helpers math (hypergéométrique, pip count, sources)
+ * ===================================================================== */
+
+// Hypergeometric : P(X >= k) où on tire `n` cartes d'un paquet de `N` cartes
+// contenant `K` succès. Utilise logarithmes pour éviter overflow sur les
+// gros coefficients binomiaux (decks de 100 cartes).
+function _anaHyperGTE(N,K,n,k){
+  if(k<=0)return 1;
+  if(k>Math.min(n,K))return 0;
+  function logC(n,r){
+    if(r<0||r>n)return -Infinity;
+    var s=0;
+    for(var i=1;i<=r;i++)s+=Math.log(n-r+i)-Math.log(i);
+    return s;
+  }
+  var logTotal=logC(N,n);
+  var total=0;
+  for(var i=k;i<=Math.min(n,K);i++){
+    var logTerm=logC(K,i)+logC(N-K,n-i)-logTotal;
+    total+=Math.exp(logTerm);
+  }
+  return Math.min(1,Math.max(0,total));
+}
+// P(X = k exact) — utile pour distribuer les courbes
+function _anaHyperEq(N,K,n,k){
+  if(k<0||k>n||k>K)return 0;
+  function logC(n,r){if(r<0||r>n)return -Infinity;var s=0;for(var i=1;i<=r;i++)s+=Math.log(n-r+i)-Math.log(i);return s;}
+  var v=logC(K,k)+logC(N-K,n-k)-logC(N,n);
+  return Math.exp(v);
+}
+
+// Compte les pips (symboles de mana colorés) d'une carte. Lit mana_cost ;
+// retourne {W:n, U:n, B:n, R:n, G:n, generic:n, hybrid:n}.
+function _anaPipCount(meta){
+  var out={W:0,U:0,B:0,R:0,G:0,generic:0,hybrid:0};
+  var cost=meta&&(meta.manaCost||meta.mana_cost||meta.cost)||'';
+  if(!cost)return out;
+  // Extract {SYMBOL} occurrences
+  var re=/\{([^}]+)\}/g,m;
+  while((m=re.exec(cost))){
+    var sym=m[1].toUpperCase();
+    if(/^\d+$/.test(sym))out.generic+=parseInt(sym);
+    else if(sym==='X')continue;
+    else if(sym.indexOf('/')>=0){
+      // hybrid {W/U}, {2/W}, {U/P} (phyrexian)
+      out.hybrid++;
+      var parts=sym.split('/');
+      parts.forEach(function(p){if(p==='W'||p==='U'||p==='B'||p==='R'||p==='G')out[p]+=0.5;});
+    }
+    else if(out[sym]!=null)out[sym]++;
+  }
+  return out;
+}
+
+// Compte les SOURCES par couleur dans le deck — combien de terrains/permanents
+// peuvent produire chaque couleur. Heuristique : lit l'oracle des cartes
+// d'isLand et cherche `add {W}`, `add {C}` etc.
+function _anaColorSources(deck,anaData){
+  var src={W:0,U:0,B:0,R:0,G:0,any:0};
+  var totalLands=0;
+  (deck.cards||[]).forEach(function(c){
+    var meta=anaData[c.nl]||anaData[(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase()];
+    if(!meta)return;
+    var o=(meta.oracleText||'').toLowerCase();
+    var t=(meta.typeLine||'').toLowerCase();
+    var qty=c.qty||1;
+    var isLand=(meta.tags&&meta.tags.isLand)||t.indexOf('land')>=0;
+    var isRamp=!isLand&&/add \{[wubrgc]/i.test(o);
+    if(!isLand&&!isRamp)return;
+    if(isLand)totalLands+=qty;
+    var addedAny=false;
+    ['W','U','B','R','G'].forEach(function(c){
+      if(new RegExp('add[^.]{0,40}\\{'+c+'\\}','i').test(o)||new RegExp('add[^.]{0,40}\\{[^}]*'+c+'[^}]*\\}','i').test(o)){
+        src[c]+=qty;addedAny=true;
+      }
+    });
+    // « add one mana of any color »
+    if(/add (?:one|two|three|x) mana of any color|add \{[wubrg]\} or \{[wubrg]\}/i.test(o)){
+      ['W','U','B','R','G'].forEach(function(c){src[c]+=qty;});
+      src.any+=qty;addedAny=true;
+    }
+    // Heuristique basique pour terrains de base non-cachés
+    if(!addedAny&&isLand){
+      var basic={'Plains':'W','Island':'U','Swamp':'B','Mountain':'R','Forest':'G'};
+      Object.keys(basic).forEach(function(b){
+        if((meta.name||'').indexOf(b)>=0){src[basic[b]]+=qty;}
+      });
+    }
+  });
+  return {sources:src,totalLands:totalLands};
+}
+
+// Calcule les besoins en pips du deck : pour chaque CMC bucket, combien de
+// W/U/B/R/G la moyenne des cartes demande. Sert à dire « il faut 10+ sources
+// vertes pour caster les sorts verts à T3 ».
+function _anaPipDemand(deck,anaData){
+  var demand={W:0,U:0,B:0,R:0,G:0};
+  var counts={W:0,U:0,B:0,R:0,G:0};
+  (deck.cards||[]).forEach(function(c){
+    var meta=anaData[c.nl]||anaData[(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase()];
+    if(!meta)return;
+    var t=(meta.typeLine||'').toLowerCase();
+    if(t.indexOf('land')>=0)return;
+    var qty=c.qty||1;
+    var p=_anaPipCount(meta);
+    ['W','U','B','R','G'].forEach(function(co){
+      if(p[co]>0){demand[co]+=p[co]*qty;counts[co]+=qty;}
+    });
+  });
+  return {pips:demand,counts:counts};
+}
+
+// Détecte les wincons explicites du deck (par catégorie).
+function _anaWincons(deck,anaData){
+  var wc={combat:0,mill:0,drain:0,commanderDamage:0,burn:0,altWin:0,combo:0};
+  var examples={combat:[],mill:[],drain:[],burn:[],altWin:[],combo:[]};
+  (deck.cards||[]).forEach(function(c){
+    var meta=anaData[c.nl]||anaData[(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase()];
+    if(!meta)return;
+    var o=(meta.oracleText||'').toLowerCase();
+    var qty=c.qty||1;
+    // Alt-win conditions (Approach, Maze's End, Coalition Victory…)
+    if(/wins? the game|you win the game/i.test(o)){wc.altWin+=qty;if(examples.altWin.length<3)examples.altWin.push(meta.name);}
+    // Mill payoffs gros
+    if(/(?:target player|each opponent|that player) (?:mills|put.s? the top \w+ cards.{0,30}graveyard)/i.test(o)){wc.mill+=qty;if(examples.mill.length<3)examples.mill.push(meta.name);}
+    // Drain (perte de vie large)
+    if(/each opponent loses (?:\d+|x) life|each player loses (?:\d+|x) life|drain.{0,40}each opponent/i.test(o)){wc.drain+=qty;if(examples.drain.length<3)examples.drain.push(meta.name);}
+    // Burn direct (dégâts qui visent un joueur)
+    if(/deals? (?:\d+|x) damage to (?:any target|target player|each opponent|target opponent)/i.test(o)){wc.burn+=qty;if(examples.burn.length<3)examples.burn.push(meta.name);}
+    // Combat wincons : créatures evasives à 4+ pouvoir
+    var pow=parseInt(meta.power)||0;
+    if(pow>=4&&/(?:flying|menace|trample|unblockable|can't be blocked|skulk|shadow|fear|intimidate|horsemanship|protection)/i.test(o)){wc.combat+=qty;if(examples.combat.length<3)examples.combat.push(meta.name);}
+    // Combos infinis détectés par mots-clés
+    if(/infinite|win the game|untap target|untap all/i.test(o)&&/(?:tap|enter|leaves|combat damage)/i.test(o)){wc.combo+=qty;if(examples.combo.length<3)examples.combo.push(meta.name);}
+  });
+  return {counts:wc,examples:examples};
+}
+
+// Calcule un index de complexité du pilotage (1-5 étoiles).
+// Heuristique : nb d'instants modal, instant-speed plays, capacités activées,
+// triggers à choix, sorts à multiples cibles, etc.
+function _anaPilotComplexity(deck,anaData){
+  var n=0,total=0;
+  (deck.cards||[]).forEach(function(c){
+    var meta=anaData[c.nl]||anaData[(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase()];
+    if(!meta)return;
+    var o=(meta.oracleText||'').toLowerCase();
+    var t=(meta.typeLine||'').toLowerCase();
+    var qty=c.qty||1;
+    if(t.indexOf('land')>=0)return;
+    total+=qty;
+    var sc=0;
+    if(/choose one|choose two|choose up to/.test(o))sc+=2;
+    if(/^instant|—\s*instant/.test(t))sc+=1;
+    if(/\{[a-z\d\/]+\}:|\{t\},?\s*\{[a-z\d\/]+\}:/i.test(o))sc+=1; // activated ability
+    if(/(?:until end of turn|this turn)/.test(o)&&/^instant|—\s*instant/.test(t))sc+=0.5;
+    if(/storm|cascade|prowess/.test(o))sc+=1;
+    if(/(?:tap|untap) target/.test(o))sc+=0.5;
+    if(/(?:as|if).{0,20}enters/.test(o))sc+=0.5;
+    n+=Math.min(4,sc)*qty;
+  });
+  if(!total)return {score:0,stars:0,label:'?'};
+  var avg=n/total; // 0-4
+  var stars=Math.max(1,Math.min(5,Math.round(avg*1.5+1)));
+  var lbls=['','Très simple','Simple','Modérée','Complexe','Très complexe'];
+  return {score:Math.round(avg*100)/100,stars:stars,label:lbls[stars]||'?'};
 }
 
 /* ----- Format-aware targets ----- */
@@ -40792,6 +40961,127 @@ async function anaRender(deckId){
     html+='</div>';
     return html;
   })();
+  // === Statistiques pro : probas hypergéo + manabase + wincons + pilotage ===
+  var _statsProHtml=(function(){
+    var totalCardsForStats=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+    var deckSize=totalCardsForStats||60;
+    var src=_anaColorSources(deck,_anaData);
+    var demand=_anaPipDemand(deck,_anaData);
+    var wincons=_anaWincons(deck,_anaData);
+    var pilot=_anaPilotComplexity(deck,_anaData);
+    var lands=src.totalLands;
+    var ramp=(rows||[]).filter(function(r){return r.inCache&&r.roles&&r.roles.ramp;}).reduce(function(s,r){return s+(r.card.qty||1);},0);
+    var removal=(rows||[]).filter(function(r){return r.inCache&&r.roles&&r.roles.removal;}).reduce(function(s,r){return s+(r.card.qty||1);},0);
+    var draw=(rows||[]).filter(function(r){return r.inCache&&r.roles&&r.roles.draw;}).reduce(function(s,r){return s+(r.card.qty||1);},0);
+    var interaction=(rows||[]).filter(function(r){return r.inCache&&r.roles&&r.roles.interaction;}).reduce(function(s,r){return s+(r.card.qty||1);},0);
+    var pct=function(p){return Math.round(p*100)+'%';};
+    var _pcol=function(p){return p>=0.85?'#78c890':p>=0.6?'#5b8cf5':p>=0.4?'#f5b95b':'#e07070';};
+    var html='<div class="card"><div class="lbl">📐 Statistiques pro</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">Probabilités hypergéométriques, manabase en pips, redondance des wincons, complexité du pilotage — les chiffres qu\'un coach regarderait.</div>';
+    // ─── 1. Probabilités clés ───
+    var pKeep=_anaHyperGTE(deckSize,lands,7,2)-_anaHyperGTE(deckSize,lands,7,6); // 2-5 lands
+    var pLandT3=_anaHyperGTE(deckSize,lands,10,3);
+    var pRampT2=ramp>0?_anaHyperGTE(deckSize,ramp,9,1):0;
+    var pRemT4=removal>0?_anaHyperGTE(deckSize,removal,11,1):0;
+    var pDrawT5=draw>0?_anaHyperGTE(deckSize,draw,12,1):0;
+    var pIntT5=interaction>0?_anaHyperGTE(deckSize,interaction,12,1):0;
+    var probas=[
+      {lbl:'Main d\'ouverture jouable (2-5 lands)',p:pKeep,hint:'Au-delà de 80 % → manabase saine. En dessous de 70 % → trop ou pas assez de terrains.'},
+      {lbl:'3 lands posés par T3',p:pLandT3,hint:'Indicateur de fluidité du début de partie. Cible 80 %+.'},
+      {lbl:'1 ramp piochée par T2',p:pRampT2,hint:'Critique en EDH. Cible 70 %+ pour un deck mid-range.'},
+      {lbl:'1 removal piochée par T4',p:pRemT4,hint:'Réponse aux menaces adverses. Cible 75 %+.'},
+      {lbl:'1 pioche piochée par T5',p:pDrawT5,hint:'Renouvellement de main. Cible 70 %+.'},
+      {lbl:'1 interaction piochée par T5',p:pIntT5,hint:'Counter ou removal large. Cible 70 %+.'}
+    ];
+    html+='<div style="margin-bottom:14px"><div style="font-size:11.5px;color:var(--gold2);font-weight:600;margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.04em">▸ Probabilités clés</div>';
+    probas.forEach(function(p){
+      var col=_pcol(p.p);
+      html+='<div style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;padding:4px 0;border-bottom:.5px solid var(--bd2)">'
+        +'<div title="'+esc(p.hint)+'"><div style="font-size:11px;color:var(--tx2)">'+esc(p.lbl)+'</div>'
+        +'<div style="height:5px;background:var(--s3);border-radius:3px;margin-top:3px;overflow:hidden"><div style="height:100%;width:'+Math.round(p.p*100)+'%;background:'+col+'"></div></div></div>'
+        +'<div style="text-align:right;font-family:monospace;color:'+col+';font-weight:bold;font-size:13px">'+pct(p.p)+'</div>'
+        +'</div>';
+    });
+    html+='</div>';
+    // ─── 2. Manabase en pips ───
+    html+='<div style="margin-bottom:14px"><div style="font-size:11.5px;color:var(--gold2);font-weight:600;margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.04em">▸ Manabase : pips demandés vs sources</div>';
+    html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:6px;font-style:italic">Chaque couleur : nombre de symboles colorés demandés par les sorts du deck × nombre de sources de cette couleur. Ratio cible ≈ 1 source pour 1 pip.</div>';
+    var colorNames={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
+    var colorHex={W:'#f0e9d0',U:'#9bc5e0',B:'#7d6a78',R:'#d97b6c',G:'#7ab089'};
+    var hasAnyColor=false;
+    ['W','U','B','R','G'].forEach(function(co){
+      var pipCount=demand.pips[co]||0;
+      var sourceCount=src.sources[co]||0;
+      if(pipCount===0&&sourceCount===0)return;
+      hasAnyColor=true;
+      var ratio=pipCount>0?sourceCount/Math.max(pipCount,1):999;
+      // P(source de cette couleur en T2) — pour 2-cmc demandant 1 pip
+      var pT2=sourceCount>0?_anaHyperGTE(deckSize,sourceCount,9,1):0;
+      var ratioCol=ratio>=0.6?'#78c890':ratio>=0.4?'#f5b95b':'#e07070';
+      html+='<div style="display:grid;grid-template-columns:54px 1fr 70px 60px;gap:8px;align-items:center;padding:4px 0;border-bottom:.5px solid var(--bd2)">'
+        +'<div style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:'+colorHex[co]+';border-radius:50%;display:inline-block"></span><span style="font-size:11px;color:var(--tx2)">'+colorNames[co]+'</span></div>'
+        +'<div style="font-size:10.5px;color:var(--tx3)">'+pipCount+' pip'+(pipCount>1?'s':'')+' demandé'+(pipCount>1?'s':'')+' · '+sourceCount+' source'+(sourceCount>1?'s':'')+'</div>'
+        +'<div style="text-align:right;font-family:monospace;color:'+ratioCol+';font-size:12px;font-weight:bold" title="Ratio sources/pips. Cible ≥ 0.6 pour un mana fluide.">'+(pipCount>0?ratio.toFixed(2):'—')+'</div>'
+        +'<div style="text-align:right;font-family:monospace;color:'+_pcol(pT2)+';font-size:11.5px" title="P(au moins 1 source de '+colorNames[co]+' jouable T2)">'+pct(pT2)+'</div>'
+        +'</div>';
+    });
+    if(!hasAnyColor)html+='<div style="font-size:11px;color:var(--tx3);font-style:italic;padding:6px 0">Deck incolore — pas de pip analysis pertinente.</div>';
+    html+='<div style="font-size:9.5px;color:var(--tx3);margin-top:5px;font-style:italic">Colonnes : pips demandés · sources · ratio · P(source en T2). Ratio &lt; 0.4 = risque sérieux de mana screw couleur. P(T2) &lt; 60 % = pas castable à temps.</div>';
+    html+='</div>';
+    // ─── 3. Wincons & redondance ───
+    html+='<div style="margin-bottom:14px"><div style="font-size:11.5px;color:var(--gold2);font-weight:600;margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.04em">▸ Conditions de victoire</div>';
+    var wcLbls=[
+      {k:'combat',ico:'⚔',lbl:'Combat damage'},
+      {k:'mill',ico:'🌀',lbl:'Mill (meule adverse)'},
+      {k:'drain',ico:'💧',lbl:'Drain (perte de vie)'},
+      {k:'burn',ico:'🔥',lbl:'Burn (dégâts directs)'},
+      {k:'altWin',ico:'🏆',lbl:'Alt-win (victoire spéciale)'},
+      {k:'combo',ico:'💥',lbl:'Combo (boucle)'}
+    ];
+    var activeWc=wcLbls.filter(function(w){return wincons.counts[w.k]>0;});
+    if(activeWc.length){
+      activeWc.sort(function(a,b){return wincons.counts[b.k]-wincons.counts[a.k];});
+      activeWc.forEach(function(w){
+        var n=wincons.counts[w.k];
+        var ex=(wincons.examples[w.k]||[]).join(' · ');
+        var nCol=n>=4?'#78c890':n>=2?'#f5b95b':'var(--tx3)';
+        html+='<div style="padding:4px 0;border-bottom:.5px solid var(--bd2);display:grid;grid-template-columns:24px 1fr 40px;gap:8px;align-items:center">'
+          +'<span style="font-size:14px">'+w.ico+'</span>'
+          +'<div><div style="font-size:11.5px;color:var(--tx2)">'+esc(w.lbl)+'</div>'+(ex?'<div style="font-size:9.5px;color:var(--tx3);font-style:italic">'+esc(ex)+'</div>':'')+'</div>'
+          +'<div style="text-align:right;font-family:monospace;color:'+nCol+';font-weight:bold">'+n+'</div>'
+          +'</div>';
+      });
+      var totalWc=Object.keys(wincons.counts).reduce(function(s,k){return s+wincons.counts[k];},0);
+      var redundancy=activeWc.length;
+      var redLbl=redundancy>=3?'Excellente redondance (3+ wincons)':redundancy===2?'Bonne redondance (2 wincons)':'Wincon unique (fragile)';
+      var redCol=redundancy>=3?'#78c890':redundancy===2?'#f5b95b':'#e07070';
+      html+='<div style="margin-top:6px;font-size:11px;color:'+redCol+';font-weight:600">'+redLbl+'</div>';
+    } else {
+      html+='<div style="font-size:11px;color:#e07070;font-style:italic;padding:6px 0">⚠ Aucune wincon explicite détectée — vérifie manuellement.</div>';
+    }
+    html+='</div>';
+    // ─── 4. Pilotage ───
+    html+='<div><div style="font-size:11.5px;color:var(--gold2);font-weight:600;margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.04em">▸ Complexité du pilotage</div>';
+    var starsHtml='';
+    for(var si=1;si<=5;si++)starsHtml+='<span style="color:'+(si<=pilot.stars?'var(--gold2)':'var(--tx3)')+';font-size:16px">★</span>';
+    html+='<div style="display:flex;align-items:center;gap:10px">'
+      +'<div>'+starsHtml+'</div>'
+      +'<div style="font-size:13px;color:var(--tx2);font-weight:bold">'+esc(pilot.label)+'</div>'
+      +'<div style="font-size:10px;color:var(--tx3);margin-left:auto" title="Score de complexité brut : 0-4 selon densité de modalités, instants, capacités activées, triggers à choix.">score : '+pilot.score+'</div>'
+      +'</div>';
+    var pilotHints={
+      1:'Deck facile à piloter : la plupart des cartes ont un effet direct sans choix.',
+      2:'Pilotage standard : quelques modalités, mais le plan est lisible.',
+      3:'Demande de l\'attention : modal, instants, capacités activées à gérer.',
+      4:'Pilotage exigeant : beaucoup de choix par tour, prévoir la séquence à l\'avance.',
+      5:'Très complexe : pour joueurs expérimentés — chaque tour a des décisions multiples.'
+    };
+    html+='<div style="font-size:10.5px;color:var(--tx3);margin-top:4px;font-style:italic">'+esc(pilotHints[pilot.stars]||'')+'</div>';
+    html+='</div>';
+    html+='</div>';
+    return html;
+  })();
+
   // === Détecteur de faiblesses : scan des réponses critiques manquantes ===
   var _weakHtml=(function(){
     var w=_anaWeaknessScan(deck,fmt);
@@ -41250,7 +41540,7 @@ async function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_proMetricsHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_proMetricsHtml+_statsProHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
     html+='</div>';
@@ -41259,7 +41549,7 @@ async function anaRender(deckId){
     html+='<div style="display:flex;flex-direction:column;gap:10px">';
     html+=_hdr;
     html+='<div style="display:grid;grid-template-columns:1fr 175px;gap:10px;align-items:stretch">';
-    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_proMetricsHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:10px">'+_coachHtml+_bracketHtml+_proMetricsHtml+_statsProHtml+_ccHtml+_typeHtml+_curveHtml+_turnHmHtml+_probHtml+_flowHtml+_comboHtml+_gcHtml+_weakHtml+_antiSynHtml+_snapHtml+'</div>';
     html+=_scorePanel;
     html+='</div></div>';
   }
