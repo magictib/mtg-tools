@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-11';
+window.APP_BUILD='2026-06-02-12';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -34599,6 +34599,61 @@ function _anaRecallTab(deckId){
     return m[deckId]||'overview';
   }catch(_){return 'overview';}
 }
+// Convertit chaque .card de l'analyse en <details> repliable : titre cliquable (extrait du .lbl),
+// contenu masqué par défaut. Le dashboard et les sections always-visible sont préservés.
+// Stocke l'état ouvert/fermé en localStorage pour persister le choix d'un user.
+function _anaMakeSectionsCollapsible(){
+  var host=document.getElementById('ana-results');if(!host)return;
+  var pref={};try{pref=JSON.parse(localStorage.getItem('mtg_ana_section_pref')||'{}')||{};}catch(e){}
+  var cards=host.querySelectorAll('.card');
+  var openCount=0;
+  cards.forEach(function(card){
+    if(card.id==='ana-dashboard')return;
+    if(card.classList.contains('ana-sec-always'))return;
+    if(card.dataset.collapsibleApplied==='1')return;
+    var lbl=card.querySelector(':scope > .lbl, :scope > .ana-section-head .lbl');
+    if(!lbl)return;
+    var title=(lbl.textContent||'').trim();
+    if(!title)return;
+    var key=title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
+    // Ouvre par défaut : la 1re section utile (sauf si user l'a fermée), sinon laisse fermé.
+    var defaultOpen=(openCount<1);
+    var isOpen=(pref[key]!=null)?!!pref[key]:defaultOpen;
+    if(isOpen)openCount++;
+    // Wrap : on remplace .card par <details class="card ana-collap">
+    var det=document.createElement('details');
+    det.className=card.className+' ana-collap';
+    det.dataset.section=key;
+    if(isOpen)det.open=true;
+    det.style.cssText=card.style.cssText;
+    var sum=document.createElement('summary');
+    sum.style.cssText='cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-family:\'Goudy Mediaeval\',serif;font-size:13px;letter-spacing:.04em;color:var(--gold2);padding:2px 0;user-select:none';
+    sum.innerHTML='<span class="ana-collap-arrow" style="display:inline-block;font-size:10px;color:var(--tx3);transition:transform .15s;width:12px">▸</span><span style="flex:1">'+lbl.innerHTML+'</span>';
+    det.appendChild(sum);
+    // Persist état au toggle
+    det.addEventListener('toggle',function(){
+      var arr=sum.querySelector('.ana-collap-arrow');
+      if(arr)arr.style.transform=det.open?'rotate(90deg)':'rotate(0deg)';
+      try{
+        var p={};try{p=JSON.parse(localStorage.getItem('mtg_ana_section_pref')||'{}');}catch(e){}
+        p[key]=det.open;
+        localStorage.setItem('mtg_ana_section_pref',JSON.stringify(p));
+      }catch(e){}
+    });
+    if(det.open){var arr0=sum.querySelector('.ana-collap-arrow');if(arr0)arr0.style.transform='rotate(90deg)';}
+    // Déplace le contenu de .card (sauf le .lbl) dans le <details>
+    Array.prototype.slice.call(card.childNodes).forEach(function(n){
+      if(n===lbl)return;
+      // Si le .lbl est dans un wrapper .ana-section-head, on inclut le wrapper sauf le .lbl interne
+      det.appendChild(n);
+    });
+    // Si lbl est dans un wrapper .ana-section-head, on retire juste le lbl (le reste est déjà déplacé)
+    if(lbl.parentNode)lbl.parentNode.removeChild(lbl);
+    card.parentNode.replaceChild(det,card);
+    det.dataset.collapsibleApplied='1';
+  });
+}
+
 function _anaTagSectionsAndAddTabs(){
   var host=document.getElementById('ana-results');if(!host)return;
   // 1. Tagge chaque .card (sauf le score panel principal et le commandant)
@@ -41967,9 +42022,87 @@ async function anaRender(deckId){
   }
 
   _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
+
+  // === Dashboard synthétique (en tête de page) ===
+  // Verdict en 1 coup d'œil : score, archétype, top swaps maison, faiblesses critiques.
+  // Reprend les données déjà calculées plus haut (overall, grade, _maisonSwaps, weakness scan).
+  // Conçu pour répondre à « qu'est-ce que je dois savoir avant de scroller ».
+  var _dashHtml=(function(){
+    var _wScan=null;try{_wScan=_anaWeaknessScan(deck,fmt);}catch(_e){}
+    var _critCount=(_wScan&&_wScan.critical&&_wScan.critical.length)||0;
+    var _critLbls=(_wScan&&_wScan.critical||[]).slice(0,2).map(function(x){return x.def.ico+' '+x.def.lbl;});
+    var _topSwaps=(typeof _maisonSwaps!=='undefined'&&_maisonSwaps)?_maisonSwaps.slice(0,3):[];
+    var _archLbl=(_ARCH_LABELS&&_ARCH_LABELS[_anaCurrentArchetype||'midrange'])||{ico:'🎯',label:'Midrange'};
+    var _themeLabels=(_anaCurrentThemes&&_anaCurrentThemes.labels)||[];
+    var _topThemes=_themeLabels.slice(0,4).map(esc).join(' · ');
+    var _verdict='';
+    if(overall>=80)_verdict='Deck solide, peu d\'ajustements à faire.';
+    else if(overall>=65)_verdict='Bon deck, quelques améliorations possibles.';
+    else if(overall>=50)_verdict='Deck fonctionnel, marge de progression sérieuse.';
+    else _verdict='Le deck a besoin d\'un travail structurel.';
+    var _dh='';
+    _dh+='<div id="ana-dashboard" style="background:linear-gradient(135deg,rgba(218,180,107,.10) 0%,rgba(91,140,245,.08) 100%);border:1px solid var(--gold);border-radius:14px;padding:18px 22px;margin-bottom:14px;box-shadow:0 6px 20px rgba(0,0,0,.35)">';
+    // Titre + verdict
+    _dh+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px">';
+    _dh+='<div style="flex:1;min-width:200px">';
+    _dh+='<div style="font-family:\'Cinzel\',serif;font-size:.78rem;color:var(--tx3);letter-spacing:.12em;margin-bottom:3px">VERDICT GLOBAL</div>';
+    _dh+='<div style="font-size:14px;color:var(--tx);line-height:1.45">'+_verdict+'</div>';
+    if(_topThemes)_dh+='<div style="font-size:10.5px;color:var(--tx3);font-style:italic;margin-top:5px">Thèmes détectés : '+_topThemes+'</div>';
+    _dh+='</div>';
+    // Badge score circulaire
+    _dh+='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:90px">';
+    _dh+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:2.2rem;font-weight:bold;color:'+grade.col+';line-height:1">'+overall+'</div>';
+    _dh+='<div style="font-size:9.5px;color:var(--tx3);letter-spacing:.08em">SCORE / 100</div>';
+    _dh+='<div style="font-size:13px;color:'+grade.col+';font-weight:bold;margin-top:3px;font-family:\'Goudy Mediaeval\',serif">'+grade.l+'</div>';
+    _dh+='</div>';
+    _dh+='</div>';
+    // Grille 3 KPI cards
+    _dh+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">';
+    // KPI 1 : Archétype + commandant
+    _dh+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:8px;padding:10px 12px">';
+    _dh+='<div style="font-size:9.5px;color:var(--tx3);letter-spacing:.08em;margin-bottom:4px">ARCHÉTYPE</div>';
+    _dh+='<div style="font-size:14px;color:var(--tx);font-weight:bold">'+_archLbl.ico+' '+esc(_archLbl.label)+'</div>';
+    _dh+='<div style="font-size:10px;color:var(--tx3);margin-top:3px;font-style:italic">'+esc(_archLbl.hint||'')+'</div>';
+    _dh+='</div>';
+    // KPI 2 : Swaps prioritaires
+    _dh+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:8px;padding:10px 12px">';
+    _dh+='<div style="font-size:9.5px;color:var(--tx3);letter-spacing:.08em;margin-bottom:4px">SWAPS PRIORITAIRES <span style="color:var(--gold2)">('+(_maisonSwaps?_maisonSwaps.length:0)+' identifiés)</span></div>';
+    if(_topSwaps.length){
+      _topSwaps.forEach(function(sw){
+        _dh+='<div style="font-size:10.5px;color:var(--tx2);margin-top:3px;line-height:1.35">';
+        _dh+='<span style="color:#e07070">−</span> '+esc(sw.cut&&sw.cut.name||'?')+' <span style="color:var(--tx3)">→</span> <span style="color:var(--gold2)">+ '+esc(sw.add&&sw.add.name||'?')+'</span>';
+        if(sw.gain!=null)_dh+=' <span style="color:var(--tx3);font-size:9.5px">+'+sw.gain.toFixed(1)+'</span>';
+        _dh+='</div>';
+      });
+    } else {
+      _dh+='<div style="font-size:11px;color:var(--gr2);margin-top:3px;font-style:italic">✓ Aucun swap pertinent</div>';
+    }
+    _dh+='</div>';
+    // KPI 3 : Faiblesses
+    _dh+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:8px;padding:10px 12px">';
+    _dh+='<div style="font-size:9.5px;color:var(--tx3);letter-spacing:.08em;margin-bottom:4px">FAIBLESSES CRITIQUES</div>';
+    if(_critCount){
+      _dh+='<div style="font-size:13px;color:#e07070;font-weight:bold">'+_critCount+' catégorie'+(_critCount>1?'s':'')+' à renforcer</div>';
+      _critLbls.forEach(function(l){_dh+='<div style="font-size:10.5px;color:var(--tx2);margin-top:2px">'+esc(l)+'</div>';});
+    } else {
+      _dh+='<div style="font-size:13px;color:var(--gr2);font-weight:bold">✓ Aucune</div>';
+      _dh+='<div style="font-size:10.5px;color:var(--tx3);margin-top:2px;font-style:italic">Toutes les catégories essentielles sont couvertes.</div>';
+    }
+    _dh+='</div>';
+    _dh+='</div>';
+    // Hint pour scroller
+    _dh+='<div style="font-size:10px;color:var(--tx3);font-style:italic;margin-top:10px;text-align:center">↓ Détails complets ci-dessous — clique sur une section pour la déployer</div>';
+    _dh+='</div>';
+    return _dh;
+  })();
+  html=_dashHtml+html;
+
   document.getElementById('ana-results').innerHTML=html;
   // Post-process : tagge les sections par catégorie + injecte tabs internes
   try{_anaTagSectionsAndAddTabs();}catch(e){console.warn('ana tabs',e);}
+  // Sections repliables : chaque .card devient un <details> fermé par défaut sauf
+  // les 2 premières (vue d'ensemble) pour donner un point d'entrée immédiat.
+  try{_anaMakeSectionsCollapsible();}catch(e){console.warn('ana collapsible',e);}
   document.getElementById('ana-results').style.display='block';
   var _anaResetRow=document.getElementById('ana-reset-row');if(_anaResetRow)_anaResetRow.style.display='block';
   if(libUser.length>=20)setTimeout(anaRefreshMatrix,30);
