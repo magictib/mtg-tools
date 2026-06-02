@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-4';
+window.APP_BUILD='2026-06-02-5';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -34545,16 +34545,17 @@ function anaClearCache(){
 
 function anaInit(){
   anaPopulateDeckSel();
-  // Si un deck est ouvert ailleurs (éditeur / builder) ET différent du deck actuellement analysé,
-  // on bascule dessus et on lance l'analyse — l'utilisateur s'attend à voir l'analyse du deck
-  // qu'il vient d'ouvrir, pas l'ancien.
+  // Auto-analyse à chaque entrée dans l'onglet quand un deck est ouvert ailleurs OU déjà sélectionné
+  // dans le dropdown. Évite que l'utilisateur doive recliquer « Analyser » après un reload (build
+  // mis à jour, EDHREC nouvellement dispo, scoring modifié…). Coût acceptable : les données
+  // Scryfall/EDHREC sont déjà cachées localement, la simulation tourne en ~1 s.
   var sel=document.getElementById('ana-deck-sel');
   var openId=(typeof actDeck!=='undefined'&&actDeck&&typeof decks!=='undefined'&&decks[actDeck])?actDeck
-            :(typeof bldCurDeckId!=='undefined'&&bldCurDeckId&&typeof decks!=='undefined'&&decks[bldCurDeckId])?bldCurDeckId:null;
-  if(sel&&openId&&openId!==_anaCurDeckId){
+            :(typeof bldCurDeckId!=='undefined'&&bldCurDeckId&&typeof decks!=='undefined'&&decks[bldCurDeckId])?bldCurDeckId
+            :(sel&&sel.value&&typeof decks!=='undefined'&&decks[sel.value])?sel.value:null;
+  if(sel&&openId){
     sel.value=openId;
-    // Analyse complète (récupération + simulations) avec le loader « sceau »
-    if(sel.value===openId){try{anaAnalyze();}catch(e){console.warn('anaInit auto-analyse',e);}}
+    try{anaAnalyze();}catch(e){console.warn('anaInit auto-analyse',e);}
   }
   // Charge les decks publics communautaires en arrière-plan (fréquences formats construits)
   _anaFetchPublicDecks(function(){
