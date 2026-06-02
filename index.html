@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-02-10';
+window.APP_BUILD='2026-06-02-11';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -35290,6 +35290,19 @@ function _anaDeckCi(deck){
   }
   if(deck.commander&&deck.commander.colors&&deck.commander.colors.length)return deck.commander.colors;
   if(deck.colors&&deck.colors.length)return deck.colors;
+  // Fallback : agréger les colorIdentity de toutes les cartes du deck. Utile pour les decks
+  // non-Commander sans `deck.colors` défini (ex. un Modern importé sans couleurs taggées).
+  if(deck.cards&&deck.cards.length){
+    var _agg={};
+    deck.cards.forEach(function(c){
+      var _m=_anaData[c.nl]||_anaData[stripDFC(c.name||'').toLowerCase()];
+      if(_m&&_m.colorIdentity&&_m.colorIdentity.length){
+        _m.colorIdentity.forEach(function(co){_agg[co]=1;});
+      }
+    });
+    var _keys=Object.keys(_agg);
+    if(_keys.length)return _keys;
+  }
   return null;
 }
 
@@ -35539,25 +35552,88 @@ function _anaWeaknessScan(deck,fmt){
   var th=isComm
     ? {boardwipe:[1,3],enchRem:[1,2],artRem:[1,2],graveHate:[0,1],spotRem:[3,6],ramp:[6,10],cmdProtection:[1,3],massDraw:[6,10],counterMagic:[0,3],recursion:[0,2]}
     : {boardwipe:[0,2],enchRem:[0,2],artRem:[0,2],graveHate:[0,1],spotRem:[2,4],ramp:[0,2],cmdProtection:[0,0],massDraw:[2,4],counterMagic:[0,2],recursion:[0,1]};
-  // Suggestions standard + variante Pauper (uniquement des communes, car
-  // Pauper / Pauper Commander n'autorise que les cartes de rareté commune)
+  // Suggestions structurées : chaque carte porte ses couleurs et sa rareté (Common quand pertinent).
+  // Permet de filtrer côté rendu par l'identité de couleur du deck ET la rareté du format,
+  // pour ne jamais proposer Swords to Plowshares dans un deck mono-noir ou une rare en Pauper.
+  // colors: [] = incolore. rarity facultative (par défaut tout sauf basic).
   var defs=[
-    {k:'boardwipe',lbl:'Anti-board (wipe)',ico:'🌊',rec:'Wrath of God / Damnation / Toxic Deluge / Blasphemous Act',recPauper:'Pestilence / Crypt Rats / Evincar\'s Justice / Drown in Sorrow'},
-    {k:'enchRem',lbl:'Removal enchantement',ico:'🌿',rec:'Krosan Grip / Disenchant / Generous Gift / Naturalize',recPauper:'Naturalize / Disenchant / Demystify / Suffocating Fumes'},
-    {k:'artRem',lbl:'Removal artefact',ico:'⚙',rec:'Krosan Grip / Vandalblast / Reclamation Sage',recPauper:'Naturalize / Smash to Smithereens / Gorilla Shaman / Reclaim'},
-    {k:'graveHate',lbl:'Hate cimetière',ico:'🪦',rec:'Bojuka Bog / Tormod\'s Crypt / Soul-Guide Lantern / Rest in Peace',recPauper:'Bojuka Bog / Tormod\'s Crypt / Relic of Progenitus / Soul-Guide Lantern'},
-    {k:'spotRem',lbl:'Spot removal créature',ico:'⚔',rec:'Swords to Plowshares / Path to Exile / Beast Within',recPauper:'Doom Blade / Cast Down / Lightning Bolt / Snuff Out'},
-    {k:'ramp',lbl:'Ramp',ico:'🌱',rec:'Sol Ring / Arcane Signet / Cultivate / Three Visits',recPauper:'Llanowar Elves / Rampant Growth / Wild Growth / Search for Tomorrow'},
-    {k:'cmdProtection',lbl:'Protection',ico:'🛡',rec:'Lightning Greaves / Swiftfoot Boots / Heroic Intervention',recPauper:'Apostle\'s Blessing / Gods Willing / Mizzium Skin / Crystalline Sliver'},
-    {k:'massDraw',lbl:'Pioche / card advantage',ico:'📚',rec:'Rhystic Study / Sylvan Library / Phyrexian Arena / Esper Sentinel',recPauper:'Divination / Sign in Blood / Ponder / Deep Analysis'},
-    {k:'counterMagic',lbl:'Contresorts',ico:'🪶',rec:'Counterspell / Swan Song / Negate (si profil contrôle)',recPauper:'Counterspell / Negate / Exclude / Deprive'},
-    {k:'recursion',lbl:'Recursion cimetière',ico:'♻',rec:'Eternal Witness / Sun Titan / Regrowth / Animate Dead',recPauper:'Gravedigger / Raise Dead / Unearth / Grim Discovery'}
+    {k:'boardwipe',lbl:'Anti-board (wipe)',ico:'🌊',rec:[
+      {name:'Wrath of God',colors:['W']},{name:'Damnation',colors:['B']},
+      {name:'Toxic Deluge',colors:['B']},{name:'Blasphemous Act',colors:['R']},
+      {name:'Farewell',colors:['W']},{name:'Cyclonic Rift',colors:['U']},
+      {name:'Pestilence',colors:['B'],rarity:'common'},{name:'Crypt Rats',colors:['B'],rarity:'common'},
+      {name:'Evincar\'s Justice',colors:['B'],rarity:'common'},{name:'Drown in Sorrow',colors:['B'],rarity:'common'},
+      {name:'Earthquake',colors:['R']},{name:'Hour of Devastation',colors:['R']}
+    ]},
+    {k:'enchRem',lbl:'Removal enchantement',ico:'🌿',rec:[
+      {name:'Krosan Grip',colors:['G']},{name:'Disenchant',colors:['W']},
+      {name:'Generous Gift',colors:['W']},{name:'Naturalize',colors:['G'],rarity:'common'},
+      {name:'Feed the Swarm',colors:['B']},{name:'Demystify',colors:['W'],rarity:'common'},
+      {name:'Return to Nature',colors:['G'],rarity:'common'},{name:'Suffocating Fumes',colors:['B'],rarity:'common'}
+    ]},
+    {k:'artRem',lbl:'Removal artefact',ico:'⚙',rec:[
+      {name:'Krosan Grip',colors:['G']},{name:'Vandalblast',colors:['R']},
+      {name:'Reclamation Sage',colors:['G']},{name:'By Force',colors:['R']},
+      {name:'Smash to Smithereens',colors:['R'],rarity:'common'},
+      {name:'Gorilla Shaman',colors:['R'],rarity:'common'},
+      {name:'Reclaim',colors:['G'],rarity:'common'},
+      {name:'Naturalize',colors:['G'],rarity:'common'},{name:'Disenchant',colors:['W']}
+    ]},
+    {k:'graveHate',lbl:'Hate cimetière',ico:'🪦',rec:[
+      {name:'Bojuka Bog',colors:[],rarity:'common'},{name:'Tormod\'s Crypt',colors:[],rarity:'common'},
+      {name:'Soul-Guide Lantern',colors:[]},{name:'Rest in Peace',colors:['W']},
+      {name:'Leyline of the Void',colors:['B']},{name:'Relic of Progenitus',colors:[],rarity:'common'}
+    ]},
+    {k:'spotRem',lbl:'Spot removal créature',ico:'⚔',rec:[
+      {name:'Swords to Plowshares',colors:['W']},{name:'Path to Exile',colors:['W']},
+      {name:'Beast Within',colors:['G']},{name:'Generous Gift',colors:['W']},
+      {name:'Doom Blade',colors:['B'],rarity:'common'},{name:'Cast Down',colors:['B']},
+      {name:'Go for the Throat',colors:['B']},{name:'Lightning Bolt',colors:['R'],rarity:'common'},
+      {name:'Fatal Push',colors:['B']},{name:'Snuff Out',colors:['B']},
+      {name:'Pongify',colors:['U']},{name:'Rapid Hybridization',colors:['U']}
+    ]},
+    {k:'ramp',lbl:'Ramp',ico:'🌱',rec:[
+      {name:'Sol Ring',colors:[]},{name:'Arcane Signet',colors:[]},
+      {name:'Mind Stone',colors:[],rarity:'common'},{name:'Fellwar Stone',colors:[]},
+      {name:'Commander\'s Sphere',colors:[],rarity:'common'},
+      {name:'Cultivate',colors:['G'],rarity:'common'},{name:'Kodama\'s Reach',colors:['G'],rarity:'common'},
+      {name:'Three Visits',colors:['G']},{name:'Nature\'s Lore',colors:['G']},
+      {name:'Llanowar Elves',colors:['G'],rarity:'common'},{name:'Rampant Growth',colors:['G'],rarity:'common'},
+      {name:'Wild Growth',colors:['G'],rarity:'common'},{name:'Search for Tomorrow',colors:['G'],rarity:'common'},
+      {name:'Dark Ritual',colors:['B'],rarity:'common'}
+    ]},
+    {k:'cmdProtection',lbl:'Protection',ico:'🛡',rec:[
+      {name:'Lightning Greaves',colors:[]},{name:'Swiftfoot Boots',colors:[]},
+      {name:'Heroic Intervention',colors:['G']},{name:'Boros Charm',colors:['W','R']},
+      {name:'Apostle\'s Blessing',colors:['W'],rarity:'common'},
+      {name:'Gods Willing',colors:['W'],rarity:'common'},
+      {name:'Mizzium Skin',colors:['U'],rarity:'common'},{name:'Cloak of Feathers',colors:['U'],rarity:'common'}
+    ]},
+    {k:'massDraw',lbl:'Pioche / card advantage',ico:'📚',rec:[
+      {name:'Rhystic Study',colors:['U']},{name:'Sylvan Library',colors:['G']},
+      {name:'Phyrexian Arena',colors:['B']},{name:'Esper Sentinel',colors:['W']},
+      {name:'Mystic Remora',colors:['U']},{name:'Necropotence',colors:['B']},
+      {name:'Night\'s Whisper',colors:['B'],rarity:'common'},
+      {name:'Sign in Blood',colors:['B'],rarity:'common'},
+      {name:'Read the Bones',colors:['B'],rarity:'common'},
+      {name:'Divination',colors:['U'],rarity:'common'},{name:'Ponder',colors:['U'],rarity:'common'},
+      {name:'Deep Analysis',colors:['U'],rarity:'common'},{name:'Harmonize',colors:['G'],rarity:'common'}
+    ]},
+    {k:'counterMagic',lbl:'Contresorts',ico:'🪶',rec:[
+      {name:'Counterspell',colors:['U']},{name:'Swan Song',colors:['U']},
+      {name:'Negate',colors:['U'],rarity:'common'},{name:'Mana Drain',colors:['U']},
+      {name:'Mana Leak',colors:['U'],rarity:'common'},{name:'Exclude',colors:['U'],rarity:'common'},
+      {name:'Deprive',colors:['U'],rarity:'common'},{name:'Spell Pierce',colors:['U'],rarity:'common'}
+    ]},
+    {k:'recursion',lbl:'Recursion cimetière',ico:'♻',rec:[
+      {name:'Eternal Witness',colors:['G']},{name:'Sun Titan',colors:['W']},
+      {name:'Regrowth',colors:['G']},{name:'Animate Dead',colors:['B']},
+      {name:'Reanimate',colors:['B']},{name:'Gravedigger',colors:['B'],rarity:'common'},
+      {name:'Raise Dead',colors:['B'],rarity:'common'},{name:'Unearth',colors:['B'],rarity:'common'},
+      {name:'Grim Discovery',colors:['B'],rarity:'common'}
+    ]}
   ];
-  // Pour Pauper / Pauper Commander : remplace les suggestions par les variantes communes
   var isPauper=(fmt==='pauper'||fmt==='paupercmd'||fmt==='paupercommander');
-  if(isPauper){
-    defs.forEach(function(d){if(d.recPauper)d.rec=d.recPauper;});
-  }
   var critical=[],minor=[];
   defs.forEach(function(d){
     var n=hits[d.k],seuil=th[d.k];
@@ -40667,8 +40743,22 @@ async function anaRender(deckId){
     if(!w.critical.length&&!w.minor.length)return '<div class="card" style="border-color:rgba(100,200,120,.3)"><div class="lbl" style="color:var(--gr2)">🛡 Détecteur de faiblesses</div><div style="font-size:11.5px;color:var(--gr2);padding:6px 0">✓ Aucune faiblesse critique détectée — toutes les catégories essentielles sont couvertes pour ce format.</div></div>';
     // Candidats à couper : pires cartes du deck (hors terrains), réutilise bottomRows
     var cutPool=(bottomRows||[]).filter(function(r){return r&&r.card&&!(r.meta&&r.meta.tags&&r.meta.tags.isLand);});
+    var _deckCiWeak=_anaDeckCi(deck)||[];
+    var _isPauperWeak=w.isPauper;
     function renderCat(x,col,bg){
-      var sugg=String(x.def.rec||'').split('/').map(function(s){return s.replace(/\([^)]*\)/g,'').trim();}).filter(Boolean);
+      // Filtre couleur + rareté : ne propose que ce que le deck peut légalement jouer.
+      var recArr=Array.isArray(x.def.rec)?x.def.rec:[];
+      var sugg=recArr.filter(function(c){
+        if(_isPauperWeak&&c.rarity&&c.rarity!=='common')return false;
+        if(_isPauperWeak&&!c.rarity)return false; // en Pauper on ne propose QUE des communes
+        if(!_anaInColors(c.colors||[],_deckCiWeak))return false;
+        return true;
+      }).map(function(c){return c.name;});
+      // Si le filtre vide tout (cas rare : ex. Pauper mono-rouge sans communes pour la catégorie),
+      // on garde au moins les options incolores pour ne pas masquer la suggestion entière.
+      if(!sugg.length){
+        sugg=recArr.filter(function(c){return (!c.colors||!c.colors.length)&&(!_isPauperWeak||c.rarity==='common');}).map(function(c){return c.name;});
+      }
       var need=Math.max(1,(x.target||1)-(x.count||0));
       var h='<details style="padding:6px 9px;background:'+bg+';border-left:2px solid '+col+';border-radius:0 5px 5px 0;margin-bottom:4px">';
       h+='<summary style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:11.5px;list-style:none">';
