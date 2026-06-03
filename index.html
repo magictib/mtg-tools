@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-5';
+window.APP_BUILD='2026-06-03-6';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -35077,6 +35077,68 @@ function _anaCoachStepApply(){
   return h;
 }
 
+// Calcule un snapshot des indicateurs clés d'un deck (pour comparaison avant/après).
+function _anaCoachIndicators(deck){
+  var totalCards=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+  var deckSize=totalCards||60;
+  var lands=0,ramp=0,draw=0,removal=0,interaction=0,creatures=0,cmcSum=0,nonLand=0,instCount=0;
+  (deck.cards||[]).forEach(function(c){
+    var meta=_anaData[c.nl]||_anaData[(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase()];
+    if(!meta)return;
+    var qty=c.qty||1;
+    var roles=(typeof anaRoles==='function')?anaRoles(meta):{};
+    if(roles.land){lands+=qty;return;}
+    nonLand+=qty;cmcSum+=(meta.cmc||0)*qty;
+    if(roles.ramp)ramp+=qty;
+    if(roles.draw)draw+=qty;
+    if(roles.removal)removal+=qty;
+    if(roles.interaction)interaction+=qty;
+    if(roles.creature)creatures+=qty;
+    if(/^instant|—\s*instant/i.test(meta.typeLine||''))instCount+=qty;
+  });
+  var src=_anaColorSources(deck,_anaData);
+  var wc=_anaWincons(deck,_anaData);
+  return {
+    deckSize:deckSize,lands:lands,ramp:ramp,draw:draw,removal:removal,interaction:interaction,
+    creatures:creatures,nonLand:nonLand,avgCmc:nonLand?(cmcSum/nonLand):0,instCount:instCount,
+    sources:src.sources,
+    // Probas pré-calculées
+    pKeepLands:_anaHyperGTE(deckSize,lands,7,2)-_anaHyperGTE(deckSize,lands,7,6),
+    pRampT2:ramp>0?_anaHyperGTE(deckSize,ramp,9,1):0,
+    pRemT4:removal>0?_anaHyperGTE(deckSize,removal,11,1):0,
+    pDrawT5:draw>0?_anaHyperGTE(deckSize,draw,12,1):0,
+    pIntT5:interaction>0?_anaHyperGTE(deckSize,interaction,12,1):0,
+    wincons:wc.counts,
+    wcCategoriesActive:Object.keys(wc.counts).filter(function(k){return wc.counts[k]>0;}).length
+  };
+}
+// Applique des changements à un deck (clone) sans toucher l'original. Utilisé pour
+// le panneau « comparaison avant/après » du Step 5.
+function _anaCoachApplyChangesToCloneDeck(deck,changes){
+  // Clone superficiel des cards (qty mutable)
+  var cards=(deck.cards||[]).map(function(c){return Object.assign({},c);});
+  changes.forEach(function(ch){
+    var idx=-1;
+    for(var i=0;i<cards.length;i++){
+      var cnl=cards[i].nl||(typeof stripDFC==='function'?stripDFC(cards[i].name||''):cards[i].name||'').toLowerCase();
+      if(cnl===ch.cutNl){idx=i;break;}
+    }
+    if(idx<0)return;
+    if((cards[idx].qty||1)>1)cards[idx].qty=(cards[idx].qty||1)-1;
+    else cards.splice(idx,1);
+    // Ajout
+    var addNl=ch.add.nl||(typeof stripDFC==='function'?stripDFC(ch.add.name||''):ch.add.name||'').toLowerCase();
+    var existing=-1;
+    for(var j=0;j<cards.length;j++){
+      var cnl2=cards[j].nl||(typeof stripDFC==='function'?stripDFC(cards[j].name||''):cards[j].name||'').toLowerCase();
+      if(cnl2===addNl){existing=j;break;}
+    }
+    if(existing>=0)cards[existing].qty=(cards[existing].qty||1)+1;
+    else cards.push({name:ch.add.name,nl:addNl,qty:1});
+  });
+  return Object.assign({},deck,{cards:cards});
+}
+
 // Step 5 — Validation : récap des changements, projection score, apply + snapshot en un clic.
 function _anaCoachStepValidate(){
   var deck=_anaState.deck;
@@ -35130,9 +35192,52 @@ function _anaCoachStepValidate(){
     h+='<div class="ana-valid-diff-col in"><div class="ana-valid-diff-title in">+ '+changes.length+' carte'+(changes.length>1?'s':'')+' ajoutée'+(changes.length>1?'s':'')+'</div>';
     changes.forEach(function(c){h+='<div class="ana-valid-diff-item"><span class="ico">✓</span>'+esc(c.add.name)+' <span style="color:var(--tx3);font-size:.72rem;margin-left:auto">+'+(c.gain||0).toFixed(1)+'</span></div>';});
     h+='</div></div>';
+    // === Comparaison avant/après des indicateurs ===
+    var beforeInd=_anaCoachIndicators(deck);
+    var afterDeck=_anaCoachApplyChangesToCloneDeck(deck,changes);
+    var afterInd=_anaCoachIndicators(afterDeck);
+    var pPct=function(p){return Math.round(p*100)+'%';};
+    var deltaCol=function(d){return d>0?'#78c890':d<0?'#e07070':'var(--tx3)';};
+    var deltaArrow=function(d){return d>0?'▲':d<0?'▼':'·';};
+    var deltaTxt=function(b,a,suffix){
+      var diff=a-b;
+      if(Math.abs(diff)<0.005)return '<span style="color:var(--tx3)">=</span>';
+      var sign=diff>0?'+':'';
+      return '<span style="color:'+deltaCol(diff)+'">'+deltaArrow(diff)+' '+sign+(typeof diff==='number'?(suffix==='%'?Math.round(diff*100)+'%':diff.toFixed(suffix==='int'?0:1)):diff)+'</span>';
+    };
+    var compRows=[
+      {lbl:'Main d\'ouverture jouable',b:beforeInd.pKeepLands,a:afterInd.pKeepLands,fmt:'%'},
+      {lbl:'1 ramp piochée par T2',b:beforeInd.pRampT2,a:afterInd.pRampT2,fmt:'%'},
+      {lbl:'1 removal piochée par T4',b:beforeInd.pRemT4,a:afterInd.pRemT4,fmt:'%'},
+      {lbl:'1 interaction piochée par T5',b:beforeInd.pIntT5,a:afterInd.pIntT5,fmt:'%'},
+      {lbl:'Wincons distinctes',b:beforeInd.wcCategoriesActive,a:afterInd.wcCategoriesActive,fmt:'int'},
+      {lbl:'CMC moyen',b:beforeInd.avgCmc,a:afterInd.avgCmc,fmt:'1'},
+      {lbl:'Sources U',b:beforeInd.sources.U,a:afterInd.sources.U,fmt:'int'},
+      {lbl:'Sources B',b:beforeInd.sources.B,a:afterInd.sources.B,fmt:'int'},
+      {lbl:'Sources W',b:beforeInd.sources.W,a:afterInd.sources.W,fmt:'int'},
+      {lbl:'Sources R',b:beforeInd.sources.R,a:afterInd.sources.R,fmt:'int'},
+      {lbl:'Sources G',b:beforeInd.sources.G,a:afterInd.sources.G,fmt:'int'}
+    ];
+    // Ne garder que les lignes pertinentes (sources couleur seulement si présentes des deux côtés)
+    compRows=compRows.filter(function(r){return !(r.fmt==='int'&&r.lbl.indexOf('Sources')===0&&r.b===0&&r.a===0);});
+    h+='<div style="margin-top:24px"><div class="ana-coach-stat-label" style="margin-bottom:10px;font-size:.85rem;color:var(--gold2)">⚖ Comparaison avant / après</div>';
+    h+='<div style="border:.5px solid var(--bd2);border-radius:10px;overflow:hidden;background:var(--s3)">';
+    h+='<div style="display:grid;grid-template-columns:1fr 90px 90px 80px;gap:8px;padding:8px 14px;background:rgba(218,180,107,.08);font-size:.7rem;font-family:Goudy Mediaeval,serif;letter-spacing:.08em;color:var(--tx3);text-transform:uppercase;border-bottom:.5px solid var(--bd2)">';
+    h+='<div>Indicateur</div><div style="text-align:right">Avant</div><div style="text-align:right">Après</div><div style="text-align:right">Δ</div></div>';
+    compRows.forEach(function(r){
+      var bVal=r.fmt==='%'?pPct(r.b):r.fmt==='int'?r.b:(+r.b).toFixed(1);
+      var aVal=r.fmt==='%'?pPct(r.a):r.fmt==='int'?r.a:(+r.a).toFixed(1);
+      h+='<div style="display:grid;grid-template-columns:1fr 90px 90px 80px;gap:8px;padding:7px 14px;font-size:.82rem;border-bottom:.5px solid var(--bd2);color:var(--tx2)">'
+        +'<div>'+esc(r.lbl)+'</div>'
+        +'<div style="text-align:right;font-family:monospace">'+bVal+'</div>'
+        +'<div style="text-align:right;font-family:monospace;font-weight:bold">'+aVal+'</div>'
+        +'<div style="text-align:right;font-family:monospace;font-size:.78rem">'+deltaTxt(r.b,r.a,r.fmt)+'</div>'
+        +'</div>';
+    });
+    h+='</div></div>';
     // CTA
-    h+='<div class="ana-coach-callout"><b>Note :</b> le score projeté est une estimation basée sur les gains locaux. Une nouvelle simulation complète sera lancée après application pour mesurer le vrai impact sur le winrate.</div>';
-    h+='<div class="ana-apply-cta" style="margin-top:18px">';
+    h+='<div class="ana-coach-callout" style="margin-top:18px"><b>Note :</b> les indicateurs ci-dessus sont recalculés <i>après simulation</i> des swaps en attente — pas seulement la somme des gains locaux. Les couleurs Δ : <span style="color:#78c890">▲ vert</span> = amélioration · <span style="color:#e07070">▼ rouge</span> = régression.</div>';
+    h+='<div class="ana-apply-cta">';
     h+='<button class="ana-coach-btn primary" onclick="_anaCoachConfirmApply(\''+escJs(deckId)+'\')">✨ Confirmer et sauvegarder</button>';
     h+='<button class="ana-coach-btn" onclick="anaCoachGoto(4)">◀ Retour au triage</button>';
     h+='</div>';
@@ -39523,6 +39628,26 @@ function _anaAntiSynergyPenalty(cardMeta,deckThemes){
       var _spc=_anaDeckTypeCounts[_spw]||0;
       if(_spc<=1)penalty+=-7;else if(_spc<=4)penalty+=-3;
     }
+    // « cost(s) {N} less to cast for each [Type] you control » (Academy Journeymage, Etherium
+    // Sculptor-ish, Goblin Electromancer-bis…). Si on a peu de cartes du type, le réducteur
+    // ne réduit rien → la carte coûte son cmc plein. Pénalité.
+    var _ceRe=/cost(?:s)? \{?\d\}? less[^.]{0,60}?for each ([a-z][a-z]+)/g,_ceM;
+    while((_ceM=_ceRe.exec(o))){
+      var _cew=_ceM[1].replace(/s$/,'');
+      if(_excl[_cew]||_tdSeen[_cew])continue;_tdSeen[_cew]=1;
+      var _cec=_anaDeckTypeCounts[_cew]||0;
+      if(_cec<=2)penalty+=-7;
+      else if(_cec<=5)penalty+=-3;
+    }
+    // « cost(s) {N} less to cast for each [Type] you control » variante avec « if » :
+    // « costs {1} less to cast if you control a/an [Type] » (Phantasmal Bear pattern).
+    var _ciRe=/cost(?:s)? \{?\d\}? less[^.]{0,40}?if you control (?:a|an|another) ([a-z][a-z]+)/g,_ciM;
+    while((_ciM=_ciRe.exec(o))){
+      var _ciw=_ciM[1].replace(/s$/,'');
+      if(_excl[_ciw]||_tdSeen[_ciw])continue;_tdSeen[_ciw]=1;
+      var _cic=_anaDeckTypeCounts[_ciw]||0;
+      if(_cic<=1)penalty+=-5;else if(_cic<=3)penalty+=-2;
+    }
     // Lord tribal : « other [Tribu] you control get/have » — tribu peu présente → lord vide
     var _loRe=/\bother\b[^.]{0,30}?\b([a-z]+)\s+you control\b/g,_loM;
     while((_loM=_loRe.exec(o))){
@@ -41673,6 +41798,128 @@ async function anaRender(deckId){
     };
     html+='<div style="font-size:10.5px;color:var(--tx3);margin-top:4px;font-style:italic">'+esc(pilotHints[pilot.stars]||'')+'</div>';
     html+='</div>';
+    // ─── 5. Card Economy ───
+    // Compteurs : cantrips (cmc≤1 qui drawent), draw 2+, looters, mass draw, dead cards.
+    var cantrips=0,bigDraw=0,looters=0,massDraw=0,deadOnT1=0;
+    var cantripsList=[],bigDrawList=[];
+    (deck.cards||[]).forEach(function(c){
+      var meta=_anaData[c.nl]||_anaData[(typeof stripDFC==='function'?stripDFC(c.name||''):c.name||'').toLowerCase()];
+      if(!meta)return;
+      var o=(meta.oracleText||'').toLowerCase();
+      var qty=c.qty||1;
+      var cmc=meta.cmc||0;
+      var t=(meta.typeLine||'').toLowerCase();
+      if(t.indexOf('land')>=0)return;
+      // Cantrips
+      if(cmc<=1&&/draw (?:a card|two cards)/.test(o)){cantrips+=qty;if(cantripsList.length<5)cantripsList.push(meta.name);}
+      // Big draw (2+ cards)
+      if(/draw (?:two|three|four|five|six|seven|x) cards|draw cards equal to/.test(o)){bigDraw+=qty;if(bigDrawList.length<5)bigDrawList.push(meta.name);}
+      // Looters
+      if(/discard[^.]{0,30}(?:draw|put.*into your hand)|draw[^.]{0,30}(?:then |and )?discard/.test(o))looters+=qty;
+      // Mass draw (Wheel, Day's Undoing, etc.)
+      if(/each player draws|each player discards (?:their|his or her) hand[^.]*draws/.test(o))massDraw+=qty;
+      // Dead on T1 : sorts à cmc ≥4 dans la main d'ouverture sans utilité préventive
+      if(cmc>=5&&!/(?:flash|haste|when (?:this|[a-z]+) (?:creature )?enters|cycling|madness)/.test(o))deadOnT1+=qty;
+    });
+    var totalDrawSources=cantrips+bigDraw+looters+massDraw;
+    var ecoScore=cantrips*1+bigDraw*3+looters*2+massDraw*4;  // pondéré par puissance
+    var ecoCol=ecoScore>=20?'#78c890':ecoScore>=12?'#5b8cf5':ecoScore>=6?'#f5b95b':'#e07070';
+    html+='<div style="margin-top:14px"><div style="font-size:11.5px;color:var(--gold2);font-weight:600;margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.04em">▸ Économie de cartes</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">';
+    var ecoRows=[
+      {lbl:'Cantrips (cmc≤1)',n:cantrips,col:'#5b8cf5',hint:'Filtration cheap. ' +(cantripsList.length?cantripsList.join(' · '):'')},
+      {lbl:'Draw 2+ cartes',n:bigDraw,col:'#78c890',hint:'Card advantage net. '+(bigDrawList.length?bigDrawList.join(' · '):'')},
+      {lbl:'Looters / wheels',n:looters+massDraw,col:'#f5b95b',hint:'Filtrent ou recyclent la main.'},
+      {lbl:'Cartes ≥5cmc « blanches »',n:deadOnT1,col:deadOnT1>5?'#e07070':'#f5b95b',hint:'Risque de carte morte main d\'ouverture (sans flash/haste/ETB).'}
+    ];
+    ecoRows.forEach(function(r){
+      html+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px" title="'+esc(r.hint)+'">';
+      html+='<div style="font-size:9.5px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.06em">'+esc(r.lbl)+'</div>';
+      html+='<div style="font-size:1.3rem;font-weight:bold;color:'+r.col+';font-family:Goudy Mediaeval,serif">'+r.n+'</div>';
+      html+='</div>';
+    });
+    html+='</div>';
+    var ecoVerdict=ecoScore>=20?'Économie excellente : moteur de pioche dense.':ecoScore>=12?'Économie correcte : tu renouvelles ta main.':ecoScore>=6?'Économie tendue : peu de pioche, attention aux mains mortes.':'Économie pauvre : pioche insuffisante pour le format.';
+    html+='<div style="font-size:10.5px;color:'+ecoCol+';margin-top:6px;font-style:italic">'+esc(ecoVerdict)+' <span style="color:var(--tx3)">(score pondéré : '+ecoScore+')</span></div>';
+    html+='</div>';
+    // ─── 6. Bracket Wizards détaillé ───
+    var pw=(typeof _anaDeckPower==='function')?_anaDeckPower(deck):null;
+    if(pw){
+      html+='<div style="margin-top:14px"><div style="font-size:11.5px;color:var(--gold2);font-weight:600;margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.04em">▸ Bracket Commander (détail WotC)</div>';
+      var brCol=pw.bracket>=5?'#e07070':(pw.bracket>=4?'#f5b95b':(pw.bracket>=3?'var(--gold2)':'#78c890'));
+      var brLbl=(_ANA_POWER_LABELS&&_ANA_POWER_LABELS[pw.bracket])||'?';
+      html+='<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px">';
+      html+='<div style="font-family:Goudy Mediaeval,serif;font-size:1.6rem;font-weight:bold;color:'+brCol+'">'+pw.bracket+'/5</div>';
+      html+='<div style="font-size:14px;color:'+brCol+';font-weight:bold">'+esc(brLbl)+'</div>';
+      html+='<div style="font-size:10px;color:var(--tx3);margin-left:auto" title="Score brut composite">points bruts : '+pw.pts+'</div>';
+      html+='</div>';
+      var brCriteria=[
+        {n:pw.gc,lbl:'Game Changers',thresh:1,detail:(pw.gcNames||[]).slice(0,8).join(' · ')||'aucun'},
+        {n:pw.fastMana,lbl:'Fast mana',thresh:3,detail:'Sol Ring, Mana Crypt, Dark Ritual, etc.'},
+        {n:pw.tutors,lbl:'Tutors',thresh:3,detail:'Cartes qui cherchent dans la bibliothèque.'},
+        {n:pw.extraTurns,lbl:'Tours supplémentaires',thresh:2,detail:'Time Walk, Nexus of Fate, Temporal Manipulation.'},
+        {n:pw.landDenial,lbl:'Destruction de terrains massive',thresh:1,detail:'Armageddon, Jokulhaups, etc.'},
+        {n:pw.freeSpells,lbl:'Sorts gratuits',thresh:2,detail:'Force of Will, Fierce Guardianship…'}
+      ];
+      html+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:8px;overflow:hidden">';
+      brCriteria.forEach(function(cr,i){
+        var critCol=cr.n>=cr.thresh?'#f5b95b':'#78c890';
+        var bg=i%2===0?'transparent':'rgba(0,0,0,.15)';
+        html+='<div style="display:grid;grid-template-columns:1fr 40px;gap:8px;padding:7px 12px;background:'+bg+';border-bottom:.5px solid var(--bd2)" title="'+esc(cr.detail)+'">';
+        html+='<div><div style="font-size:11px;color:var(--tx2)">'+esc(cr.lbl)+'</div>';
+        html+='<div style="font-size:9.5px;color:var(--tx3);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:600px">'+esc(cr.detail.slice(0,120))+(cr.detail.length>120?'…':'')+'</div></div>';
+        html+='<div style="text-align:right;font-family:monospace;font-weight:bold;color:'+critCol+';font-size:1.05rem">'+cr.n+'</div>';
+        html+='</div>';
+      });
+      html+='</div>';
+      html+='<div style="font-size:10px;color:var(--tx3);margin-top:5px;font-style:italic">Référence : système de brackets Commander de Wizards. Mentionne ton bracket avant une partie pour éviter les déséquilibres de table.</div>';
+      html+='</div>';
+    }
+    // ─── 7. ROI investissement ───
+    // Calcule prix total deck + 3 upgrades les plus rentables (gain/€)
+    try{
+      if(typeof allPriceMap!=='undefined'&&allPriceMap){
+        var totalPrice=0,priciest=[];
+        (deck.cards||[]).forEach(function(c){
+          var p=allPriceMap[(c.name||'').toLowerCase()]||0;
+          var qty=c.qty||1;
+          totalPrice+=p*qty;
+          if(p>=2)priciest.push({name:c.name,price:p,qty:qty});
+        });
+        priciest.sort(function(a,b){return b.price*b.qty-a.price*a.qty;});
+        // Upgrades : 3 swaps avec meilleur gain/€ (gain en points par € investi)
+        var upgradeCandidates=(fullOpt&&fullOpt.swaps?fullOpt.swaps:[]).map(function(sw){
+          var addPrice=allPriceMap[(sw.add.name||'').toLowerCase()]||0;
+          var cutPrice=allPriceMap[(sw.cut.name||'').toLowerCase()]||0;
+          var netCost=Math.max(0.5,addPrice-cutPrice); // au moins 0.5€ pour éviter div/0
+          var gain=sw.gain||0;
+          return {sw:sw,addPrice:addPrice,netCost:netCost,gain:gain,roi:gain/netCost};
+        }).filter(function(u){return u.gain>=1.5&&u.addPrice>0;});
+        upgradeCandidates.sort(function(a,b){return b.roi-a.roi;});
+        var topUpgrades=upgradeCandidates.slice(0,3);
+        html+='<div style="margin-top:14px"><div style="font-size:11.5px;color:var(--gold2);font-weight:600;margin-bottom:6px;font-family:Goudy Mediaeval,serif;letter-spacing:.04em">▸ Investissement & ROI</div>';
+        html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:8px">';
+        html+='<div class="ana-coach-stat" style="margin:0"><div class="ana-coach-stat-label">Valeur totale</div><div class="ana-coach-stat-value">'+totalPrice.toFixed(0)+' €</div><div class="ana-coach-stat-hint">Somme des prix cardmarket-ish.</div></div>';
+        if(priciest.length){
+          html+='<div class="ana-coach-stat" style="margin:0"><div class="ana-coach-stat-label">Top 3 priciest</div>';
+          priciest.slice(0,3).forEach(function(p){html+='<div style="font-size:11px;color:var(--tx2);margin-top:3px">'+esc(p.name)+' <span style="color:var(--tx3);float:right">'+(p.price*p.qty).toFixed(1)+' €</span></div>';});
+          html+='</div>';
+        }
+        if(topUpgrades.length){
+          html+='<div class="ana-coach-stat" style="margin:0;grid-column:span 2"><div class="ana-coach-stat-label">Top 3 upgrades par ROI (gain / €)</div>';
+          topUpgrades.forEach(function(u){
+            html+='<div style="font-size:11px;color:var(--tx2);margin-top:4px;display:flex;justify-content:space-between;gap:8px">';
+            html+='<span><span style="color:var(--tx3)">→</span> '+esc(u.sw.add.name)+'</span>';
+            html+='<span style="color:var(--tx3);white-space:nowrap">+'+u.gain.toFixed(1)+' pts · '+u.netCost.toFixed(1)+' € · <b style="color:#78c890">'+u.roi.toFixed(2)+'</b> pt/€</span>';
+            html+='</div>';
+          });
+          html+='</div>';
+        }
+        html+='</div>';
+        if(!topUpgrades.length)html+='<div style="font-size:10.5px;color:var(--tx3);font-style:italic">Pas d\'upgrade chiffré (prix manquants ou tous neutres).</div>';
+        html+='</div>';
+      }
+    }catch(_e){}
     html+='</div>';
     return html;
   })();
