@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-11';
+window.APP_BUILD='2026-06-03-12';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -988,8 +988,9 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-coach-issue-pct{text-align:right;font-family:monospace;font-size:.9rem;font-weight:bold}
 .ana-coach-callout{background:linear-gradient(135deg,rgba(218,180,107,.10) 0%,rgba(91,140,245,.08) 100%);border-left:3px solid var(--gold);border-radius:0 8px 8px 0;padding:12px 16px;margin:14px 0;font-size:.92rem;color:var(--tx2);line-height:1.5}
 .ana-coach-callout b{color:var(--gold2);font-weight:700}
-.ana-coach-cmd-img{width:130px;border-radius:10px;box-shadow:0 8px 26px rgba(0,0,0,.6);float:right;margin:0 0 14px 18px}
-@media(max-width:680px){.ana-coach-cmd-img{float:none;display:block;margin:0 auto 14px;width:120px}.ana-coach-hero-title{font-size:1.5rem}.ana-coach-hero{padding:20px 18px 16px}.ana-coach-body{padding:18px 18px}}
+.ana-coach-cmd-img{position:absolute;top:18px;right:22px;width:110px;border-radius:9px;box-shadow:0 8px 22px rgba(0,0,0,.55);z-index:1;max-width:30%}
+.ana-coach-hero{position:relative;overflow:hidden;padding-right:150px}
+@media(max-width:680px){.ana-coach-cmd-img{position:static;display:block;margin:0 auto 14px;width:110px;max-width:60%}.ana-coach-hero-title{font-size:1.5rem}.ana-coach-hero{padding:20px 18px 16px}.ana-coach-body{padding:18px 18px}}
 /* Drill-down expandable sections (drill-down) — données pro brutes en complément des steps */
 .ana-drilldown{margin-top:14px;background:linear-gradient(180deg,rgba(15,15,15,.4) 0%,rgba(15,15,15,.2) 100%);border:.5px solid var(--bd2);border-radius:10px;overflow:hidden}
 .ana-drilldown summary{cursor:pointer;padding:10px 16px;font-family:'Goudy Mediaeval',serif;font-size:.85rem;color:var(--gold2);letter-spacing:.05em;list-style:none;display:flex;align-items:center;gap:8px;user-select:none;transition:background .15s}
@@ -35090,12 +35091,12 @@ function _anaCoachStepDiagnostic(){
   else {health='🔴';healthCol='#e07070';healthMsg='Le deck a besoin d’un travail de fond.';}
   var h='<div class="ana-coach-card">';
   h+='<div class="ana-coach-hero">';
+  if(cmdImg)h+='<img src="'+esc(cmdImg)+'" alt="'+esc(cmdName)+'" class="ana-coach-cmd-img" onerror="this.style.display=\'none\'">';
   h+='<div class="ana-coach-hero-eyebrow">Étape 1 · Diagnostic</div>';
   h+='<h2 class="ana-coach-hero-title">'+esc(cmdName||(deck.name||'Ton deck'))+'</h2>';
   h+='<div class="ana-coach-hero-sub">'+health+' '+esc(healthMsg)+(themes.length?' — thèmes : <i>'+themes.slice(0,4).map(esc).join(' · ')+'</i>':'')+'</div>';
   h+='</div>';
   h+='<div class="ana-coach-body">';
-  if(cmdImg)h+='<img src="'+esc(cmdImg)+'" alt="'+esc(cmdName)+'" class="ana-coach-cmd-img" onerror="this.style.display=\'none\'">';
   // ── Narrative en 3 phrases (style guide CFB) ──
   var wcRes=null;try{wcRes=_anaWincons(deck,_anaData);}catch(_e){wcRes={counts:{},examples:{}};}
   var weakRes=null;try{weakRes=_anaWeaknessScan(deck,fmt);}catch(_e){weakRes={critical:[],minor:[]};}
@@ -35146,12 +35147,22 @@ function _anaCoachStepDiagnostic(){
   h+='<div class="ana-kpi-value ana-kpi-value-sm">'+totalCards+'<span class="ana-kpi-value-unit">cartes</span></div>';
   h+='<div class="ana-kpi-sub">'+lands+' terrains · '+nonLand+' sorts · format <b>'+esc(fmt)+'</b></div>';
   h+='</div>';
-  // 4. Bracket WotC
-  if(pw){
+  // 4. Bracket WotC — non applicable en paupercmd (la rareté commune exclut les
+  // Game Changers/fast mana/tutors qui fondent le système Wizards). On affiche un
+  // libellé explicite plutôt qu'un « 1/5 » trompeur.
+  var fmtLc=((deck.format||'')+'').toLowerCase();
+  var isPauperCmd=fmtLc==='paupercmd'||fmtLc==='paupercommander'||fmtLc==='pauper';
+  if(pw&&!isPauperCmd){
     h+='<div class="ana-kpi-tile '+brCls+'"><div class="ana-kpi-icon">⚔</div>';
     h+='<div class="ana-kpi-label">Bracket WotC</div>';
     h+='<div class="ana-kpi-value" style="color:'+brCol+'">'+pw.bracket+'<span class="ana-kpi-value-unit">/ 5</span></div>';
     h+='<div class="ana-kpi-sub">'+esc(brLbl)+(pw.gc?' · <b style="color:var(--gold2)">'+pw.gc+' Game Changer'+(pw.gc>1?'s':'')+'</b>':'')+'</div>';
+    h+='</div>';
+  } else if(isPauperCmd){
+    h+='<div class="ana-kpi-tile kpi-info"><div class="ana-kpi-icon">🪶</div>';
+    h+='<div class="ana-kpi-label">Format</div>';
+    h+='<div class="ana-kpi-value ana-kpi-value-sm" style="color:var(--gold2)">Pauper</div>';
+    h+='<div class="ana-kpi-sub">Le bracket WotC ne s\'applique pas — uniquement des cartes communes.</div>';
     h+='</div>';
   }
   // 5. Wincons
@@ -35460,7 +35471,7 @@ function _anaCoachStepPlan(){
   h+='<div class="ana-coach-hero">';
   h+='<div class="ana-coach-hero-eyebrow">Étape 3 · Plan</div>';
   h+='<h2 class="ana-coach-hero-title">Voici les '+(topSwaps.length||3)+' actions prioritaires</h2>';
-  h+='<div class="ana-coach-hero-sub">Hiérarchisées par effort : <b style="color:#78c890">gratuit</b> (déjà dans ta collection) → <b style="color:#5b8cf5">à acheter cheap</b> → <b style="color:var(--gold2)">investissement long terme</b>. Chaque swap est un upgrade individuel validé, staples intouchables protégées.</div>';
+  h+='<div class="ana-coach-hero-sub">Hiérarchisées par effort : <b style="color:#78c890">✅ dans ta collection</b> (effet immédiat) → <b style="color:#5b8cf5">🛒 à acheter</b> (&lt; 10 €) → <b style="color:var(--gold2)">📈 investissement</b> (long terme). Chaque swap est un upgrade individuel validé, staples intouchables protégées.</div>';
   h+='</div>';
   h+='<div class="ana-coach-body">';
   if(!topSwaps.length){
@@ -35469,9 +35480,11 @@ function _anaCoachStepPlan(){
     // Compact tier-tagged view en haut
     h+='<div style="margin-bottom:20px">';
     prioritized.forEach(function(p,idx){
-      var tierIcon=p.tier==='free'?'🎁':p.tier==='buy'?'🛒':'💎';
-      var tierLbl=p.tier==='free'?'Gratuit':p.tier==='buy'?'À acheter':'Long terme';
-      var tierCost=p.tier==='free'?'dans ta collection':p.price>0?p.price.toFixed(1)+' €':'prix inconnu';
+      // Tier icons : ✅ = déjà à toi (action immédiate), 🛒 = à acheter cheap (effort modéré),
+      // 📈 = investissement long terme (cher, planifier). Plus parlant que 🎁/🛒/💎.
+      var tierIcon=p.tier==='free'?'✅':p.tier==='buy'?'🛒':'📈';
+      var tierLbl=p.tier==='free'?'Dans ta collection':p.tier==='buy'?'À acheter':'Investissement';
+      var tierCost=p.tier==='free'?'tu l\'as déjà':p.price>0?p.price.toFixed(1)+' €':'prix inconnu';
       var sw=p.sw;
       h+='<div class="ana-action-prio '+p.tier+'">';
       h+='<div class="ana-action-tier"><div class="ana-action-tier-ico">'+tierIcon+'</div><div class="ana-action-tier-lbl">'+esc(tierLbl)+'</div></div>';
@@ -35632,14 +35645,14 @@ function _anaCoachStepApply(){
       h+='<div class="ana-apply-actions">'+btnK+btnM+btnC+'</div>';
       h+='</div>';
     });
-    // CTA
+    // CTA : juste un teaser vers Step 5. L'apply réel se fait UNIQUEMENT à l'étape suivante
+    // après vérification du récap. Évite les regrets d'un clic trop rapide.
     h+='<div class="ana-apply-cta">';
-    if(nChange>0){
-      h+='<button class="ana-coach-btn primary" onclick="_anaApplyTriageChanges(\''+escJs(deckId)+'\')">⚡ Appliquer les '+nChange+' swap'+(nChange>1?'s':'')+' validé'+(nChange>1?'s':'')+'</button>';
-    } else {
-      h+='<button class="ana-coach-btn" disabled title="Aucune carte flaggée \'Change\' pour l\'instant">⚡ Appliquer (rien à appliquer)</button>';
-    }
-    h+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Tu peux revenir en arrière à tout moment via la barre de progression.</div>';
+    h+='<div class="ana-coach-callout" style="margin:0;text-align:center;flex:1">'
+      +(nChange>0
+        ?'<b style="color:var(--gold2)">'+nChange+' swap'+(nChange>1?'s':'')+' pré-validé'+(nChange>1?'s':'')+'</b> · clique <b>Suivant ▶</b> pour voir le récap chiffré avant de confirmer.'
+        :'<i>Marque des cartes <b style="color:#e07070">🔄 Change</b> pour préparer un swap, ou passe directement à la validation.</i>')
+      +'</div>';
     h+='</div>';
   }
   h+='</div></div>';
@@ -35764,6 +35777,84 @@ function _anaCoachStepValidate(){
     h+='<div class="ana-valid-arrow">▶</div>';
     h+='<div class="ana-valid-score"><div class="ana-valid-score-num" style="color:'+afterGrade.col+'" id="ana-valid-after" data-target="'+afterScore+'">'+overall+'</div><div class="ana-valid-score-lbl">Projection</div><div class="ana-valid-score-sub">Grade '+afterGrade.l+' · <b style="color:#78c890">+'+totalGain.toFixed(1)+' pts</b></div></div>';
     h+='</div>';
+    // === KPI grid stylé : récap chiffré des modifications ===
+    // Calculs avancés sur les changes
+    var manaFreed=0,manaAdded=0,newRoles={},ownedAdds=0,priceCost=0;
+    changes.forEach(function(c){
+      var cutMeta=_anaData[c.cutNl]||{};
+      var addMeta=c.add.meta||_anaData[c.add.nl]||{};
+      var cutCmc=cutMeta.cmc||0;
+      var addCmc=addMeta.cmc||0;
+      var diff=cutCmc-addCmc;
+      if(diff>0)manaFreed+=diff;else manaAdded+=(-diff);
+      // Détection nouveaux rôles apportés
+      var cutRoles=(typeof anaRoles==='function')?anaRoles(cutMeta):{};
+      var addRoles=(typeof anaRoles==='function')?anaRoles(addMeta):{};
+      ['ramp','draw','removal','interaction','wincon'].forEach(function(r){
+        if(addRoles[r]&&!cutRoles[r])newRoles[r]=(newRoles[r]||0)+1;
+      });
+      // Possédée ?
+      try{
+        var ownSet={};(getProfCards(0)||[]).forEach(function(card){var k=card.nl||(typeof stripDFC==='function'?stripDFC(card.name||'').toLowerCase():(card.name||'').toLowerCase());ownSet[k]=(ownSet[k]||0)+(card.qty||1);});
+        if(ownSet[c.add.nl]>0)ownedAdds++;
+      }catch(e){}
+      // Prix add - cut
+      try{
+        if(typeof allPriceMap!=='undefined'&&allPriceMap){
+          var addP=allPriceMap[(c.add.name||'').toLowerCase()]||0;
+          var cutP=allPriceMap[(c.cutName||'').toLowerCase()]||0;
+          priceCost+=Math.max(0,addP-cutP);
+        }
+      }catch(e){}
+    });
+    var manaNet=manaFreed-manaAdded;
+    var newRolesList=Object.keys(newRoles).filter(function(r){return newRoles[r]>0;});
+    var roleLblMap={ramp:'Ramp',draw:'Pioche',removal:'Removal',interaction:'Interaction',wincon:'Wincon'};
+    h+='<div class="ana-coach-grid" style="margin:18px 0 14px">';
+    // KPI 1 : Swaps
+    h+='<div class="ana-kpi-tile kpi-info"><div class="ana-kpi-icon">🔄</div>';
+    h+='<div class="ana-kpi-label">Swaps validés</div>';
+    h+='<div class="ana-kpi-value" style="color:#5b8cf5">'+changes.length+'</div>';
+    h+='<div class="ana-kpi-sub">'+ownedAdds+' déjà à toi · '+(changes.length-ownedAdds)+' à intégrer</div>';
+    h+='</div>';
+    // KPI 2 : Gain total
+    h+='<div class="ana-kpi-tile kpi-success"><div class="ana-kpi-icon">📈</div>';
+    h+='<div class="ana-kpi-label">Gain de score</div>';
+    h+='<div class="ana-kpi-value" style="color:#78c890">+'+totalGain.toFixed(1)+'<span class="ana-kpi-value-unit">pts</span></div>';
+    h+='<div class="ana-kpi-sub">'+overall+' → <b style="color:'+afterGrade.col+'">'+afterScore+'</b> (grade '+grade.l+' → '+afterGrade.l+')</div>';
+    h+='</div>';
+    // KPI 3 : Courbe mana
+    if(Math.abs(manaNet)>0){
+      var manaCol=manaNet>0?'#78c890':'#f5b95b';
+      h+='<div class="ana-kpi-tile"><div class="ana-kpi-icon">⛰</div>';
+      h+='<div class="ana-kpi-label">Courbe mana</div>';
+      h+='<div class="ana-kpi-value" style="color:'+manaCol+'">'+(manaNet>0?'−':'+')+Math.abs(manaNet)+'<span class="ana-kpi-value-unit">mana net</span></div>';
+      h+='<div class="ana-kpi-sub">'+(manaNet>0?'Deck plus rapide globalement.':'Deck plus cher — vérifie ramp.')+'</div>';
+      h+='</div>';
+    }
+    // KPI 4 : Nouveaux rôles
+    if(newRolesList.length){
+      h+='<div class="ana-kpi-tile kpi-warn"><div class="ana-kpi-icon">🎯</div>';
+      h+='<div class="ana-kpi-label">Rôles ajoutés</div>';
+      h+='<div class="ana-kpi-value ana-kpi-value-sm" style="color:#f5b95b">'+newRolesList.length+'</div>';
+      h+='<div class="ana-kpi-sub">'+newRolesList.map(function(r){return roleLblMap[r]||r;}).join(' · ')+'</div>';
+      h+='</div>';
+    }
+    // KPI 5 : Coût en €
+    if(priceCost>0){
+      h+='<div class="ana-kpi-tile kpi-warn"><div class="ana-kpi-icon">💰</div>';
+      h+='<div class="ana-kpi-label">Coût net</div>';
+      h+='<div class="ana-kpi-value" style="color:#f5b95b">'+priceCost.toFixed(1)+'<span class="ana-kpi-value-unit">€</span></div>';
+      h+='<div class="ana-kpi-sub">Différentiel prix add − cut, hors collection.</div>';
+      h+='</div>';
+    } else if(ownedAdds===changes.length){
+      h+='<div class="ana-kpi-tile kpi-success"><div class="ana-kpi-icon">🎉</div>';
+      h+='<div class="ana-kpi-label">Coût</div>';
+      h+='<div class="ana-kpi-value ana-kpi-value-sm" style="color:#78c890">Gratuit</div>';
+      h+='<div class="ana-kpi-sub">Toutes les cartes ajoutées sont déjà dans ta collection.</div>';
+      h+='</div>';
+    }
+    h+='</div>';
     // Diff cartes
     h+='<div class="ana-valid-diff-grid">';
     h+='<div class="ana-valid-diff-col out"><div class="ana-valid-diff-title out">− '+changes.length+' carte'+(changes.length>1?'s':'')+' coupée'+(changes.length>1?'s':'')+'</div>';
@@ -35798,8 +35889,18 @@ function _anaCoachStepValidate(){
       {lbl:'Sources R',b:beforeInd.sources.R,a:afterInd.sources.R,fmt:'int'},
       {lbl:'Sources G',b:beforeInd.sources.G,a:afterInd.sources.G,fmt:'int'}
     ];
-    // Ne garder que les lignes pertinentes (sources couleur seulement si présentes des deux côtés)
-    compRows=compRows.filter(function(r){return !(r.fmt==='int'&&r.lbl.indexOf('Sources')===0&&r.b===0&&r.a===0);});
+    // Filtre les lignes Sources couleur : on ne montre que les couleurs DANS l'identité du deck.
+    // Évite d'afficher « Sources W : 2 » pour un deck UB (Command Tower fait gonfler tous les
+    // compteurs même hors identité de couleur).
+    var deckCiStep5=(typeof _anaDeckCi==='function'?_anaDeckCi(deck):null)||[];
+    compRows=compRows.filter(function(r){
+      if(r.fmt!=='int'||r.lbl.indexOf('Sources')!==0)return true;
+      if(r.b===0&&r.a===0)return false;
+      // Extrait la lettre de couleur en fin de label (« Sources W » → 'W')
+      var color=r.lbl.charAt(r.lbl.length-1);
+      if(deckCiStep5.length>0&&deckCiStep5.indexOf(color)<0)return false;
+      return true;
+    });
     h+='<div style="margin-top:24px"><div class="ana-coach-stat-label" style="margin-bottom:10px;font-size:.85rem;color:var(--gold2)">⚖ Comparaison avant / après</div>';
     h+='<div style="border:.5px solid var(--bd2);border-radius:10px;overflow:hidden;background:var(--s3)">';
     h+='<div style="display:grid;grid-template-columns:1fr 90px 90px 80px;gap:8px;padding:8px 14px;background:rgba(218,180,107,.08);font-size:.7rem;font-family:Goudy Mediaeval,serif;letter-spacing:.08em;color:var(--tx3);text-transform:uppercase;border-bottom:.5px solid var(--bd2)">';
