@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-8';
+window.APP_BUILD='2026-06-03-9';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -40101,9 +40101,12 @@ function _anaAntiSynergyPenalty(cardMeta,deckThemes){
   }
   // Créature qui fait perdre des PV au contrôleur sur ETB/attaque/combat (Audacious Thief
   // « lose 1 life ») dans un deck sans gain de vie : drain auto-infligé qui s'accumule pour rien.
+  // EXCEPTION : si la même clause apporte de la VALUE (pioche, dégâts à l'adversaire, drain mutuel),
+  // la perte est compensée — on ne pénalise pas Audacious Thief qui pioche aussi.
   if(/you lose \d+ life/.test(o)&&/(?:whenever|when) (?:this|[a-z]+) (?:creature )?(?:enters|deals combat damage|attacks)/.test(o)
      &&(th.lifegain||1)<1.5){
-    penalty+=-2;
+    var compensates=/(?:draw (?:a card|two cards|that many cards|cards)|deals? \d+ damage to (?:target opponent|each opponent|any target)|each opponent loses \d+ life|opponent loses)/i.test(o);
+    if(!compensates)penalty+=-2;
   }
   return penalty;
 }
