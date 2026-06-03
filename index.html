@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-9';
+window.APP_BUILD='2026-06-03-10';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -987,6 +987,14 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-coach-callout b{color:var(--gold2);font-weight:700}
 .ana-coach-cmd-img{width:130px;border-radius:10px;box-shadow:0 8px 26px rgba(0,0,0,.6);float:right;margin:0 0 14px 18px}
 @media(max-width:680px){.ana-coach-cmd-img{float:none;display:block;margin:0 auto 14px;width:120px}.ana-coach-hero-title{font-size:1.5rem}.ana-coach-hero{padding:20px 18px 16px}.ana-coach-body{padding:18px 18px}}
+/* Drill-down expandable sections (drill-down) — données pro brutes en complément des steps */
+.ana-drilldown{margin-top:14px;background:linear-gradient(180deg,rgba(15,15,15,.4) 0%,rgba(15,15,15,.2) 100%);border:.5px solid var(--bd2);border-radius:10px;overflow:hidden}
+.ana-drilldown summary{cursor:pointer;padding:10px 16px;font-family:'Goudy Mediaeval',serif;font-size:.85rem;color:var(--gold2);letter-spacing:.05em;list-style:none;display:flex;align-items:center;gap:8px;user-select:none;transition:background .15s}
+.ana-drilldown summary:hover{background:rgba(218,180,107,.06)}
+.ana-drilldown summary::-webkit-details-marker{display:none}
+.ana-drilldown summary .arr{margin-left:auto;font-size:.75rem;color:var(--tx3);transition:transform .15s}
+.ana-drilldown[open] summary .arr{transform:rotate(90deg)}
+.ana-drilldown-body{padding:14px 16px;border-top:.5px solid var(--bd2);background:rgba(0,0,0,.18)}
 /* Step 3 Plan — cards de swap visuels « avant → après » */
 .ana-swap-row{display:grid;grid-template-columns:1fr 60px 1fr 110px;gap:14px;align-items:center;padding:16px;background:linear-gradient(180deg,rgba(20,16,12,.4) 0%,rgba(20,16,12,.6) 100%);border:.5px solid var(--bd2);border-radius:14px;margin-bottom:12px;transition:all .2s;position:relative}
 .ana-swap-row:hover{border-color:var(--gold);box-shadow:0 8px 24px rgba(0,0,0,.4)}
@@ -34772,7 +34780,17 @@ function _anaRecallTab(deckId){
     return m[deckId]||'overview';
   }catch(_){return 'overview';}
 }
-/* ─── Helpers Coach Mode : narrative, trend, achievements, prioritized actions ─── */
+/* ─── Helpers Coach Mode : drill-down expandable, narrative, trend, achievements ─── */
+
+// Wrap un bloc de contenu HTML dans un <details> stylé Coach Mode pour drill-down.
+// Permet d'ajouter des données pro brutes à chaque step sans alourdir la vue par défaut.
+function _anaCoachDrilldown(icon,title,content,opened){
+  if(!content||!content.trim())return '';
+  return '<details class="ana-drilldown"'+(opened?' open':'')+'>'
+    +'<summary>'+icon+' '+esc(title)+' <span class="arr">▸</span></summary>'
+    +'<div class="ana-drilldown-body">'+content+'</div>'
+    +'</details>';
+}
 
 // Génère une narrative de 3 phrases du deck (style guide ChannelFireball) à partir
 // des données déjà calculées : commandant, thèmes, archétype, wincons, faiblesses.
@@ -34969,7 +34987,7 @@ function _anaTopPrioritizedActions(swaps){
 /* ─── Coach Mode : flux guidé 5 étapes (Diagnostic → Verdict → Plan → Apply → Valid) ─── */
 // L'utilisateur peut basculer Expert ↔ Coach. Step persisté par deck.
 var _anaCoachStep=1;  // 1..5
-var _anaCoachActive=false;
+var _anaCoachActive=true;  // Coach Mode est maintenant DEFAULT (l'utilisateur peut basculer Expert via le toggle).
 var _ANA_COACH_STEPS=[
   {n:1,key:'diag',lbl:'Diagnostic',ico:'✨'},
   {n:2,key:'verd',lbl:'Verdict',ico:'⚠'},
@@ -35208,6 +35226,72 @@ function _anaCoachStepDiagnostic(){
     themes.slice(0,8).forEach(function(t){h+='<span style="font-size:.75rem;padding:4px 10px;border-radius:14px;background:rgba(218,180,107,.12);border:.5px solid var(--gold);color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">'+esc(t)+'</span>';});
     h+='</div></div>';
   }
+  // ── Drill-down : détails pro brutes pour ceux qui veulent creuser ──
+  // 1. Répartition des rôles
+  var rolesHtml='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
+  var roleData=[
+    {k:'land',lbl:'Terrains',ico:'🏞'},{k:'ramp',lbl:'Ramp',ico:'🌱'},{k:'draw',lbl:'Pioche',ico:'📖'},
+    {k:'removal',lbl:'Removal',ico:'🗡'},{k:'interaction',lbl:'Interaction',ico:'🔄'},{k:'wincon',lbl:'Wincon',ico:'🏆'}
+  ];
+  var counts=_anaState.counts||{};
+  var targets=_anaState.targets||{};
+  roleData.forEach(function(r){
+    var n=counts[r.k]||0;
+    var tgt=targets[r.k]||[0,0];
+    var col=n>=tgt[0]&&n<=tgt[1]?'#78c890':n<tgt[0]?'#e07070':'#f5b95b';
+    rolesHtml+='<div style="background:var(--s3);border:.5px solid var(--bd2);border-radius:8px;padding:8px 10px;text-align:center">'
+      +'<div style="font-size:1rem">'+r.ico+'</div>'
+      +'<div style="font-size:9.5px;color:var(--tx3);margin:2px 0">'+esc(r.lbl)+'</div>'
+      +'<div style="font-size:1.1rem;font-weight:bold;color:'+col+';font-family:Goudy Mediaeval,serif">'+n+'</div>'
+      +'<div style="font-size:9px;color:var(--tx3)">cible '+tgt[0]+'-'+tgt[1]+'</div>'
+      +'</div>';
+  });
+  rolesHtml+='</div>';
+  h+=_anaCoachDrilldown('🗂','Composition par rôle',rolesHtml);
+  // 2. Statistiques pro (probas + manabase + wincons + pilotage)
+  // (réutilise le helper qui calcule tout, on copie ici une version condensée)
+  try{
+    var deckSize=totalCards||60;
+    var src=_anaColorSources(deck,_anaData);
+    var demand=_anaPipDemand(deck,_anaData);
+    var statsContent='';
+    // Manabase pips
+    statsContent+='<div style="font-size:.78rem;color:var(--gold2);font-family:Goudy Mediaeval,serif;margin-bottom:6px;letter-spacing:.05em">▸ MANABASE EN PIPS</div>';
+    var colorNames={W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert'};
+    var anyColor=false;
+    ['W','U','B','R','G'].forEach(function(co){
+      var pip=demand.pips[co]||0,srcCount=src.sources[co]||0;
+      if(pip===0&&srcCount===0)return;
+      anyColor=true;
+      var ratio=pip>0?srcCount/Math.max(pip,1):999;
+      var pT2=srcCount>0?_anaHyperGTE(deckSize,srcCount,9,1):0;
+      var rCol=ratio>=0.6?'#78c890':ratio>=0.4?'#f5b95b':'#e07070';
+      statsContent+='<div style="display:grid;grid-template-columns:60px 1fr 60px 60px;gap:8px;padding:4px 0;font-size:.78rem;border-bottom:.5px solid var(--bd2)">'
+        +'<div style="color:var(--tx2)">'+colorNames[co]+'</div>'
+        +'<div style="color:var(--tx3)">'+pip+' pip · '+srcCount+' src</div>'
+        +'<div style="text-align:right;font-family:monospace;color:'+rCol+';font-weight:bold">'+(pip>0?ratio.toFixed(2):'—')+'</div>'
+        +'<div style="text-align:right;font-family:monospace;color:'+(pT2>=.7?'#78c890':pT2>=.5?'#f5b95b':'#e07070')+'">'+Math.round(pT2*100)+'%</div>'
+        +'</div>';
+    });
+    if(!anyColor)statsContent+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Deck incolore.</div>';
+    // ROI quick
+    if(typeof allPriceMap!=='undefined'&&allPriceMap){
+      var totPx=0;(deck.cards||[]).forEach(function(c){totPx+=(allPriceMap[(c.name||'').toLowerCase()]||0)*(c.qty||1);});
+      if(totPx>0){
+        statsContent+='<div style="font-size:.78rem;color:var(--gold2);font-family:Goudy Mediaeval,serif;margin:14px 0 6px;letter-spacing:.05em">▸ INVESTISSEMENT</div>';
+        statsContent+='<div style="font-size:.85rem;color:var(--tx2)">Valeur totale du deck : <b style="color:var(--gold2)">'+Math.round(totPx)+' €</b></div>';
+      }
+    }
+    h+=_anaCoachDrilldown('📐','Statistiques pro (manabase, ROI)',statsContent);
+  }catch(_e){}
+  // 3. Game Changers (si présents)
+  if(pw&&pw.gc>0){
+    var gcContent='<div style="font-size:.85rem;color:var(--tx2);margin-bottom:8px">Cartes de la liste « Game Changers » WotC qui imposent un plancher de bracket :</div>';
+    gcContent+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+    (pw.gcNames||[]).forEach(function(nm){gcContent+='<span style="font-size:.75rem;padding:3px 9px;background:rgba(218,180,107,.13);border:.5px solid var(--gold);border-radius:9px;color:var(--gold2)">'+esc(nm)+'</span>';});
+    gcContent+='</div>';
+    h+=_anaCoachDrilldown('⭐','Game Changers détectés ('+pw.gc+')',gcContent);
+  }
   h+='<div class="ana-coach-callout"><b>Prochaine étape :</b> on regarde ce qui pèche dans la construction et pourquoi. <i>Clique sur « Suivant ▶ ».</i></div>';
   h+='</div></div>';
   return h;
@@ -35274,6 +35358,43 @@ function _anaCoachStepVerdict(){
   });
   // Phrase-clé verdict
   h+='<div class="ana-coach-callout" style="margin-top:18px"><b>Verdict :</b> avec '+nSwaps+' swap'+(nSwaps>1?'s':'')+' identifié'+(nSwaps>1?'s':'')+' par l’analyse, ton score peut passer de <b style="color:#e07070">'+overall+'</b> à environ <b style="color:#78c890">'+afterScore+'</b> /100. <i>Les détails carte par carte arrivent à l’étape suivante.</i></div>';
+  // ── Drill-down Step 2 : faiblesses complètes + probas étendues ──
+  // 1. Toutes les faiblesses (critique + mineure)
+  if(critical.length+minor.length>3){
+    var wkContent='';
+    if(critical.length){
+      wkContent+='<div style="font-size:.78rem;color:#e07070;font-family:Goudy Mediaeval,serif;margin-bottom:6px;letter-spacing:.05em">▸ CRITIQUES ('+critical.length+')</div>';
+      critical.forEach(function(x){
+        wkContent+='<div style="padding:6px 10px;background:rgba(224,112,112,.06);border-left:2px solid #e07070;border-radius:0 5px 5px 0;margin-bottom:4px;font-size:.82rem;color:var(--tx2)">'+x.def.ico+' '+esc(x.def.lbl)+' <span style="color:var(--tx3);float:right">'+x.count+'/'+x.target+'</span></div>';
+      });
+    }
+    if(minor.length){
+      wkContent+='<div style="font-size:.78rem;color:#f5b95b;font-family:Goudy Mediaeval,serif;margin:10px 0 6px;letter-spacing:.05em">▸ MINEURES ('+minor.length+')</div>';
+      minor.forEach(function(x){
+        wkContent+='<div style="padding:6px 10px;background:rgba(245,185,91,.06);border-left:2px solid #f5b95b;border-radius:0 5px 5px 0;margin-bottom:4px;font-size:.82rem;color:var(--tx2)">'+x.def.ico+' '+esc(x.def.lbl)+' <span style="color:var(--tx3);float:right">'+x.count+'/'+x.target+'</span></div>';
+      });
+    }
+    h+=_anaCoachDrilldown('🛡','Toutes les faiblesses ('+(critical.length+minor.length)+')',wkContent);
+  }
+  // 2. Probabilités étendues
+  var deckSizeP=totalCards||60;
+  var probsContent='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:10px;font-style:italic">Probabilités hypergéométriques exactes basées sur la composition actuelle du deck.</div>';
+  var allProbs=[
+    {lbl:'3 lands posés par T3',p:_anaHyperGTE(deckSizeP,lands,10,3)},
+    {lbl:'4 lands posés par T4',p:_anaHyperGTE(deckSizeP,lands,11,4)},
+    {lbl:'2 ramps pioché·es par T3',p:ramp>0?_anaHyperGTE(deckSizeP,ramp,10,2):0},
+    {lbl:'1 wincon piochée par T5',p:0},
+    {lbl:'1 removal en main d\'ouverture',p:removal>0?_anaHyperGTE(deckSizeP,removal,7,1):0},
+    {lbl:'1 pioche en main d\'ouverture',p:_anaHyperGTE(deckSizeP,(_anaState.counts&&_anaState.counts.draw)||0,7,1)}
+  ];
+  allProbs.forEach(function(p){
+    var col=p.p>=0.85?'#78c890':p.p>=0.6?'#5b8cf5':p.p>=0.4?'#f5b95b':'#e07070';
+    probsContent+='<div style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;padding:5px 0;border-bottom:.5px solid var(--bd2);font-size:.82rem">'
+      +'<div style="color:var(--tx2)">'+esc(p.lbl)+'<div style="height:4px;background:var(--s3);border-radius:2px;margin-top:3px;overflow:hidden"><div style="height:100%;width:'+Math.round(p.p*100)+'%;background:'+col+'"></div></div></div>'
+      +'<div style="text-align:right;font-family:monospace;color:'+col+';font-weight:bold">'+Math.round(p.p*100)+'%</div>'
+      +'</div>';
+  });
+  h+=_anaCoachDrilldown('📊','Probabilités étendues',probsContent);
   h+='</div></div>';
   return h;
 }
@@ -35381,6 +35502,46 @@ function _anaCoachStepPlan(){
     var totalGain=topSwaps.reduce(function(s,sw){return s+(sw.gain||0);},0);
     h+='<div class="ana-coach-callout"><b>Gain cumulé estimé :</b> +'+totalGain.toFixed(1)+' points sur ces '+topSwaps.length+' swaps. <i>Tu n\'es pas obligé de tous les appliquer — l\'étape suivante te laisse choisir carte par carte.</i></div>';
   }
+  // ── Drill-down Step 3 : tous les swaps + méta EDHREC + combos ──
+  // 1. Tous les swaps maison (>3) listés compact
+  if(allSwaps.length>3){
+    var allSwapsContent='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:8px;font-style:italic">'+allSwaps.length+' swaps proposés au total (les 3 prioritaires sont au-dessus).</div>';
+    allSwapsContent+='<div style="max-height:340px;overflow-y:auto">';
+    allSwaps.slice(3).forEach(function(sw){
+      allSwapsContent+='<div style="display:grid;grid-template-columns:1fr 18px 1fr 50px;gap:8px;align-items:center;padding:5px 8px;border-bottom:.5px solid var(--bd2);font-size:.78rem">'
+        +'<div style="color:var(--tx3);text-decoration:line-through">'+esc(sw.cut.name||'?')+'</div>'
+        +'<div style="color:var(--gold2);text-align:center">▶</div>'
+        +'<div style="color:var(--tx2)">'+esc(sw.add.name||'?')+'</div>'
+        +'<div style="text-align:right;font-family:monospace;color:#78c890;font-weight:bold">+'+(sw.gain!=null?sw.gain.toFixed(1):'?')+'</div>'
+        +'</div>';
+    });
+    allSwapsContent+='</div>';
+    h+=_anaCoachDrilldown('📋','Tous les swaps maison ('+allSwaps.length+' au total)',allSwapsContent);
+  }
+  // 2. Swaps méta EDHREC (depuis swapByCutNl)
+  try{
+    if(_anaState&&_anaState.swapByCutNl){
+      var metaSwaps=[];
+      Object.keys(_anaState.swapByCutNl).forEach(function(nl){
+        var s=_anaState.swapByCutNl[nl];if(s&&s.meta)metaSwaps.push({cutNl:nl,add:s.meta});
+      });
+      if(metaSwaps.length){
+        var metaContent='<div style="font-size:.78rem;color:var(--tx3);margin-bottom:8px;font-style:italic">Swaps proposés d\'après les decks populaires du commandant sur EDHREC.</div>';
+        metaContent+='<div style="max-height:340px;overflow-y:auto">';
+        metaSwaps.slice(0,30).forEach(function(s){
+          var cutName=(_anaData[s.cutNl]&&_anaData[s.cutNl].name)||s.cutNl;
+          metaContent+='<div style="display:grid;grid-template-columns:1fr 18px 1fr 50px;gap:8px;align-items:center;padding:5px 8px;border-bottom:.5px solid var(--bd2);font-size:.78rem">'
+            +'<div style="color:var(--tx3);text-decoration:line-through">'+esc(cutName)+'</div>'
+            +'<div style="color:#c8a8ff;text-align:center">▶</div>'
+            +'<div style="color:#c8a8ff">'+esc(s.add.name||'?')+'</div>'
+            +'<div style="text-align:right;font-family:monospace;color:var(--tx3);font-size:.72rem">'+(s.add.addFreq!=null?Math.round(s.add.addFreq*100)+'%':'?')+'</div>'
+            +'</div>';
+        });
+        metaContent+='</div>';
+        h+=_anaCoachDrilldown('🌐','Méta EDHREC — swaps populaires ('+metaSwaps.length+')',metaContent);
+      }
+    }
+  }catch(_e){}
   h+='</div></div>';
   return h;
 }
