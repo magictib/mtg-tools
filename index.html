@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-10';
+window.APP_BUILD='2026-06-03-11';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -940,9 +940,12 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 #ana-results[data-active-tab="all"] .ana-sec{display:block}
 #ana-internal-tabs .ar-tab.disabled{opacity:.35;cursor:not-allowed}
 /* ─── Coach Mode : flux guidé 5 étapes (Diagnostic → Verdict → Plan → Apply → Valid) ─── */
+/* Quand Coach est actif on masque TOUT ce qui n'est pas le panneau Coach lui-même.
+   Le hero du commandant, le score panel et le plan de jeu sont déjà couverts par Step 1. */
+#ana-results.coach-on > *:not(#ana-coach){display:none !important}
 #ana-results.coach-on #ana-dashboard,
 #ana-results.coach-on #ana-internal-tabs,
-#ana-results.coach-on .ana-sec:not(.ana-sec-always),
+#ana-results.coach-on .ana-sec,
 #ana-results.coach-on .ana-collap{display:none}
 #ana-coach{display:none}
 #ana-results.coach-on #ana-coach{display:block}
@@ -34997,8 +35000,10 @@ var _ANA_COACH_STEPS=[
 ];
 function _anaCoachLoadPref(){
   try{
-    var p=JSON.parse(localStorage.getItem('mtg_ana_coach')||'{}');
-    _anaCoachActive=!!p.active;
+    var raw=localStorage.getItem('mtg_ana_coach');
+    if(!raw)return; // pas de préférence sauvegardée → on garde la valeur par défaut (true)
+    var p=JSON.parse(raw)||{};
+    if(typeof p.active==='boolean')_anaCoachActive=p.active;
     if(p.step>=1&&p.step<=5)_anaCoachStep=p.step;
   }catch(e){}
 }
@@ -35037,13 +35042,16 @@ function _anaCoachRender(){
   var c=document.getElementById('ana-coach');if(!c||!_anaState)return;
   var deck=_anaState.deck;var overall=_anaState.overall;
   var grade=(typeof anaGrade==='function')?anaGrade(overall):{l:'?',col:'var(--tx)'};
-  // Header steps bar
-  var bar='<div class="ana-coach-bar"><div class="ana-coach-steps">';
+  // Header steps bar + toggle Coach/Expert (le seul élément qui reste visible quand
+  // Coach est actif, donc on l'embarque ici plutôt que dans la barre d'onglets Expert).
+  var bar='<div class="ana-coach-bar"><div style="display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap"><div class="ana-coach-steps">';
   _ANA_COACH_STEPS.forEach(function(st,i){
     var cls='ana-coach-step'+(st.n===_anaCoachStep?' active':(st.n<_anaCoachStep?' done':''));
     bar+='<div class="'+cls+'" onclick="anaCoachGoto('+st.n+')"><span class="ana-coach-step-num">'+st.n+'</span>'+esc(st.lbl)+'</div>';
     if(i<_ANA_COACH_STEPS.length-1)bar+='<span class="ana-coach-step-arrow">▸</span>';
   });
+  bar+='</div>';
+  bar+='<button class="ana-coach-toggle active" onclick="anaCoachToggle()" title="Basculer vers le mode Expert (vue analytique détaillée)">✪ Vue Expert</button>';
   bar+='</div></div>';
   var body='';
   if(_anaCoachStep===1)body=_anaCoachStepDiagnostic();
