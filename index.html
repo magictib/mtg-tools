@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-3';
+window.APP_BUILD='2026-06-03-4';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -1007,6 +1007,32 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-swap-just{grid-column:1 / -1;font-size:.85rem;color:var(--tx2);font-style:italic;padding:10px 14px;background:rgba(218,180,107,.06);border-left:2px solid var(--gold);border-radius:0 6px 6px 0;margin-top:6px;line-height:1.55}
 .ana-swap-just b{color:var(--gold2);font-style:normal}
 @media(max-width:680px){.ana-swap-row{grid-template-columns:1fr 1fr;grid-template-rows:auto auto auto;gap:10px}.ana-swap-arrow{flex-direction:row;grid-column:1 / -1}.ana-swap-gain{grid-column:1 / -1}.ana-swap-just{font-size:.78rem;padding:8px 10px}}
+/* Step 4 Application — triage compact carte par carte */
+.ana-apply-counters{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.ana-apply-counter{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:18px;border:.5px solid var(--bd2);background:var(--s3);font-size:.85rem;color:var(--tx2);font-family:'Goudy Mediaeval',serif;letter-spacing:.04em}
+.ana-apply-counter b{font-family:'Cinzel',serif;font-size:1rem}
+.ana-apply-counter.k{border-color:rgba(120,200,144,.5);color:#78c890}
+.ana-apply-counter.m{border-color:rgba(245,185,91,.5);color:#f5b95b}
+.ana-apply-counter.c{border-color:rgba(224,112,112,.5);color:#e07070}
+.ana-apply-row{display:grid;grid-template-columns:1fr 30px 1fr 110px;gap:12px;align-items:center;padding:10px 14px;border:.5px solid var(--bd2);border-radius:10px;margin-bottom:8px;background:var(--s3);transition:all .2s}
+.ana-apply-row.flag-keep{border-color:rgba(120,200,144,.5);background:rgba(120,200,144,.05)}
+.ana-apply-row.flag-maybe{border-color:rgba(245,185,91,.5);background:rgba(245,185,91,.05)}
+.ana-apply-row.flag-change{border-color:rgba(224,112,112,.5);background:rgba(224,112,112,.05)}
+.ana-apply-side{display:flex;align-items:center;gap:9px;min-width:0}
+.ana-apply-side-img{width:34px;height:auto;border-radius:5px;flex-shrink:0;box-shadow:0 3px 8px rgba(0,0,0,.5)}
+.ana-apply-side-info{min-width:0;flex:1}
+.ana-apply-side-name{font-size:.86rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ana-apply-side-name.cut{text-decoration:line-through;opacity:.65;color:var(--tx2)}
+.ana-apply-side-meta{font-size:.7rem;color:var(--tx3)}
+.ana-apply-arrow{text-align:center;color:var(--gold2);font-family:'Cinzel',serif;font-size:1.1rem}
+.ana-apply-actions{display:flex;gap:4px;justify-content:flex-end}
+.ana-apply-btn{width:30px;height:30px;border-radius:50%;border:.5px solid var(--bd2);background:transparent;cursor:pointer;font-size:1rem;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;color:var(--tx2)}
+.ana-apply-btn:hover{transform:scale(1.1)}
+.ana-apply-btn.active.keep{background:#78c890;color:#0a0a0a;border-color:#78c890}
+.ana-apply-btn.active.maybe{background:#f5b95b;color:#0a0a0a;border-color:#f5b95b}
+.ana-apply-btn.active.change{background:#e07070;color:#0a0a0a;border-color:#e07070}
+.ana-apply-cta{display:flex;justify-content:center;align-items:center;gap:12px;margin-top:20px;flex-wrap:wrap}
+.ana-apply-empty{text-align:center;padding:30px 20px;color:var(--tx3);font-style:italic}
 /* Aide raccourcis clavier overlay */
 #kbd-help-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 #kbd-help-overlay.on{display:flex}
@@ -34732,7 +34758,8 @@ function _anaCoachRender(){
   if(_anaCoachStep===1)body=_anaCoachStepDiagnostic();
   else if(_anaCoachStep===2)body=_anaCoachStepVerdict();
   else if(_anaCoachStep===3)body=_anaCoachStepPlan();
-  else body='<div class="ana-coach-card"><div class="ana-coach-body"><div style="text-align:center;padding:40px 20px;color:var(--tx3);font-style:italic">Étape '+_anaCoachStep+' — en cours de construction. Bientôt : Application, Validation.</div></div></div>';
+  else if(_anaCoachStep===4)body=_anaCoachStepApply();
+  else body='<div class="ana-coach-card"><div class="ana-coach-body"><div style="text-align:center;padding:40px 20px;color:var(--tx3);font-style:italic">Étape '+_anaCoachStep+' — en cours de construction. Bientôt : Validation (animation avant/après, matchups diff, snapshot).</div></div></div>';
   // Nav buttons
   var nav='<div class="ana-coach-nav">';
   nav+='<button class="ana-coach-btn" '+(_anaCoachStep<=1?'disabled':'')+' onclick="anaCoachGoto('+(_anaCoachStep-1)+')">◀ Précédent</button>';
@@ -34931,6 +34958,98 @@ function _anaCoachStepPlan(){
     });
     var totalGain=topSwaps.reduce(function(s,sw){return s+(sw.gain||0);},0);
     h+='<div class="ana-coach-callout"><b>Gain cumulé estimé :</b> +'+totalGain.toFixed(1)+' points sur ces '+topSwaps.length+' swaps. <i>Tu n\'es pas obligé de tous les appliquer — l\'étape suivante te laisse choisir carte par carte.</i></div>';
+  }
+  h+='</div></div>';
+  return h;
+}
+
+// Step 4 — Application : triage compact, décision carte par carte, apply.
+function _anaCoachStepApply(){
+  var deck=_anaState.deck;
+  var deckId=_anaCurDeckId;
+  var fullOpt=_anaState.fullOpt||{};
+  var allSwaps=(fullOpt.swaps||[]).filter(function(sw){
+    if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
+    if((sw.gain!=null)&&sw.gain<2)return false;
+    if(sw.cut&&typeof _anaIsUntouchable==='function'&&_anaIsUntouchable(sw.cut))return false;
+    return true;
+  });
+  // Map cut.nl → swap
+  var byCut={};
+  allSwaps.forEach(function(sw){if(sw.cut&&sw.cut.nl)byCut[sw.cut.nl]=sw;});
+  // Compteurs par flag
+  var nKeep=0,nMaybe=0,nChange=0,nTotal=0;
+  allSwaps.forEach(function(sw){
+    if(!sw.cut||!sw.cut.nl)return;
+    nTotal++;
+    var f=(typeof _anaFlagGet==='function')?_anaFlagGet(deckId,sw.cut.nl):null;
+    if(f==='keep')nKeep++;else if(f==='maybe')nMaybe++;else if(f==='change')nChange++;
+  });
+  var h='<div class="ana-coach-card">';
+  h+='<div class="ana-coach-hero">';
+  h+='<div class="ana-coach-hero-eyebrow">Étape 4 · Application</div>';
+  h+='<h2 class="ana-coach-hero-title">Décide carte par carte</h2>';
+  h+='<div class="ana-coach-hero-sub">Marque chaque suggestion : <b style="color:#78c890">✅ Garde</b> = swap refusé, <b style="color:#f5b95b">🤔 À voir</b> = en attente, <b style="color:#e07070">🔄 Change</b> = swap accepté. Le bouton <i>Appliquer</i> ne touche que les cartes flaggées « Change ».</div>';
+  h+='</div>';
+  h+='<div class="ana-coach-body">';
+  // Compteurs
+  h+='<div class="ana-apply-counters">';
+  h+='<div class="ana-apply-counter k">✅ <b>'+nKeep+'</b> gardé'+(nKeep>1?'s':'')+'</div>';
+  h+='<div class="ana-apply-counter m">🤔 <b>'+nMaybe+'</b> à voir</div>';
+  h+='<div class="ana-apply-counter c">🔄 <b>'+nChange+'</b> changé'+(nChange>1?'s':'')+'</div>';
+  h+='<div class="ana-apply-counter">sur <b>'+nTotal+'</b> swap'+(nTotal>1?'s':'')+'</div>';
+  h+='</div>';
+  if(!allSwaps.length){
+    h+='<div class="ana-apply-empty">Aucun swap suggéré — passe directement à l\'étape suivante.</div>';
+  } else {
+    // Tri : changes d'abord, maybe, sans flag, puis keep (workflow naturel : ce qui change en haut)
+    allSwaps.sort(function(a,b){
+      var fa=_anaFlagGet&&_anaFlagGet(deckId,a.cut.nl)||'';
+      var fb=_anaFlagGet&&_anaFlagGet(deckId,b.cut.nl)||'';
+      var ord={change:0,maybe:1,'':2,keep:3};
+      return (ord[fa]||0)-(ord[fb]||0);
+    });
+    allSwaps.forEach(function(sw){
+      if(!sw.cut||!sw.cut.nl)return;
+      var cutMeta=_anaData[sw.cut.nl]||{};
+      var addMeta=sw.add.meta||_anaData[sw.add.nl]||{};
+      var cutImg=anaImageUrl(sw.cut.name||'',cutMeta);
+      var addImg=anaImageUrl(sw.add.name||'',addMeta);
+      var flag=(typeof _anaFlagGet==='function')?_anaFlagGet(deckId,sw.cut.nl):null;
+      var rowCls='ana-apply-row'+(flag?' flag-'+flag:'');
+      var nlEsc=escJs(sw.cut.nl);
+      var deckIdEsc=escJs(deckId);
+      var btnK='<button class="ana-apply-btn keep'+(flag==='keep'?' active':'')+'" title="Garde — swap refusé" onclick="_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='keep'?'':'keep')+'\');_anaCoachRender()">✅</button>';
+      var btnM='<button class="ana-apply-btn maybe'+(flag==='maybe'?' active':'')+'" title="À voir — en attente" onclick="_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='maybe'?'':'maybe')+'\');_anaCoachRender()">🤔</button>';
+      var btnC='<button class="ana-apply-btn change'+(flag==='change'?' active':'')+'" title="Change — swap accepté" onclick="_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='change'?'':'change')+'\');_anaCoachRender()">🔄</button>';
+      h+='<div class="'+rowCls+'">';
+      // Cut side
+      h+='<div class="ana-apply-side">';
+      h+='<img src="'+esc(cutImg)+'" alt="" class="ana-apply-side-img" loading="lazy" onerror="this.style.display=\'none\'">';
+      h+='<div class="ana-apply-side-info"><div class="ana-apply-side-name cut">'+esc(sw.cut.name||'?')+'</div>';
+      h+='<div class="ana-apply-side-meta">'+(cutMeta.cmc!=null?cutMeta.cmc+' mana':'?')+' · '+((cutMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
+      h+='</div>';
+      // Arrow + gain
+      h+='<div class="ana-apply-arrow">▶<div style="font-size:.6rem;color:#78c890;font-family:Goudy Mediaeval,serif;letter-spacing:.05em">+'+(sw.gain!=null?sw.gain.toFixed(1):'?')+'</div></div>';
+      // Add side
+      h+='<div class="ana-apply-side">';
+      h+='<img src="'+esc(addImg)+'" alt="" class="ana-apply-side-img" loading="lazy" onerror="this.style.display=\'none\'">';
+      h+='<div class="ana-apply-side-info"><div class="ana-apply-side-name">'+esc(sw.add.name||'?')+'</div>';
+      h+='<div class="ana-apply-side-meta">'+(addMeta.cmc!=null?addMeta.cmc+' mana':'?')+' · '+((addMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
+      h+='</div>';
+      // Actions
+      h+='<div class="ana-apply-actions">'+btnK+btnM+btnC+'</div>';
+      h+='</div>';
+    });
+    // CTA
+    h+='<div class="ana-apply-cta">';
+    if(nChange>0){
+      h+='<button class="ana-coach-btn primary" onclick="_anaApplyTriageChanges(\''+escJs(deckId)+'\')">⚡ Appliquer les '+nChange+' swap'+(nChange>1?'s':'')+' validé'+(nChange>1?'s':'')+'</button>';
+    } else {
+      h+='<button class="ana-coach-btn" disabled title="Aucune carte flaggée \'Change\' pour l\'instant">⚡ Appliquer (rien à appliquer)</button>';
+    }
+    h+='<div style="font-size:.78rem;color:var(--tx3);font-style:italic">Tu peux revenir en arrière à tout moment via la barre de progression.</div>';
+    h+='</div>';
   }
   h+='</div></div>';
   return h;
@@ -42648,7 +42767,7 @@ async function anaRender(deckId){
     }
   }
 
-  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser};
+  _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser,swapByCutNl:(typeof _swapByCutNl!=='undefined'?_swapByCutNl:{})};
 
   // === Dashboard synthétique (en tête de page) ===
   // Verdict en 1 coup d'œil : score, archétype, top swaps maison, faiblesses critiques.
