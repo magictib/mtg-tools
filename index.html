@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-2';
+window.APP_BUILD='2026-06-03-3';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -987,6 +987,26 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-coach-callout b{color:var(--gold2);font-weight:700}
 .ana-coach-cmd-img{width:130px;border-radius:10px;box-shadow:0 8px 26px rgba(0,0,0,.6);float:right;margin:0 0 14px 18px}
 @media(max-width:680px){.ana-coach-cmd-img{float:none;display:block;margin:0 auto 14px;width:120px}.ana-coach-hero-title{font-size:1.5rem}.ana-coach-hero{padding:20px 18px 16px}.ana-coach-body{padding:18px 18px}}
+/* Step 3 Plan — cards de swap visuels « avant → après » */
+.ana-swap-row{display:grid;grid-template-columns:1fr 60px 1fr 110px;gap:14px;align-items:center;padding:16px;background:linear-gradient(180deg,rgba(20,16,12,.4) 0%,rgba(20,16,12,.6) 100%);border:.5px solid var(--bd2);border-radius:14px;margin-bottom:12px;transition:all .2s;position:relative}
+.ana-swap-row:hover{border-color:var(--gold);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.ana-swap-rank{position:absolute;top:-10px;left:14px;background:linear-gradient(135deg,var(--gold) 0%,#b8924d 100%);color:#1a1206;border-radius:12px;padding:2px 10px;font-family:'Cinzel',serif;font-weight:bold;font-size:.7rem;letter-spacing:.08em;box-shadow:0 4px 10px rgba(0,0,0,.4)}
+.ana-swap-card{display:flex;flex-direction:column;align-items:center;gap:6px}
+.ana-swap-card-img{width:100%;max-width:140px;border-radius:9px;box-shadow:0 6px 18px rgba(0,0,0,.55);cursor:zoom-in;transition:transform .15s}
+.ana-swap-card-img:hover{transform:translateY(-3px) scale(1.02)}
+.ana-swap-card-img.cut{filter:saturate(.5) opacity(.78)}
+.ana-swap-card-name{font-size:.84rem;color:var(--tx2);text-align:center;line-height:1.25;max-width:140px;font-family:'Goudy Mediaeval',serif}
+.ana-swap-card-name.cut{color:var(--tx3);text-decoration:line-through}
+.ana-swap-card-meta{font-size:.7rem;color:var(--tx3);text-align:center}
+.ana-swap-arrow{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--gold2);font-size:1.6rem;font-family:'Cinzel',serif}
+.ana-swap-arrow-icon{font-size:1.4rem;text-shadow:0 2px 8px rgba(218,180,107,.45)}
+.ana-swap-arrow-label{font-size:.6rem;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.1em;text-transform:uppercase}
+.ana-swap-gain{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}
+.ana-swap-gain-pts{font-family:'Goudy Mediaeval',serif;font-size:1.5rem;font-weight:bold;color:#78c890;line-height:1}
+.ana-swap-gain-lbl{font-size:.66rem;color:var(--tx3);letter-spacing:.08em;font-family:'Goudy Mediaeval',serif;text-transform:uppercase}
+.ana-swap-just{grid-column:1 / -1;font-size:.85rem;color:var(--tx2);font-style:italic;padding:10px 14px;background:rgba(218,180,107,.06);border-left:2px solid var(--gold);border-radius:0 6px 6px 0;margin-top:6px;line-height:1.55}
+.ana-swap-just b{color:var(--gold2);font-style:normal}
+@media(max-width:680px){.ana-swap-row{grid-template-columns:1fr 1fr;grid-template-rows:auto auto auto;gap:10px}.ana-swap-arrow{flex-direction:row;grid-column:1 / -1}.ana-swap-gain{grid-column:1 / -1}.ana-swap-just{font-size:.78rem;padding:8px 10px}}
 /* Aide raccourcis clavier overlay */
 #kbd-help-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 #kbd-help-overlay.on{display:flex}
@@ -34711,7 +34731,8 @@ function _anaCoachRender(){
   var body='';
   if(_anaCoachStep===1)body=_anaCoachStepDiagnostic();
   else if(_anaCoachStep===2)body=_anaCoachStepVerdict();
-  else body='<div class="ana-coach-card"><div class="ana-coach-body"><div style="text-align:center;padding:40px 20px;color:var(--tx3);font-style:italic">Étape '+_anaCoachStep+' — en cours de construction. Bientôt : Plan, Application, Validation.</div></div></div>';
+  else if(_anaCoachStep===3)body=_anaCoachStepPlan();
+  else body='<div class="ana-coach-card"><div class="ana-coach-body"><div style="text-align:center;padding:40px 20px;color:var(--tx3);font-style:italic">Étape '+_anaCoachStep+' — en cours de construction. Bientôt : Application, Validation.</div></div></div>';
   // Nav buttons
   var nav='<div class="ana-coach-nav">';
   nav+='<button class="ana-coach-btn" '+(_anaCoachStep<=1?'disabled':'')+' onclick="anaCoachGoto('+(_anaCoachStep-1)+')">◀ Précédent</button>';
@@ -34824,6 +34845,93 @@ function _anaCoachStepVerdict(){
   });
   // Phrase-clé verdict
   h+='<div class="ana-coach-callout" style="margin-top:18px"><b>Verdict :</b> avec '+nSwaps+' swap'+(nSwaps>1?'s':'')+' identifié'+(nSwaps>1?'s':'')+' par l’analyse, ton score peut passer de <b style="color:#e07070">'+overall+'</b> à environ <b style="color:#78c890">'+afterScore+'</b> /100. <i>Les détails carte par carte arrivent à l’étape suivante.</i></div>';
+  h+='</div></div>';
+  return h;
+}
+
+// Step 3 — Plan : 3 swaps prioritaires sous forme de cards visuelles avant→après.
+// Justification d'un swap : 1 phrase générée à partir des rôles, thèmes, cmc et type.
+function _anaCoachSwapJustify(sw){
+  if(!sw||!sw.cut||!sw.add)return '';
+  var cutMeta=_anaData[sw.cut.nl]||{};
+  var addMeta=sw.add.meta||_anaData[sw.add.nl]||{};
+  var cutCmc=cutMeta.cmc||0;
+  var addCmc=addMeta.cmc||0;
+  var cutRoles=(typeof anaRoles==='function')?anaRoles(cutMeta):{};
+  var addRoles=(typeof anaRoles==='function')?anaRoles(addMeta):{};
+  var th=_anaCurrentThemes||{};
+  var addType=(addMeta.typeLine||'').toLowerCase();
+  var bits=[];
+  // 1. Différence de coût significative
+  if(cutCmc-addCmc>=2)bits.push('libère <b>'+(cutCmc-addCmc)+' mana</b>');
+  else if(addCmc-cutCmc>=3)bits.push('plus cher de <b>'+(addCmc-cutCmc)+' mana</b> mais plus impactant');
+  // 2. Nouveau rôle apporté
+  ['ramp','draw','removal','interaction','wincon'].forEach(function(r){
+    if(addRoles[r]&&!cutRoles[r])bits.push('ajoute du <b>'+({ramp:'ramp',draw:'draw',removal:'removal',interaction:'interaction',wincon:'wincon'})[r]+'</b>');
+  });
+  // 3. Tribu ciblée par le commandant
+  if(th.customTribes&&th.customTribes.length){
+    for(var i=0;i<th.customTribes.length;i++){
+      if(addType.indexOf(th.customTribes[i])>=0){bits.push('<b>'+th.customTribes[i].charAt(0).toUpperCase()+th.customTribes[i].slice(1)+'</b> que ton commandant booste');break;}
+    }
+  }
+  // 4. Staple format-defining
+  if(typeof _anaIsUntouchable==='function'&&_anaIsUntouchable(addMeta)){bits.push('<b>staple du format</b> qui te manquait');}
+  // 5. Combat trigger
+  if((th._combatTrigger||0)>1&&/^instant/.test(addType)&&(addMeta.cmc||0)<=2){bits.push('trick combat cheap pour sécuriser le mill');}
+  // 6. Aura cheap unblockable / évasion
+  if(/aura/.test(addType)&&(addMeta.cmc||0)<=2&&/(?:can't be blocked|unblockable|flying|menace)/.test((addMeta.oracleText||'').toLowerCase())){
+    bits.push('aura évasive qui transforme une créature en threat');
+  }
+  if(!bits.length)return 'Meilleur scoring local dans le contexte du deck.';
+  var phrase=bits.slice(0,2).join(', ');
+  return phrase.charAt(0).toUpperCase()+phrase.slice(1)+'.';
+}
+function _anaCoachStepPlan(){
+  var allSwaps=(_anaState&&_anaState.fullOpt&&_anaState.fullOpt.swaps)||[];
+  var topSwaps=allSwaps.filter(function(sw){
+    if(sw.addScore!=null&&sw.cutScore!=null&&sw.addScore<sw.cutScore)return false;
+    if((sw.gain!=null)&&sw.gain<2)return false;
+    if(sw.cut&&typeof _anaIsUntouchable==='function'&&_anaIsUntouchable(sw.cut))return false;
+    return true;
+  }).slice(0,3);
+  var h='<div class="ana-coach-card">';
+  h+='<div class="ana-coach-hero">';
+  h+='<div class="ana-coach-hero-eyebrow">Étape 3 · Plan</div>';
+  h+='<h2 class="ana-coach-hero-title">Voici les '+(topSwaps.length||3)+' actions prioritaires</h2>';
+  h+='<div class="ana-coach-hero-sub">Chaque swap est un upgrade <i>individuel</i> validé : la carte entrante a un meilleur scoring contextuel ET aucun downgrade n\'est masqué. Les staples intouchables sont protégées.</div>';
+  h+='</div>';
+  h+='<div class="ana-coach-body">';
+  if(!topSwaps.length){
+    h+='<div style="text-align:center;padding:30px 20px;color:#78c890;font-style:italic;font-size:.95rem">✓ Aucun swap prioritaire identifié — le deck est déjà bien structuré pour son archétype. Passe à l\'étape suivante pour la validation.</div>';
+  } else {
+    topSwaps.forEach(function(sw,idx){
+      var cutImg=anaImageUrl(sw.cut.name||'',_anaData[sw.cut.nl]||{});
+      var addImg=anaImageUrl(sw.add.name||'',sw.add.meta||_anaData[sw.add.nl]||{});
+      var cutMeta=_anaData[sw.cut.nl]||{};
+      var addMeta=sw.add.meta||_anaData[sw.add.nl]||{};
+      var gain=sw.gain!=null?sw.gain.toFixed(1):'?';
+      var just=_anaCoachSwapJustify(sw);
+      h+='<div class="ana-swap-row">';
+      h+='<div class="ana-swap-rank">Swap #'+(idx+1)+'</div>';
+      h+='<div class="ana-swap-card">';
+      h+='<img src="'+esc(cutImg)+'" alt="'+esc(sw.cut.name||'')+'" class="ana-swap-card-img cut" loading="lazy" onclick="anaZoom(this.src)" onerror="this.style.display=\'none\'">';
+      h+='<div class="ana-swap-card-name cut">'+esc(sw.cut.name||'?')+'</div>';
+      h+='<div class="ana-swap-card-meta">'+((cutMeta.typeLine||'').split('—')[0].trim()||'?')+' · '+(cutMeta.cmc!=null?cutMeta.cmc+' mana':'?')+'</div>';
+      h+='</div>';
+      h+='<div class="ana-swap-arrow"><div class="ana-swap-arrow-icon">▶</div><div class="ana-swap-arrow-label">remplace</div></div>';
+      h+='<div class="ana-swap-card">';
+      h+='<img src="'+esc(addImg)+'" alt="'+esc(sw.add.name||'')+'" class="ana-swap-card-img" loading="lazy" onclick="anaZoom(this.src)" onerror="this.style.display=\'none\'">';
+      h+='<div class="ana-swap-card-name">'+esc(sw.add.name||'?')+'</div>';
+      h+='<div class="ana-swap-card-meta">'+((addMeta.typeLine||'').split('—')[0].trim()||'?')+' · '+(addMeta.cmc!=null?addMeta.cmc+' mana':'?')+'</div>';
+      h+='</div>';
+      h+='<div class="ana-swap-gain"><div class="ana-swap-gain-pts">+'+gain+'</div><div class="ana-swap-gain-lbl">points</div></div>';
+      h+='<div class="ana-swap-just"><b>Pourquoi ?</b> '+just+'</div>';
+      h+='</div>';
+    });
+    var totalGain=topSwaps.reduce(function(s,sw){return s+(sw.gain||0);},0);
+    h+='<div class="ana-coach-callout"><b>Gain cumulé estimé :</b> +'+totalGain.toFixed(1)+' points sur ces '+topSwaps.length+' swaps. <i>Tu n\'es pas obligé de tous les appliquer — l\'étape suivante te laisse choisir carte par carte.</i></div>';
+  }
   h+='</div></div>';
   return h;
 }
