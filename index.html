@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-4';
+window.APP_BUILD='2026-06-03-5';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -1007,6 +1007,27 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-swap-just{grid-column:1 / -1;font-size:.85rem;color:var(--tx2);font-style:italic;padding:10px 14px;background:rgba(218,180,107,.06);border-left:2px solid var(--gold);border-radius:0 6px 6px 0;margin-top:6px;line-height:1.55}
 .ana-swap-just b{color:var(--gold2);font-style:normal}
 @media(max-width:680px){.ana-swap-row{grid-template-columns:1fr 1fr;grid-template-rows:auto auto auto;gap:10px}.ana-swap-arrow{flex-direction:row;grid-column:1 / -1}.ana-swap-gain{grid-column:1 / -1}.ana-swap-just{font-size:.78rem;padding:8px 10px}}
+/* Step 5 Validation — animation score avant/après + diff */
+.ana-valid-scores{display:flex;align-items:center;justify-content:center;gap:30px;margin:22px 0 18px;flex-wrap:wrap}
+.ana-valid-score{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:120px}
+.ana-valid-score-num{font-family:'Goudy Mediaeval',serif;font-size:3.4rem;font-weight:bold;line-height:1;transition:all .8s cubic-bezier(.34,1.56,.64,1)}
+.ana-valid-score-lbl{font-family:'Goudy Mediaeval',serif;letter-spacing:.12em;font-size:.7rem;color:var(--tx3);text-transform:uppercase}
+.ana-valid-score-sub{font-size:.78rem;color:var(--tx3)}
+.ana-valid-arrow{font-family:'Cinzel',serif;font-size:2rem;color:var(--gold2);text-shadow:0 3px 12px rgba(218,180,107,.5);animation:anaValidArrowPulse 1.6s ease-in-out infinite}
+@keyframes anaValidArrowPulse{0%,100%{transform:translateX(0);opacity:.7}50%{transform:translateX(6px);opacity:1}}
+.ana-valid-diff-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.ana-valid-diff-col{background:var(--s3);border:.5px solid var(--bd2);border-radius:10px;padding:12px 14px}
+.ana-valid-diff-col.out{border-left:3px solid #e07070}
+.ana-valid-diff-col.in{border-left:3px solid #78c890}
+.ana-valid-diff-title{font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;font-size:.78rem;margin-bottom:8px;text-transform:uppercase}
+.ana-valid-diff-title.out{color:#e07070}
+.ana-valid-diff-title.in{color:#78c890}
+.ana-valid-diff-item{font-size:.82rem;color:var(--tx2);padding:3px 0;display:flex;align-items:center;gap:6px}
+.ana-valid-diff-item .ico{font-size:.85rem}
+.ana-valid-confetti{position:absolute;pointer-events:none;font-size:1.4rem;animation:anaConfettiFall 1.4s ease-out forwards}
+@keyframes anaConfettiFall{0%{opacity:1;transform:translateY(-40px) rotate(0)}100%{opacity:0;transform:translateY(80px) rotate(360deg)}}
+.ana-valid-empty{text-align:center;padding:40px 20px;color:var(--tx3);font-style:italic}
+@media(max-width:680px){.ana-valid-diff-grid{grid-template-columns:1fr}.ana-valid-score-num{font-size:2.6rem}}
 /* Step 4 Application — triage compact carte par carte */
 .ana-apply-counters{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}
 .ana-apply-counter{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:18px;border:.5px solid var(--bd2);background:var(--s3);font-size:.85rem;color:var(--tx2);font-family:'Goudy Mediaeval',serif;letter-spacing:.04em}
@@ -34759,7 +34780,8 @@ function _anaCoachRender(){
   else if(_anaCoachStep===2)body=_anaCoachStepVerdict();
   else if(_anaCoachStep===3)body=_anaCoachStepPlan();
   else if(_anaCoachStep===4)body=_anaCoachStepApply();
-  else body='<div class="ana-coach-card"><div class="ana-coach-body"><div style="text-align:center;padding:40px 20px;color:var(--tx3);font-style:italic">Étape '+_anaCoachStep+' — en cours de construction. Bientôt : Validation (animation avant/après, matchups diff, snapshot).</div></div></div>';
+  else if(_anaCoachStep===5)body=_anaCoachStepValidate();
+  else body='';
   // Nav buttons
   var nav='<div class="ana-coach-nav">';
   nav+='<button class="ana-coach-btn" '+(_anaCoachStep<=1?'disabled':'')+' onclick="anaCoachGoto('+(_anaCoachStep-1)+')">◀ Précédent</button>';
@@ -35053,6 +35075,123 @@ function _anaCoachStepApply(){
   }
   h+='</div></div>';
   return h;
+}
+
+// Step 5 — Validation : récap des changements, projection score, apply + snapshot en un clic.
+function _anaCoachStepValidate(){
+  var deck=_anaState.deck;
+  var deckId=_anaCurDeckId;
+  var overall=_anaState.overall;
+  var grade=(typeof anaGrade==='function')?anaGrade(overall):{l:'?',col:'var(--tx)'};
+  var flags=(typeof _anaFlags!=='undefined'&&_anaFlags[deckId])||{};
+  var swapMap=(_anaState&&_anaState.swapByCutNl)||{};
+  // Collecte des swaps validés (flag === 'change')
+  var changes=[];
+  Object.keys(flags).forEach(function(nl){
+    if(flags[nl]!=='change')return;
+    var s=swapMap[nl];if(!s)return;
+    var pick=(s.maison&&s.meta&&s.maison.nl===s.meta.nl)?s.maison:(s.maison||s.meta);
+    if(pick){
+      // Retrouve gain depuis fullOpt.swaps si dispo
+      var gain=pick.gain;
+      if(gain==null&&_anaState.fullOpt&&_anaState.fullOpt.swaps){
+        var match=_anaState.fullOpt.swaps.find(function(sw){return sw.cut&&sw.cut.nl===nl;});
+        if(match)gain=match.gain;
+      }
+      changes.push({cutNl:nl,cutName:(_anaData[nl]&&_anaData[nl].name)||nl,add:pick,gain:gain||0});
+    }
+  });
+  var totalGain=changes.reduce(function(s,c){return s+(c.gain||0);},0);
+  var afterScore=Math.max(0,Math.min(100,Math.round(overall+totalGain)));
+  var afterGrade=(typeof anaGrade==='function')?anaGrade(afterScore):grade;
+  var h='<div class="ana-coach-card">';
+  h+='<div class="ana-coach-hero">';
+  h+='<div class="ana-coach-hero-eyebrow">Étape 5 · Validation</div>';
+  h+='<h2 class="ana-coach-hero-title">'+(changes.length?'Voici la différence':'Tu n\'as encore rien changé')+'</h2>';
+  h+='<div class="ana-coach-hero-sub">'+(changes.length
+      ?'Récap des changements en attente et projection du score. Tu peux confirmer pour appliquer les swaps au deck (un snapshot avant sera créé automatiquement).'
+      :'Reviens à l\'étape 4 pour marquer des cartes 🔄 Change, ou ferme le Coach Mode si le deck te convient en l\'état.')+'</div>';
+  h+='</div>';
+  h+='<div class="ana-coach-body">';
+  if(!changes.length){
+    h+='<div class="ana-valid-empty">Aucun swap accepté. <a href="javascript:anaCoachGoto(4)" style="color:var(--gold2);text-decoration:underline">Retour au triage</a> pour faire tes choix.</div>';
+  } else {
+    // Animated score before/after
+    h+='<div class="ana-valid-scores">';
+    h+='<div class="ana-valid-score"><div class="ana-valid-score-num" style="color:'+grade.col+'" id="ana-valid-before">'+overall+'</div><div class="ana-valid-score-lbl">Score actuel</div><div class="ana-valid-score-sub">Grade '+grade.l+'</div></div>';
+    h+='<div class="ana-valid-arrow">▶</div>';
+    h+='<div class="ana-valid-score"><div class="ana-valid-score-num" style="color:'+afterGrade.col+'" id="ana-valid-after" data-target="'+afterScore+'">'+overall+'</div><div class="ana-valid-score-lbl">Projection</div><div class="ana-valid-score-sub">Grade '+afterGrade.l+' · <b style="color:#78c890">+'+totalGain.toFixed(1)+' pts</b></div></div>';
+    h+='</div>';
+    // Diff cartes
+    h+='<div class="ana-valid-diff-grid">';
+    h+='<div class="ana-valid-diff-col out"><div class="ana-valid-diff-title out">− '+changes.length+' carte'+(changes.length>1?'s':'')+' coupée'+(changes.length>1?'s':'')+'</div>';
+    changes.forEach(function(c){h+='<div class="ana-valid-diff-item"><span class="ico">✕</span>'+esc(c.cutName)+'</div>';});
+    h+='</div>';
+    h+='<div class="ana-valid-diff-col in"><div class="ana-valid-diff-title in">+ '+changes.length+' carte'+(changes.length>1?'s':'')+' ajoutée'+(changes.length>1?'s':'')+'</div>';
+    changes.forEach(function(c){h+='<div class="ana-valid-diff-item"><span class="ico">✓</span>'+esc(c.add.name)+' <span style="color:var(--tx3);font-size:.72rem;margin-left:auto">+'+(c.gain||0).toFixed(1)+'</span></div>';});
+    h+='</div></div>';
+    // CTA
+    h+='<div class="ana-coach-callout"><b>Note :</b> le score projeté est une estimation basée sur les gains locaux. Une nouvelle simulation complète sera lancée après application pour mesurer le vrai impact sur le winrate.</div>';
+    h+='<div class="ana-apply-cta" style="margin-top:18px">';
+    h+='<button class="ana-coach-btn primary" onclick="_anaCoachConfirmApply(\''+escJs(deckId)+'\')">✨ Confirmer et sauvegarder</button>';
+    h+='<button class="ana-coach-btn" onclick="anaCoachGoto(4)">◀ Retour au triage</button>';
+    h+='</div>';
+  }
+  h+='</div></div>';
+  // Animation : compte de overall → afterScore après injection
+  setTimeout(function(){_anaCoachAnimateScore();},80);
+  return h;
+}
+function _anaCoachAnimateScore(){
+  var el=document.getElementById('ana-valid-after');
+  if(!el)return;
+  var target=parseInt(el.getAttribute('data-target'))||0;
+  var start=parseInt(el.textContent)||0;
+  if(start===target)return;
+  var duration=1100,t0=Date.now();
+  function tick(){
+    var p=Math.min(1,(Date.now()-t0)/duration);
+    var ease=1-Math.pow(1-p,3);
+    el.textContent=Math.round(start+(target-start)*ease);
+    if(p<1)requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+function _anaCoachConfirmApply(deckId){
+  if(!deckId||(typeof decks==='undefined')||!decks[deckId]){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  var d=decks[deckId];
+  var flags=(typeof _anaFlags!=='undefined'&&_anaFlags[deckId])||{};
+  var nChange=0;Object.keys(flags).forEach(function(k){if(flags[k]==='change')nChange++;});
+  if(!nChange){if(typeof toastInfo==='function')toastInfo('Aucun swap à appliquer.');return;}
+  // Snapshot avant — automatique, note auto.
+  if(typeof anaSnapshotCurrent==='function'){
+    try{anaSnapshotCurrent(deckId,'Avant Coach Mode swaps ('+nChange+' carte'+(nChange>1?'s':'')+')');}catch(e){console.warn('coach snapshot',e);}
+  }
+  // Apply via la fonction existante
+  if(typeof _anaApplyTriageChanges==='function'){
+    _anaApplyTriageChanges(deckId);
+  }
+  // Confetti rapide pour feedback visuel
+  _anaCoachConfetti();
+}
+function _anaCoachConfetti(){
+  var coach=document.getElementById('ana-coach');if(!coach)return;
+  coach.style.position='relative';
+  var icos=['✨','🎉','✦','★','✪'];
+  for(var i=0;i<12;i++){
+    (function(idx){
+      setTimeout(function(){
+        var sp=document.createElement('span');
+        sp.className='ana-valid-confetti';
+        sp.textContent=icos[idx%icos.length];
+        sp.style.left=(20+Math.random()*60)+'%';
+        sp.style.top='35%';
+        sp.style.color=['#78c890','#f5b95b','#e07070','var(--gold2)','#5b8cf5'][idx%5];
+        coach.appendChild(sp);
+        setTimeout(function(){if(sp.parentNode)sp.parentNode.removeChild(sp);},1500);
+      },idx*70);
+    })(i);
+  }
 }
 
 // Convertit chaque .card de l'analyse en <details> repliable : titre cliquable (extrait du .lbl),
