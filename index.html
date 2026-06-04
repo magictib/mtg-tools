@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-1';
+window.APP_BUILD='2026-06-04-2';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -3706,6 +3706,21 @@ details > summary::-webkit-details-marker{display:none}
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🔎</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Méta-decks adaptés</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">5 propositions méta selon ta collection ou ton budget</div>
+    </div>
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="if(typeof openBuildable==='function')openBuildable()">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🔨</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Decks réalisables</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Decks que tu peux monter avec tes cartes actuelles</div>
+    </div>
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="if(typeof openCommReco==='function')openCommReco()">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">📊</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Recos communauté</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Cartes les plus jouées par commandant (EDHREC)</div>
+    </div>
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="goTab('home');try{var x=document.querySelector('.home-reco-section');if(x)x.scrollIntoView({behavior:'smooth'});}catch(e){}">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🎲</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Commandants suggérés</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Commandants pour lesquels tu as déjà du matériel</div>
     </div>
   </div>
   <!-- Actions secondaires : import URL, templates, multi-montage, listes -->
@@ -7421,7 +7436,9 @@ var _NAV_SPACES=[
     {id:'build',label:'♠ Mes decks'},
     {id:'deck',label:'📋 Éditeur'},
     {id:'analyse',label:'📊 Analyse'},
-    {label:'🔮 Découvrir',action:'openDiscover()'},
+    // « Découvrir » a été fusionné dans « Mes decks » (le wizard contient toutes les
+    // options de création : commandant, archétype, méta, decks réalisables, recos
+    // communauté, commandants suggérés). On retire l'onglet doublon.
     {label:'📚 Templates',action:'openDeckTemplates()'},
     {label:'🔗 Importer URL',action:'openUrlImport()'}
   ]},
@@ -50246,6 +50263,14 @@ function closeProToolsHub(){var ov=document.getElementById('pth-ov');if(ov)ov.st
 var _discMode='hub'; // 'hub' | 'synergies' | 'proposer'
 var _discSynSelected={}; // {tokens:1,sacrifice:1,...}
 function openDiscover(initMode){
+  // Si appel sans mode (ancien hub) : redirige vers le wizard Mes decks qui contient
+  // désormais TOUTES les options (4 originales + 3 anciennement dans Découvrir hub).
+  // Évite le doublon de modale. Les sous-modes (synergies/proposer) gardent leur popup.
+  if(!initMode||initMode==='hub'){
+    if(typeof goTab==='function')goTab('build');
+    if(typeof _bldRefreshView==='function'){_bldView='wizard';_bldRefreshView();}
+    return;
+  }
   var ov=document.getElementById('disc-ov');
   if(!ov){
     ov=document.createElement('div');ov.id='disc-ov';
