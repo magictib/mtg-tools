@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-6';
+window.APP_BUILD='2026-06-04-7';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -1066,7 +1066,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-narrative::before,.ana-narrative::after{content:'"';position:absolute;font-family:Cinzel,serif;font-size:3rem;color:var(--gold2);opacity:.18;line-height:1}
 .ana-narrative::before{top:8px;left:14px}
 .ana-narrative::after{bottom:-2px;right:14px}
-.ana-narrative-line{font-family:'Crimson Pro','Garamond',serif;font-size:1.02rem;color:var(--tx);line-height:1.55;margin:0;padding:0 18px;font-style:italic}
+.ana-narrative-line{font-family:'Crimson Pro','Garamond',serif;font-size:1.02rem;color:var(--tx);line-height:1.55;margin:0;padding:0 18px;font-style:italic;word-break:break-word;overflow-wrap:break-word}
 .ana-narrative-line+.ana-narrative-line{margin-top:8px}
 .ana-narrative-line b{color:var(--gold2);font-style:normal;font-weight:600}
 .ana-narrative-line em{color:#c8a8ff;font-style:normal}
@@ -1132,11 +1132,24 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-apply-zoom-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;z-index:1}
 .ana-apply-zoom-close:hover{background:#e07070;color:#fff;border-color:#e07070}
 @media(max-width:680px){.ana-apply-zoom-body{grid-template-columns:1fr;gap:14px}.ana-apply-zoom-side-img{max-width:260px}.ana-apply-zoom-arrow-mid{font-size:1.6rem;transform:rotate(90deg)}}
+/* Step 4 — sous 480px, on passe d'un grid 4-col à 2-col + actions sur leur propre ligne pour éviter le squash des boutons de tag. */
+@media(max-width:480px){
+  .ana-apply-row{grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:8px;padding:8px 10px}
+  .ana-apply-row .ana-apply-arrow{display:none}
+  .ana-apply-row .ana-apply-actions{grid-column:1 / -1;justify-content:center;gap:8px;padding-top:6px;border-top:.5px solid var(--bd2)}
+  .ana-apply-row .ana-apply-actions .ana-apply-btn{width:36px;height:36px;font-size:1rem}
+  .ana-apply-side-name{font-size:.82rem}.ana-apply-side-meta{font-size:.7rem}
+}
+@media(max-width:360px){
+  .ana-apply-row{grid-template-columns:1fr}
+  .ana-apply-side-img{width:28px}
+  .ana-apply-row .ana-apply-actions .ana-apply-btn{width:32px;height:32px}
+}
 .ana-apply-row.flag-keep{border-color:rgba(120,200,144,.5);background:rgba(120,200,144,.05)}
 .ana-apply-row.flag-maybe{border-color:rgba(245,185,91,.5);background:rgba(245,185,91,.05)}
 .ana-apply-row.flag-change{border-color:rgba(224,112,112,.5);background:rgba(224,112,112,.05)}
 .ana-apply-side{display:flex;align-items:center;gap:9px;min-width:0}
-.ana-apply-side-img{width:34px;height:auto;border-radius:5px;flex-shrink:0;box-shadow:0 3px 8px rgba(0,0,0,.5)}
+.ana-apply-side-img{width:34px;aspect-ratio:5/7;height:auto;border-radius:5px;flex-shrink:0;box-shadow:0 3px 8px rgba(0,0,0,.5);background:#1a1a1a}
 .ana-apply-side-info{min-width:0;flex:1}
 .ana-apply-side-name{font-size:.86rem;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ana-apply-side-name.cut{text-decoration:line-through;opacity:.65;color:var(--tx2)}
@@ -35687,16 +35700,29 @@ function _anaCoachStepPlan(){
 // flèches de navigation, et boutons de tag. État stocké sur _anaState pour persister.
 var _anaApplyZoomList=null;
 function _anaApplyZoomOpen(idx){
+  // Mémorise l'élément actif pour restaurer le focus à la fermeture (accessibilité).
+  _anaApplyZoomReturnFocus=document.activeElement;
   _anaState.applyZoomIdx=idx;
   _anaCoachRender();
-  // Liaison clavier : flèches gauche/droite pour naviguer, Esc pour fermer.
+  // Liaison clavier : flèches gauche/droite pour naviguer, Esc pour fermer, Tab piégé.
   document.addEventListener('keydown',_anaApplyZoomKey);
+  // Focus initial sur le bouton fermer pour accessibilité clavier (Tab depuis l'overlay reste dans la modal).
+  setTimeout(function(){
+    var ov=document.querySelector('.ana-apply-zoom-overlay .ana-apply-zoom-close');
+    if(ov)ov.focus();
+  },50);
 }
 function _anaApplyZoomClose(){
   _anaState.applyZoomIdx=null;
   document.removeEventListener('keydown',_anaApplyZoomKey);
   _anaCoachRender();
+  // Restaure le focus sur l'élément qui avait ouvert la modal (typiquement la ligne cliquée).
+  if(_anaApplyZoomReturnFocus&&typeof _anaApplyZoomReturnFocus.focus==='function'){
+    try{_anaApplyZoomReturnFocus.focus();}catch(_e){}
+  }
+  _anaApplyZoomReturnFocus=null;
 }
+var _anaApplyZoomReturnFocus=null;
 function _anaApplyZoomNav(delta){
   if(!_anaApplyZoomList||!_anaApplyZoomList.length)return;
   var n=_anaApplyZoomList.length;
@@ -35707,9 +35733,20 @@ function _anaApplyZoomNav(delta){
   _anaCoachRender();
 }
 function _anaApplyZoomKey(ev){
-  if(ev.key==='Escape'){ev.preventDefault();_anaApplyZoomClose();}
-  else if(ev.key==='ArrowLeft'){ev.preventDefault();_anaApplyZoomNav(-1);}
-  else if(ev.key==='ArrowRight'){ev.preventDefault();_anaApplyZoomNav(1);}
+  if(ev.key==='Escape'){ev.preventDefault();_anaApplyZoomClose();return;}
+  if(ev.key==='ArrowLeft'){ev.preventDefault();_anaApplyZoomNav(-1);return;}
+  if(ev.key==='ArrowRight'){ev.preventDefault();_anaApplyZoomNav(1);return;}
+  // Focus trap : Tab/Shift+Tab cyclent dans les éléments focusables de la modal,
+  // empêchent d'échapper vers le reste de la page (accessibilité clavier).
+  if(ev.key==='Tab'){
+    var ov=document.querySelector('.ana-apply-zoom-overlay');
+    if(!ov)return;
+    var focusables=ov.querySelectorAll('button:not([disabled]), [href], input, select, [tabindex]:not([tabindex="-1"])');
+    if(!focusables.length)return;
+    var first=focusables[0],last=focusables[focusables.length-1];
+    if(ev.shiftKey&&document.activeElement===first){ev.preventDefault();last.focus();}
+    else if(!ev.shiftKey&&document.activeElement===last){ev.preventDefault();first.focus();}
+  }
 }
 // Rend l'overlay zoom HTML pour le swap à l'index donné.
 function _anaApplyRenderZoom(allSwaps,deckId){
@@ -35726,13 +35763,13 @@ function _anaApplyRenderZoom(allSwaps,deckId){
   var nlEsc=escJs(sw.cut.nl);
   var deckIdEsc=escJs(deckId);
   var actOn=function(act){return '_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag===act?'':act)+'\');_anaCoachRender()';};
-  var h='<div class="ana-apply-zoom-overlay" onclick="if(event.target===this)_anaApplyZoomClose()">';
+  var h='<div class="ana-apply-zoom-overlay" role="dialog" aria-modal="true" aria-labelledby="ana-apply-zoom-title" onclick="if(event.target===this)_anaApplyZoomClose()">';
   h+='<div class="ana-apply-zoom-card">';
   h+='<button class="ana-apply-zoom-close" onclick="_anaApplyZoomClose()" aria-label="Fermer la vue zoom (Échap)" title="Fermer (Esc)">✕</button>';
   h+='<button class="ana-apply-zoom-nav prev" onclick="_anaApplyZoomNav(-1)"'+(idx===0?' disabled':'')+' aria-label="Swap précédent (flèche gauche)" title="Précédent (←)">◀</button>';
   h+='<button class="ana-apply-zoom-nav next" onclick="_anaApplyZoomNav(1)"'+(idx===allSwaps.length-1?' disabled':'')+' aria-label="Swap suivant (flèche droite)" title="Suivant (→)">▶</button>';
   h+='<div class="ana-apply-zoom-header">';
-  h+='<div class="ana-apply-zoom-title">🔄 Swap '+(idx+1)+' sur '+allSwaps.length+'</div>';
+  h+='<div class="ana-apply-zoom-title" id="ana-apply-zoom-title">🔄 Swap '+(idx+1)+' sur '+allSwaps.length+'</div>';
   h+='<div class="ana-apply-zoom-counter">'+(idx+1)+' / '+allSwaps.length+'</div>';
   h+='</div>';
   h+='<div class="ana-apply-zoom-body">';
@@ -35861,8 +35898,24 @@ function _anaCoachStepApply(){
   return h;
 }
 
+// Mémoïsation par référence d'array `deck.cards` : un re-render de Step 5 (déclenché
+// à chaque tag de swap) appelle deux fois cette fonction (beforeInd = deck d'origine,
+// afterInd = deck cloné après changes). `beforeInd` est identique entre re-renders
+// tant que le deck source n'est pas modifié → on cache pour économiser le calcul.
+// Cache FIFO 4 entrées (deck source + jusqu'à 3 clones différents selon les flags).
+var _anaIndCache=[];
 // Calcule un snapshot des indicateurs clés d'un deck (pour comparaison avant/après).
 function _anaCoachIndicators(deck){
+  // Recherche cache par identité de référence sur `cards` (pas une copie profonde).
+  for(var ci=0;ci<_anaIndCache.length;ci++){
+    if(_anaIndCache[ci].cards===deck.cards)return _anaIndCache[ci].ind;
+  }
+  var _indResult=_anaCoachIndicatorsCompute(deck);
+  _anaIndCache.unshift({cards:deck.cards,ind:_indResult});
+  if(_anaIndCache.length>4)_anaIndCache.length=4;
+  return _indResult;
+}
+function _anaCoachIndicatorsCompute(deck){
   var totalCards=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
   var deckSize=totalCards||60;
   var lands=0,ramp=0,draw=0,removal=0,interaction=0,creatures=0,cmcSum=0,nonLand=0,instCount=0;
@@ -36014,13 +36067,15 @@ function _anaCoachStepValidate(){
     var roleLblMap={ramp:'Ramp',draw:'Pioche',removal:'Removal',interaction:'Interaction',wincon:'Wincon'};
     h+='<div class="ana-coach-grid" style="margin:18px 0 14px">';
     // KPI 1 : Swaps
-    h+='<div class="ana-kpi-tile kpi-info"><div class="ana-kpi-icon">🔄</div>';
+    h+='<div class="ana-kpi-tile kpi-info" title="Nombre total de swaps pré-validés à l\'étape 4. La répartition montre combien d\'ajouts proviennent de ta collection vs achats à prévoir.">';
+    h+='<div class="ana-kpi-icon">🔄</div>';
     h+='<div class="ana-kpi-label">Swaps validés</div>';
     h+='<div class="ana-kpi-value" style="color:#5b8cf5">'+changes.length+'</div>';
     h+='<div class="ana-kpi-sub">'+ownedAdds+' déjà à toi · '+(changes.length-ownedAdds)+' à intégrer</div>';
     h+='</div>';
     // KPI 2 : Gain total
-    h+='<div class="ana-kpi-tile kpi-success"><div class="ana-kpi-icon">📈</div>';
+    h+='<div class="ana-kpi-tile kpi-success" title="Somme des gains individuels de chaque swap (score projeté). Le grade peut changer si tu franchis un seuil (ex. C → B à partir de 70 pts).">';
+    h+='<div class="ana-kpi-icon">📈</div>';
     h+='<div class="ana-kpi-label">Gain de score</div>';
     h+='<div class="ana-kpi-value" style="color:#78c890">+'+totalGain.toFixed(1)+'<span class="ana-kpi-value-unit">pts</span></div>';
     h+='<div class="ana-kpi-sub">'+overall+' → <b style="color:'+afterGrade.col+'">'+afterScore+'</b> (grade '+grade.l+' → '+afterGrade.l+')</div>';
@@ -36028,7 +36083,10 @@ function _anaCoachStepValidate(){
     // KPI 3 : Courbe mana
     if(Math.abs(manaNet)>0){
       var manaCol=manaNet>0?'#78c890':'#f5b95b';
-      h+='<div class="ana-kpi-tile"><div class="ana-kpi-icon">⛰</div>';
+      var manaTip=manaNet>0
+        ?'Différence de mana entre cartes coupées et ajoutées. Négatif = courbe abaissée, deck plus rapide à enclencher.'
+        :'Différence de mana entre cartes coupées et ajoutées. Positif = courbe alourdie, vérifie que ton ramp suit.';
+      h+='<div class="ana-kpi-tile" title="'+esc(manaTip)+'"><div class="ana-kpi-icon">⛰</div>';
       h+='<div class="ana-kpi-label">Courbe mana</div>';
       h+='<div class="ana-kpi-value" style="color:'+manaCol+'">'+(manaNet>0?'−':'+')+Math.abs(manaNet)+'<span class="ana-kpi-value-unit">mana net</span></div>';
       h+='<div class="ana-kpi-sub">'+(manaNet>0?'Deck plus rapide globalement.':'Deck plus cher — vérifie ramp.')+'</div>';
@@ -36036,7 +36094,7 @@ function _anaCoachStepValidate(){
     }
     // KPI 4 : Nouveaux rôles
     if(newRolesList.length){
-      h+='<div class="ana-kpi-tile kpi-warn"><div class="ana-kpi-icon">🎯</div>';
+      h+='<div class="ana-kpi-tile kpi-warn" title="Nouveaux rôles fonctionnels apportés par les swaps (ramp/pioche/removal/interaction/wincon). Une carte peut couvrir plusieurs rôles à la fois."><div class="ana-kpi-icon">🎯</div>';
       h+='<div class="ana-kpi-label">Rôles ajoutés</div>';
       h+='<div class="ana-kpi-value ana-kpi-value-sm" style="color:#f5b95b">'+newRolesList.length+'</div>';
       h+='<div class="ana-kpi-sub">'+newRolesList.map(function(r){return roleLblMap[r]||r;}).join(' · ')+'</div>';
@@ -36044,13 +36102,15 @@ function _anaCoachStepValidate(){
     }
     // KPI 5 : Coût en €
     if(priceCost>0){
-      h+='<div class="ana-kpi-tile kpi-warn"><div class="ana-kpi-icon">💰</div>';
+      h+='<div class="ana-kpi-tile kpi-warn" title="Somme des prix Scryfall des ajouts moins celle des coupes, en excluant les cartes que tu possèdes déjà.">';
+      h+='<div class="ana-kpi-icon">💰</div>';
       h+='<div class="ana-kpi-label">Coût net</div>';
       h+='<div class="ana-kpi-value" style="color:#f5b95b">'+priceCost.toFixed(1)+'<span class="ana-kpi-value-unit">€</span></div>';
       h+='<div class="ana-kpi-sub">Différentiel prix add − cut, hors collection.</div>';
       h+='</div>';
     } else if(ownedAdds===changes.length){
-      h+='<div class="ana-kpi-tile kpi-success"><div class="ana-kpi-icon">🎉</div>';
+      h+='<div class="ana-kpi-tile kpi-success" title="Toutes les cartes proposées sont déjà dans ta collection — aucun achat nécessaire.">';
+      h+='<div class="ana-kpi-icon">🎉</div>';
       h+='<div class="ana-kpi-label">Coût</div>';
       h+='<div class="ana-kpi-value ana-kpi-value-sm" style="color:#78c890">Gratuit</div>';
       h+='<div class="ana-kpi-sub">Toutes les cartes ajoutées sont déjà dans ta collection.</div>';

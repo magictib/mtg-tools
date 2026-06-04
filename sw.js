@@ -1,4 +1,4 @@
-const CACHE = 'manalab-v277';
+const CACHE = 'manalab-v278';
 const STATIC = [
   './manifest.json',
   './icon.svg'
@@ -27,11 +27,12 @@ self.addEventListener('install', function(e) {
 
 self.addEventListener('activate', function(e) {
   e.waitUntil(
-    // Purge agressive : supprime TOUS les caches d'anciennes versions ET les HTML en cache
+    // Purge sélective : supprime UNIQUEMENT les anciens caches (versions précédentes).
+    // On garde le cache courant intact pour préserver son contenu (utile si un utilisateur
+    // est offline juste après l'activation — il peut continuer à servir la précédente version
+    // au lieu d'afficher "Hors ligne").
     caches.keys().then(function(keys) {
-      return Promise.all(keys.map(function(k) { return caches.delete(k); }));
-    }).then(function(){
-      return caches.open(CACHE); // re-crée le cache courant vide
+      return Promise.all(keys.filter(function(k){return k!==CACHE;}).map(function(k){return caches.delete(k);}));
     }).then(function(){
       return self.clients.claim();
     }).then(function(){
