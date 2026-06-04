@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-7';
+window.APP_BUILD='2026-06-04-8';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -168,7 +168,7 @@ if('serviceWorker' in navigator && !window.electronAPI){
   --bg:#0c0a07;--s1:#161210;--s2:#1f1912;--s3:#28211a;
   --panel-bg:#1f1912; /* fond opaque pour les panneaux flottants (hub, popups) — override par thème */
   --bd:rgba(50,95,40,.2);--bd2:rgba(50,95,40,.42);
-  --tx:#e4d5b7;--tx2:#a09070;--tx3:#685848;
+  --tx:#e4d5b7;--tx2:#a09070;--tx3:#7a6856;
   --ac:#c4841a;--ac2:#e0a84c;
   --gold:#c9a84c;--gold2:#e8c96e;
   --gr:#5a8e60;--gr2:#78c890;
@@ -227,7 +227,7 @@ body{line-height:var(--lh-base)}
   --bg:#020510;--s1:rgba(6,13,26,.82);--s2:rgba(10,21,37,.82);--s3:rgba(14,29,48,.82);
   --panel-bg:#0a1525;
   --bd:rgba(0,200,255,.18);--bd2:rgba(0,200,255,.45);
-  --tx:#bcdff5;--tx2:#6aaacf;--tx3:#3a6888;
+  --tx:#bcdff5;--tx2:#6aaacf;--tx3:#4a7ba0;
   --ac:#00a8e0;--ac2:#30d4ff;
   --gold:#00a8e0;--gold2:#40d8ff;
   --gr:#00b090;--gr2:#30e4bc;
@@ -248,7 +248,7 @@ body{line-height:var(--lh-base)}
   --bg:#080409;--s1:rgba(16,6,16,.82);--s2:rgba(24,10,24,.82);--s3:rgba(32,14,32,.82);
   --panel-bg:#1a0a1c;
   --bd:rgba(140,50,80,.28);--bd2:rgba(180,70,100,.5);
-  --tx:#d4bec8;--tx2:#946878;--tx3:#5a3848;
+  --tx:#d4bec8;--tx2:#946878;--tx3:#7a566a;
   --ac:#9a2035;--ac2:#c04055;
   --gold:#b09898;--gold2:#ceb8b8;
   --gr:#5a3080;--gr2:#8050c0;
@@ -1038,7 +1038,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-valid-diff-item .ico{font-size:.85rem}
 .ana-valid-confetti{position:absolute;pointer-events:none;font-size:1.4rem;animation:anaConfettiFall 1.4s ease-out forwards}
 @keyframes anaConfettiFall{0%{opacity:1;transform:translateY(-40px) rotate(0)}100%{opacity:0;transform:translateY(80px) rotate(360deg)}}
-.ana-valid-empty{text-align:center;padding:40px 20px;color:var(--tx3);font-style:italic}
+/* Empty states Coach Mode désormais unifiés via mlEmpty() (.ml-empty), classes obsolètes supprimées. */
 @media(max-width:680px){.ana-valid-diff-grid{grid-template-columns:1fr}.ana-valid-score-num{font-size:2.6rem}}
 /* ─── KPI Tiles : restyling pro (gradients, icons, hover, trends, sparklines) ─── */
 .ana-kpi-tile{background:linear-gradient(135deg,rgba(218,180,107,.07) 0%,rgba(91,140,245,.04) 100%);border:.5px solid var(--bd2);border-radius:12px;padding:14px 16px;position:relative;overflow:hidden;transition:all .25s;min-height:90px}
@@ -1162,7 +1162,7 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-apply-btn.active.maybe{background:#f5b95b;color:#0a0a0a;border-color:#f5b95b}
 .ana-apply-btn.active.change{background:#e07070;color:#0a0a0a;border-color:#e07070}
 .ana-apply-cta{display:flex;justify-content:center;align-items:center;gap:12px;margin-top:20px;flex-wrap:wrap}
-.ana-apply-empty{text-align:center;padding:30px 20px;color:var(--tx3);font-style:italic}
+/* .ana-apply-empty → unifié dans mlEmpty() */
 /* Aide raccourcis clavier overlay */
 #kbd-help-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 #kbd-help-overlay.on{display:flex}
@@ -35121,20 +35121,25 @@ function _anaTopPrioritizedActions(swaps){
 // L'utilisateur peut basculer Expert ↔ Coach. Step persisté par deck.
 var _anaCoachStep=1;  // 1..5
 var _anaCoachActive=true;  // Coach Mode est maintenant DEFAULT (l'utilisateur peut basculer Expert via le toggle).
+// Source de vérité unique des étapes du Coach Mode. La dispatch (render) et la
+// barre de progression itèrent dessus — ajouter/renommer une étape se fait ici
+// (+ ajouter une fonction `render` dans le step). `n` doit rester contigu 1..N.
 var _ANA_COACH_STEPS=[
-  {n:1,key:'diag',lbl:'Diagnostic',ico:'✨'},
-  {n:2,key:'verd',lbl:'Verdict',ico:'⚠'},
-  {n:3,key:'plan',lbl:'Plan',ico:'⚖'},
-  {n:4,key:'appl',lbl:'Application',ico:'⚡'},
-  {n:5,key:'vali',lbl:'Validation',ico:'✓'}
+  {n:1,key:'diag',lbl:'Diagnostic',ico:'✨',render:function(){return _anaCoachStepDiagnostic();}},
+  {n:2,key:'verd',lbl:'Verdict',ico:'⚠',render:function(){return _anaCoachStepVerdict();}},
+  {n:3,key:'plan',lbl:'Plan',ico:'⚖',render:function(){return _anaCoachStepPlan();}},
+  {n:4,key:'appl',lbl:'Application',ico:'⚡',render:function(){return _anaCoachStepApply();}},
+  {n:5,key:'vali',lbl:'Validation',ico:'✓',render:function(){return _anaCoachStepValidate();}}
 ];
+// Total dérivé pour les libellés "Étape X / N" — utiliser au lieu de hardcoder 5.
+var _ANA_COACH_STEPS_TOTAL=_ANA_COACH_STEPS.length;
 function _anaCoachLoadPref(){
   try{
     var raw=localStorage.getItem('mtg_ana_coach');
     if(!raw)return; // pas de préférence sauvegardée → on garde la valeur par défaut (true)
     var p=JSON.parse(raw)||{};
     if(typeof p.active==='boolean')_anaCoachActive=p.active;
-    if(p.step>=1&&p.step<=5)_anaCoachStep=p.step;
+    if(p.step>=1&&p.step<=_ANA_COACH_STEPS_TOTAL)_anaCoachStep=p.step;
   }catch(e){}
 }
 function _anaCoachSavePref(){try{localStorage.setItem('mtg_ana_coach',JSON.stringify({active:_anaCoachActive,step:_anaCoachStep}));}catch(e){}}
@@ -35168,6 +35173,29 @@ function _anaCoachApply(){
     btn.innerHTML=(_anaCoachActive?'✪ Mode Expert':'✪ Mode Coach');
   }
 }
+// Délégation événements pour le Coach : un seul handler racine pour tous les
+// `[data-coach-action]` à l'intérieur de #ana-coach, installé une seule fois.
+// Évite la prolifération de `onclick=""` inline (CSP-friendly + plus simple à
+// auditer). Les actions statiques (goto step, toggle expert) sont migrées ; les
+// actions à paramètres dynamiques (tag swap, zoom) restent en onclick pour
+// éviter la complexité d'encoder N args dans des data-*.
+var _anaCoachDelegationInstalled=false;
+function _anaCoachInstallDelegation(){
+  if(_anaCoachDelegationInstalled)return;
+  var root=document.getElementById('ana-coach');if(!root)return;
+  root.addEventListener('click',function(ev){
+    var t=ev.target&&ev.target.closest&&ev.target.closest('[data-coach-action]');
+    if(!t||!root.contains(t))return;
+    var act=t.getAttribute('data-coach-action');
+    if(act==='goto'){
+      var n=parseInt(t.getAttribute('data-coach-step'),10);
+      if(!isNaN(n)&&typeof anaCoachGoto==='function'){ev.preventDefault();anaCoachGoto(n);}
+    } else if(act==='toggle'){
+      if(typeof anaCoachToggle==='function'){ev.preventDefault();anaCoachToggle();}
+    }
+  });
+  _anaCoachDelegationInstalled=true;
+}
 function _anaCoachRender(){
   var c=document.getElementById('ana-coach');if(!c||!_anaState)return;
   var deck=_anaState.deck;var overall=_anaState.overall;
@@ -35177,26 +35205,26 @@ function _anaCoachRender(){
   var bar='<div class="ana-coach-bar"><div style="display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap"><div class="ana-coach-steps">';
   _ANA_COACH_STEPS.forEach(function(st,i){
     var cls='ana-coach-step'+(st.n===_anaCoachStep?' active':(st.n<_anaCoachStep?' done':''));
-    bar+='<div class="'+cls+'" onclick="anaCoachGoto('+st.n+')"><span class="ana-coach-step-num">'+st.n+'</span>'+esc(st.lbl)+'</div>';
+    bar+='<div class="'+cls+'" data-coach-action="goto" data-coach-step="'+st.n+'"><span class="ana-coach-step-num">'+st.n+'</span>'+esc(st.lbl)+'</div>';
     if(i<_ANA_COACH_STEPS.length-1)bar+='<span class="ana-coach-step-arrow">▸</span>';
   });
   bar+='</div>';
-  bar+='<button class="ana-coach-toggle active" onclick="anaCoachToggle()" title="Basculer vers le mode Expert (vue analytique détaillée)">✪ Vue Expert</button>';
+  bar+='<button class="ana-coach-toggle active" data-coach-action="toggle" title="Basculer vers le mode Expert (vue analytique détaillée)">✪ Vue Expert</button>';
   bar+='</div></div>';
+  // Dispatch render via la SSOT _ANA_COACH_STEPS (au lieu de if/else hardcodés).
   var body='';
-  if(_anaCoachStep===1)body=_anaCoachStepDiagnostic();
-  else if(_anaCoachStep===2)body=_anaCoachStepVerdict();
-  else if(_anaCoachStep===3)body=_anaCoachStepPlan();
-  else if(_anaCoachStep===4)body=_anaCoachStepApply();
-  else if(_anaCoachStep===5)body=_anaCoachStepValidate();
-  else body='';
-  // Nav buttons
+  var stepDef=_ANA_COACH_STEPS.filter(function(s){return s.n===_anaCoachStep;})[0];
+  if(stepDef&&typeof stepDef.render==='function'){
+    try{body=stepDef.render();}catch(_e){console.warn('[Coach] step '+_anaCoachStep+' render failed:',_e);body='';}
+  }
+  // Nav buttons — N total dérivé de _ANA_COACH_STEPS_TOTAL, navigation via délégation data-coach-action.
   var nav='<div class="ana-coach-nav">';
-  nav+='<button class="ana-coach-btn" '+(_anaCoachStep<=1?'disabled':'')+' onclick="anaCoachGoto('+(_anaCoachStep-1)+')">◀ Précédent</button>';
-  nav+='<div style="font-size:11px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.06em">Étape '+_anaCoachStep+' / 5</div>';
-  nav+='<button class="ana-coach-btn primary" '+(_anaCoachStep>=5?'disabled':'')+' onclick="anaCoachGoto('+(_anaCoachStep+1)+')">Suivant ▶</button>';
+  nav+='<button class="ana-coach-btn" '+(_anaCoachStep<=1?'disabled':'')+' data-coach-action="goto" data-coach-step="'+(_anaCoachStep-1)+'">◀ Précédent</button>';
+  nav+='<div style="font-size:11px;color:var(--tx3);font-family:Goudy Mediaeval,serif;letter-spacing:.06em">Étape '+_anaCoachStep+' / '+_ANA_COACH_STEPS_TOTAL+'</div>';
+  nav+='<button class="ana-coach-btn primary" '+(_anaCoachStep>=_ANA_COACH_STEPS_TOTAL?'disabled':'')+' data-coach-action="goto" data-coach-step="'+(_anaCoachStep+1)+'">Suivant ▶</button>';
   nav+='</div>';
   c.innerHTML=bar+body+nav;
+  _anaCoachInstallDelegation();
 }
 
 // Step 1 — Diagnostic : « voici ton deck » (hero commandant + score + archétype + thèmes)
@@ -35342,7 +35370,7 @@ function _anaCoachStepDiagnostic(){
         h+='</div>';
       }
     }
-  }catch(_e){}
+  }catch(_e){console.warn('[Coach Step1] meta KPI render failed:',_e);}
   h+='</div>';
   // ── Trend snapshot ──
   if(trendPts.length>=2){
@@ -35368,7 +35396,7 @@ function _anaCoachStepDiagnostic(){
       lockedAchs.forEach(function(a){h+='<span class="ana-ach-badge locked" title="'+esc(a.ach.hint)+' (verrouillé)"><span class="ico">🔒</span>'+esc(a.ach.lbl)+'</span>';});
       h+='</div></div>';
     }
-  }catch(_e){}
+  }catch(_e){console.warn('[Coach Step1] achievements render failed:',_e);}
   if(themes.length){
     h+='<div style="margin-top:6px"><div class="ana-coach-stat-label" style="margin-bottom:8px">Thèmes ciblés par le commandant</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
     themes.slice(0,8).forEach(function(t){h+='<span style="font-size:.75rem;padding:4px 10px;border-radius:14px;background:rgba(218,180,107,.12);border:.5px solid var(--gold);color:var(--gold2);font-family:Goudy Mediaeval,serif;letter-spacing:.04em">'+esc(t)+'</span>';});
@@ -35431,7 +35459,7 @@ function _anaCoachStepDiagnostic(){
       }
     }
     h+=_anaCoachDrilldown('📐','Statistiques pro (manabase, ROI)',statsContent);
-  }catch(_e){}
+  }catch(_e){console.warn('[Coach Step1] stats pro drill-down failed:',_e);}
   // 3. Game Changers (si présents)
   if(pw&&pw.gc>0){
     var gcContent='<div style="font-size:.85rem;color:var(--tx2);margin-bottom:8px">Cartes de la liste « Game Changers » WotC qui imposent un plancher de bracket :</div>';
@@ -35449,7 +35477,7 @@ function _anaCoachStepDiagnostic(){
 function _anaCoachStepVerdict(){
   var deck=_anaState.deck;var overall=_anaState.overall;
   var fmt=((deck.format||'commander')+'').toLowerCase();
-  var w=null;try{w=_anaWeaknessScan(deck,fmt);}catch(_e){}
+  var w=null;try{w=_anaWeaknessScan(deck,fmt);}catch(_e){console.warn('[Coach Step2] _anaWeaknessScan failed:',_e);}
   var critical=(w&&w.critical)||[];
   var minor=(w&&w.minor)||[];
   var totalCards=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
@@ -35487,7 +35515,7 @@ function _anaCoachStepVerdict(){
       h+='</div>';
     });
   } else {
-    h+='<div style="font-size:.92rem;color:#78c890;padding:8px 0;font-style:italic">✓ Aucune faiblesse catégorielle détectée — toutes les cases du plan sont cochées.</div>';
+    h+=mlEmpty('✓','Aucune faiblesse catégorielle détectée','Toutes les cases du plan sont cochées.');
   }
   // Probas clés
   h+='<div class="ana-coach-stat-label" style="margin:20px 0 6px">Probabilités de jouer ton plan à temps</div>';
@@ -35604,7 +35632,7 @@ function _anaCoachStepPlan(){
   h+='</div>';
   h+='<div class="ana-coach-body">';
   if(!topSwaps.length){
-    h+='<div style="text-align:center;padding:30px 20px;color:#78c890;font-style:italic;font-size:.95rem">✓ Aucun swap prioritaire identifié — le deck est déjà bien structuré pour son archétype. Passe à l\'étape suivante pour la validation.</div>';
+    h+=mlEmpty('✓','Aucun swap prioritaire identifié','Le deck est déjà bien structuré pour son archétype — passe à l\'étape suivante pour la validation.');
   } else {
     // Compact tier-tagged view en haut
     h+='<div style="margin-bottom:20px">';
@@ -35839,7 +35867,7 @@ function _anaCoachStepApply(){
   h+='<div class="ana-apply-counter">sur <b>'+nTotal+'</b> swap'+(nTotal>1?'s':'')+'</div>';
   h+='</div>';
   if(!allSwaps.length){
-    h+='<div class="ana-apply-empty">Aucun swap suggéré — passe directement à l\'étape suivante.</div>';
+    h+=mlEmpty('🎯','Aucun swap suggéré','Passe directement à l\'étape suivante.');
   } else {
     // Tri : changes d'abord, maybe, sans flag, puis keep (workflow naturel : ce qui change en haut)
     allSwaps.sort(function(a,b){
@@ -36024,7 +36052,7 @@ function _anaCoachStepValidate(){
   h+='</div>';
   h+='<div class="ana-coach-body">';
   if(!changes.length){
-    h+='<div class="ana-valid-empty">Aucun swap accepté. <a href="javascript:anaCoachGoto(4)" style="color:var(--gold2);text-decoration:underline">Retour au triage</a> pour faire tes choix.</div>';
+    h+=mlEmpty('📋','Aucun swap accepté','Retourne à l\'étape 4 pour trier les swaps proposés.','<button class="btn btnp btnsm" data-coach-action="goto" data-coach-step="4">◀ Retour au triage</button>');
   } else {
     // Animated score before/after
     h+='<div class="ana-valid-scores">';
@@ -36052,7 +36080,7 @@ function _anaCoachStepValidate(){
       try{
         var ownSet={};(getProfCards(0)||[]).forEach(function(card){var k=card.nl||(typeof stripDFC==='function'?stripDFC(card.name||'').toLowerCase():(card.name||'').toLowerCase());ownSet[k]=(ownSet[k]||0)+(card.qty||1);});
         if(ownSet[c.add.nl]>0)ownedAdds++;
-      }catch(e){}
+      }catch(e){console.warn('[Coach Step5] ownership check failed:',e);}
       // Prix add - cut
       try{
         if(typeof allPriceMap!=='undefined'&&allPriceMap){
@@ -36060,7 +36088,7 @@ function _anaCoachStepValidate(){
           var cutP=allPriceMap[(c.cutName||'').toLowerCase()]||0;
           priceCost+=Math.max(0,addP-cutP);
         }
-      }catch(e){}
+      }catch(e){console.warn('[Coach Step5] price diff failed:',e);}
     });
     var manaNet=manaFreed-manaAdded;
     var newRolesList=Object.keys(newRoles).filter(function(r){return newRoles[r]>0;});
