@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-4';
+window.APP_BUILD='2026-06-04-5';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -1103,7 +1103,35 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-apply-counter.k{border-color:rgba(120,200,144,.5);color:#78c890}
 .ana-apply-counter.m{border-color:rgba(245,185,91,.5);color:#f5b95b}
 .ana-apply-counter.c{border-color:rgba(224,112,112,.5);color:#e07070}
-.ana-apply-row{display:grid;grid-template-columns:1fr 30px 1fr 110px;gap:12px;align-items:center;padding:10px 14px;border:.5px solid var(--bd2);border-radius:10px;margin-bottom:8px;background:var(--s3);transition:all .2s}
+.ana-apply-row{display:grid;grid-template-columns:1fr 30px 1fr 110px;gap:12px;align-items:center;padding:10px 14px;border:.5px solid var(--bd2);border-radius:10px;margin-bottom:8px;background:var(--s3);transition:all .2s;cursor:pointer}
+.ana-apply-row:hover{border-color:var(--gold2);background:var(--s2)}
+/* Mode zoom : overlay plein écran sur le panneau Coach avec images de cartes XXL et flèches de navigation. */
+.ana-apply-zoom-overlay{position:fixed;inset:0;z-index:5500;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(6px)}
+.ana-apply-zoom-card{background:linear-gradient(180deg,var(--s2),var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:1100px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.85);position:relative}
+.ana-apply-zoom-header{padding:14px 20px;border-bottom:.5px solid var(--bd2);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.ana-apply-zoom-title{font-family:var(--ff-head);color:var(--gold2);font-size:1.15rem;flex:1}
+.ana-apply-zoom-counter{font-size:.85rem;color:var(--tx2);font-family:monospace;background:var(--s3);padding:4px 10px;border-radius:6px;border:.5px solid var(--bd2)}
+.ana-apply-zoom-body{padding:24px;overflow-y:auto;display:grid;grid-template-columns:1fr 60px 1fr;gap:24px;align-items:center}
+.ana-apply-zoom-side{display:flex;flex-direction:column;align-items:center;gap:14px}
+.ana-apply-zoom-side-img{max-width:340px;width:100%;aspect-ratio:5/7;border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,.65);background:#1a1a1a}
+.ana-apply-zoom-side.cut .ana-apply-zoom-side-img{filter:grayscale(.4) brightness(.7)}
+.ana-apply-zoom-side-info{text-align:center}
+.ana-apply-zoom-side-name{font-family:var(--ff-head);font-size:1.15rem;color:var(--tx);margin-bottom:4px}
+.ana-apply-zoom-side.cut .ana-apply-zoom-side-name{color:#e07070;text-decoration:line-through}
+.ana-apply-zoom-side-meta{font-size:.85rem;color:var(--tx3)}
+.ana-apply-zoom-arrow-mid{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:2.4rem;color:var(--gold2)}
+.ana-apply-zoom-gain{font-size:1.1rem;color:#78c890;font-family:var(--ff-head);letter-spacing:.05em}
+.ana-apply-zoom-just{padding:0 24px 18px;font-size:.85rem;color:var(--tx2);font-style:italic;text-align:center}
+.ana-apply-zoom-actions{padding:16px 20px;border-top:.5px solid var(--bd2);display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap}
+.ana-apply-zoom-actions .ana-apply-btn{width:54px;height:54px;font-size:1.5rem}
+.ana-apply-zoom-nav{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid var(--bd2);color:var(--gold2);font-size:1.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;font-family:inherit}
+.ana-apply-zoom-nav:hover{background:var(--gold2);color:#0a0a0a;border-color:var(--gold2)}
+.ana-apply-zoom-nav.prev{left:14px}
+.ana-apply-zoom-nav.next{right:14px}
+.ana-apply-zoom-nav:disabled{opacity:.3;cursor:not-allowed}
+.ana-apply-zoom-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;background:var(--s3);border:.5px solid var(--bd2);color:var(--tx2);font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;z-index:1}
+.ana-apply-zoom-close:hover{background:#e07070;color:#fff;border-color:#e07070}
+@media(max-width:680px){.ana-apply-zoom-body{grid-template-columns:1fr;gap:14px}.ana-apply-zoom-side-img{max-width:260px}.ana-apply-zoom-arrow-mid{font-size:1.6rem;transform:rotate(90deg)}}
 .ana-apply-row.flag-keep{border-color:rgba(120,200,144,.5);background:rgba(120,200,144,.05)}
 .ana-apply-row.flag-maybe{border-color:rgba(245,185,91,.5);background:rgba(245,185,91,.05)}
 .ana-apply-row.flag-change{border-color:rgba(224,112,112,.5);background:rgba(224,112,112,.05)}
@@ -35641,6 +35669,88 @@ function _anaCoachStepPlan(){
   return h;
 }
 
+// ── Mode Zoom Step 4 : clic sur une ligne → vue plein écran avec grandes images,
+// flèches de navigation, et boutons de tag. État stocké sur _anaState pour persister.
+var _anaApplyZoomList=null;
+function _anaApplyZoomOpen(idx){
+  _anaState.applyZoomIdx=idx;
+  _anaCoachRender();
+  // Liaison clavier : flèches gauche/droite pour naviguer, Esc pour fermer.
+  document.addEventListener('keydown',_anaApplyZoomKey);
+}
+function _anaApplyZoomClose(){
+  _anaState.applyZoomIdx=null;
+  document.removeEventListener('keydown',_anaApplyZoomKey);
+  _anaCoachRender();
+}
+function _anaApplyZoomNav(delta){
+  if(!_anaApplyZoomList||!_anaApplyZoomList.length)return;
+  var n=_anaApplyZoomList.length;
+  var cur=_anaState.applyZoomIdx==null?0:_anaState.applyZoomIdx;
+  var next=Math.max(0,Math.min(n-1,cur+delta));
+  if(next===cur)return;
+  _anaState.applyZoomIdx=next;
+  _anaCoachRender();
+}
+function _anaApplyZoomKey(ev){
+  if(ev.key==='Escape'){ev.preventDefault();_anaApplyZoomClose();}
+  else if(ev.key==='ArrowLeft'){ev.preventDefault();_anaApplyZoomNav(-1);}
+  else if(ev.key==='ArrowRight'){ev.preventDefault();_anaApplyZoomNav(1);}
+}
+// Rend l'overlay zoom HTML pour le swap à l'index donné.
+function _anaApplyRenderZoom(allSwaps,deckId){
+  if(_anaState.applyZoomIdx==null)return '';
+  _anaApplyZoomList=allSwaps;
+  var idx=Math.max(0,Math.min(allSwaps.length-1,_anaState.applyZoomIdx));
+  var sw=allSwaps[idx];
+  if(!sw||!sw.cut||!sw.cut.nl)return '';
+  var cutMeta=_anaData[sw.cut.nl]||{};
+  var addMeta=sw.add.meta||_anaData[sw.add.nl]||{};
+  var cutImg=anaImageUrl(sw.cut.name||'',cutMeta);
+  var addImg=anaImageUrl(sw.add.name||'',addMeta);
+  var flag=(typeof _anaFlagGet==='function')?_anaFlagGet(deckId,sw.cut.nl):null;
+  var nlEsc=escJs(sw.cut.nl);
+  var deckIdEsc=escJs(deckId);
+  var actOn=function(act){return '_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag===act?'':act)+'\');_anaCoachRender()';};
+  var h='<div class="ana-apply-zoom-overlay" onclick="if(event.target===this)_anaApplyZoomClose()">';
+  h+='<div class="ana-apply-zoom-card">';
+  h+='<button class="ana-apply-zoom-close" onclick="_anaApplyZoomClose()" title="Fermer (Esc)">✕</button>';
+  h+='<button class="ana-apply-zoom-nav prev" onclick="_anaApplyZoomNav(-1)"'+(idx===0?' disabled':'')+' title="Précédent (←)">◀</button>';
+  h+='<button class="ana-apply-zoom-nav next" onclick="_anaApplyZoomNav(1)"'+(idx===allSwaps.length-1?' disabled':'')+' title="Suivant (→)">▶</button>';
+  h+='<div class="ana-apply-zoom-header">';
+  h+='<div class="ana-apply-zoom-title">🔄 Swap '+(idx+1)+' sur '+allSwaps.length+'</div>';
+  h+='<div class="ana-apply-zoom-counter">'+(idx+1)+' / '+allSwaps.length+'</div>';
+  h+='</div>';
+  h+='<div class="ana-apply-zoom-body">';
+  // Cut side
+  h+='<div class="ana-apply-zoom-side cut">';
+  h+='<img src="'+esc(cutImg)+'" alt="" class="ana-apply-zoom-side-img" onerror="this.style.display=\'none\'">';
+  h+='<div class="ana-apply-zoom-side-info"><div class="ana-apply-zoom-side-name">'+esc(sw.cut.name||'?')+'</div>';
+  h+='<div class="ana-apply-zoom-side-meta">'+(cutMeta.cmc!=null?cutMeta.cmc+' mana':'?')+' · '+((cutMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
+  h+='</div>';
+  // Arrow + gain
+  h+='<div class="ana-apply-zoom-arrow-mid">▶<div class="ana-apply-zoom-gain">+'+(sw.gain!=null?sw.gain.toFixed(1):'?')+'</div></div>';
+  // Add side
+  h+='<div class="ana-apply-zoom-side">';
+  h+='<img src="'+esc(addImg)+'" alt="" class="ana-apply-zoom-side-img" onerror="this.style.display=\'none\'">';
+  h+='<div class="ana-apply-zoom-side-info"><div class="ana-apply-zoom-side-name">'+esc(sw.add.name||'?')+'</div>';
+  h+='<div class="ana-apply-zoom-side-meta">'+(addMeta.cmc!=null?addMeta.cmc+' mana':'?')+' · '+((addMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
+  h+='</div>';
+  h+='</div>';
+  // Justification éventuelle
+  if(sw.reason||sw.justify){
+    h+='<div class="ana-apply-zoom-just">'+esc(sw.reason||sw.justify)+'</div>';
+  }
+  // Actions = mêmes 3 boutons que la liste compacte
+  h+='<div class="ana-apply-zoom-actions">';
+  h+='<button class="ana-apply-btn keep'+(flag==='keep'?' active':'')+'" title="Garde — swap refusé" onclick="'+actOn('keep')+'">✅</button>';
+  h+='<button class="ana-apply-btn maybe'+(flag==='maybe'?' active':'')+'" title="À voir — en attente" onclick="'+actOn('maybe')+'">🤔</button>';
+  h+='<button class="ana-apply-btn change'+(flag==='change'?' active':'')+'" title="Change — swap accepté" onclick="'+actOn('change')+'">🔄</button>';
+  h+='<div style="margin-left:18px;font-size:.78rem;color:var(--tx3);font-style:italic">Utilise ← → pour naviguer, Esc pour fermer</div>';
+  h+='</div>';
+  h+='</div></div>';
+  return h;
+}
 // Step 4 — Application : triage compact, décision carte par carte, apply.
 function _anaCoachStepApply(){
   var deck=_anaState.deck;
@@ -35687,7 +35797,7 @@ function _anaCoachStepApply(){
       var ord={change:0,maybe:1,'':2,keep:3};
       return (ord[fa]||0)-(ord[fb]||0);
     });
-    allSwaps.forEach(function(sw){
+    allSwaps.forEach(function(sw,_idx){
       if(!sw.cut||!sw.cut.nl)return;
       var cutMeta=_anaData[sw.cut.nl]||{};
       var addMeta=sw.add.meta||_anaData[sw.add.nl]||{};
@@ -35697,10 +35807,12 @@ function _anaCoachStepApply(){
       var rowCls='ana-apply-row'+(flag?' flag-'+flag:'');
       var nlEsc=escJs(sw.cut.nl);
       var deckIdEsc=escJs(deckId);
-      var btnK='<button class="ana-apply-btn keep'+(flag==='keep'?' active':'')+'" title="Garde — swap refusé" onclick="_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='keep'?'':'keep')+'\');_anaCoachRender()">✅</button>';
-      var btnM='<button class="ana-apply-btn maybe'+(flag==='maybe'?' active':'')+'" title="À voir — en attente" onclick="_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='maybe'?'':'maybe')+'\');_anaCoachRender()">🤔</button>';
-      var btnC='<button class="ana-apply-btn change'+(flag==='change'?' active':'')+'" title="Change — swap accepté" onclick="_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='change'?'':'change')+'\');_anaCoachRender()">🔄</button>';
-      h+='<div class="'+rowCls+'">';
+      // Clic sur ligne → ouvre la vue zoom (event.stopPropagation sur les boutons pour
+      // ne pas déclencher l'ouverture quand on tagge depuis la ligne compacte).
+      var btnK='<button class="ana-apply-btn keep'+(flag==='keep'?' active':'')+'" title="Garde — swap refusé" onclick="event.stopPropagation();_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='keep'?'':'keep')+'\');_anaCoachRender()">✅</button>';
+      var btnM='<button class="ana-apply-btn maybe'+(flag==='maybe'?' active':'')+'" title="À voir — en attente" onclick="event.stopPropagation();_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='maybe'?'':'maybe')+'\');_anaCoachRender()">🤔</button>';
+      var btnC='<button class="ana-apply-btn change'+(flag==='change'?' active':'')+'" title="Change — swap accepté" onclick="event.stopPropagation();_anaFlagSet(\''+deckIdEsc+'\',\''+nlEsc+'\',\''+(flag==='change'?'':'change')+'\');_anaCoachRender()">🔄</button>';
+      h+='<div class="'+rowCls+'" onclick="_anaApplyZoomOpen('+_idx+')" title="Clic pour voir en grand">';
       // Cut side
       h+='<div class="ana-apply-side">';
       h+='<img src="'+esc(cutImg)+'" alt="" class="ana-apply-side-img" loading="lazy" onerror="this.style.display=\'none\'">';
@@ -35730,6 +35842,8 @@ function _anaCoachStepApply(){
     h+='</div>';
   }
   h+='</div></div>';
+  // Overlay zoom si actif — collé après la card pour être positionné en fixed sur tout l'écran.
+  h+=_anaApplyRenderZoom(allSwaps,deckId);
   return h;
 }
 
