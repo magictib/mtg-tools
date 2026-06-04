@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-03-12';
+window.APP_BUILD='2026-06-04-1';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -2901,7 +2901,7 @@ details > summary::-webkit-details-marker{display:none}
   <div class="card">
     <div class="lbl">Profil</div>
     <div class="pg" id="prof-grid-coll"></div>
-    <div class="row" style="margin-top:10px;margin-bottom:2px;flex-wrap:wrap">
+    <div class="row" id="coll-actions-row" style="margin-top:10px;margin-bottom:2px;flex-wrap:wrap">
       <button class="btn btnsm btnp" onclick="toggleCollAddForm()"><span data-i18n="coll.add">➕ Ajout manuel</span></button>
       <button class="btn btnsm" onclick="openScan()"><span data-i18n="coll.scan">📷 Scanner</span></button>
       <button class="btn btnsm" onclick="document.getElementById('coll-import-fin').click()" title="Remplace toute la collection par ce fichier CSV"><span data-i18n="coll.import.full">⬆ Import complet</span></button>
@@ -2911,6 +2911,9 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm" id="scryfall-offline-btn" onclick="toggleScryfallOffline()" title="Basculer entre mode en ligne (API Scryfall) et hors ligne (données locales uniquement)"></button>
       <input type="file" id="coll-import-fin" accept=".csv" style="display:none" onchange="importCollCSV(this)">
       <input type="file" id="coll-update-fin" accept=".csv" style="display:none" onchange="importCollUpdate(this)">
+    </div>
+    <div id="coll-actions-readonly" style="display:none;margin-top:10px;padding:8px 12px;border-radius:8px;background:rgba(91,140,245,.08);border:.5px solid rgba(91,140,245,.4);color:var(--tx2);font-size:.85rem">
+      🔒 <b>Lecture seule</b> — tu consultes la collection d'un autre profil. Les actions de modification sont désactivées. <i style="color:var(--tx3)">Re-clique sur ton profil pour les retrouver.</i>
     </div>
     <div id="coll-add-form" style="display:none;background:var(--s3);border-radius:8px;padding:10px;margin:8px 0;border:.5px solid var(--bd2)">
       <div class="g2" style="margin-bottom:6px">
@@ -29401,6 +29404,20 @@ function setCollProf(i){
   renderProfSlots('coll','prof-grid-coll');
   renderColl();
   enrichCollCache();
+  // Mode lecture seule : on cache les actions d'écriture quand on consulte la collection d'un ami.
+  // Évite les clics sans effet (et les confusions) — seules les actions de modification disparaissent ;
+  // le scryfall-offline-btn et le dashboard restent utiles en lecture.
+  _anaUpdateCollActionsVisibility();
+}
+function _anaUpdateCollActionsVisibility(){
+  var row=document.getElementById('coll-actions-row');
+  var ro=document.getElementById('coll-actions-readonly');
+  if(!row||!ro)return;
+  var isOther=collP>0;
+  row.style.display=isOther?'none':'';
+  ro.style.display=isOther?'block':'none';
+  // Ferme aussi le formulaire d'ajout s'il était ouvert
+  if(isOther){var f=document.getElementById('coll-add-form');if(f)f.style.display='none';}
 }
 function sortColl(field){
   if(collSort.field===field)collSort.dir*=-1;
