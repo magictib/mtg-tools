@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-3';
+window.APP_BUILD='2026-06-04-4';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -44765,11 +44765,21 @@ function _propHeaderNote(mode){
   return 'Classées par nombre de cartes manquantes dans votre collection.';
 }
 
-function _propMissing(deckCards,profIdx){
-  var pm=getPMap(profIdx||0);
+// _propMissing accepte soit un index de profil (number) soit une liste d'index (array)
+// pour pooler les collections de plusieurs profils (moi + amis). Quand on passe un array,
+// chaque carte est considérée comme possédée si N'IMPORTE QUEL profil la possède en quantité
+// suffisante (les quantités sont sommées entre profils).
+function _propMissing(deckCards,profIdxOrList){
+  var indices=Array.isArray(profIdxOrList)?profIdxOrList:[profIdxOrList||0];
+  // Map poolée : on somme les quantités de tous les profils sélectionnés.
+  var pooled=new Map();
+  indices.forEach(function(i){
+    var pm=getPMap(i);
+    pm.forEach(function(qty,key){pooled.set(key,(pooled.get(key)||0)+qty);});
+  });
   var missing=[];var totalMissing=0;
   deckCards.forEach(function(c){
-    var have=pm.get(_normNl(c.name))||0;
+    var have=pooled.get(_normNl(c.name))||0;
     var need=Math.max(0,c.qty-have);
     if(need>0){missing.push({name:c.name,qty:c.qty,have:have,need:need});totalMissing+=need;}
   });
@@ -44788,7 +44798,14 @@ function _edhFetchJSON(path){
 
 function _renderPropHtml(top5,profIdx,fmtLabel,sortMode){
   sortMode=sortMode||'missing';
-  var html='<div class="card"><div class="lbl">🏆 Propositions — '+esc(fmtLabel)+' (profil : '+(PN[profIdx]||'Profil '+profIdx)+')</div>';
+  // profIdx peut être un index unique OU un array d'index (pool multi-profils).
+  var profLabel;
+  if(Array.isArray(profIdx)){
+    profLabel=profIdx.length===1?(PN[profIdx[0]]||'Profil '+profIdx[0]):(profIdx.length+' profils combinés');
+  } else {
+    profLabel=PN[profIdx]||'Profil '+profIdx;
+  }
+  var html='<div class="card"><div class="lbl">🏆 Propositions — '+esc(fmtLabel)+' (collections : '+esc(profLabel)+')</div>';
   html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">'+_propHeaderNote(sortMode)+'</div>';
   top5.forEach(function(r,i){
     var pct=r.cards.length?Math.round((r.missing.total-r.missing.totalMissing)/r.missing.total*100):0;
@@ -44850,11 +44867,22 @@ var _PDH_COMMANDERS=[
   {name:'Lunk Errant',sanitized:'lunk-errant'},
 ];
 
-function proposeDecksPDH(profIdx,wrap){
+function proposeDecksPDH(profIdx,wrap,cmdFilter){
   var prog=document.getElementById('prop-progress');
-  if(prog)prog.textContent='Récupération de '+_PDH_COMMANDERS.length+' decklists PDH (EDHREC)…';
+  // Filtre commandant : ne récupère que la liste du commandant choisi.
+  cmdFilter=(cmdFilter||'').trim().toLowerCase();
+  var pool=_PDH_COMMANDERS;
+  if(cmdFilter){
+    pool=_PDH_COMMANDERS.filter(function(c){return (c.name||'').toLowerCase().indexOf(cmdFilter)>=0;});
+    if(!pool.length){
+      _hideLoader();
+      wrap.innerHTML='<div class="card"><div style="color:var(--rd2)">Commandant « '+esc(cmdFilter)+' » introuvable dans la liste PDH connue ('+_PDH_COMMANDERS.length+' commandants). Vérifie l\'orthographe (anglais) ou laisse vide pour proposer 5 méta-decks.</div></div>';
+      return;
+    }
+  }
+  if(prog)prog.textContent='Récupération de '+pool.length+' decklist'+(pool.length>1?'s':'')+' PDH (EDHREC)…';
   _showLoader('Analyse des decks Pauper Commander via EDHREC…');
-  var promises=_PDH_COMMANDERS.map(function(cmd){
+  var promises=pool.map(function(cmd){
     return _edhFetchJSON('pages/pauper-commanders/'+cmd.sanitized+'.json')
       .then(function(d){return {name:cmd.name,cards:edhFindCardlist(d)};})
       .catch(function(){return {name:cmd.name,cards:[]};});
@@ -44891,13 +44919,63 @@ function proposeDecksPDH(profIdx,wrap){
   });
 }
 
+// Propose un deck EDH construit autour d'un commandant donné, via EDHREC.
+// Stratégie : fetch /pages/commanders/{slug}.json qui contient les cartes les plus
+// jouées de ce commandant ; on construit une decklist de 100 cartes (commandant + 99
+// plus jouées) et on calcule possession/manquant comme pour les autres formats.
+function proposeDecksEDHCommander(profIdx,wrap,cmdName){
+  var prog=document.getElementById('prop-progress');
+  if(prog)prog.textContent='Recherche du commandant « '+esc(cmdName)+' » sur EDHREC…';
+  _showLoader('Recherche du commandant sur EDHREC…');
+  // Slug EDHREC : minuscule, espaces/apostrophes → tirets, accents retirés.
+  var slug=cmdName.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[',\.]/g,'')
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/(^-|-$)/g,'');
+  _edhFetchJSON('pages/commanders/'+slug+'.json').then(function(d){
+    var cards=edhFindCardlist(d);
+    if(!cards||cards.length<20){
+      _hideLoader();
+      wrap.innerHTML='<div class="card"><div style="color:var(--rd2)">Données EDHREC insuffisantes pour « '+esc(cmdName)+' ». Vérifie l\'orthographe (en anglais) ou essaie un autre commandant.</div></div>';
+      return;
+    }
+    var deckCards=[{name:cmdName,qty:1,nl:_normNl(cmdName)}];
+    cards.forEach(function(c){
+      if(deckCards.length>=100)return;
+      var name=c.name||c.label||'';if(!name)return;
+      deckCards.push({name:name,qty:1,nl:_normNl(name)});
+    });
+    var result={arch:cmdName,cards:deckCards,missing:_propMissing(deckCards,profIdx),fmt:'EDH'};
+    var sortMode=_propSortMode();
+    if(prog)prog.textContent='Récupération des prix Scryfall…';
+    _setLoaderTxt('Récupération des prix Scryfall…');
+    var priceFetch=(sortMode==='totalprice')?_fetchAllCardPrices:_fetchMissingPrices;
+    priceFetch([result],function(){
+      _propResults=[result];
+      _hideLoader();
+      // profIdx peut être un array — pour _renderPropHtml on prend le premier pour le label.
+      var labelIdx=Array.isArray(profIdx)?profIdx[0]:profIdx;
+      wrap.innerHTML=_renderPropHtml([result],labelIdx,'Commander — '+cmdName,sortMode);
+    });
+  }).catch(function(){
+    _hideLoader();
+    wrap.innerHTML='<div class="card"><div style="color:var(--rd2)">Impossible de joindre EDHREC pour « '+esc(cmdName)+' ».</div></div>';
+  });
+}
 function proposeDecks(){
   var fmt=document.getElementById('prop-fmt-sel');fmt=fmt?fmt.value:'ST';
-  var profIdx=parseInt((document.getElementById('prop-prof-sel')||{}).value||'0')||0;
+  // Si _propPoolProfs est défini (depuis le wizard Découvrir), on l'utilise ;
+  // sinon on retombe sur le select legacy (un seul profil).
+  var profIdx=(Array.isArray(_propPoolProfs)&&_propPoolProfs.length)
+    ? _propPoolProfs
+    : [parseInt((document.getElementById('prop-prof-sel')||{}).value||'0')||0];
+  var cmdFilter=(_propFilterCmd||'').trim();
   var wrap=document.getElementById('bld-propose-wrap');if(!wrap)return;
   wrap.style.display='block';
   wrap.innerHTML='<div class="card"><div class="lbl">🔎 Recherche en cours…</div><div id="prop-progress" style="font-size:11px;color:var(--tx3);font-style:italic;margin-top:6px">Chargement…</div></div>';
-  if(fmt==='PDH'){proposeDecksPDH(profIdx,wrap);return;}
+  if(fmt==='PDH'){proposeDecksPDH(profIdx,wrap,cmdFilter);return;}
+  if(fmt==='EDH'&&cmdFilter){proposeDecksEDHCommander(profIdx,wrap,cmdFilter);return;}
   _showLoader('Analyse des decks '+fmt+' en tournoi…');
   var prog=document.getElementById('prop-progress');
   // Step 1: fetch event list
@@ -44958,7 +45036,10 @@ function proposeDecks(){
         _propResults=top5;
         _hideLoader();
         // Render
-        var html='<div class="card"><div class="lbl">🏆 Propositions — '+fmt+' (profil : '+(PN[profIdx]||'Profil '+profIdx)+')</div>';
+        var _profLbl=Array.isArray(profIdx)
+          ? (profIdx.length===1?(PN[profIdx[0]]||'Profil '+profIdx[0]):(profIdx.length+' profils combinés'))
+          : (PN[profIdx]||'Profil '+profIdx);
+        var html='<div class="card"><div class="lbl">🏆 Propositions — '+fmt+' (collections : '+esc(_profLbl)+')</div>';
         html+='<div style="font-size:10px;color:var(--tx3);margin-bottom:10px;font-style:italic">'+_propHeaderNote(sortMode)+'</div>';
         top5.forEach(function(r,i){
           var pct=r.cards.length?Math.round((r.missing.total-r.missing.totalMissing)/r.missing.total*100):0;
@@ -50418,49 +50499,93 @@ function _discRunSyn(){
 }
 // Mode "Proposer 5 decks"
 function _discProposerHtml(){
-  // Profile sélecteur — on essaie de récupérer la liste actuelle
-  var profOpts='<option value="0">Moi</option>';
+  // Liste des profils pour les checkboxes multi-sélection.
+  var profCheckboxes='';
   try{
     if(typeof PN!=='undefined'&&Array.isArray(PN)){
-      profOpts='';PN.forEach(function(nm,i){profOpts+='<option value="'+i+'">'+esc(nm||'(slot '+i+')')+'</option>';});
+      PN.forEach(function(nm,i){
+        // Par défaut : seul le profil 0 (moi) est coché.
+        profCheckboxes+='<label style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;cursor:pointer;font-size:.82rem;margin:3px 4px 3px 0">'
+          +'<input type="checkbox" class="disc-prop-prof-cb" value="'+i+'"'+(i===0?' checked':'')+' style="margin:0">'
+          +esc(nm||('Slot '+i))+'</label>';
+      });
     }
   }catch(e){}
-  var h='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:12px">🔎 On te propose 5 méta-decks selon le format et le critère choisi (cartes manquantes, prix de complétion, prix total).</div>';
+  if(!profCheckboxes)profCheckboxes='<label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" class="disc-prop-prof-cb" value="0" checked> Moi</label>';
+  var h='<div style="font-size:.84rem;color:var(--tx2);margin-bottom:12px">🔎 On te propose 5 méta-decks selon le format et le critère choisi. En EDH/PDH, le <b>commandant est obligatoire</b> — on cherche les listes populaires construites autour de lui.</div>';
   h+='<div style="background:rgba(0,0,0,.18);border-radius:8px;padding:12px;margin-bottom:12px">';
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
-  h+='<div><label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px">FORMAT</label>';
-  h+='<select id="disc-prop-fmt" style="width:100%;padding:7px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)">';
+  // Ligne 1 : Format
+  h+='<label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px">FORMAT</label>';
+  h+='<select id="disc-prop-fmt" onchange="_discPropFmtChange()" style="width:100%;padding:7px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);margin-bottom:10px">';
   ['ST,Standard','PI,Pioneer','MO,Modern','LE,Legacy','VI,Vintage','PAU,Pauper','PDH,Pauper Commander','EDH,Commander'].forEach(function(o){
     var p=o.split(',');h+='<option value="'+p[0]+'">'+esc(p[1])+'</option>';
   });
-  h+='</select></div>';
-  h+='<div><label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px">PROFIL DE RÉFÉRENCE</label>';
-  h+='<select id="disc-prop-prof" style="width:100%;padding:7px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)">'+profOpts+'</select></div>';
+  h+='</select>';
+  // Ligne 2 : Commandant (visible seulement en EDH/PDH, masqué par défaut car ST sélectionné par défaut)
+  h+='<div id="disc-prop-cmd-row" style="display:none;margin-bottom:10px">';
+  h+='<label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px">COMMANDANT <span style="color:#e07070">*</span></label>';
+  h+='<input type="text" id="disc-prop-cmd" placeholder="Ex : Atraxa, Praetors\' Voice" autocomplete="off" style="width:100%;padding:7px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx);font-family:inherit">';
+  h+='<div style="font-size:.7rem;color:var(--tx3);margin-top:3px;font-style:italic">Nom en anglais recommandé pour la recherche EDHREC.</div>';
   h+='</div>';
-  h+='<label style="display:block;font-size:.74rem;color:var(--tx3);margin:10px 0 3px">CRITÈRE DE TRI</label>';
+  // Ligne 3 : Profils (checkboxes multi-sélection)
+  h+='<label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px">COLLECTIONS À POOLER <span style="font-style:italic;font-weight:normal">(cumule les cartes possédées de plusieurs profils)</span></label>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">'+profCheckboxes+'</div>';
+  // Ligne 4 : Critère de tri
+  h+='<label style="display:block;font-size:.74rem;color:var(--tx3);margin-bottom:3px">CRITÈRE DE TRI</label>';
   h+='<select id="disc-prop-sort" style="width:100%;padding:7px;background:var(--s3);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx)">';
-  h+='<option value="missing">📉 Le moins de cartes manquantes (selon ma collection)</option>';
-  h+='<option value="completeprice">💸 Le moins cher à compléter (selon ma collection)</option>';
-  h+='<option value="totalprice">💰 Le moins cher total (collection ignorée)</option>';
+  h+='<option value="missing">📉 Le moins de cartes manquantes (selon les collections cochées)</option>';
+  h+='<option value="completeprice">💸 Le moins cher à compléter (selon les collections cochées)</option>';
+  h+='<option value="totalprice">💰 Le moins cher total (collections ignorées)</option>';
   h+='</select>';
   h+='</div>';
-  h+='<div style="display:flex;justify-content:flex-end"><button class="btn btnp" onclick="_discRunProposer()">🔎 Proposer 5 decks</button></div>';
+  h+='<div style="display:flex;justify-content:flex-end"><button class="btn btnp" onclick="_discRunProposer()">🔎 Proposer des decks</button></div>';
   return h;
 }
+// Affiche/cache la ligne commandant selon le format choisi.
+function _discPropFmtChange(){
+  var fmt=(document.getElementById('disc-prop-fmt')||{}).value||'';
+  var row=document.getElementById('disc-prop-cmd-row');
+  if(row)row.style.display=(fmt==='EDH'||fmt==='PDH')?'block':'none';
+}
 function _discRunProposer(){
-  // Réutilise les selects cachés dans le wizard build
   var fmt=document.getElementById('disc-prop-fmt').value;
-  var prof=document.getElementById('disc-prop-prof').value;
+  // Récupère la liste des profils cochés
+  var profIdxList=[];
+  Array.prototype.forEach.call(document.querySelectorAll('.disc-prop-prof-cb:checked'),function(cb){
+    profIdxList.push(parseInt(cb.value,10)||0);
+  });
+  if(!profIdxList.length){
+    if(typeof toastError==='function')toastError('Coche au moins une collection');
+    return;
+  }
+  // Commandant obligatoire en EDH/PDH
+  var cmdName='';
+  if(fmt==='EDH'||fmt==='PDH'){
+    cmdName=((document.getElementById('disc-prop-cmd')||{}).value||'').trim();
+    if(!cmdName){
+      if(typeof toastError==='function')toastError('Renseigne un commandant pour le format '+fmt);
+      else alert('Le commandant est obligatoire en '+fmt);
+      var inp=document.getElementById('disc-prop-cmd');if(inp)inp.focus();
+      return;
+    }
+  }
   var sort=document.getElementById('disc-prop-sort').value;
+  // Synchronise les selects cachés du wizard build (compatibilité descendante avec proposeDecks)
   var fmtSel=document.getElementById('prop-fmt-sel');if(fmtSel)fmtSel.value=fmt;
-  var profSel=document.getElementById('prop-prof-sel');if(profSel)profSel.value=prof;
+  var profSel=document.getElementById('prop-prof-sel');if(profSel)profSel.value=String(profIdxList[0]);
   var sortSel=document.getElementById('prop-sort-sel');if(sortSel)sortSel.value=sort;
+  // Stocke les params étendus pour proposeDecks
+  _propPoolProfs=profIdxList;
+  _propFilterCmd=cmdName;
   closeDiscover();
   if(typeof goTab==='function')goTab('build');
   setTimeout(function(){
     if(typeof proposeDecks==='function')proposeDecks();
   },200);
 }
+// Variables d'état pour le pool multi-profils et le filtre commandant (lues par proposeDecks).
+var _propPoolProfs=null;
+var _propFilterCmd='';
 
 // ════════════════════════════════════════════════════════════════════════
 // FOCUS DECK — vue unifiée par deck (info + analyse résumée + actions + sideboard plan + liste)
