@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-8';
+window.APP_BUILD='2026-06-04-9';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -1039,6 +1039,12 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ana-valid-confetti{position:absolute;pointer-events:none;font-size:1.4rem;animation:anaConfettiFall 1.4s ease-out forwards}
 @keyframes anaConfettiFall{0%{opacity:1;transform:translateY(-40px) rotate(0)}100%{opacity:0;transform:translateY(80px) rotate(360deg)}}
 /* Empty states Coach Mode désormais unifiés via mlEmpty() (.ml-empty), classes obsolètes supprimées. */
+/* Modal « Deck parfait ManaLAB » — labels uniformes et chips couleurs interactives. */
+.pf-lbl{display:block;font-size:.78rem;color:var(--tx3);margin-bottom:5px;letter-spacing:.04em;font-family:'Goudy Mediaeval',serif;text-transform:uppercase}
+.pf-color-chip:hover{filter:brightness(1.15);border-color:var(--gold)}
+.pf-color-chip:focus-visible{outline:2px solid var(--gold2);outline-offset:2px}
+.bld-wiz-feature:hover{box-shadow:0 0 18px rgba(201,168,76,.32);transform:translateY(-2px)}
+.bld-wiz-feature{transition:transform .15s,box-shadow .15s}
 @media(max-width:680px){.ana-valid-diff-grid{grid-template-columns:1fr}.ana-valid-score-num{font-size:2.6rem}}
 /* ─── KPI Tiles : restyling pro (gradients, icons, hover, trends, sparklines) ─── */
 .ana-kpi-tile{background:linear-gradient(135deg,rgba(218,180,107,.07) 0%,rgba(91,140,245,.04) 100%);border:.5px solid var(--bd2);border-radius:12px;padding:14px 16px;position:relative;overflow:hidden;transition:all .25s;min-height:90px}
@@ -3728,6 +3734,11 @@ details > summary::-webkit-details-marker{display:none}
     <div style="color:var(--tx3);font-size:.82rem">Choisis comment commencer — un deck vide, un commandant, un archétype, ou un méta-deck adapté à ta collection</div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px">
+    <div class="card bld-wiz-opt bld-wiz-feature" style="padding:1.25rem;background:linear-gradient(180deg,rgba(201,168,76,.12) 0%,rgba(201,168,76,.04) 100%);border:1.5px solid var(--gold)" onclick="mlPerfectDeckOpen()" title="Génère le deck optimal selon ta collection, ton commandant, ton budget et l'analyse ManaLAB">
+      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">⚗</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center;color:var(--gold2)">Deck parfait ManaLAB</div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Format, commandant, couleurs, budget — moteur d'analyse complet</div>
+    </div>
     <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="_bldWizardClose();_bldEntryBlank()">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">✨</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Nouveau deck vierge</div>
@@ -5914,8 +5925,19 @@ function _onUserRole(user,role){
       ].forEach(function(k){localStorage.removeItem(k);});
       _lsSet('mtg_last_uid',userId);
     }
-    // Navigation : restaure l'onglet depuis l'URL (#tab) — gère refresh + liens profonds
-    var _initTab=_tabFromHash()||'home';
+    // Navigation : restaure l'onglet depuis l'URL (#tab) — gère refresh + liens profonds.
+    // À la RÉOUVERTURE de l'onglet (sessionStorage vide), on force l'accueil même si
+    // un #hash subsiste, pour que l'utilisateur reparte d'un point neutre. sessionStorage
+    // est effacé à la fermeture de l'onglet (contrairement à localStorage qui persiste),
+    // ce qui en fait le bon signal pour distinguer « rafraîchissement » de « nouvelle session ».
+    var _isNewSession=false;
+    try{
+      if(!sessionStorage.getItem('mtg_session_started')){
+        _isNewSession=true;
+        sessionStorage.setItem('mtg_session_started','1');
+      }
+    }catch(e){}
+    var _initTab=_isNewSession?'home':(_tabFromHash()||'home');
     try{history.replaceState({tab:_initTab},'','#'+_initTab);}catch(e){}
     _currentTab=_initTab;
     if(_initTab!=='home')setTimeout(function(){goTab(_initTab,true);},80);
@@ -48685,6 +48707,214 @@ function openDeckGenerator(presetCommander){
   setTimeout(function(){var i=document.getElementById('dgen-cmd');if(i)i.focus();},50);
 }
 function closeDeckGenerator(){var ov=document.getElementById('dgen-overlay');if(ov)ov.style.display='none';}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// "Deck parfait ManaLAB" — modal de configuration multi-critères qui orchestre
+// le pipeline _dgenBuild (avec commandant) ou redirige vers openDiscover('proposer')
+// (sans commandant). Le but : un point d'entrée unique exposant toutes les
+// contraintes — format, commandant, couleurs, budget, % collection, niveau de
+// puissance, archétype — au lieu de modales séparées à des endroits différents.
+// État global lu par _dgenBuild via _dgenState (étendu avec budgetMax, pctColl,
+// targetArchetype) pour modifier le pipeline existant sans le dupliquer.
+function mlPerfectDeckOpen(){
+  var ov=document.getElementById('perfect-deck-overlay');
+  if(!ov){
+    ov=document.createElement('div');ov.id='perfect-deck-overlay';
+    ov.style.cssText='position:fixed;inset:0;z-index:5600;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)mlPerfectDeckClose();});
+    document.addEventListener('keydown',function(e){
+      if(e.key==='Escape'&&ov.style.display==='flex')mlPerfectDeckClose();
+    });
+  }
+  var profs=(window.profs||[]),pn=(window.PN||[]);
+  // Liste profils (utilisateur + amis) pour pool collection
+  var profOpts='';
+  for(var i=0;i<profs.length;i++){
+    var nm=pn[i]||('Profil '+(i+1));
+    profOpts+='<label class="pf-prof-chip" style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:.5px solid var(--bd2);border-radius:6px;cursor:pointer;font-size:.78rem;background:'+(i===0?'rgba(201,168,76,.15)':'transparent')+'">'
+      +'<input type="checkbox" data-prof-idx="'+i+'" '+(i===0?'checked':'')+' style="margin:0">'+esc(nm)+'</label>';
+  }
+  var h='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:760px;width:100%;padding:24px 28px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.55rem;color:var(--gold2);flex:1">⚗ Deck parfait ManaLAB</div>';
+  h+='<button class="btn btnsm" onclick="mlPerfectDeckClose()" aria-label="Fermer">✕</button></div>';
+  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:18px">Le moteur d\'analyse combine ta collection, les données EDHREC, ton budget et l\'archétype visé pour bâtir le deck optimal. Plus tu remplis, plus le résultat est ciblé.</div>';
+  // ── 1) Format
+  h+='<div style="margin-bottom:14px"><label class="pf-lbl">FORMAT</label>';
+  h+='<select id="pf-format" onchange="_pfFormatChanged()" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem">';
+  h+='<option value="commander">Commander (EDH)</option>';
+  h+='<option value="pdh">Pauper Commander (PDH)</option>';
+  h+='<option value="standard">Standard</option>';
+  h+='<option value="pioneer">Pioneer</option>';
+  h+='<option value="modern">Modern</option>';
+  h+='<option value="legacy">Legacy</option>';
+  h+='<option value="vintage">Vintage</option>';
+  h+='<option value="pauper">Pauper</option>';
+  h+='</select></div>';
+  // ── 2) Commandant (visible seulement pour EDH/PDH)
+  h+='<div id="pf-cmd-wrap" style="margin-bottom:14px"><label class="pf-lbl">COMMANDANT <span style="color:var(--tx3);font-style:italic;text-transform:none;letter-spacing:0;font-size:.7rem">(recommandé pour EDH/PDH)</span></label>';
+  h+='<input id="pf-cmd" type="text" placeholder="ex: Atraxa, Praetors\' Voice — laisse vide pour deviner d\'après la collection" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem" oninput="_pfCmdChanged()">';
+  h+='<div id="pf-cmd-hint" style="font-size:.7rem;color:var(--tx3);margin-top:4px;font-style:italic">Si renseigné, les couleurs sont déduites automatiquement et le moteur utilise les données EDHREC du commandant.</div>';
+  h+='</div>';
+  // ── 3) Couleurs WUBRG
+  h+='<div id="pf-colors-wrap" style="margin-bottom:14px"><label class="pf-lbl">IDENTITÉ COULEURS <span style="color:var(--tx3);font-style:italic;text-transform:none;letter-spacing:0;font-size:.7rem">(optionnel si commandant fourni)</span></label>';
+  h+='<div id="pf-colors" style="display:flex;gap:8px;flex-wrap:wrap">';
+  [{c:'W',lbl:'Blanc',col:'#f5e9c5'},{c:'U',lbl:'Bleu',col:'#88c8f0'},{c:'B',lbl:'Noir',col:'#9088a8'},{c:'R',lbl:'Rouge',col:'#e07070'},{c:'G',lbl:'Vert',col:'#90c890'}].forEach(function(x){
+    h+='<button type="button" class="pf-color-chip" data-color="'+x.c+'" onclick="_pfToggleColor(\''+x.c+'\')" style="padding:8px 14px;border:1.5px solid var(--bd2);border-radius:99px;background:var(--s3);color:var(--tx2);cursor:pointer;font-size:.85rem;font-weight:600;transition:all .15s">{'+x.c+'} '+x.lbl+'</button>';
+  });
+  h+='</div></div>';
+  // ── 4) Source collection (multi-profils)
+  h+='<div style="margin-bottom:14px"><label class="pf-lbl">SOURCE COLLECTION <span style="color:var(--tx3);font-style:italic;text-transform:none;letter-spacing:0;font-size:.7rem">(coche les profils dont tu peux utiliser les cartes)</span></label>';
+  h+='<div id="pf-profs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+profOpts+'</div>';
+  h+='<div style="display:flex;align-items:center;gap:10px">';
+  h+='<label style="font-size:.78rem;color:var(--tx2);min-width:200px">% du deck depuis la collection : <b id="pf-pct-val" style="color:var(--gold2)">80%</b></label>';
+  h+='<input id="pf-pct" type="range" min="0" max="100" step="10" value="80" style="flex:1" oninput="document.getElementById(\'pf-pct-val\').textContent=this.value+\'%\'">';
+  h+='</div>';
+  h+='<div style="font-size:.68rem;color:var(--tx3);margin-top:3px;font-style:italic">0% = ignore la collection (deck idéal absolu) • 100% = uniquement tes cartes (build buildable)</div>';
+  h+='</div>';
+  // ── 5) Budget
+  h+='<div style="margin-bottom:14px"><label class="pf-lbl">BUDGET MAX <span style="color:var(--tx3);font-style:italic;text-transform:none;letter-spacing:0;font-size:.7rem">(prix Cardmarket, vide = pas de limite)</span></label>';
+  h+='<div style="display:flex;gap:8px;align-items:center">';
+  h+='<input id="pf-budget" type="number" min="0" step="10" placeholder="ex: 100" style="flex:1;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem">';
+  h+='<span style="color:var(--tx2);font-size:.9rem">€</span>';
+  h+='</div>';
+  h+='<div style="font-size:.68rem;color:var(--tx3);margin-top:3px;font-style:italic">Le moteur exclut les cartes au-dessus du seuil cible et privilégie les substituts à valeur équivalente.</div>';
+  h+='</div>';
+  // ── 6) Niveau de puissance (réutilise _DECK_LEVEL_PRESETS)
+  h+='<div style="margin-bottom:14px"><label class="pf-lbl">NIVEAU DE PUISSANCE</label>';
+  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
+  Object.keys(_DECK_LEVEL_PRESETS).forEach(function(k){
+    var p=_DECK_LEVEL_PRESETS[k];
+    var active=k==='balanced';
+    h+='<button type="button" class="btn btnsm'+(active?' btnp':'')+'" data-pf-lvl="'+k+'" onclick="_pfSetLevel(\''+k+'\')" title="'+esc(p.desc)+'" style="padding:8px 4px">'+esc(p.label)+'</button>';
+  });
+  h+='</div>';
+  h+='<div id="pf-lvl-desc" style="font-size:.72rem;color:var(--tx3);margin-top:5px;font-style:italic">'+esc(_DECK_LEVEL_PRESETS.balanced.desc)+'</div>';
+  h+='</div>';
+  // ── 7) Archétype cible
+  h+='<div style="margin-bottom:18px"><label class="pf-lbl">ARCHÉTYPE CIBLE</label>';
+  h+='<select id="pf-archetype" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem">';
+  h+='<option value="auto">Auto — détection d\'après le commandant ou la collection</option>';
+  h+='<option value="aggro">Aggro — pression précoce, low cmc</option>';
+  h+='<option value="midrange">Midrange — bonnes valeurs sur la courbe</option>';
+  h+='<option value="control">Control — interaction lourde, finisher tardif</option>';
+  h+='<option value="combo">Combo — moteurs synergiques, tutors</option>';
+  h+='<option value="tokens">Tokens — multiplication, anthems</option>';
+  h+='<option value="tribal">Tribal — synergies de type</option>';
+  h+='<option value="graveyard">Cimetière — récursion, réanimation</option>';
+  h+='<option value="spellslinger">Spellslinger — sorts non-créatures</option>';
+  h+='<option value="voltron">Voltron — commandant équipé/enchanté</option>';
+  h+='</select></div>';
+  // ── 8) Actions
+  h+='<div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;padding-top:14px;border-top:.5px solid var(--bd)">';
+  h+='<div style="flex:1;font-size:.7rem;color:var(--tx3);font-style:italic">⚡ La génération prend quelques secondes (analyse EDHREC + scoring).</div>';
+  h+='<button class="btn btnsm" onclick="mlPerfectDeckClose()">Annuler</button>';
+  h+='<button class="btn btnp" id="pf-go" onclick="mlPerfectDeckGenerate()" style="padding:11px 22px">⚗ Générer le deck parfait</button>';
+  h+='</div>';
+  h+='</div>';
+  ov.innerHTML=h;
+  ov.style.display='flex';
+  // État initial
+  _pfState={colors:[],level:'balanced'};
+  setTimeout(function(){var i=document.getElementById('pf-cmd');if(i)i.focus();},80);
+}
+function mlPerfectDeckClose(){var ov=document.getElementById('perfect-deck-overlay');if(ov)ov.style.display='none';}
+var _pfState={colors:[],level:'balanced'};
+function _pfToggleColor(c){
+  var i=_pfState.colors.indexOf(c);
+  if(i>=0)_pfState.colors.splice(i,1);else _pfState.colors.push(c);
+  var btn=document.querySelector('.pf-color-chip[data-color="'+c+'"]');
+  if(btn){
+    var active=i<0;
+    btn.style.background=active?'rgba(201,168,76,.22)':'var(--s3)';
+    btn.style.borderColor=active?'var(--gold)':'var(--bd2)';
+    btn.style.color=active?'var(--gold2)':'var(--tx2)';
+  }
+}
+function _pfSetLevel(l){
+  _pfState.level=l;
+  document.querySelectorAll('[data-pf-lvl]').forEach(function(b){b.classList.toggle('btnp',b.getAttribute('data-pf-lvl')===l);});
+  var d=document.getElementById('pf-lvl-desc');if(d&&_DECK_LEVEL_PRESETS[l])d.textContent=_DECK_LEVEL_PRESETS[l].desc;
+}
+function _pfFormatChanged(){
+  var fmt=(document.getElementById('pf-format')||{}).value||'commander';
+  var cmdWrap=document.getElementById('pf-cmd-wrap');
+  // EDH/PDH = commandant pertinent ; sinon, on cache l'input (mais on garde le bloc couleurs)
+  if(cmdWrap)cmdWrap.style.display=(fmt==='commander'||fmt==='pdh')?'':'none';
+}
+function _pfCmdChanged(){
+  // Si l'utilisateur tape un commandant, on grise les chips couleurs (déduites du cmdr)
+  var v=((document.getElementById('pf-cmd')||{}).value||'').trim();
+  var wrap=document.getElementById('pf-colors-wrap');
+  if(wrap)wrap.style.opacity=v?'.5':'1';
+}
+// Lance la génération en orchestrant les pipelines existants selon les inputs.
+function mlPerfectDeckGenerate(){
+  var fmt=((document.getElementById('pf-format')||{}).value||'commander');
+  var cmd=((document.getElementById('pf-cmd')||{}).value||'').trim();
+  var pct=parseInt((document.getElementById('pf-pct')||{}).value||'80',10);
+  var budget=parseFloat((document.getElementById('pf-budget')||{}).value||'0');
+  var arch=((document.getElementById('pf-archetype')||{}).value||'auto');
+  var lvl=_pfState.level||'balanced';
+  var colors=_pfState.colors.slice();
+  // Profils sources cochés
+  var profIdx=[];
+  document.querySelectorAll('#pf-profs input[type="checkbox"]:checked').forEach(function(cb){
+    var i=parseInt(cb.getAttribute('data-prof-idx'),10);if(!isNaN(i))profIdx.push(i);
+  });
+  // Validation : EDH/PDH demandent un commandant OU des couleurs
+  var isEDH=(fmt==='commander'||fmt==='pdh');
+  if(isEDH&&!cmd&&!colors.length){
+    if(typeof toastError==='function')toastError('Renseigne un commandant ou choisis au moins une couleur.');
+    return;
+  }
+  // Mémorise les contraintes globales pour le pipeline _dgenBuild (lu via _dgenState)
+  // Le pipeline existant ne lit que source/level — on stocke les extras pour usage futur.
+  _dgenState={
+    source:(pct>=100?'coll':'all'),
+    level:lvl,
+    pfBudget:budget>0?budget:null,
+    pfPctColl:pct,
+    pfProfIdx:profIdx,
+    pfArchetype:arch,
+    pfColors:colors,
+    pfFormat:fmt
+  };
+  mlPerfectDeckClose();
+  // ── Routage selon les inputs ──
+  if(isEDH&&cmd){
+    // EDH/PDH avec commandant → pipeline EDHREC + scoring _dgenBuild (déjà optimal)
+    if(typeof openDeckGenerator==='function'){
+      openDeckGenerator(cmd);
+      // Pré-applique source/level dans la modal ouverte puis déclenche la génération
+      setTimeout(function(){
+        try{
+          _dgenSetSource(pct>=100?'coll':'all');
+          _dgenSetLevel(lvl);
+          _dgenGenerate();
+        }catch(e){console.warn('[Perfect Deck] auto-trigger failed:',e);}
+      },150);
+    }
+    return;
+  }
+  if(isEDH&&!cmd){
+    // EDH sans commandant → on propose la liste « Commandants suggérés » filtrée
+    if(typeof _bldOpenCmdRecoModal==='function'){
+      _bldOpenCmdRecoModal();
+      if(typeof toastInfo==='function')toastInfo('Choisis d\'abord un commandant adapté à ta collection, puis relance « Deck parfait ».');
+      return;
+    }
+  }
+  // 60-card formats → délègue au module « Méta-decks adaptés » qui propose 5 builds
+  // filtrés par format/couleurs/budget depuis la collection.
+  if(typeof openDiscover==='function'){
+    openDiscover('proposer');
+    if(typeof toastInfo==='function')toastInfo('Format '+fmt+' : compare les méta-decks proposés selon ta collection et ton budget.');
+    return;
+  }
+  if(typeof toastError==='function')toastError('Module de génération indisponible.');
+}
 var _dgenState={source:'all',level:'balanced'};
 function _dgenSetSource(s){
   _dgenState.source=s;
@@ -48755,6 +48985,18 @@ function _dgenBuild(officialName,cmdCard,ci,freqMap){
     return {nl:nl,freq:freqMap[nl],meta:meta,score:freqMap[nl]+synBonus};
   });
   entries.sort(function(a,b){return b.score-a.score;});
+  // Filtre budget (alimenté par la modal « Deck parfait ManaLAB »).
+  // Heuristique : on suppose qu'environ 30 cartes concentrent ~70 % du coût total.
+  // Seuil par carte = (budget × 0.7) / 30. Cap min 1.5 €/carte pour éviter trop strict.
+  if(_dgenState.pfBudget&&_dgenState.pfBudget>0){
+    var perCardCap=Math.max(1.5,(_dgenState.pfBudget*0.7)/30);
+    var before=entries.length;
+    entries=entries.filter(function(e){
+      var p=(e.meta&&e.meta.priceEur)||0;
+      return p===0||p<=perCardCap;
+    });
+    console.log('[Perfect Deck] budget '+_dgenState.pfBudget+'€ → cap '+perCardCap.toFixed(2)+'€/carte : '+entries.length+'/'+before+' cartes éligibles');
+  }
   // Détection des packages combo possibles avec ce commandant
   var combosCandidates=[];
   _COMBO_PACKAGES.forEach(function(pkg){
