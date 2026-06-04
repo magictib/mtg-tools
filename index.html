@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-2';
+window.APP_BUILD='2026-06-04-3';
 // Force update du service worker à chaque chargement + auto-reload si nouvelle version
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
@@ -3717,7 +3717,7 @@ details > summary::-webkit-details-marker{display:none}
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Recos communauté</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Cartes les plus jouées par commandant (EDHREC)</div>
     </div>
-    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="goTab('home');try{var x=document.querySelector('.home-reco-section');if(x)x.scrollIntoView({behavior:'smooth'});}catch(e){}">
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="_bldOpenCmdRecoModal()">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🎲</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Commandants suggérés</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Commandants pour lesquels tu as déjà du matériel</div>
@@ -7202,7 +7202,23 @@ function adminCleanupPending(uid,name,btn){
 var L2L={fr:'French',en:'English',de:'German',es:'Spanish',it:'Italian',pt:'Portuguese',ja:'Japanese',ko:'Korean',ru:'Russian'};
 var L2S={};
 Object.keys(L2L).forEach(function(k){L2S[L2L[k].toLowerCase()]=k;});
-var C2S={'Near Mint':'NM','Lightly Played':'LP','Moderately Played':'MP','Heavily Played':'HP','Damaged':'D'};
+// CardNexus utilise des libellés non-standards (« Excellent », « Good », « Played »)
+// qui font échouer l'import Moxfield. On les normalise vers les short codes standards.
+// L'ordre compte : les aliases CardNexus sont en PREMIER pour que les libellés Moxfield
+// (placés ensuite) gagnent dans la reverse map C2L → on écrit toujours le libellé
+// canonique « Lightly Played » et non « Excellent » côté Moxfield.
+var C2S={
+  // Aliases CardNexus / CardKingdom / autres outils
+  'Excellent':'LP','EX':'LP',
+  'Very Good':'MP','VG':'MP',
+  'Good':'MP','G':'MP',
+  'Played':'HP','PL':'HP',
+  'Poor':'D','DMG':'D',
+  // Short codes acceptés en entrée
+  'NM':'NM','LP':'LP','MP':'MP','HP':'HP',
+  // Libellés canoniques Moxfield (placés en DERNIER pour gagner la reverse map)
+  'Near Mint':'NM','Lightly Played':'LP','Moderately Played':'MP','Heavily Played':'HP','Damaged':'D'
+};
 var C2L={};
 Object.keys(C2S).forEach(function(k){C2L[C2S[k]]=k;});
 function ll(v){return L2L[v.toLowerCase()]||v;}
@@ -8548,6 +8564,30 @@ function _recoCommanders(){
   cands=cands.filter(function(c){return !usedCmd[c.name.toLowerCase().trim()];});
   cands.sort(function(a,b){return b.compat-a.compat;});
   return cands.slice(0,6);
+}
+// Ouvre une modal avec les commandants suggérés depuis n'importe quel onglet
+// (sans rediriger vers Accueil). Réutilise _homeRecoHtml() pour le contenu.
+function _bldOpenCmdRecoModal(){
+  var ov=document.getElementById('bld-cmdreco-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='bld-cmdreco-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5400;background:rgba(0,0,0,.85);display:none;align-items:flex-start;justify-content:center;padding:1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.style.display='none';});
+  }
+  var inner='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  inner+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">';
+  inner+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🎲 Commandants suggérés</div>';
+  inner+='<button class="btn btnsm" onclick="document.getElementById(\'bld-cmdreco-ov\').style.display=\'none\'">✕</button></div>';
+  inner+='<div style="font-size:.82rem;color:var(--tx2);margin-bottom:14px">Commandants pour lesquels tu as déjà du matériel dans ta collection. Clique sur un commandant pour démarrer un deck.</div>';
+  try{
+    var recoHtml=_homeRecoHtml();
+    if(recoHtml&&recoHtml.trim())inner+=recoHtml;
+    else inner+='<div style="padding:30px;text-align:center;color:var(--tx3);font-style:italic">Aucun commandant suggéré pour le moment. Importe plus de cartes dans ta collection pour avoir des suggestions plus pertinentes.</div>';
+  }catch(e){inner+='<div style="padding:20px;color:var(--tx3)">Une erreur est survenue : '+esc(e.message||'')+'</div>';}
+  inner+='</div>';
+  ov.innerHTML=inner;
+  ov.style.display='flex';
 }
 function _homeRecoHtml(){
   var recs=_recoCommanders();
