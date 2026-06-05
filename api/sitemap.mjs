@@ -76,9 +76,31 @@ async function fetchAllCombos() {
   return all;
 }
 
+// Decks publics partagés : URL canonique /deck/:id (P2 #9). On limite à 1000
+// pour éviter un sitemap trop gros — au-delà, on segmenterait en sitemap index.
+async function fetchPublicDecks() {
+  const all = [];
+  try {
+    let url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/public_decks?pageSize=300`;
+    for (let i = 0; i < 4; i++) { // 4 × 300 = 1200 max
+      const r = await fetch(url);
+      const data = await r.json();
+      if (!data.documents) break;
+      data.documents.forEach(d => {
+        const id = d.name.split('/').pop();
+        const sharedAt = parseInt(d.fields?.sharedAt?.integerValue || '0', 10);
+        if (id) all.push({ id, sharedAt });
+      });
+      if (!data.nextPageToken) break;
+      url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/public_decks?pageSize=300&pageToken=${data.nextPageToken}`;
+    }
+  } catch (e) {}
+  return all;
+}
+
 export default async function handler(req) {
   const origin = new URL(req.url).origin;
-  const [slugs, combos] = await Promise.all([fetchAllCommanders(), fetchAllCombos()]);
+  const [slugs, combos, decks] = await Promise.all([fetchAllCommanders(), fetchAllCombos(), fetchPublicDecks()]);
   const now = new Date().toISOString().slice(0, 10);
 
   let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
@@ -107,6 +129,12 @@ export default async function handler(req) {
   combos.forEach(slug => {
     if (!slug) return;
     xml += `  <url><loc>${origin}/combo/${slug}</loc><changefreq>weekly</changefreq><priority>0.7</priority><lastmod>${now}</lastmod></url>\n`;
+  });
+  // Decks publics partagés (P2 #9) — utilise sharedAt comme lastmod si disponible.
+  decks.forEach(deck => {
+    if (!deck.id) return;
+    const lastmod = deck.sharedAt ? new Date(deck.sharedAt).toISOString().slice(0, 10) : now;
+    xml += `  <url><loc>${origin}/deck/${deck.id}</loc><changefreq>monthly</changefreq><priority>0.6</priority><lastmod>${lastmod}</lastmod></url>\n`;
   });
   xml += '</urlset>\n';
 

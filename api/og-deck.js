@@ -1,8 +1,17 @@
-// Génère un HTML mini avec Open Graph tags dynamiques pour un deck public,
-// puis redirige le navigateur vers l'app sur le bon hash.
-// URL : /api/og-deck?id=PUB_ID
-// Les crawlers (Discord, Twitter, Facebook…) liront les og:tags ; les
-// utilisateurs humains seront redirigés vers /#shareddeck=PUB_ID.
+// Page SEO/social pour un deck public ManaLAB.
+// URL canonique (via rewrite Vercel) : /deck/PUB_ID
+// URL legacy/direct : /api/og-deck?id=PUB_ID
+//
+// Production v2 (P2 #9) : le HTML rendu contient désormais le CONTENU LISIBLE
+// du deck (liste des cartes, manabase, commandant, prix), un JSON-LD structuré,
+// et une redirection JS différée (1.5s) au lieu d'une meta refresh immédiate.
+// Cela permet :
+//   - Aux crawlers Discord/Twitter de lire les Open Graph tags (inchangé)
+//   - À Googlebot d'indexer le contenu réel du deck (nouveau)
+//   - Aux humains d'être redirigés vers l'app SPA pour interagir avec le deck
+//
+// Données lues : public_decks/{id} via REST Firestore (pas de Firebase Admin SDK
+// pour rester sur Vercel functions standard sans secrets).
 
 var PROJECT_ID = 'mtg-tools-5ea4b';
 
@@ -31,6 +40,19 @@ function firestoreValue(v) {
   return null;
 }
 
+// Catégorise une carte par type (très simple — assez pour le SEO body).
+function cardCategory(c) {
+  var t = String(c && c.type || c && c.typeLine || '').toLowerCase();
+  if (t.indexOf('land') >= 0) return 'lands';
+  if (t.indexOf('creature') >= 0) return 'creatures';
+  if (t.indexOf('planeswalker') >= 0) return 'planeswalkers';
+  if (t.indexOf('instant') >= 0) return 'instants';
+  if (t.indexOf('sorcery') >= 0) return 'sorceries';
+  if (t.indexOf('artifact') >= 0) return 'artifacts';
+  if (t.indexOf('enchantment') >= 0) return 'enchantments';
+  return 'other';
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -41,12 +63,17 @@ module.exports = async function handler(req, res) {
   }
 
   var origin = 'https://' + (req.headers.host || 'valebro-bhce.vercel.app');
+  // Lien canonique côté SPA : /#shareddeck=ID. C'est l'URL utilisée par le client SPA.
   var appUrl = origin + '/#shareddeck=' + encodeURIComponent(id);
+  // L'URL canonique SEO est la route propre /deck/{id}
+  var canonical = origin + '/deck/' + encodeURIComponent(id);
 
   // Defaults (fallback si la requête Firestore échoue : on redirige quand même)
   var title = 'ManaLAB — deck Magic';
   var description = 'Découvre ce deck partagé sur ManaLAB.';
   var ogImage = origin + '/icon.svg';
+  var bodyHtml = '';
+  var jsonLd = null;
 
   try {
     var url = 'https://firestore.googleapis.com/v1/projects/' + PROJECT_ID + '/databases/(default)/documents/public_decks/' + encodeURIComponent(id);
@@ -59,17 +86,73 @@ module.exports = async function handler(req, res) {
       var format = firestoreValue(fields.format) || '';
       var commander = firestoreValue(fields.commander) || null;
       var cards = firestoreValue(fields.cards) || [];
+      var notes = firestoreValue(fields.notes) || '';
+      var pw = firestoreValue(fields.pw) || null;
+      var sharedAt = firestoreValue(fields.sharedAt) || null;
       var total = 0;
-      if (Array.isArray(cards)) {
-        cards.forEach(function (c) { total += (c && c.qty) || 1; });
-      }
-      title = name + ' — ManaLAB';
+      if (Array.isArray(cards)) cards.forEach(function (c) { total += (c && c.qty) || 1; });
+
+      // Meta tags
+      title = name + ' — Deck ' + (format ? format + ' ' : '') + 'sur ManaLAB';
       var bits = [];
       if (ownerName) bits.push('par ' + ownerName);
       if (format) bits.push('format ' + format);
       if (total) bits.push(total + ' cartes');
       if (commander && commander.name) bits.push('commandant : ' + commander.name);
+      if (pw && pw.score != null) bits.push('Score ManaLAB ' + Math.round(pw.score) + '/100');
       description = bits.length ? bits.join(' · ') : 'Deck partagé sur ManaLAB.';
+
+      // ── Body lisible pour les moteurs de recherche : regroupe les cartes par
+      // catégorie (terrains, créatures, sorts…). Texte plat = idéal pour Google.
+      var groups = { creatures: [], planeswalkers: [], instants: [], sorceries: [], artifacts: [], enchantments: [], lands: [], other: [] };
+      if (Array.isArray(cards)) {
+        cards.forEach(function (c) {
+          if (!c || !c.name) return;
+          var cat = cardCategory(c);
+          groups[cat].push(c);
+        });
+      }
+      var groupLabels = {
+        creatures: 'Créatures', planeswalkers: 'Planeswalkers', instants: 'Éphémères',
+        sorceries: 'Rituels', artifacts: 'Artefacts', enchantments: 'Enchantements',
+        lands: 'Terrains', other: 'Autres'
+      };
+      bodyHtml = '<article class="deck-public">';
+      bodyHtml += '<header><h1>' + escHtml(name) + '</h1>';
+      bodyHtml += '<p class="meta">' + escHtml(description) + '</p>';
+      if (notes) bodyHtml += '<p class="notes"><em>' + escHtml(notes.slice(0, 400)) + (notes.length > 400 ? '…' : '') + '</em></p>';
+      bodyHtml += '</header>';
+      if (commander && commander.name) {
+        bodyHtml += '<section class="commander"><h2>Commandant</h2><p><strong>' + escHtml(commander.name) + '</strong></p></section>';
+      }
+      bodyHtml += '<section class="cards"><h2>Liste des cartes (' + total + ')</h2>';
+      Object.keys(groups).forEach(function (key) {
+        if (!groups[key].length) return;
+        bodyHtml += '<div class="card-group"><h3>' + escHtml(groupLabels[key]) + ' (' + groups[key].length + ')</h3><ul>';
+        groups[key].slice(0, 200).forEach(function (c) {
+          var qty = c.qty || 1;
+          bodyHtml += '<li>' + qty + '× ' + escHtml(c.name) + '</li>';
+        });
+        bodyHtml += '</ul></div>';
+      });
+      bodyHtml += '</section>';
+      bodyHtml += '<p class="cta"><a href="' + escHtml(appUrl) + '" rel="canonical">→ Ouvrir ce deck dans ManaLAB pour l\'analyser, l\'éditer ou jouer avec</a></p>';
+      bodyHtml += '<footer><p>Deck partagé via <a href="' + escHtml(origin) + '/">ManaLAB</a>, l\'outil d\'analyse et gestion de decks Magic: The Gathering.</p>';
+      if (sharedAt) bodyHtml += '<p><small>Publié le ' + escHtml(new Date(sharedAt).toLocaleDateString('fr-FR')) + '</small></p>';
+      bodyHtml += '</footer></article>';
+
+      // ── Structured data JSON-LD pour Google Rich Results
+      jsonLd = {
+        '@context': 'https://schema.org',
+        '@type': 'CreativeWork',
+        'name': name,
+        'description': description,
+        'url': canonical,
+        'inLanguage': 'fr',
+        'isPartOf': { '@type': 'WebSite', 'name': 'ManaLAB', 'url': origin + '/' }
+      };
+      if (ownerName) jsonLd.author = { '@type': 'Person', 'name': ownerName };
+      if (sharedAt) jsonLd.datePublished = new Date(sharedAt).toISOString();
     }
   } catch (e) {
     // silent fallback
@@ -77,31 +160,52 @@ module.exports = async function handler(req, res) {
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=3600');
-  res.status(200).send(
-    '<!DOCTYPE html><html lang="fr"><head>'
+  // X-Robots-Tag : on autorise l'indexation explicitement
+  res.setHeader('X-Robots-Tag', 'index, follow');
+
+  var html = '<!DOCTYPE html><html lang="fr"><head>'
     + '<meta charset="UTF-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
     + '<title>' + escHtml(title) + '</title>'
     + '<meta name="description" content="' + escHtml(description) + '">'
+    + '<meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large">'
+    + '<link rel="canonical" href="' + escHtml(canonical) + '">'
     + '<meta property="og:type" content="article">'
     + '<meta property="og:site_name" content="ManaLAB">'
     + '<meta property="og:title" content="' + escHtml(title) + '">'
     + '<meta property="og:description" content="' + escHtml(description) + '">'
     + '<meta property="og:image" content="' + escHtml(ogImage) + '">'
-    + '<meta property="og:url" content="' + escHtml(req.url ? (origin + req.url) : appUrl) + '">'
+    + '<meta property="og:url" content="' + escHtml(canonical) + '">'
     + '<meta property="og:locale" content="fr_FR">'
     + '<meta name="twitter:card" content="summary_large_image">'
     + '<meta name="twitter:title" content="' + escHtml(title) + '">'
     + '<meta name="twitter:description" content="' + escHtml(description) + '">'
     + '<meta name="twitter:image" content="' + escHtml(ogImage) + '">'
-    + '<meta http-equiv="refresh" content="0; url=' + escHtml(appUrl) + '">'
-    + '<link rel="canonical" href="' + escHtml(appUrl) + '">'
-    + '<style>body{font-family:Georgia,serif;background:#0c0a07;color:#e4d5b7;text-align:center;padding:48px 16px}a{color:#e8c96e}</style>'
+    + (jsonLd ? '<script type="application/ld+json">' + JSON.stringify(jsonLd) + '</script>' : '')
+    + '<style>'
+    + 'body{font-family:Georgia,serif;background:#0c0a07;color:#e4d5b7;max-width:880px;margin:0 auto;padding:32px 20px;line-height:1.55}'
+    + 'h1{font-family:Georgia,serif;color:#e8c96e;font-size:1.9rem;margin:0 0 .3em;text-shadow:0 0 14px rgba(201,168,76,.3)}'
+    + 'h2{color:#c9a84c;font-size:1.25rem;border-bottom:1px solid rgba(201,168,76,.3);padding-bottom:4px;margin-top:1.6em}'
+    + 'h3{color:#a09070;font-size:1rem;margin-top:1em}'
+    + 'a{color:#e8c96e;text-decoration:underline}a:hover{color:#fff}'
+    + '.meta{color:#a09070;font-size:.95rem;margin:0 0 1em}'
+    + '.notes{color:#7a6856;font-size:.92rem;border-left:2px solid rgba(201,168,76,.3);padding-left:12px}'
+    + '.commander p{font-size:1.05rem}'
+    + '.card-group{margin:.8em 0 1.2em}'
+    + 'ul{list-style:none;padding-left:0;columns:2;column-gap:24px}'
+    + 'li{font-size:.92rem;padding:2px 0;break-inside:avoid;color:#bcae8e}'
+    + '.cta{text-align:center;padding:18px 14px;margin:24px 0;background:linear-gradient(135deg,rgba(201,168,76,.12),rgba(201,168,76,.03));border:1px solid rgba(201,168,76,.4);border-radius:10px;font-size:1.05rem}'
+    + 'footer{margin-top:2em;padding-top:1em;border-top:.5px solid rgba(201,168,76,.2);color:#7a6856;font-size:.82rem}'
+    + '@media(max-width:600px){body{padding:18px 14px}ul{columns:1}h1{font-size:1.5rem}}'
+    + '</style>'
     + '</head><body>'
-    + '<h1 style="font-family:Georgia,serif">' + escHtml(title) + '</h1>'
-    + '<p>' + escHtml(description) + '</p>'
-    + '<p><a href="' + escHtml(appUrl) + '">→ Ouvrir le deck sur ManaLAB</a></p>'
-    + '<script>setTimeout(function(){window.location.replace(' + JSON.stringify(appUrl) + ');},50);</script>'
-    + '</body></html>'
-  );
+    + (bodyHtml || ('<h1>' + escHtml(title) + '</h1><p>' + escHtml(description) + '</p><p><a href="' + escHtml(appUrl) + '">→ Ouvrir le deck sur ManaLAB</a></p>'))
+    // Redirection JS différée : 1.5s laisse le bot Google parser le contenu, et
+    // le humain qui regarde voit brièvement la page SEO avant le passage en SPA.
+    // Le bot ignore les setTimeout > 200ms (selon docs Google) — il indexera donc
+    // le contenu HTML rendu côté serveur.
+    + '<script>(function(){var ua=navigator.userAgent.toLowerCase();var isBot=/bot|crawl|spider|googlebot|bingbot|yandex|duckduck|baidu|facebookexternalhit|twitterbot|slack|discord/.test(ua);if(!isBot)setTimeout(function(){window.location.replace(' + JSON.stringify(appUrl) + ');},1500);})();</script>'
+    + '</body></html>';
+
+  res.status(200).send(html);
 };

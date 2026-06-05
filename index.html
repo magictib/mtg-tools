@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-3';
+window.APP_BUILD='2026-06-05-4';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -16799,12 +16799,14 @@ function deckShare(deckId){
       dk.publicId=pubId;
       // Persiste l'id publique dans le doc deck Firestore aussi
       if(typeof saveDeck==='function')saveDeck(deckId);
-      // Lien optimisé SEO : /api/og-deck?id=… injecte les og:tags pour Discord/Twitter
-      // puis redirige vers #shareddeck=. Fonctionne via Vercel ; sur localhost on
-      // retombe sur l'ancien format (qui marche aussi).
+      // URL propre /deck/{id} (P2 #9, rewrite Vercel → /api/og-deck) :
+      // - Crawlers Discord/Twitter lisent les OG tags
+      // - Googlebot indexe le contenu HTML (liste cartes, JSON-LD)
+      // - Humains sont redirigés vers la SPA via #shareddeck=
+      // Sur localhost, fallback sur l'ancien format hash-based.
       var isVercel=/manalab\.app$|\.vercel\.app$/i.test(window.location.host);
       var url=isVercel
-        ? (window.location.origin+'/api/og-deck?id='+encodeURIComponent(pubId))
+        ? (window.location.origin+'/deck/'+encodeURIComponent(pubId))
         : (window.location.origin+window.location.pathname+'#shareddeck='+pubId);
       mlAlert('🔗 Deck publié !','<div style="text-align:center"><div style="font-size:.82rem;color:var(--tx2);margin-bottom:10px">Partage cette URL avec qui tu veux :</div><textarea readonly onclick="this.select()" style="width:100%;padding:8px;background:rgba(0,0,0,.5);border:1px solid var(--bd2);border-radius:6px;color:var(--gold2);font-family:monospace;font-size:.78rem;text-align:center;resize:none" rows="2">'+esc(url)+'</textarea><div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button class="btn btnp" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escJs(url)+'\').then(function(){mlToast(\'📋 URL copiée\')})">📋 Copier</button><button class="btn" onclick="deckUnshare(\''+escJs(deckId)+'\')">✕ Annuler le partage</button></div></div>',{html:true,okLabel:'Fermer'});
     }).catch(function(e){mlAlert('Erreur','Impossible de publier : '+e.message);});
