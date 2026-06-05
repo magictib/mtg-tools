@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-5';
+window.APP_BUILD='2026-06-05-6';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1251,6 +1251,14 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   .jb-arrow{margin:0 2px}
   .jb-nav-btn{padding:4px 9px;font-size:.72rem}
 }
+/* Drag & drop : affordance visuelle quand on survole la zone deck avec un drag.
+   Outline doré + overlay subtil + bandeau "Lâche pour ajouter". */
+#pg-deck.drop-active{outline:3px dashed var(--gold);outline-offset:-6px;background:radial-gradient(ellipse at top,rgba(201,168,76,.08),transparent 70%)}
+#pg-deck.drop-active::before{content:'⤓ Lâche la carte pour l\'ajouter au deck';position:fixed;top:54px;left:50%;transform:translateX(-50%);background:linear-gradient(180deg,#3a2008,#180d04);color:var(--gold2);padding:9px 18px;border-radius:99px;border:1.5px solid var(--gold);font-family:'Goudy Mediaeval',serif;font-size:.92rem;z-index:1000;box-shadow:0 8px 28px rgba(0,0,0,.65),0 0 22px rgba(201,168,76,.25);pointer-events:none;animation:dropBadgePulse 1.2s ease-in-out infinite}
+@keyframes dropBadgePulse{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.04)}}
+/* Curseur subtil pour signaler que les cartes Scryfall internes sont draggables */
+img[draggable="true"][data-card-name]{cursor:grab}
+img[draggable="true"][data-card-name]:active{cursor:grabbing}
 /* Très petit (≤360px) — boutons CTA pleins-bouton dans modale Deck parfait */
 @media(max-width:380px){
   #perfect-deck-overlay #pf-go{width:100%;margin-top:6px}
@@ -13939,6 +13947,174 @@ function _montageAddNewCard(name,inp){
       if(typeof toastError==='function')toastError('Erreur réseau.');
     });
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// DRAG & DROP : ajouter des cartes en glissant depuis Scryfall (ou Moxfield, ou
+// l'interne ManaLAB). Inspiré de la feature « drag from Scryfall to Moxfield »
+// que les utilisateurs trouvent indispensable.
+//
+// Comment ça marche :
+//   1. Scryfall (et autres sites de cartes) expose ses images comme des <img>
+//      standards avec un `alt` = nom de la carte. Quand on drag, le navigateur
+//      met dans le dataTransfer plusieurs formats : text/html (avec l'img alt),
+//      text/uri-list (URL image), text/plain (URL ou nom).
+//   2. Sur l'onglet Deck, on installe des listeners dragover/drop qui parsent
+//      ces formats pour extraire le NOM de la carte, puis appellent le pipeline
+//      d'ajout existant (_montageAddNewCard).
+//   3. Pour le drag DEPUIS ManaLAB (onglet Scryfall interne, suggestions Coach),
+//      on ajoute un format custom text/x-mtg-card qui contient directement le
+//      nom — extraction directe, pas besoin de parsing.
+
+// Helper réutilisable : ajoute une carte au deck actif par nom (fetch Scryfall
+// pour validation). Wrappe la logique de _montageAddNewCard sans dépendre du
+// champ input. À utiliser depuis le drop handler ou tout autre flow.
+function bldAddCardByName(name,opts){
+  opts=opts||{};
+  if(!name||!actDeck||!decks[actDeck]){
+    if(typeof toastError==='function')toastError(!actDeck?'Aucun deck actif — ouvre un deck avant':'Nom de carte vide');
+    return Promise.resolve(false);
+  }
+  // Si déjà dans le deck, on incrémente la quantité (cohérent avec montageSearchSubmit)
+  var nlPre=stripDFC(name||'').toLowerCase().trim();
+  var existing=dCards.find(function(c){return c.nl===nlPre;});
+  if(existing){
+    montageInc(existing.nl,1);
+    if(typeof toastSuccess==='function')toastSuccess('« '+existing.name+' » +1 (déjà dans le deck)');
+    return Promise.resolve(true);
+  }
+  // Nouvelle carte → fetch Scryfall pour le nom officiel + image (cache IDB).
+  return scryfallNamedCached(name,{exact:false}).then(function(card){
+    if(!card){
+      if(typeof toastError==='function')toastError('Carte introuvable : « '+name+' »');
+      return false;
+    }
+    var realName=card.name,nl=stripDFC(realName).toLowerCase();
+    var existingNl=dCards.find(function(c){return c.nl===nl;});
+    if(existingNl){
+      montageInc(nl,1);
+      if(typeof toastSuccess==='function')toastSuccess('« '+realName+' » +1 (déjà dans le deck)');
+      return true;
+    }
+    dCards.push({name:realName,nl:nl,qty:1,sec:opts.sec||'Deck',set:'',num:''});
+    var dk=decks[actDeck];
+    dk.cards=dCards.map(function(c){return {name:c.name,nl:c.nl,qty:c.qty,set:c.set||'',num:c.num||'',sec:c.sec||'Deck'};});
+    dk.rawName=(dk.rawName?dk.rawName.replace(/\s*$/,'')+'\n':'')+'1 '+realName;
+    dk.updatedAt=Date.now();
+    var iu=card.image_uris||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)||{};
+    if(iu.normal&&typeof dImgCache!=='undefined')dImgCache[nl]=iu.normal;
+    if(typeof saveDecks==='function')saveDecks();
+    var dd=_montageData();if(dd)dd[nl]=1;
+    _montageSave();
+    // Re-render la vue courante (liste OU montage selon dViewMode)
+    if(dViewMode==='montage'&&typeof renderDeckMontage==='function')renderDeckMontage();
+    else if(typeof renderDeck==='function')renderDeck();
+    if(typeof toastSuccess==='function')toastSuccess('« '+realName+' » ajoutée au deck');
+    return true;
+  }).catch(function(e){
+    console.warn('[bldAddCardByName] failed',e);
+    if(typeof toastError==='function')toastError('Erreur réseau lors de l\'ajout.');
+    return false;
+  });
+}
+
+// Parse le contenu d'un événement drop pour en extraire un nom de carte.
+// Retourne string ou null. Sources supportées (par ordre de priorité) :
+//   1. text/x-mtg-card  — format custom ManaLAB (drag interne)
+//   2. text/html        — recherche d'un <img alt="..."> Scryfall ou d'un lien
+//                          /card/{set}/{num}/{name-slug}
+//   3. text/uri-list    — si URL Scryfall page card, on extrait le slug
+//   4. text/plain       — fallback : parfois le nom est juste là
+function _extractCardNameFromDrop(dt){
+  if(!dt)return null;
+  // 1. Format custom ManaLAB
+  try{var custom=dt.getData('text/x-mtg-card');if(custom&&custom.trim())return custom.trim();}catch(e){}
+  // 2. HTML : on cherche un <img alt="..."> ou un lien Scryfall
+  try{
+    var html=dt.getData('text/html');
+    if(html){
+      // alt d'image (le plus fiable — Scryfall met le nom complet de la carte)
+      var altM=html.match(/<img[^>]*\salt=["']([^"']{2,140})["']/i);
+      if(altM&&altM[1]){
+        var alt=altM[1].trim();
+        // Filtre les alt génériques type "Card art" ou "Image"
+        if(!/^(image|card|art|magic|mtg)\s*$/i.test(alt))return alt;
+      }
+      // Lien Scryfall : /card/{set}/{num}/{name-slug}
+      var lnk=html.match(/scryfall\.com\/card\/[a-z0-9]+\/[0-9a-z\-]+\/([a-z0-9\-]+)/i);
+      if(lnk&&lnk[1])return lnk[1].replace(/-/g,' ');
+    }
+  }catch(e){}
+  // 3. URI-list ou plain : URL page Scryfall
+  try{
+    var uri=dt.getData('text/uri-list')||dt.getData('text/plain')||'';
+    var lnk2=uri.match(/scryfall\.com\/card\/[a-z0-9]+\/[0-9a-z\-]+\/([a-z0-9\-]+)/i);
+    if(lnk2&&lnk2[1])return lnk2[1].replace(/-/g,' ');
+    // Plain text qui ressemble à un nom de carte (alphanumérique + espaces + apostrophes/virgules)
+    if(uri&&!/^https?:/i.test(uri)&&/^[A-Za-zÀ-ÿ0-9'’,\-\s]{2,80}$/.test(uri.trim())){
+      return uri.trim();
+    }
+  }catch(e){}
+  return null;
+}
+
+// Listener global drag-over/drop sur l'onglet Deck. Installation idempotente.
+var _dropDeckInstalled=false;
+function _installDeckDropZone(){
+  if(_dropDeckInstalled)return;
+  var zone=document.getElementById('pg-deck');if(!zone)return;
+  zone.addEventListener('dragenter',function(ev){
+    // Active seulement si quelque chose de droppable arrive (pas un drag interne text/plain vide)
+    if(!ev.dataTransfer||!ev.dataTransfer.types||!ev.dataTransfer.types.length)return;
+    // On accepte tout type — le parsing décidera après
+    ev.preventDefault();
+    zone.classList.add('drop-active');
+  });
+  zone.addEventListener('dragover',function(ev){
+    if(!ev.dataTransfer||!ev.dataTransfer.types||!ev.dataTransfer.types.length)return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect='copy';
+  });
+  zone.addEventListener('dragleave',function(ev){
+    // dragleave se déclenche sur chaque enfant → on ne désactive que si on sort vraiment
+    if(ev.target===zone||!zone.contains(ev.relatedTarget))zone.classList.remove('drop-active');
+  });
+  zone.addEventListener('drop',function(ev){
+    ev.preventDefault();
+    zone.classList.remove('drop-active');
+    var name=_extractCardNameFromDrop(ev.dataTransfer);
+    if(!name){
+      if(typeof toastWarning==='function')toastWarning('Impossible de détecter une carte dans cet élément.');
+      return;
+    }
+    bldAddCardByName(name);
+  });
+  _dropDeckInstalled=true;
+}
+// Installation à DOMContentLoaded
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_installDeckDropZone);
+else setTimeout(_installDeckDropZone,300);
+
+// Délégation dragstart : pour TOUTES les images du site avec un alt qui ressemble
+// à un nom de carte, on ajoute automatiquement le format text/x-mtg-card au
+// dataTransfer. Évite de devoir patcher chaque rendu de carte (Scryfall search,
+// suggestions Coach, résultats EDHREC, etc.) — ça marche par défaut partout.
+function _installDragSource(){
+  document.addEventListener('dragstart',function(ev){
+    var t=ev.target;
+    if(!t||t.tagName!=='IMG')return;
+    var alt=(t.alt||'').trim();
+    // Filtre : l'alt doit ressembler à un nom de carte (>2 chars, pas générique)
+    if(!alt||alt.length<2||alt.length>140)return;
+    if(/^(image|card|art|icon|logo|avatar|magic|mtg)\s*$/i.test(alt))return;
+    if(!ev.dataTransfer)return;
+    try{
+      ev.dataTransfer.setData('text/x-mtg-card',alt);
+      ev.dataTransfer.effectAllowed='copy';
+    }catch(e){}
+  });
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_installDragSource);
+else _installDragSource();
+
 function _montageMiniBlocks(built,total){
   // Affiche jusqu'à 8 blocs ; au-delà on indique en texte uniquement
   var n=Math.min(total,8);
