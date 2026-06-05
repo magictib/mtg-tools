@@ -40,7 +40,107 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-1';
+window.APP_BUILD='2026-06-05-2';
+/*
+═══════════════════════════════════════════════════════════════════════════════
+INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
+
+(1) Firestore (source de vérité)
+    Collections : profs, decks, friends, trades, loans, games, purchases.
+    Synchronisée à chaque écriture côté client. Préfixe nul. Voir loadProfs(),
+    loadDecks(), etc. au boot.
+
+(2) localStorage (cache + préférences) — clés préfixées `mtg_*`
+    Données collection/decks (cache) :
+      mtg_profs              Collection slot 0 cache (legacy, écrit avant Firestore)
+      mtg_decks              Decks dict {id: deck} cache
+      mtg_deck_orders        Ordre d'affichage decks par profil
+      mtg_ep_slots           Slots de profils amis chargés
+      mtg_ep_cards_<uid>     Cache cartes profil ami `<uid>`
+      mtg_deckcache_v2       Cache enrichi cartes par deck
+      mtg_pending            Demandes ami pending
+      mtg_pending_out_reqs   Demandes envoyées
+      mtg_loans              Prêts en cours
+      mtg_trades             Échanges en cours
+      mtg_trades_processed   IDs trades déjà traités (anti double-process)
+      mtg_games              Parties enregistrées
+      mtg_player_bgs         Backgrounds joueurs
+      mtg_arena_pool         Pool simulateur d'arène
+      mtg_wishlist           Wishlist user
+      mtg_wishlist_prices    Cache prix wishlist
+      mtg_wishlist_price_hist Historique prix wishlist
+      mtg_wishlist_notified  Items wishlist déjà notifiés
+      mtg_removed_friends    UIDs d'amis retirés (anti-réinjection)
+      mtg_pur_active         Liste d'achat active
+      mtg_progression        XP / Pétales / niveau
+      mtg_ana_combos         Combos détectés / configurés
+      mtg_ana_cache          Cache analyses (résultats)
+      mtg_ana_flags          Flags swap par deck (keep/maybe/change)
+      mtg_ana_themes         Thèmes détectés par commandant
+      mtg_ana_view           Préférence vue Analyse
+      mtg_ana_dmode          Mode d'affichage Analyse
+      mtg_ana_lang           Langue images Analyse
+      mtg_ana_lastTab        Dernier sous-onglet Analyse
+      mtg_ana_achievements   Achievements Analyse débloqués
+      mtg_ana_coach          État Coach Mode (active, step) [voir _ANA_COACH_STEPS]
+      mtg_ana_section_pref   Préférences sections Analyse
+      mtg_cmd_manual_oracle  Texte oracle saisi manuellement par cmd
+      mtg_cmd_oracle_fix     Corrections oracle commandant
+      mtg_edhrec_cache       Cache réponses EDHREC
+      mtg_user_archetypes    Archétypes mémorisés par deck
+      mtg_bilands_img        Cache images bilands
+      mtg_arena_session      Session arène en cours
+      mtg_arena_effect_cache Cache effets cartes en arène
+      mtg_arena_quickcfg     Config rapide arène
+      mtg_arena_theme        Thème arène
+      mtg_arena_lobby        Lobby arène
+      mtg_tournaments        Tournois locaux
+      mtg_lgs                LGS favoris
+      mtg_marketplace        Marketplace cache
+      mtg_events             Events
+      mtg_annotations        Annotations user
+      mtg_tournaments        Tournois
+      mtg_cubes              Cubes
+      mtg_eph_pool           Pool éphémère (limited)
+      mtg_17lands_<key>      Caches 17lands
+      mtg_bk_last            Dernière sauvegarde de backup
+      mtg_ap_save            Auto-save arena pool
+      mtg_ap_botfast         Préf bot rapide
+      mtg_ap_sfx             Préf SFX arena
+      mtg_ap_hand_ui         Préf UI main arena
+      mtg_bg_prefetch        Préfetch background
+      mtg_ar_sound           Préf son arena
+      mtg_anon_seed          Seed anonyme
+      mtg_referred_by        Parrainage entrant
+    Préférences UX :
+      mtg_theme              Thème visuel (médiéval/futuriste/horreur/clair/sépia)
+      mtg_lang / mtg_user_lang   Langue UI
+      mtg_ux_<key>           Préférences UX (font-size, density, contrast…)
+      mtg_welcomed           Flag onboarding 1ère visite vu
+      mtg_guide_done         Flag « Premiers pas » home dismissé
+      mtg_challenge_open     Section défi de la semaine ouverte
+      mtg_home_tasks_open    Section tâches home ouverte
+      mtg_home_pro_open      Section outils pro home ouverte
+      mtg_home_tools_open    Section boîte à outils home ouverte
+      mtg_coll_adv_open      Filtres avancés collection ouverts
+      mtg_scry_bulk_type     Type bulk Scryfall
+      mtg_scry_dismiss       Bannières Scryfall fermées
+      mtg_cmdpal_recent      Recherches récentes Ctrl+K
+      mtg_tips_seen          Tips déjà vus
+      mtg_last_uid           Dernier UID connecté (anti-cross-account leak)
+      mtg_coach_byok         Clé API IA fournie par user (BYOK)
+    Cycle de vie : effacé sur changement de compte (voir loadProfs init).
+
+(3) sessionStorage (état de session navigateur)
+    mtg_session_started      Marqueur de session active. Vide = nouvelle session
+                             → reset auto sur Accueil au boot (voir _initTab).
+                             Effacé à la fermeture de l'onglet.
+
+NOTE — Migration cache Scryfall vers IndexedDB : prévue (P2 audit). Aujourd'hui
+les images/cartes sont en mémoire + servies via SW cache, mais le catalogue
+métadonnées pourrait gagner à passer en IDB pour libérer localStorage.
+═══════════════════════════════════════════════════════════════════════════════
+*/
 // Force update du service worker à chaque chargement.
 // Précédemment : reload automatique dès qu'une nouvelle version est active —
 // problème = perte d'état si l'utilisateur est en train d'éditer un deck.
@@ -1078,6 +1178,15 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .bld-wiz-more[open] summary{color:var(--tx2)}
 .bld-wiz-more[open] summary::before{content:''}
 .bld-wiz-more summary:hover{color:var(--gold2)}
+/* Glossaire contextuel : terme cliquable avec « ? » discret. Popover unique au survol/clic. */
+.gloss-term{border-bottom:1px dotted rgba(201,168,76,.55);cursor:help;position:relative}
+.gloss-term:hover{color:var(--gold2)}
+.gloss-term::after{content:'?';font-size:.55em;vertical-align:super;margin-left:1px;color:var(--gold2);opacity:.7}
+.gloss-pop{position:absolute;z-index:99998;background:linear-gradient(180deg,var(--s2),var(--s1));border:1px solid var(--gold);border-radius:9px;padding:11px 14px;max-width:320px;font-size:.82rem;color:var(--tx);line-height:1.5;box-shadow:0 8px 28px rgba(0,0,0,.7);font-family:'Crimson Pro',Georgia,serif;font-style:normal}
+.gloss-pop-term{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;margin-bottom:5px}
+.gloss-pop-def{color:var(--tx2)}
+.gloss-pop-close{position:absolute;top:6px;right:9px;background:none;border:none;color:var(--tx3);cursor:pointer;font-size:.95rem;line-height:1;padding:0}
+.gloss-pop-close:hover{color:var(--gold2)}
 @media(max-width:680px){.ana-valid-diff-grid{grid-template-columns:1fr}.ana-valid-score-num{font-size:2.6rem}}
 /* ─── KPI Tiles : restyling pro (gradients, icons, hover, trends, sparklines) ─── */
 .ana-kpi-tile{background:linear-gradient(135deg,rgba(218,180,107,.07) 0%,rgba(91,140,245,.04) 100%);border:.5px solid var(--bd2);border-radius:12px;padding:14px 16px;position:relative;overflow:hidden;transition:all .25s;min-height:90px}
@@ -3778,10 +3887,10 @@ details > summary::-webkit-details-marker{display:none}
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Nouveau deck vierge</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Commencer avec un deck entièrement vide</div>
     </div>
-    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openDeckGenerator()">
+    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openDeckGenerator()" title="Mode rapide : juste un commandant et un niveau de puissance, le moteur s'occupe du reste">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🧙</div>
-      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Depuis un commandant</div>
-      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Génère un deck complet (EDHREC + synergies + courbe)</div>
+      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Depuis un commandant <span style="font-size:.62rem;color:var(--tx3);font-weight:400;letter-spacing:.04em;background:var(--s3);padding:1px 5px;border-radius:3px;vertical-align:middle">rapide</span></div>
+      <div style="color:var(--tx3);font-size:.78rem;text-align:center">EDHREC + synergies + courbe — seulement le commandant à saisir</div>
     </div>
     <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="if(typeof openBuildable==='function')openBuildable()">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🔨</div>
@@ -8596,6 +8705,7 @@ function renderHome(){
         +'</div>'
         +'<div style="display:flex;gap:4px;margin-top:6px;padding-top:6px;border-top:.5px solid var(--bd)">'
         +'<button class="btn btnsm" onclick="event.stopPropagation();goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(id)+'\')" title="Éditer" style="flex:1;padding:3px 5px;font-size:.7rem">✎</button>'
+        +'<button class="btn btnsm" onclick="event.stopPropagation();anaCoachExpress(\''+escJs(id)+'\')" title="Coach express : verdict immédiat (saute le diagnostic)" style="flex:1;padding:3px 5px;font-size:.7rem;color:var(--gold2)">⚡</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();openMulliganTrainer(\''+escJs(id)+'\')" title="Tester main" style="flex:1;padding:3px 5px;font-size:.7rem">🎴</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();openDeckFocus(\''+escJs(id)+'\')" title="Vue focus" style="flex:1;padding:3px 5px;font-size:.7rem">🎯</button>'
         +'</div>'
@@ -9197,6 +9307,83 @@ function closeWelcome(){
   var ov=document.getElementById('ml-welcome-ov');if(ov)ov.classList.remove('show');
   try{localStorage.setItem('mtg_welcomed','1');}catch(e){}
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GLOSSAIRE CONTEXTUEL — distinct du _GLOSSARY complet (jeu Magic). Ici on cible
+// les termes META-OUTIL qui font dérocher un nouvel utilisateur dans l'UI ManaLAB :
+// formats, brackets, scoring. Helper gloss(term, label?) → renvoie un span
+// cliquable. Un seul popover global, fermé au click extérieur.
+var _GLOSS_QUICK={
+  'EDH':{lbl:'EDH (Commander)',def:'Format Magic à 100 cartes singleton dirigé par un commandant légendaire. Tu joues à 4 (1v1v1v1) avec 40 PV de départ. Le format le plus joué en casual.'},
+  'PDH':{lbl:'PDH (Pauper Commander)',def:'Variante d\'EDH où toutes les cartes (y compris le commandant) doivent être des communes ou peu communes. Budget réduit, gameplay axé interaction.'},
+  'cEDH':{lbl:'cEDH (Commander compétitif)',def:'EDH joué à puissance maximale : tutors, fast mana (Sol Ring, Mana Vault), combos rapides T3-T4. Bracket 5. Très différent du Commander casual.'},
+  'Bracket':{lbl:'Bracket (1-5)',def:'Échelle officielle WotC de power level pour Commander. 1 = casual précon, 2 = upgrade léger, 3 = équilibré, 4 = optimisé non-cEDH, 5 = cEDH. Aide à matcher les decks en partie.'},
+  'Game changer':{lbl:'Game Changer',def:'Cartes officielles WotC marquées comme « game-changers » (ex. Sol Ring, Vampiric Tutor, Cyclonic Rift). Très puissantes — leur nombre détermine partiellement le bracket d\'un deck.'},
+  'EDHREC':{lbl:'EDHREC',def:'Site qui agrège les decklists publiques pour donner les % d\'inclusion des cartes par commandant. ManaLAB utilise ces stats pour évaluer la synergie de chaque carte avec un commandant donné.'},
+  'Mulligan':{lbl:'Mulligan',def:'Remélanger ta main d\'ouverture pour en avoir une nouvelle, avec une carte de moins (règle de Londres). Décision-clé du début de partie.'},
+  'Ramp':{lbl:'Ramp',def:'Cartes qui produisent du mana en plus (Sol Ring, Cultivate, Birds of Paradise). Permet de jouer ses sorts plus tôt. Catégorie centrale d\'un bon deck Commander.'},
+  'Removal':{lbl:'Removal',def:'Sorts qui détruisent ou exilent un permanent adverse (Path to Exile, Beast Within, Swords to Plowshares). Indispensable pour gérer les menaces des adversaires.'},
+  'Wipe':{lbl:'Wipe (board wipe)',def:'Sort qui détruit toutes les créatures (Wrath of God, Cyclonic Rift). Sortie de prison quand l\'adversaire a posé trop de créatures.'},
+  'Tutor':{lbl:'Tutor',def:'Sort qui cherche une carte précise dans la bibliothèque (Demonic Tutor, Mystical Tutor). Augmente énormément la consistance — souvent restreint en bracket bas.'},
+  'Combo':{lbl:'Combo',def:'Interaction de 2-3 cartes qui produit une boucle infinie ou gagne la partie immédiatement (Thoracle+Consultation, Isochron Scepter+Dramatic Reversal). Pilier des decks cEDH.'},
+  'Synergie':{lbl:'Synergie',def:'Mesure de l\'adéquation d\'une carte avec le commandant et les thèmes du deck. ManaLAB calcule la synergie via regex sur le texte oracle + données EDHREC.'},
+  'Archétype':{lbl:'Archétype',def:'Stratégie globale du deck : aggro (rush), midrange (valeurs), control (interaction), combo (boucle), tokens (multiplication), etc. Influence quelles cartes sont bonnes ou mauvaises pour ce deck.'},
+  'Manabase':{lbl:'Manabase',def:'Les ~37 terrains du deck + sources de couleur (rocks de mana, dorks). Bien construire sa manabase = jouer ses sorts à temps. ManaLAB calcule la cohérence couleur via probabilités hypergéométriques.'}
+};
+// Génère un span cliquable. `term` est la clé du dictionnaire ; `label` permet
+// d'afficher un texte différent du terme (utile pour adapter la grammaire).
+function gloss(term,label){
+  var entry=_GLOSS_QUICK[term];
+  var txt=esc(label||term);
+  if(!entry)return txt; // si terme inconnu : on retourne le texte brut, no-op
+  return '<span class="gloss-term" data-gloss="'+esc(term)+'" tabindex="0" role="button" aria-label="Définition de '+esc(term)+'">'+txt+'</span>';
+}
+// Délégation globale : un click sur un .gloss-term ouvre le popover, un click
+// ailleurs le ferme. Installé au boot (DOMContentLoaded ou immédiatement si déjà prêt).
+(function _initGlossPop(){
+  var open=function(targetEl){
+    var key=targetEl.getAttribute('data-gloss');
+    var e=_GLOSS_QUICK[key];if(!e)return;
+    // Retire toute popover existante avant d'en ouvrir une nouvelle.
+    var existing=document.getElementById('gloss-pop');if(existing)existing.remove();
+    var pop=document.createElement('div');
+    pop.id='gloss-pop';pop.className='gloss-pop';
+    pop.innerHTML='<button class="gloss-pop-close" aria-label="Fermer">✕</button>'
+      +'<div class="gloss-pop-term">'+esc(e.lbl)+'</div>'
+      +'<div class="gloss-pop-def">'+esc(e.def)+'</div>';
+    document.body.appendChild(pop);
+    // Positionnement : sous la cible, recadré si déborde de la viewport.
+    var r=targetEl.getBoundingClientRect();
+    var top=r.bottom+window.scrollY+6;
+    var left=r.left+window.scrollX;
+    pop.style.top=top+'px';pop.style.left=left+'px';
+    // Si déborde à droite, on recadre
+    setTimeout(function(){
+      var pr=pop.getBoundingClientRect();
+      if(pr.right>window.innerWidth-10){
+        pop.style.left=Math.max(8,window.innerWidth-pr.width-10)+'px';
+      }
+    },0);
+    pop.querySelector('.gloss-pop-close').addEventListener('click',function(ev){ev.stopPropagation();pop.remove();});
+  };
+  var bind=function(){
+    document.addEventListener('click',function(ev){
+      var t=ev.target&&ev.target.closest&&ev.target.closest('.gloss-term');
+      if(t){ev.preventDefault();ev.stopPropagation();open(t);return;}
+      // Click ailleurs : ferme le popover si ouvert
+      var pop=document.getElementById('gloss-pop');
+      if(pop&&!pop.contains(ev.target))pop.remove();
+    });
+    // Clavier : Entrée/Espace sur un .gloss-term focusé l'ouvre, Esc ferme.
+    document.addEventListener('keydown',function(ev){
+      if(ev.key==='Escape'){var p=document.getElementById('gloss-pop');if(p)p.remove();return;}
+      if((ev.key==='Enter'||ev.key===' ')&&document.activeElement&&document.activeElement.classList&&document.activeElement.classList.contains('gloss-term')){
+        ev.preventDefault();open(document.activeElement);
+      }
+    });
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
 // ===== Tableau de bord playgroup =====
 function openPlaygroup(){
   var ov=document.getElementById('ml-pg-ov');
@@ -35282,6 +35469,28 @@ function anaCoachGoto(step){
   _anaCoachSavePref();
   _anaCoachRender();
 }
+// Coach express : raccourci depuis Mes decks → onglet Analyse + sélection du deck
+// + Coach Mode actif + saut direct à l'étape Verdict (étape 2), c'est-à-dire le
+// vrai jugement (faiblesses + probas). Évite l'étape Diagnostic introductive pour
+// l'utilisateur régulier qui sait déjà ce qu'est son deck.
+function anaCoachExpress(deckId){
+  if(typeof goTab!=='function'||typeof anaInit!=='function'||typeof anaRender!=='function')return;
+  goTab('analyse');
+  // L'init de l'onglet peut être asynchrone : on attend que le sélecteur soit prêt.
+  var tries=0;
+  (function poll(){
+    var sel=document.getElementById('ana-deck-sel');
+    if(!sel){
+      if(tries++<25)return setTimeout(poll,80);
+      return;
+    }
+    sel.value=deckId;
+    _anaCoachActive=true;_anaCoachStep=2;
+    try{anaRender(deckId);}catch(e){console.warn('[Coach Express] render failed:',e);return;}
+    // Après render, on force le step Verdict (anaRender peut avoir réinitialisé à 1).
+    setTimeout(function(){_anaCoachStep=2;_anaCoachSavePref&&_anaCoachSavePref();if(typeof _anaCoachRender==='function')_anaCoachRender();},120);
+  })();
+}
 function _anaCoachApply(){
   var host=document.getElementById('ana-results');if(!host)return;
   if(_anaCoachActive){
@@ -48798,9 +49007,10 @@ function openDeckGenerator(presetCommander){
   html+='</div>';
   // 5) Résultat (vide initialement)
   html+='<div id="dgen-result"></div>';
-  // 6) Outils liés
-  html+='<div style="margin-top:24px;padding-top:16px;border-top:.5px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap;font-size:.78rem">';
-  html+='<span style="color:var(--tx3);align-self:center">Voir aussi :</span>';
+  // 6) Outils liés — chemin vers Deck parfait mis en avant (modal unifiée avec budget, couleurs, % collection…)
+  html+='<div style="margin-top:24px;padding-top:16px;border-top:.5px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap;font-size:.78rem;align-items:center">';
+  html+='<button class="btn btnp btnsm" onclick="closeDeckGenerator();if(typeof mlPerfectDeckOpen===\'function\')mlPerfectDeckOpen()" title="Modal avec budget, couleurs, % collection, archétype, multi-profils" style="border:1.5px solid var(--gold);background:linear-gradient(180deg,rgba(201,168,76,.18),rgba(201,168,76,.04))">⚗ Mode complet (Deck parfait)</button>';
+  html+='<span style="color:var(--tx3);align-self:center;margin-left:6px">Voir aussi :</span>';
   html+='<button class="btn btnsm" onclick="closeDeckGenerator();if(typeof renderHome===\'function\')renderHome();" title="Commandants pour lesquels tu as déjà beaucoup de matériel">🎲 Recos commandants</button>';
   html+='<button class="btn btnsm" onclick="closeDeckGenerator();if(typeof openBuildable===\'function\')openBuildable()" title="Decks que tu peux monter avec ta collection">🔨 Decks réalisables</button>';
   html+='<button class="btn btnsm" onclick="closeDeckGenerator();if(typeof openCommReco===\'function\')openCommReco()" title="Cartes les plus jouées avec ce commandant">📊 Recos communauté</button>';
@@ -48845,7 +49055,7 @@ function mlPerfectDeckOpen(){
   h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
   h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.55rem;color:var(--gold2);flex:1">⚗ Deck parfait ManaLAB</div>';
   h+='<button class="btn btnsm" onclick="mlPerfectDeckClose()" aria-label="Fermer">✕</button></div>';
-  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:18px">Le moteur d\'analyse combine ta collection, les données EDHREC, ton budget et l\'archétype visé pour bâtir le deck optimal. Plus tu remplis, plus le résultat est ciblé.</div>';
+  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:18px">Le moteur d\'analyse combine ta collection, les données '+gloss('EDHREC')+', ton budget et l\'<span class="gloss-term" data-gloss="Archétype" tabindex="0" role="button" aria-label="Définition de Archétype">archétype</span> visé pour bâtir le deck optimal. Plus tu remplis, plus le résultat est ciblé.</div>';
   // ── 1) Format
   h+='<div style="margin-bottom:14px"><label class="pf-lbl">FORMAT</label>';
   h+='<select id="pf-format" onchange="_pfFormatChanged()" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem">';
@@ -48859,7 +49069,7 @@ function mlPerfectDeckOpen(){
   h+='<option value="pauper">Pauper</option>';
   h+='</select></div>';
   // ── 2) Commandant (visible seulement pour EDH/PDH)
-  h+='<div id="pf-cmd-wrap" style="margin-bottom:14px"><label class="pf-lbl">COMMANDANT <span style="color:var(--tx3);font-style:italic;text-transform:none;letter-spacing:0;font-size:.7rem">(recommandé pour EDH/PDH)</span></label>';
+  h+='<div id="pf-cmd-wrap" style="margin-bottom:14px"><label class="pf-lbl">COMMANDANT <span style="color:var(--tx3);font-style:italic;text-transform:none;letter-spacing:0;font-size:.7rem">(recommandé pour '+gloss('EDH')+' / '+gloss('PDH')+')</span></label>';
   h+='<input id="pf-cmd" type="text" placeholder="ex: Atraxa, Praetors\' Voice — laisse vide pour deviner d\'après la collection" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem" oninput="_pfCmdChanged()">';
   h+='<div id="pf-cmd-hint" style="font-size:.7rem;color:var(--tx3);margin-top:4px;font-style:italic">Si renseigné, les couleurs sont déduites automatiquement et le moteur utilise les données EDHREC du commandant.</div>';
   h+='</div>';
@@ -48888,7 +49098,7 @@ function mlPerfectDeckOpen(){
   h+='<div style="font-size:.68rem;color:var(--tx3);margin-top:3px;font-style:italic">Le moteur exclut les cartes au-dessus du seuil cible et privilégie les substituts à valeur équivalente.</div>';
   h+='</div>';
   // ── 6) Niveau de puissance (réutilise _DECK_LEVEL_PRESETS)
-  h+='<div style="margin-bottom:14px"><label class="pf-lbl">NIVEAU DE PUISSANCE</label>';
+  h+='<div style="margin-bottom:14px"><label class="pf-lbl">NIVEAU DE PUISSANCE — '+gloss('Bracket')+'</label>';
   h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
   Object.keys(_DECK_LEVEL_PRESETS).forEach(function(k){
     var p=_DECK_LEVEL_PRESETS[k];
