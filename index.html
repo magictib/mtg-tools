@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-10';
+window.APP_BUILD='2026-06-05-11';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -18525,33 +18525,74 @@ function openSharedDeckView(d,pubId){
     +'<div style="padding:10px 22px 18px;text-align:center;font-size:.7rem;color:var(--tx3);border-top:.5px solid var(--bd)">Partagé via ManaLAB · <a href="#" onclick="event.preventDefault();closeSharedDeckView()" style="color:var(--gold2)">Revenir à l\'app</a></div>'
     +'</div>';
 }
+// Date relative en français court (« il y a 5 min », « il y a 2 j »). Au-delà
+// de 30 jours, on retombe sur la date longue. Utile pour les commentaires de
+// decks publics qui doivent rester scannables à l'œil.
+function _relativeDateFR(ts){
+  if(!ts)return '';
+  var diff=Date.now()-ts;
+  var sec=Math.floor(diff/1000);
+  if(sec<60)return 'à l\'instant';
+  var min=Math.floor(sec/60);if(min<60)return 'il y a '+min+' min';
+  var hrs=Math.floor(min/60);if(hrs<24)return 'il y a '+hrs+' h';
+  var days=Math.floor(hrs/24);if(days<30)return 'il y a '+days+' j';
+  return new Date(ts).toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
+}
 function _pubDeckSocialHtml(d){
   var likes=d.likes||[];
-  var comments=(d.comments||[]).slice().sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+  var comments=(d.comments||[]).slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);}); // plus récents en haut
   var liked=userId&&likes.indexOf(userId)>=0;
+  var isOwner=userId&&d.createdBy===userId;
   var h='<div style="padding:14px 22px;border-top:.5px solid var(--bd)">';
   h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
-  h+='<button onclick="_pubDeckToggleLike()" style="display:flex;align-items:center;gap:6px;padding:5px 13px;border-radius:8px;border:.5px solid '+(liked?'var(--rd2)':'var(--bd2)')+';background:'+(liked?'rgba(220,80,80,.14)':'var(--s3)')+';color:'+(liked?'var(--rd2)':'var(--tx2)')+';cursor:pointer;font-size:.84rem">'+(liked?'❤':'🤍')+' '+likes.length+'</button>';
+  h+='<button onclick="_pubDeckToggleLike()" style="display:flex;align-items:center;gap:6px;padding:5px 13px;border-radius:8px;border:.5px solid '+(liked?'var(--rd2)':'var(--bd2)')+';background:'+(liked?'rgba(220,80,80,.14)':'var(--s3)')+';color:'+(liked?'var(--rd2)':'var(--tx2)')+';cursor:pointer;font-size:.84rem;font-family:inherit" title="'+(liked?'Retirer mon like':'Aimer ce deck')+'">'+(liked?'❤':'🤍')+' '+likes.length+'</button>';
   h+='<span style="font-size:.74rem;color:var(--tx3)">💬 '+comments.length+' commentaire'+(comments.length>1?'s':'')+'</span>';
   h+='</div>';
   if(comments.length){
     h+='<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">';
     comments.forEach(function(c){
-      var when=c.ts?new Date(c.ts).toLocaleDateString('fr-FR',{day:'numeric',month:'short'}):'';
-      h+='<div style="background:rgba(255,255,255,.03);border:.5px solid var(--bd);border-radius:8px;padding:7px 10px">';
-      h+='<div style="display:flex;justify-content:space-between;font-size:.72rem;margin-bottom:2px"><b style="color:var(--gold2)">'+esc(c.name||'?')+'</b><span style="color:var(--tx3)">'+esc(when)+'</span></div>';
-      h+='<div style="font-size:.82rem;color:var(--tx2);line-height:1.45;white-space:pre-wrap">'+esc(c.text||'')+'</div>';
+      var when=_relativeDateFR(c.ts);
+      var canDelete=userId&&(c.uid===userId||isOwner);
+      h+='<div style="background:rgba(255,255,255,.03);border:.5px solid var(--bd);border-radius:8px;padding:7px 10px;position:relative">';
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;font-size:.72rem;margin-bottom:2px;gap:6px">';
+      h+='<b style="color:var(--gold2)">'+esc(c.name||'?')+(c.uid===d.createdBy?' <span style="font-size:.62rem;color:var(--tx3);font-weight:400;font-style:italic">(auteur du deck)</span>':'')+'</b>';
+      h+='<span style="display:flex;align-items:center;gap:6px"><span style="color:var(--tx3)" title="'+esc(c.ts?new Date(c.ts).toLocaleString('fr-FR'):'')+'">'+esc(when)+'</span>';
+      if(canDelete)h+='<button onclick="_pubDeckDeleteComment('+c.ts+')" title="'+(c.uid===userId?'Supprimer mon commentaire':'Modérer (auteur du deck)')+'" style="background:none;border:none;color:var(--tx3);cursor:pointer;padding:0 2px;font-size:.95rem;line-height:1">✕</button>';
+      h+='</span>';
+      h+='</div>';
+      h+='<div style="font-size:.82rem;color:var(--tx2);line-height:1.45;white-space:pre-wrap;word-break:break-word">'+esc(c.text||'')+'</div>';
       h+='</div>';
     });
     h+='</div>';
   }
   if(userId){
-    h+='<div style="display:flex;gap:6px"><input type="text" id="pubdeck-comment-in" maxlength="500" placeholder="Ajoute un commentaire…" onkeydown="if(event.key===\'Enter\')_pubDeckAddComment()" style="flex:1;font-size:.8rem;box-sizing:border-box"><button class="btn btnsm btnp" onclick="_pubDeckAddComment()">Publier</button></div>';
+    h+='<div style="display:flex;gap:6px;align-items:flex-start"><textarea id="pubdeck-comment-in" maxlength="500" placeholder="Ajoute un commentaire…" rows="2" onkeydown="if(event.key===\'Enter\'&&(event.ctrlKey||event.metaKey)){event.preventDefault();_pubDeckAddComment();}" style="flex:1;font-size:.82rem;box-sizing:border-box;resize:vertical;min-height:38px;padding:7px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-family:inherit"></textarea><button class="btn btnsm btnp" onclick="_pubDeckAddComment()" title="Ctrl+Entrée pour publier">Publier</button></div>';
+    h+='<div style="font-size:.66rem;color:var(--tx3);margin-top:3px;font-style:italic">Ctrl+Entrée pour publier · max 500 caractères</div>';
   }else{
     h+='<div style="font-size:.74rem;color:var(--tx3);font-style:italic">Connecte-toi pour aimer et commenter ce deck.</div>';
   }
   h+='</div>';
   return h;
+}
+// Supprime un commentaire par son timestamp (clé naturelle dans l'array).
+// Autorisé pour l'auteur du commentaire (auto-modération) et l'auteur du deck
+// (modération owner). Pas de prompt — toast confirme post-action.
+function _pubDeckDeleteComment(ts){
+  if(!_sharedDeckCur||!userId||typeof db==='undefined')return;
+  var d=_sharedDeckCur.d,pubId=_sharedDeckCur.pubId;
+  var target=(d.comments||[]).filter(function(c){return c.ts===ts;})[0];
+  if(!target)return;
+  var canDelete=target.uid===userId||d.createdBy===userId;
+  if(!canDelete){if(typeof toastError==='function')toastError('Pas autorisé');return;}
+  d.comments=(d.comments||[]).filter(function(c){return c.ts!==ts;});
+  openSharedDeckView(d,pubId);
+  db.collection('public_decks').doc(pubId).update({
+    comments:firebase.firestore.FieldValue.arrayRemove(target)
+  }).then(function(){
+    if(typeof toastInfo==='function')toastInfo('Commentaire supprimé');
+  }).catch(function(e){
+    if(typeof toastError==='function')toastError('Erreur : '+(e&&e.message||e));
+  });
 }
 function _pubDeckToggleLike(){
   if(!_sharedDeckCur)return;

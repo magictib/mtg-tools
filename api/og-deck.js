@@ -89,6 +89,12 @@ module.exports = async function handler(req, res) {
       var notes = firestoreValue(fields.notes) || '';
       var pw = firestoreValue(fields.pw) || null;
       var sharedAt = firestoreValue(fields.sharedAt) || null;
+      // Engagement social (P0 #3 audit concurrentiel) : likes + 3 derniers commentaires
+      // injectés dans le HTML → signal Google "page vivante", boost ranking
+      var likes = firestoreValue(fields.likes) || [];
+      var comments = firestoreValue(fields.comments) || [];
+      var likeCount = Array.isArray(likes) ? likes.length : 0;
+      var commentCount = Array.isArray(comments) ? comments.length : 0;
       var total = 0;
       if (Array.isArray(cards)) cards.forEach(function (c) { total += (c && c.qty) || 1; });
 
@@ -100,6 +106,8 @@ module.exports = async function handler(req, res) {
       if (total) bits.push(total + ' cartes');
       if (commander && commander.name) bits.push('commandant : ' + commander.name);
       if (pw && pw.score != null) bits.push('Score ManaLAB ' + Math.round(pw.score) + '/100');
+      if (likeCount > 0) bits.push(likeCount + ' like' + (likeCount > 1 ? 's' : ''));
+      if (commentCount > 0) bits.push(commentCount + ' commentaire' + (commentCount > 1 ? 's' : ''));
       description = bits.length ? bits.join(' · ') : 'Deck partagé sur ManaLAB.';
 
       // ── Body lisible pour les moteurs de recherche : regroupe les cartes par
@@ -136,12 +144,33 @@ module.exports = async function handler(req, res) {
         bodyHtml += '</ul></div>';
       });
       bodyHtml += '</section>';
+      // Engagement social (likes + commentaires) — visible par les bots ET utiles aux humains.
+      // Affichage simple, pas d'interaction depuis cette page (lecture seule SEO ; pour interagir
+      // l'utilisateur doit cliquer sur le lien ManaLAB → SPA).
+      if (likeCount > 0 || commentCount > 0) {
+        bodyHtml += '<section class="engagement"><h2>Communauté</h2>';
+        if (likeCount > 0) bodyHtml += '<p class="likes">❤ <strong>' + likeCount + '</strong> joueur' + (likeCount > 1 ? 's ont' : ' a') + ' aimé ce deck</p>';
+        if (commentCount > 0) {
+          // 3 derniers commentaires (les plus récents), tronqués à 280 chars
+          var sortedComments = comments.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 3);
+          bodyHtml += '<p class="comment-count">' + commentCount + ' commentaire' + (commentCount > 1 ? 's' : '') + ' au total</p>';
+          bodyHtml += '<div class="comments">';
+          sortedComments.forEach(function (c) {
+            var when = c.ts ? new Date(c.ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+            var text = (c.text || '').slice(0, 280) + ((c.text || '').length > 280 ? '…' : '');
+            bodyHtml += '<blockquote class="comment"><cite>' + escHtml(c.name || 'Anonyme') + (when ? ' <time>· ' + escHtml(when) + '</time>' : '') + '</cite><p>' + escHtml(text) + '</p></blockquote>';
+          });
+          bodyHtml += '</div>';
+        }
+        bodyHtml += '</section>';
+      }
       bodyHtml += '<p class="cta"><a href="' + escHtml(appUrl) + '" rel="canonical">→ Ouvrir ce deck dans ManaLAB pour l\'analyser, l\'éditer ou jouer avec</a></p>';
       bodyHtml += '<footer><p>Deck partagé via <a href="' + escHtml(origin) + '/">ManaLAB</a>, l\'outil d\'analyse et gestion de decks Magic: The Gathering.</p>';
       if (sharedAt) bodyHtml += '<p><small>Publié le ' + escHtml(new Date(sharedAt).toLocaleDateString('fr-FR')) + '</small></p>';
       bodyHtml += '</footer></article>';
 
       // ── Structured data JSON-LD pour Google Rich Results
+      // InteractionCounter sur likes/commentaires = signal Rich Results pour les social actions
       jsonLd = {
         '@context': 'https://schema.org',
         '@type': 'CreativeWork',
@@ -153,6 +182,32 @@ module.exports = async function handler(req, res) {
       };
       if (ownerName) jsonLd.author = { '@type': 'Person', 'name': ownerName };
       if (sharedAt) jsonLd.datePublished = new Date(sharedAt).toISOString();
+      // Engagement counters (visible dans les Rich Results SERP)
+      if (likeCount > 0 || commentCount > 0) {
+        jsonLd.interactionStatistic = [];
+        if (likeCount > 0) jsonLd.interactionStatistic.push({
+          '@type': 'InteractionCounter',
+          'interactionType': { '@type': 'LikeAction' },
+          'userInteractionCount': likeCount
+        });
+        if (commentCount > 0) jsonLd.interactionStatistic.push({
+          '@type': 'InteractionCounter',
+          'interactionType': { '@type': 'CommentAction' },
+          'userInteractionCount': commentCount
+        });
+      }
+      // Commentaires top en aggregateRating-like (les 3 plus récents)
+      if (commentCount > 0) {
+        var topComments = comments.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 3);
+        jsonLd.comment = topComments.map(function (c) {
+          return {
+            '@type': 'Comment',
+            'author': { '@type': 'Person', 'name': c.name || 'Anonyme' },
+            'text': (c.text || '').slice(0, 280),
+            'dateCreated': c.ts ? new Date(c.ts).toISOString() : undefined
+          };
+        });
+      }
     }
   } catch (e) {
     // silent fallback
@@ -195,6 +250,14 @@ module.exports = async function handler(req, res) {
     + 'ul{list-style:none;padding-left:0;columns:2;column-gap:24px}'
     + 'li{font-size:.92rem;padding:2px 0;break-inside:avoid;color:#bcae8e}'
     + '.cta{text-align:center;padding:18px 14px;margin:24px 0;background:linear-gradient(135deg,rgba(201,168,76,.12),rgba(201,168,76,.03));border:1px solid rgba(201,168,76,.4);border-radius:10px;font-size:1.05rem}'
+    + '.engagement{margin-top:1.6em}'
+    + '.likes{color:#e07070;font-size:.95rem}'
+    + '.comment-count{color:#a09070;font-size:.85rem;margin-bottom:.6em}'
+    + '.comments{display:flex;flex-direction:column;gap:10px}'
+    + '.comment{background:rgba(255,255,255,.03);border-left:2px solid #c9a84c;border-radius:0 6px 6px 0;padding:8px 12px;margin:0;font-style:normal}'
+    + '.comment cite{display:block;font-size:.78rem;color:#c9a84c;margin-bottom:4px;font-style:normal;font-weight:600}'
+    + '.comment cite time{color:#7a6856;font-weight:400}'
+    + '.comment p{margin:0;font-size:.88rem;color:#bcae8e;line-height:1.45}'
     + 'footer{margin-top:2em;padding-top:1em;border-top:.5px solid rgba(201,168,76,.2);color:#7a6856;font-size:.82rem}'
     + '@media(max-width:600px){body{padding:18px 14px}ul{columns:1}h1{font-size:1.5rem}}'
     + '</style>'
