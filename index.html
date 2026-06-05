@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-7';
+window.APP_BUILD='2026-06-05-8';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -36146,7 +36146,10 @@ function journeyOpenAchieve(){
     if(!sw.add||!sw.add.name)return;
     var nm=sw.add.name;
     var nl=nm.toLowerCase().trim();
-    if(!owned[nl])missing.push({name:nm,qty:1,priceEur:(sw.add.meta&&sw.add.meta.priceEur)||0});
+    var needQty=sw.add.qty||1; // playset 4× en non-singleton
+    var ownedQty=owned[nl]||0;
+    var miss=Math.max(0,needQty-ownedQty);
+    if(miss>0)missing.push({name:nm,qty:miss,priceEur:(sw.add.meta&&sw.add.meta.priceEur)||0});
   });
   var totalPrice=missing.reduce(function(s,m){return s+(m.priceEur||0);},0);
   var h='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--gold);border-radius:14px;max-width:760px;width:100%;padding:24px 28px;box-shadow:0 0 40px rgba(201,168,76,.15)">';
@@ -36164,9 +36167,9 @@ function journeyOpenAchieve(){
     h+='<div style="max-height:240px;overflow-y:auto;border:.5px solid var(--bd2);border-radius:8px">';
     swaps.forEach(function(sw){
       h+='<div style="display:grid;grid-template-columns:1fr 18px 1fr 50px;gap:8px;align-items:center;padding:7px 12px;border-bottom:.5px solid var(--bd);font-size:.82rem">'
-        +'<div style="color:var(--rd2);text-decoration:line-through">'+esc(sw.cut.name||'?')+'</div>'
+        +'<div style="color:var(--rd2);text-decoration:line-through">'+_swQty(sw.cut.qty)+esc(sw.cut.name||'?')+'</div>'
         +'<div style="color:var(--gold2);text-align:center">▶</div>'
-        +'<div style="color:var(--gr2)">'+esc(sw.add.name||'?')+'</div>'
+        +'<div style="color:var(--gr2)">'+_swQty(sw.add.qty)+esc(sw.add.name||'?')+'</div>'
         +'<div style="text-align:right;font-family:monospace;color:var(--gr2)">+'+(sw.gain!=null?sw.gain.toFixed(1):'?')+'</div>'
         +'</div>';
     });
@@ -36730,11 +36733,19 @@ function _anaCoachStepPlan(){
   var prioritized=_anaTopPrioritizedActions(allSwaps);
   var topSwaps=prioritized.map(function(p){return p.sw;});
   var prioByCut={};prioritized.forEach(function(p){if(p.sw.cut)prioByCut[p.sw.cut.nl]=p;});
+  // Détection format non-singleton pour adapter le ton du hero
+  var _fmtCur=((_anaState&&_anaState.deck&&_anaState.deck.format)||'').toLowerCase();
+  var _isSing=(_fmtCur==='commander'||_fmtCur==='edh'||_fmtCur==='pdh'||_fmtCur==='paupercmd'||_fmtCur==='paupercommander'||_fmtCur==='brawl');
+  var _hasPlaysets=!_isSing&&topSwaps.some(function(sw){return (sw.cut&&sw.cut.qty>1)||(sw.add&&sw.add.qty>1);});
   var h='<div class="ana-coach-card">';
   h+='<div class="ana-coach-hero">';
   h+='<div class="ana-coach-hero-eyebrow">Étape 3 · Plan</div>';
   h+='<h2 class="ana-coach-hero-title">Voici les '+(topSwaps.length||3)+' actions prioritaires</h2>';
-  h+='<div class="ana-coach-hero-sub">Hiérarchisées par effort : <b style="color:#78c890">✅ dans ta collection</b> (effet immédiat) → <b style="color:#5b8cf5">🛒 à acheter</b> (&lt; 10 €) → <b style="color:var(--gold2)">📈 investissement</b> (long terme). Chaque swap est un upgrade individuel validé, staples intouchables protégées.</div>';
+  if(_hasPlaysets){
+    h+='<div class="ana-coach-hero-sub"><b style="color:var(--gold2)">Format playset</b> ('+esc(_fmtCur||'standard')+') : les swaps respectent la quantité du cut — couper <b>4×</b> une carte signifie en ajouter <b>4×</b> une autre pour préserver la régularité (sorties de main, combos, courbe). Pas de mélange désordonné de 1 ou 2 copies.</div>';
+  } else {
+    h+='<div class="ana-coach-hero-sub">Hiérarchisées par effort : <b style="color:#78c890">✅ dans ta collection</b> (effet immédiat) → <b style="color:#5b8cf5">🛒 à acheter</b> (&lt; 10 €) → <b style="color:var(--gold2)">📈 investissement</b> (long terme). Chaque swap est un upgrade individuel validé, staples intouchables protégées.</div>';
+  }
   h+='</div>';
   h+='<div class="ana-coach-body">';
   if(!topSwaps.length){
@@ -36751,7 +36762,7 @@ function _anaCoachStepPlan(){
       var sw=p.sw;
       h+='<div class="ana-action-prio '+p.tier+'">';
       h+='<div class="ana-action-tier"><div class="ana-action-tier-ico">'+tierIcon+'</div><div class="ana-action-tier-lbl">'+esc(tierLbl)+'</div></div>';
-      h+='<div class="ana-action-detail"><div style="font-size:.85rem;color:var(--tx2);margin-bottom:3px">Coupe <b>'+esc(sw.cut.name||'?')+'</b> · ajoute <b>'+esc(sw.add.name||'?')+'</b></div>';
+      h+='<div class="ana-action-detail"><div style="font-size:.85rem;color:var(--tx2);margin-bottom:3px">Coupe <b>'+_swQty(sw.cut.qty)+esc(sw.cut.name||'?')+'</b> · ajoute <b>'+_swQty(sw.add.qty)+esc(sw.add.name||'?')+'</b></div>';
       h+='<div style="font-size:.75rem;color:var(--tx3);font-style:italic">'+esc(_anaCoachSwapJustify(sw))+'</div></div>';
       h+='<div class="ana-action-cost"><div class="ana-action-cost-pts">+'+(sw.gain!=null?sw.gain.toFixed(1):'?')+'<span style="font-size:.7rem;color:var(--tx3);font-weight:normal"> pts</span></div><div class="ana-action-cost-€">'+esc(tierCost)+'</div></div>';
       h+='</div>';
@@ -36770,13 +36781,13 @@ function _anaCoachStepPlan(){
       h+='<div class="ana-swap-rank">Swap #'+(idx+1)+'</div>';
       h+='<div class="ana-swap-card">';
       h+='<img src="'+esc(cutImg)+'" alt="'+esc(sw.cut.name||'')+'" class="ana-swap-card-img cut" loading="lazy" onclick="anaZoom(this.src)" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
-      h+='<div class="ana-swap-card-name cut">'+esc(sw.cut.name||'?')+'</div>';
+      h+='<div class="ana-swap-card-name cut">'+_swQty(sw.cut.qty)+esc(sw.cut.name||'?')+'</div>';
       h+='<div class="ana-swap-card-meta">'+((cutMeta.typeLine||'').split('—')[0].trim()||'?')+' · '+(cutMeta.cmc!=null?cutMeta.cmc+' mana':'?')+'</div>';
       h+='</div>';
-      h+='<div class="ana-swap-arrow"><div class="ana-swap-arrow-icon">▶</div><div class="ana-swap-arrow-label">remplace</div></div>';
+      h+='<div class="ana-swap-arrow"><div class="ana-swap-arrow-icon">▶</div><div class="ana-swap-arrow-label">'+((sw.cut.qty||1)>1?'remplace ('+sw.cut.qty+'×)':'remplace')+'</div></div>';
       h+='<div class="ana-swap-card">';
       h+='<img src="'+esc(addImg)+'" alt="'+esc(sw.add.name||'')+'" class="ana-swap-card-img" loading="lazy" onclick="anaZoom(this.src)" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
-      h+='<div class="ana-swap-card-name">'+esc(sw.add.name||'?')+'</div>';
+      h+='<div class="ana-swap-card-name">'+_swQty(sw.add.qty)+esc(sw.add.name||'?')+'</div>';
       h+='<div class="ana-swap-card-meta">'+((addMeta.typeLine||'').split('—')[0].trim()||'?')+' · '+(addMeta.cmc!=null?addMeta.cmc+' mana':'?')+'</div>';
       h+='</div>';
       h+='<div class="ana-swap-gain"><div class="ana-swap-gain-pts">+'+gain+'</div><div class="ana-swap-gain-lbl">points</div></div>';
@@ -36793,9 +36804,9 @@ function _anaCoachStepPlan(){
     allSwapsContent+='<div style="max-height:340px;overflow-y:auto">';
     allSwaps.slice(3).forEach(function(sw){
       allSwapsContent+='<div style="display:grid;grid-template-columns:1fr 18px 1fr 50px;gap:8px;align-items:center;padding:5px 8px;border-bottom:.5px solid var(--bd2);font-size:.78rem">'
-        +'<div style="color:var(--tx3);text-decoration:line-through">'+esc(sw.cut.name||'?')+'</div>'
+        +'<div style="color:var(--tx3);text-decoration:line-through">'+_swQty(sw.cut.qty)+esc(sw.cut.name||'?')+'</div>'
         +'<div style="color:var(--gold2);text-align:center">▶</div>'
-        +'<div style="color:var(--tx2)">'+esc(sw.add.name||'?')+'</div>'
+        +'<div style="color:var(--tx2)">'+_swQty(sw.add.qty)+esc(sw.add.name||'?')+'</div>'
         +'<div style="text-align:right;font-family:monospace;color:#78c890;font-weight:bold">+'+(sw.gain!=null?sw.gain.toFixed(1):'?')+'</div>'
         +'</div>';
     });
@@ -36910,7 +36921,7 @@ function _anaApplyRenderZoom(allSwaps,deckId){
   // Cut side
   h+='<div class="ana-apply-zoom-side cut">';
   h+='<img src="'+esc(cutImg)+'" alt="" class="ana-apply-zoom-side-img" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
-  h+='<div class="ana-apply-zoom-side-info"><div class="ana-apply-zoom-side-name">'+esc(sw.cut.name||'?')+'</div>';
+  h+='<div class="ana-apply-zoom-side-info"><div class="ana-apply-zoom-side-name">'+_swQty(sw.cut.qty)+esc(sw.cut.name||'?')+'</div>';
   h+='<div class="ana-apply-zoom-side-meta">'+(cutMeta.cmc!=null?cutMeta.cmc+' mana':'?')+' · '+((cutMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
   h+='</div>';
   // Arrow + gain
@@ -36918,7 +36929,7 @@ function _anaApplyRenderZoom(allSwaps,deckId){
   // Add side
   h+='<div class="ana-apply-zoom-side">';
   h+='<img src="'+esc(addImg)+'" alt="" class="ana-apply-zoom-side-img" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
-  h+='<div class="ana-apply-zoom-side-info"><div class="ana-apply-zoom-side-name">'+esc(sw.add.name||'?')+'</div>';
+  h+='<div class="ana-apply-zoom-side-info"><div class="ana-apply-zoom-side-name">'+_swQty(sw.add.qty)+esc(sw.add.name||'?')+'</div>';
   h+='<div class="ana-apply-zoom-side-meta">'+(addMeta.cmc!=null?addMeta.cmc+' mana':'?')+' · '+((addMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
   h+='</div>';
   h+='</div>';
@@ -37001,7 +37012,7 @@ function _anaCoachStepApply(){
       // Cut side
       h+='<div class="ana-apply-side">';
       h+='<img src="'+esc(cutImg)+'" alt="" class="ana-apply-side-img" loading="lazy" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
-      h+='<div class="ana-apply-side-info"><div class="ana-apply-side-name cut">'+esc(sw.cut.name||'?')+'</div>';
+      h+='<div class="ana-apply-side-info"><div class="ana-apply-side-name cut">'+_swQty(sw.cut.qty)+esc(sw.cut.name||'?')+'</div>';
       h+='<div class="ana-apply-side-meta">'+(cutMeta.cmc!=null?cutMeta.cmc+' mana':'?')+' · '+((cutMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
       h+='</div>';
       // Arrow + gain
@@ -37009,7 +37020,7 @@ function _anaCoachStepApply(){
       // Add side
       h+='<div class="ana-apply-side">';
       h+='<img src="'+esc(addImg)+'" alt="" class="ana-apply-side-img" loading="lazy" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
-      h+='<div class="ana-apply-side-info"><div class="ana-apply-side-name">'+esc(sw.add.name||'?')+'</div>';
+      h+='<div class="ana-apply-side-info"><div class="ana-apply-side-name">'+_swQty(sw.add.qty)+esc(sw.add.name||'?')+'</div>';
       h+='<div class="ana-apply-side-meta">'+(addMeta.cmc!=null?addMeta.cmc+' mana':'?')+' · '+((addMeta.typeLine||'').split('—')[0].trim()||'?')+'</div></div>';
       h+='</div>';
       // Actions
@@ -42322,6 +42333,10 @@ function _anaMetaSwaps(deckRows,edhrecFreq,n){
   }
   return swaps;
 }
+// Format un préfixe quantité « 4× » devant un nom de carte si qty > 1, vide sinon.
+// Utilisé partout où on affiche un swap : en Commander/PDH (qty=1) → invisible ;
+// en Standard/Modern (qty=4) → « 4× X → 4× Y », sens du format respecté.
+function _swQty(qty){return (qty&&qty>1)?(qty+'× '):'';}
 function anaScoreOptimize(rows,pool,weights,targets,maxIter){
   maxIter=maxIter||40;
   var current=rows.slice();
@@ -42361,13 +42376,18 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
     var bestGain=0;var bestSwap=null;
     nonLand.forEach(function(cutRow){
       var _ci=_cutInfo(cutRow);var cr=_ci.roles;var q=cutRow.card.qty||1;
+      // Symétrie playset en non-singleton : on ajoute autant qu'on coupe.
+      // En Commander/PDH (singleton), q=1 → comportement inchangé.
+      // En Standard/Modern/Pioneer/Legacy/Vintage/Pauper, une carte en 4× est
+      // coupée ET ajoutée en 4× — préserve la régularité du deck.
+      var addQ=q;
       poolCopy.forEach(function(addCard){
         var ar=addCard._aRoles;
         var sim={
-          land:cnt.land-cr.land*q+ar.land, ramp:cnt.ramp-cr.ramp*q+ar.ramp,
-          draw:cnt.draw-cr.draw*q+ar.draw, removal:cnt.removal-cr.removal*q+ar.removal,
-          interaction:cnt.interaction-cr.interaction*q+ar.interaction,
-          wincon:cnt.wincon-cr.wincon*q+ar.wincon
+          land:cnt.land-cr.land*q+ar.land*addQ, ramp:cnt.ramp-cr.ramp*q+ar.ramp*addQ,
+          draw:cnt.draw-cr.draw*q+ar.draw*addQ, removal:cnt.removal-cr.removal*q+ar.removal*addQ,
+          interaction:cnt.interaction-cr.interaction*q+ar.interaction*addQ,
+          wincon:cnt.wincon-cr.wincon*q+ar.wincon*addQ
         };
         // Interdire tout swap qui fait passer une catégorie sous son seuil minimum
         var _underMin=false;
@@ -42376,17 +42396,18 @@ function anaScoreOptimize(rows,pool,weights,targets,maxIter){
         });
         if(_underMin)return;
         // gain = amélioration catégories + synergie ajout - synergie coupe + pénalités (valeurs précalculées)
-        var gain=score(sim)-curScore+(addCard._synP-_ci.synP)*0.4+addCard._antiP;
-        if(gain>bestGain){bestGain=gain;bestSwap={cut:cutRow,add:addCard,sim:sim,gain:gain};}
+        // En non-singleton, le bonus de synergie est multiplié par q (un swap 4×4 a 4× plus d'impact qu'un swap 1×1)
+        var gain=score(sim)-curScore+(addCard._synP-_ci.synP)*0.4*q+addCard._antiP*q;
+        if(gain>bestGain){bestGain=gain;bestSwap={cut:cutRow,add:addCard,sim:sim,gain:gain,addQ:addQ};}
       });
     });
     if(!bestSwap)break;
     var sw=bestSwap;
-    swaps.push({cut:sw.cut.card,cutScore:sw.cut.score,add:{name:sw.add.name,nl:sw.add.nl,meta:sw.add.meta},addScore:sw.add.score,gain:Math.round(sw.gain*10)/10});
+    swaps.push({cut:sw.cut.card,cutScore:sw.cut.score,add:{name:sw.add.name,nl:sw.add.nl,meta:sw.add.meta,qty:sw.addQ},addScore:sw.add.score,gain:Math.round(sw.gain*10)/10});
     cnt=sw.sim;
     current=current.filter(function(r){return r.card.nl!==sw.cut.card.nl;});
     poolCopy=poolCopy.filter(function(c){return c.nl!==sw.add.nl;});
-    current.push({card:{name:sw.add.name,nl:sw.add.nl,qty:1},meta:sw.add.meta,score:sw.add.score});
+    current.push({card:{name:sw.add.name,nl:sw.add.nl,qty:sw.addQ},meta:sw.add.meta,score:sw.add.score});
     addedNls[sw.add.nl]=1;
   }
   return {swaps:swaps,finalRows:current};
@@ -45319,7 +45340,7 @@ async function anaRender(deckId){
     if(_topSwaps.length){
       _topSwaps.forEach(function(sw){
         _dh+='<div style="font-size:10.5px;color:var(--tx2);margin-top:3px;line-height:1.35">';
-        _dh+='<span style="color:#e07070">−</span> '+esc(sw.cut&&sw.cut.name||'?')+' <span style="color:var(--tx3)">→</span> <span style="color:var(--gold2)">+ '+esc(sw.add&&sw.add.name||'?')+'</span>';
+        _dh+='<span style="color:#e07070">−</span> '+_swQty(sw.cut&&sw.cut.qty)+esc(sw.cut&&sw.cut.name||'?')+' <span style="color:var(--tx3)">→</span> <span style="color:var(--gold2)">+ '+_swQty(sw.add&&sw.add.qty)+esc(sw.add&&sw.add.name||'?')+'</span>';
         if(sw.gain!=null)_dh+=' <span style="color:var(--tx3);font-size:9.5px">+'+sw.gain.toFixed(1)+'</span>';
         _dh+='</div>';
       });
