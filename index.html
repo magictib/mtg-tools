@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-4';
+window.APP_BUILD='2026-06-05-5';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1215,6 +1215,41 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   #bld-wizard .bld-wiz-opt [style*="font-size:2.2rem"]{font-size:1.65rem!important;margin-bottom:.3rem!important}
   #bld-wizard .bld-wiz-opt [style*="font-size:1rem"]{font-size:.85rem!important}
   #bld-wizard .bld-wiz-opt [style*="font-size:.78rem"]{font-size:.7rem!important}
+}
+/* ════════════════════════════════════════════════════════════════════════════
+   Parcours « Cycle de vie d'un deck » : Build · Analyser · Achever
+   Stepper persistant en haut quand un deck est actif. Sticky pour rester
+   visible peu importe l'onglet courant. État sauvegardé par deck.
+   ════════════════════════════════════════════════════════════════════════════ */
+#journey-bar{position:sticky;top:0;z-index:480;background:linear-gradient(180deg,#1a0e04 0%,#0c0a07 100%);border-bottom:1px solid var(--gold);padding:9px 14px;display:none;align-items:center;gap:12px;box-shadow:0 4px 18px rgba(0,0,0,.5),0 0 20px rgba(201,168,76,.12);font-family:'Goudy Mediaeval',serif}
+#journey-bar.show{display:flex}
+.jb-deck{font-size:.78rem;color:var(--gold2);min-width:0;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jb-deck-lbl{font-size:.6rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;display:block;line-height:1}
+.jb-steps{flex:1;display:flex;align-items:center;gap:0;justify-content:center;min-width:0}
+.jb-step{display:flex;align-items:center;gap:7px;padding:6px 14px;border-radius:99px;cursor:pointer;color:var(--tx3);font-size:.85rem;transition:all .15s;border:.5px solid transparent;background:transparent}
+.jb-step:hover{color:var(--tx2);background:rgba(201,168,76,.06)}
+.jb-step.active{color:var(--gold2);background:rgba(201,168,76,.18);border-color:var(--gold);box-shadow:inset 0 1px 0 rgba(201,168,76,.2)}
+.jb-step.done{color:var(--gr2)}
+.jb-step.done::before{content:'✓ ';color:var(--gr2)}
+.jb-arrow{color:var(--tx3);margin:0 4px;font-size:.7rem}
+.jb-step-n{display:inline-block;width:18px;height:18px;border-radius:50%;background:var(--s3);border:.5px solid var(--bd2);font-size:.7rem;text-align:center;line-height:17px;font-family:'Crimson Pro',serif}
+.jb-step.active .jb-step-n{background:var(--gold);border-color:var(--gold2);color:#1a0e04;font-weight:700}
+.jb-step.done .jb-step-n{background:rgba(120,200,144,.2);border-color:var(--gr2);color:var(--gr2)}
+.jb-nav{display:flex;gap:6px;align-items:center}
+.jb-nav-btn{padding:5px 11px;border-radius:6px;border:.5px solid var(--bd2);background:var(--s3);color:var(--tx2);cursor:pointer;font-size:.78rem;font-family:inherit}
+.jb-nav-btn.primary{background:linear-gradient(180deg,#3a2008 0%,#180d04 100%);border-color:var(--gold);color:var(--gold2)}
+.jb-nav-btn:hover{filter:brightness(1.15)}
+.jb-nav-btn:disabled{opacity:.4;cursor:not-allowed}
+.jb-close{background:none;border:none;color:var(--tx3);font-size:1.1rem;cursor:pointer;padding:0 4px;line-height:1}
+.jb-close:hover{color:var(--rd2)}
+@media(max-width:760px){
+  #journey-bar{flex-wrap:wrap;padding:7px 10px;gap:7px}
+  .jb-deck{max-width:none;flex-basis:auto;font-size:.72rem}
+  .jb-steps{order:3;flex-basis:100%;gap:0;overflow-x:auto;scrollbar-width:none}
+  .jb-steps::-webkit-scrollbar{display:none}
+  .jb-step{padding:5px 9px;font-size:.78rem;flex-shrink:0}
+  .jb-arrow{margin:0 2px}
+  .jb-nav-btn{padding:4px 9px;font-size:.72rem}
 }
 /* Très petit (≤360px) — boutons CTA pleins-bouton dans modale Deck parfait */
 @media(max-width:380px){
@@ -2487,6 +2522,10 @@ details > summary::-webkit-details-marker{display:none}
 <body>
 <!-- Fond thématique fixe — indépendant du body pour éviter les conflits overflow -->
 <div id="ml-theme-bg" style="position:fixed;inset:0;z-index:0;pointer-events:none;"></div>
+<!-- Banner « Parcours » : sticky en haut quand un deck est actif (mode atelier).
+     Géré par journeyStart() / journeyRender() / journeyClose(). Toujours présent
+     dans le DOM, affiché conditionnellement via .show. -->
+<div id="journey-bar" role="navigation" aria-label="Parcours du deck"></div>
 <!-- Overlay raccourcis clavier (? ou Ctrl+/) -->
 <div id="kbd-help-overlay" onclick="if(event.target===this)closeKbdHelp()">
   <div id="kbd-help-box">
@@ -8948,8 +8987,9 @@ function renderHome(){
         +_coverageBar(_cov,id)
         +'</div>'
         +'<div style="display:flex;gap:4px;margin-top:6px;padding-top:6px;border-top:.5px solid var(--bd)">'
+        +'<button class="btn btnsm" onclick="event.stopPropagation();journeyStart(\''+escJs(id)+'\')" title="Parcours complet : Build → Analyser → Achever" style="flex:1;padding:3px 5px;font-size:.7rem;color:var(--gold2);background:linear-gradient(180deg,rgba(201,168,76,.18),rgba(201,168,76,.02));border:.5px solid rgba(201,168,76,.4)">🛤</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(id)+'\')" title="Éditer" style="flex:1;padding:3px 5px;font-size:.7rem">✎</button>'
-        +'<button class="btn btnsm" onclick="event.stopPropagation();anaCoachExpress(\''+escJs(id)+'\')" title="Coach express : verdict immédiat (saute le diagnostic)" style="flex:1;padding:3px 5px;font-size:.7rem;color:var(--gold2)">⚡</button>'
+        +'<button class="btn btnsm" onclick="event.stopPropagation();anaCoachExpress(\''+escJs(id)+'\')" title="Coach express : verdict immédiat (saute le diagnostic)" style="flex:1;padding:3px 5px;font-size:.7rem">⚡</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();openMulliganTrainer(\''+escJs(id)+'\')" title="Tester main" style="flex:1;padding:3px 5px;font-size:.7rem">🎴</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();openDeckFocus(\''+escJs(id)+'\')" title="Vue focus" style="flex:1;padding:3px 5px;font-size:.7rem">🎯</button>'
         +'</div>'
@@ -35714,6 +35754,9 @@ function anaCoachGoto(step){
   _anaCoachStep=step;
   _anaCoachSavePref();
   _anaCoachRender();
+  // Découverte progressive : à la 1ère arrivée sur Verdict (étape 2 = vrai moment
+  // « aha » du Coach Mode), proposer le parcours complet via toast non-intrusif.
+  if(step>=2&&typeof _journeyMaybeProposeOnAnalyse==='function')_journeyMaybeProposeOnAnalyse();
 }
 // Coach express : raccourci depuis Mes decks → onglet Analyse + sélection du deck
 // + Coach Mode actif + saut direct à l'étape Verdict (étape 2), c'est-à-dire le
@@ -35736,6 +35779,281 @@ function anaCoachExpress(deckId){
     // Après render, on force le step Verdict (anaRender peut avoir réinitialisé à 1).
     setTimeout(function(){_anaCoachStep=2;_anaCoachSavePref&&_anaCoachSavePref();if(typeof _anaCoachRender==='function')_anaCoachRender();},120);
   })();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PARCOURS « Cycle de vie d'un deck » — 3 macro-étapes (Build · Analyser · Achever).
+//
+// Permet à l'utilisateur d'avancer linéairement de la création jusqu'à la
+// commande physique sans avoir à chercher quel onglet ouvrir. Le banner
+// (#journey-bar) reste sticky en haut, montre l'étape courante et permet de
+// naviguer Précédent/Suivant.
+//
+// État : _journey persiste en localStorage (mtg_journey) + sur le doc deck
+// (decks[id].journey) pour reprendre où on en était. Pour éviter de polluer
+// l'utilisateur avancé, le parcours est activé EXPLICITEMENT (bouton « ⚡ Parcours »
+// ou toast après 1ère analyse Coach — voir _journeyMaybeProposeOnAnalyse).
+//
+// Macro-étapes :
+//   1. build    → onglet Deck (édition cartes, commandant, format)
+//   2. analyse  → onglet Analyse + Coach Mode actif
+//   3. achieve  → modal Achever (diff swaps, liste d'achat physique)
+var _journey={deckId:null,step:'build',completed:{},active:false};
+var _JOURNEY_STEPS=[
+  {key:'build',lbl:'Build',ico:'🛠',hint:'Crée ou modifie ton deck',n:1},
+  {key:'analyse',lbl:'Analyser',ico:'📊',hint:'Coach Mode + test de main',n:2},
+  {key:'achieve',lbl:'Achever',ico:'🎯',hint:'Diff, gains et liste d\'achat',n:3}
+];
+function _journeyLoad(){
+  try{
+    var raw=_lsGetJSON('mtg_journey',null);
+    if(raw&&raw.deckId&&decks&&decks[raw.deckId]){
+      _journey.deckId=raw.deckId;
+      _journey.step=raw.step||'build';
+      _journey.completed=raw.completed||{};
+      _journey.active=!!raw.active;
+    }
+  }catch(e){}
+}
+function _journeySave(){
+  try{_lsSetJSON('mtg_journey',{deckId:_journey.deckId,step:_journey.step,completed:_journey.completed,active:_journey.active});}catch(e){}
+}
+function journeyStart(deckId){
+  if(!deckId||!decks||!decks[deckId]){if(typeof toastError==='function')toastError('Deck introuvable');return;}
+  _journey.deckId=deckId;
+  _journey.step=_journey.step||'build';
+  _journey.active=true;
+  _journeySave();
+  journeyRender();
+  // Charge l'étape courante
+  journeyGoto(_journey.step);
+}
+function journeyClose(){
+  _journey.active=false;
+  _journeySave();
+  var bar=document.getElementById('journey-bar');if(bar)bar.classList.remove('show');
+}
+function journeyGoto(step){
+  if(!_journey.deckId)return;
+  var def=_JOURNEY_STEPS.filter(function(s){return s.key===step;})[0];
+  if(!def)return;
+  // Marque l'étape précédente comme complétée (sauf si on recule)
+  var curIdx=_JOURNEY_STEPS.findIndex(function(s){return s.key===_journey.step;});
+  var nextIdx=_JOURNEY_STEPS.findIndex(function(s){return s.key===step;});
+  if(nextIdx>curIdx&&_journey.step)_journey.completed[_journey.step]=true;
+  _journey.step=step;
+  _journeySave();
+  // Routage par étape : chaque macro-étape ouvre le bon module avec le contexte deck
+  if(step==='build'){
+    if(typeof goTab==='function')goTab('deck');
+    if(typeof loadDeck==='function')setTimeout(function(){loadDeck(_journey.deckId);},80);
+  } else if(step==='analyse'){
+    anaCoachExpress(_journey.deckId);
+  } else if(step==='achieve'){
+    journeyOpenAchieve();
+  }
+  journeyRender();
+}
+function journeyNext(){
+  var idx=_JOURNEY_STEPS.findIndex(function(s){return s.key===_journey.step;});
+  if(idx<_JOURNEY_STEPS.length-1)journeyGoto(_JOURNEY_STEPS[idx+1].key);
+}
+function journeyPrev(){
+  var idx=_JOURNEY_STEPS.findIndex(function(s){return s.key===_journey.step;});
+  if(idx>0)journeyGoto(_JOURNEY_STEPS[idx-1].key);
+}
+function journeyRender(){
+  var bar=document.getElementById('journey-bar');if(!bar)return;
+  if(!_journey.active||!_journey.deckId){bar.classList.remove('show');return;}
+  var dk=decks[_journey.deckId];if(!dk){bar.classList.remove('show');return;}
+  var name=dk.name||'Deck sans nom';
+  var h='<div class="jb-deck"><span class="jb-deck-lbl">Parcours · deck</span>'+esc(name)+'</div>';
+  h+='<div class="jb-steps">';
+  _JOURNEY_STEPS.forEach(function(s,i){
+    var cls='jb-step';
+    if(s.key===_journey.step)cls+=' active';
+    else if(_journey.completed[s.key])cls+=' done';
+    h+='<div class="'+cls+'" data-journey-step="'+s.key+'" title="'+esc(s.hint)+'" role="button" tabindex="0"><span class="jb-step-n">'+s.n+'</span>'+s.ico+' '+esc(s.lbl)+'</div>';
+    if(i<_JOURNEY_STEPS.length-1)h+='<span class="jb-arrow">▸</span>';
+  });
+  h+='</div>';
+  var idx=_JOURNEY_STEPS.findIndex(function(s){return s.key===_journey.step;});
+  h+='<div class="jb-nav">';
+  h+='<button class="jb-nav-btn" data-journey-act="prev" '+(idx<=0?'disabled':'')+'>◀</button>';
+  if(idx<_JOURNEY_STEPS.length-1){
+    h+='<button class="jb-nav-btn primary" data-journey-act="next">'+esc(_JOURNEY_STEPS[idx+1].lbl)+' ▶</button>';
+  } else {
+    h+='<button class="jb-nav-btn primary" data-journey-act="finish">✓ Terminer</button>';
+  }
+  h+='<button class="jb-close" data-journey-act="close" aria-label="Quitter le parcours" title="Quitter le parcours (la progression est sauvegardée)">✕</button>';
+  h+='</div>';
+  bar.innerHTML=h;
+  bar.classList.add('show');
+}
+// Délégation événements : un seul handler installé une fois.
+var _journeyDelegInstalled=false;
+function _journeyInstallDelegation(){
+  if(_journeyDelegInstalled)return;
+  var bar=document.getElementById('journey-bar');if(!bar)return;
+  bar.addEventListener('click',function(ev){
+    var act=ev.target&&ev.target.closest&&ev.target.closest('[data-journey-act]');
+    if(act){
+      var a=act.getAttribute('data-journey-act');
+      if(a==='prev')journeyPrev();
+      else if(a==='next')journeyNext();
+      else if(a==='close')journeyClose();
+      else if(a==='finish'){_journey.completed[_journey.step]=true;journeyClose();if(typeof toastSuccess==='function')toastSuccess('Parcours terminé ✓');}
+      return;
+    }
+    var step=ev.target&&ev.target.closest&&ev.target.closest('[data-journey-step]');
+    if(step){var k=step.getAttribute('data-journey-step');if(k)journeyGoto(k);}
+  });
+  _journeyDelegInstalled=true;
+}
+// Étape Achever : modal qui montre les swaps validés + génère liste d'achat.
+function journeyOpenAchieve(){
+  var deckId=_journey.deckId;if(!deckId)return;
+  var dk=decks[deckId];if(!dk)return;
+  var ov=document.getElementById('journey-achieve-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='journey-achieve-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5800;background:rgba(0,0,0,.88);display:flex;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)journeyCloseAchieve();});
+  }
+  ov.style.display='flex';
+  // Lit les swaps validés depuis _anaFlagGet (flag 'change' = swap accepté)
+  var swaps=[];
+  try{
+    var fullOpt=_anaState&&_anaState.fullOpt;
+    if(fullOpt&&fullOpt.swaps){
+      fullOpt.swaps.forEach(function(sw){
+        var flag=(typeof _anaFlagGet==='function')?_anaFlagGet(deckId,sw.cut&&sw.cut.nl):null;
+        if(flag==='change')swaps.push(sw);
+      });
+    }
+  }catch(e){}
+  // Calcule les cartes manquantes : pour les ajouts, on regarde si on les a en collection
+  var owned={};
+  try{(getProfCards(0)||[]).forEach(function(c){owned[(c.name||'').toLowerCase().trim()]=(c.qty||1);});}catch(e){}
+  var missing=[];
+  swaps.forEach(function(sw){
+    if(!sw.add||!sw.add.name)return;
+    var nm=sw.add.name;
+    var nl=nm.toLowerCase().trim();
+    if(!owned[nl])missing.push({name:nm,qty:1,priceEur:(sw.add.meta&&sw.add.meta.priceEur)||0});
+  });
+  var totalPrice=missing.reduce(function(s,m){return s+(m.priceEur||0);},0);
+  var h='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--gold);border-radius:14px;max-width:760px;width:100%;padding:24px 28px;box-shadow:0 0 40px rgba(201,168,76,.15)">';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.55rem;color:var(--gold2);flex:1">🎯 Achever — '+esc(dk.name||'Deck')+'</div>';
+  h+='<button class="btn btnsm" onclick="journeyCloseAchieve()">✕</button></div>';
+  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:18px">Bilan des modifications acceptées à l\'étape Analyse. Liste d\'achat physique générée pour les cartes manquantes.</div>';
+  // Section 1 : Bilan des swaps acceptés
+  h+='<div style="margin-bottom:18px"><div style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:.95rem;margin-bottom:8px">📋 Modifications acceptées ('+swaps.length+')</div>';
+  if(!swaps.length){
+    h+=mlEmpty('🤔','Aucun swap accepté','Reviens à l\'étape Analyse et coche les swaps 🔄 que tu souhaites appliquer.','<button class="btn btnp btnsm" onclick="journeyGoto(\'analyse\')">◀ Retour à l\'analyse</button>');
+  } else {
+    var totalGain=swaps.reduce(function(s,sw){return s+(sw.gain||0);},0);
+    h+='<div style="background:rgba(120,200,144,.08);border:.5px solid rgba(120,200,144,.4);border-radius:9px;padding:10px 14px;margin-bottom:10px;font-size:.85rem"><b style="color:var(--gr2)">Gain estimé : +'+totalGain.toFixed(1)+' pts</b> sur '+swaps.length+' swap'+(swaps.length>1?'s':'')+'.</div>';
+    h+='<div style="max-height:240px;overflow-y:auto;border:.5px solid var(--bd2);border-radius:8px">';
+    swaps.forEach(function(sw){
+      h+='<div style="display:grid;grid-template-columns:1fr 18px 1fr 50px;gap:8px;align-items:center;padding:7px 12px;border-bottom:.5px solid var(--bd);font-size:.82rem">'
+        +'<div style="color:var(--rd2);text-decoration:line-through">'+esc(sw.cut.name||'?')+'</div>'
+        +'<div style="color:var(--gold2);text-align:center">▶</div>'
+        +'<div style="color:var(--gr2)">'+esc(sw.add.name||'?')+'</div>'
+        +'<div style="text-align:right;font-family:monospace;color:var(--gr2)">+'+(sw.gain!=null?sw.gain.toFixed(1):'?')+'</div>'
+        +'</div>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  // Section 2 : Liste d'achat
+  h+='<div style="margin-bottom:18px"><div style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:.95rem;margin-bottom:8px">🛒 Liste d\'achat physique ('+missing.length+' cartes)</div>';
+  if(!missing.length){
+    h+='<div style="padding:14px;background:rgba(120,200,144,.06);border:.5px dashed rgba(120,200,144,.4);border-radius:9px;color:var(--gr2);text-align:center;font-size:.85rem;font-style:italic">✓ Toutes les cartes ajoutées sont déjà dans ta collection — rien à acheter !</div>';
+  } else {
+    h+='<div style="background:rgba(201,168,76,.06);border:.5px solid rgba(201,168,76,.3);border-radius:9px;padding:10px 14px;margin-bottom:8px;font-size:.85rem"><b style="color:var(--gold2)">Coût estimé : '+totalPrice.toFixed(2)+' €</b> (prix Scryfall/Cardmarket indicatifs).</div>';
+    h+='<div style="max-height:200px;overflow-y:auto;border:.5px solid var(--bd2);border-radius:8px">';
+    missing.forEach(function(m){
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:.5px solid var(--bd);font-size:.82rem">'
+        +'<span style="color:var(--tx);flex:1">'+m.qty+'× '+esc(m.name)+'</span>'
+        +'<span style="color:var(--am);font-family:monospace">'+(m.priceEur>0?m.priceEur.toFixed(2)+' €':'—')+'</span>'
+        +'</div>';
+    });
+    h+='</div>';
+    h+='<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">';
+    h+='<button class="btn btnp btnsm" onclick="journeyExportMissingToPurList()" title="Ajoute les cartes à ta liste d\'achat partagée (onglet Listes)">🛒 Ajouter à ma liste d\'achat</button>';
+    h+='<button class="btn btnsm" onclick="journeyCopyMissingClipboard()" title="Copie en format Cardmarket Wants Builder">📋 Copier (pour Cardmarket)</button>';
+    h+='</div>';
+  }
+  h+='</div>';
+  // Footer
+  h+='<div style="display:flex;gap:8px;padding-top:14px;border-top:.5px solid var(--bd);align-items:center">';
+  h+='<button class="btn btnsm" onclick="journeyGoto(\'analyse\')">◀ Retour à l\'analyse</button>';
+  h+='<div style="flex:1"></div>';
+  h+='<button class="btn btnp btnsm" onclick="_journey.completed[\'achieve\']=true;_journeySave();journeyCloseAchieve();journeyClose();if(typeof toastSuccess===\'function\')toastSuccess(\'Parcours terminé ✓\')">✓ Terminer le parcours</button>';
+  h+='</div>';
+  h+='</div>';
+  ov.innerHTML=h;
+  // Données pour les exports
+  ov.dataset.deckId=deckId;
+  window._journeyMissing=missing;
+}
+function journeyCloseAchieve(){var ov=document.getElementById('journey-achieve-ov');if(ov)ov.style.display='none';}
+function journeyExportMissingToPurList(){
+  var missing=window._journeyMissing||[];
+  if(!missing.length)return;
+  // Ajoute chaque carte à _wishlist ou à la liste d'achat active.
+  // Format générique : utilise purAddItem si dispo, sinon openPurchaseMgr avec data préchargée.
+  if(typeof openPurchaseMgr==='function'){
+    journeyCloseAchieve();
+    openPurchaseMgr();
+    // Mémorise les cartes à ajouter — la modale Listes peut les piocher
+    window._pendingPurchaseItems=missing.map(function(m){return {name:m.name,qty:m.qty};});
+    if(typeof toastInfo==='function')toastInfo(missing.length+' carte(s) prête(s) à ajouter à ta liste d\'achat.');
+  } else {
+    if(typeof toastError==='function')toastError('Module listes d\'achat indisponible');
+  }
+}
+function journeyCopyMissingClipboard(){
+  var missing=window._journeyMissing||[];
+  if(!missing.length)return;
+  var txt=missing.map(function(m){return m.qty+' '+m.name;}).join('\n');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){
+      if(typeof toastSuccess==='function')toastSuccess('📋 Liste copiée — colle dans Cardmarket Wants Builder');
+    }).catch(function(){
+      if(typeof toastError==='function')toastError('Copie impossible — sélectionne le texte manuellement');
+    });
+  }
+}
+// Toast d'invite après la 1ère analyse Coach — découverte progressive du parcours.
+function _journeyMaybeProposeOnAnalyse(){
+  try{
+    if(_lsGet('mtg_journey_proposed')==='1')return;
+    if(!_anaState||!_anaState.deck||!_anaState.deck.id)return;
+    var deckId=_anaState.deck.id;
+    _lsSet('mtg_journey_proposed','1');
+    setTimeout(function(){
+      if(typeof toastInfo==='function'){
+        // Toast custom HTML avec CTA
+        var t=document.createElement('div');
+        t.style.cssText='position:fixed;bottom:80px;right:20px;z-index:99998;background:linear-gradient(180deg,#3a2008,#180d04);border:1.5px solid var(--gold);border-radius:11px;padding:14px 18px;box-shadow:0 8px 28px rgba(0,0,0,.65),0 0 22px rgba(201,168,76,.2);max-width:340px;font-family:Crimson Pro,Georgia,serif;color:var(--tx);animation:swBannerSlide .35s ease-out';
+        t.innerHTML='<div style="font-family:Goudy Mediaeval,serif;color:var(--gold2);margin-bottom:6px;font-size:.95rem">⚡ Parcours complet ?</div>'
+          +'<div style="font-size:.82rem;color:var(--tx2);line-height:1.5;margin-bottom:10px">Suis le cycle <b>Build → Analyser → Achever</b> sur ce deck pour aller jusqu\'à la liste d\'achat physique sans te perdre dans les onglets.</div>'
+          +'<div style="display:flex;gap:6px"><button class="btn btnp btnsm" onclick="journeyStart(\''+escJs(deckId)+'\');this.closest(\'div[style*=position:fixed]\').remove()">⚡ Lancer</button><button class="btn btnsm" onclick="this.closest(\'div[style*=position:fixed]\').remove()">Plus tard</button></div>';
+        document.body.appendChild(t);
+        setTimeout(function(){if(t&&t.parentNode)t.remove();},14000);
+      }
+    },1200);
+  }catch(e){}
+}
+// Installation : DOMContentLoaded ou immédiate selon état
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',function(){_journeyInstallDelegation();_journeyLoad();if(_journey.active)journeyRender();});
+} else {
+  _journeyInstallDelegation();_journeyLoad();if(_journey.active)setTimeout(journeyRender,200);
 }
 function _anaCoachApply(){
   var host=document.getElementById('ana-results');if(!host)return;
