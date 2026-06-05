@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-11';
+window.APP_BUILD='2026-06-05-12';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -3477,6 +3477,7 @@ details > summary::-webkit-details-marker{display:none}
     <div class="row" style="margin-bottom:.75rem">
       <div class="lbl" style="margin-bottom:0" id="etitle">Nouveau deck</div>
       <button class="btn btnsm btnp" onclick="newDeck()" style="margin-left:auto" data-i18n="deck.new">+ Nouveau deck</button>
+      <button class="btn btnsm" onclick="openDeckPasteModal()" title="Coller une decklist (Moxfield, Archidekt, Arena, MTGO, format texte) pour la parser en masse">📋 Coller une liste</button>
       <button class="btn btnsm" id="playtestbtn" onclick="openPlaytest(actDeck)" title="Simule la main d'ouverture et les premiers tours" style="display:none">🎮 Playtest</button>
       <button class="btn btnsm" id="ccbtn" onclick="openCustomCategories(actDeck)" title="Organise tes cartes en catégories perso" style="display:none">📂 Cats</button>
       <button class="btn btnsm" id="publicbtn" onclick="toggleDeckPublic(actDeck)" title="Publier dans l'explorateur" style="display:none">🔒 Privé</button>
@@ -12913,11 +12914,29 @@ function renderDeckStats(){
   el.style.display='block';
   var cmcBuckets=[0,0,0,0,0,0,0,0];
   var tCnt={creature:0,instant:0,sorcery:0,land:0,enchantment:0,artifact:0,planeswalker:0,other:0};
+  // Couleurs : on compte les SYMBOLES de mana (pip count) — pas juste « la carte est WUBR ».
+  // C'est ce qui détermine la cohérence couleur du deck (« 18 pips bleus, 6 noirs » = mono-U splash B).
+  var pipCnt={W:0,U:0,B:0,R:0,G:0,C:0};
+  // Valeur € totale (best effort via meta.priceEur ou allPriceMap)
+  var totalEur=0;
   dCards.forEach(function(c){
     var meta=dCardMeta[c.nl]||{};
     var tl=(meta.typeLine||'').toLowerCase();
     var cmc=Math.floor(meta.cmc||0);
     if(tl.indexOf('land')<0)cmcBuckets[Math.min(cmc,7)]+=c.qty;
+    // Compte les pips couleur dans mana_cost (ex. "{2}{U}{U}" → 2 pips U)
+    var mc=meta.manaCost||meta.mana_cost||'';
+    if(mc){
+      var pips=mc.match(/\{[WUBRG]\}/g)||[];
+      pips.forEach(function(p){pipCnt[p.charAt(1)]+=c.qty;});
+    } else if(tl.indexOf('land')>=0){
+      // Lands : pas de coût mais on regarde producedMana pour la « ressource » qu'ils ajoutent
+      var prod=meta.producedMana||[];
+      prod.forEach(function(p){if(pipCnt[p]!=null)pipCnt[p]+=c.qty;});
+    }
+    // Valeur €
+    var pe=(meta.priceEur)||(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])||0;
+    if(pe>0)totalEur+=pe*(c.qty||1);
     if(tl.indexOf('land')>=0)tCnt.land+=c.qty;
     else if(tl.indexOf('creature')>=0)tCnt.creature+=c.qty;
     else if(tl.indexOf('instant')>=0)tCnt.instant+=c.qty;
@@ -12963,6 +12982,78 @@ function renderDeckStats(){
       +'</div>';
   });
   document.getElementById('dtypes').innerHTML=typesHtml;
+  // ── Section enrichie : Couleurs (pips), Valeur €, Validation cohérence ──
+  // Injecté en dehors de #dtypes pour ne pas casser le rendu existant.
+  var extraEl=document.getElementById('dlive-extra');
+  if(!extraEl){
+    extraEl=document.createElement('div');extraEl.id='dlive-extra';
+    var dtypesEl=document.getElementById('dtypes');
+    if(dtypesEl&&dtypesEl.parentNode)dtypesEl.parentNode.insertBefore(extraEl,dtypesEl.nextSibling);
+  }
+  var COL_LABELS={W:{n:'Blanc',c:'#f5e9c5'},U:{n:'Bleu',c:'#88c8f0'},B:{n:'Noir',c:'#9088a8'},R:{n:'Rouge',c:'#e07070'},G:{n:'Vert',c:'#90c890'},C:{n:'Incolore',c:'var(--tx3)'}};
+  var totalPips=Object.keys(pipCnt).reduce(function(s,k){return s+pipCnt[k];},0);
+  var pipsHtml='';
+  if(totalPips>0){
+    pipsHtml='<div style="font-size:9px;color:var(--tx3);font-family:\'Goudy Mediaeval\',serif;letter-spacing:.06em;margin:12px 0 6px">COULEURS (PIPS)</div>';
+    ['W','U','B','R','G'].forEach(function(k){
+      if(!pipCnt[k])return;
+      var pct=Math.round(pipCnt[k]/totalPips*100);
+      pipsHtml+='<div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">'
+        +'<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:'+COL_LABELS[k].c+';flex-shrink:0;border:.5px solid rgba(0,0,0,.4)"></span>'
+        +'<div style="font-size:.66rem;color:var(--tx2);min-width:42px">'+COL_LABELS[k].n+'</div>'
+        +'<div style="flex:1;background:var(--s1);border-radius:2px;height:5px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+COL_LABELS[k].c+'"></div></div>'
+        +'<div style="font-size:.66rem;color:'+COL_LABELS[k].c+';font-weight:600;min-width:32px;text-align:right">'+pipCnt[k]+' ('+pct+'%)</div>'
+        +'</div>';
+    });
+  }
+  // Valeur € totale + nb cartes
+  var totalC=dCards.reduce(function(s,c){return s+(c.qty||1);},0);
+  var valHtml='<div style="margin-top:12px;padding:9px 11px;background:rgba(201,168,76,.07);border:.5px solid rgba(201,168,76,.3);border-radius:7px;font-size:.78rem">'
+    +'<div style="display:flex;justify-content:space-between;color:var(--tx2);margin-bottom:3px"><span>Cartes</span><b style="color:var(--gold2)">'+totalC+'</b></div>'
+    +(totalEur>0?'<div style="display:flex;justify-content:space-between;color:var(--tx2)"><span>Valeur €</span><b style="color:var(--gold2)">'+totalEur.toFixed(2)+' €</b></div>':'')
+    +'</div>';
+  // Validation cohérence : format target count + couleur identité commandant + banlist
+  var warnHtml=_renderDeckValidation(totalC);
+  extraEl.innerHTML=pipsHtml+valHtml+warnHtml;
+}
+// Validation cohérence : alertes count format + couleur identité hors limites
+function _renderDeckValidation(totalC){
+  var w='';
+  var fmt=(dFormat||'').toLowerCase();
+  // Target count par format
+  var targetN=null;
+  if(fmt==='commander'||fmt==='edh'||fmt==='pdh'||fmt==='paupercmd'||fmt==='paupercommander'||fmt==='brawl')targetN=100;
+  else if(fmt==='standard'||fmt==='modern'||fmt==='pioneer'||fmt==='legacy'||fmt==='vintage'||fmt==='pauper'||fmt==='historic'||fmt==='explorer')targetN=60;
+  var warns=[];
+  if(targetN&&totalC!==targetN){
+    var diff=totalC-targetN;
+    warns.push({lvl:'warn',msg:(diff>0?'+':'')+diff+' carte'+(Math.abs(diff)>1?'s':'')+' vs '+targetN+' attendues ('+fmt+')'});
+  }
+  // Vérification couleur identité du commandant (EDH)
+  if(dCommander&&dCommander.colors&&dCommander.colors.length>=0){
+    var ci={};(dCommander.colors||[]).forEach(function(c){ci[c]=1;});
+    var hors=[];
+    dCards.forEach(function(c){
+      var meta=dCardMeta[c.nl]||{};
+      var cardCi=meta.colorIdentity||meta.color_identity||[];
+      var out=cardCi.filter(function(col){return !ci[col];});
+      if(out.length)hors.push(c.name);
+    });
+    if(hors.length){
+      warns.push({lvl:'error',msg:hors.length+' carte'+(hors.length>1?'s':'')+' hors identité couleur du commandant',details:hors.slice(0,3).join(', ')+(hors.length>3?'…':'')});
+    }
+  }
+  if(!warns.length)return '<div style="margin-top:8px;padding:7px 11px;background:rgba(120,200,144,.08);border:.5px solid rgba(120,200,144,.4);border-radius:7px;font-size:.74rem;color:var(--gr2)">✓ Deck cohérent</div>';
+  warns.forEach(function(w0){
+    var col=w0.lvl==='error'?'var(--rd2)':'var(--am)';
+    var bg=w0.lvl==='error'?'rgba(220,80,80,.08)':'rgba(245,185,91,.08)';
+    var bd=w0.lvl==='error'?'rgba(220,80,80,.4)':'rgba(245,185,91,.4)';
+    var ico=w0.lvl==='error'?'✗':'⚠';
+    w+='<div style="margin-top:8px;padding:7px 11px;background:'+bg+';border:.5px solid '+bd+';border-radius:7px;font-size:.74rem;color:'+col+'">'+ico+' '+esc(w0.msg)
+      +(w0.details?'<div style="font-size:.68rem;color:var(--tx3);margin-top:3px;font-style:italic">'+esc(w0.details)+'</div>':'')
+      +'</div>';
+  });
+  return w;
 }
 
 // ===== ANALYSE SMART DECK =====
@@ -13967,7 +14058,7 @@ function renderDeck(){
         var inCustom=_customAchat.some(function(cx){return cx.nl===card.nl;});
         var addBtn='<button class="dadd-btn'+(inCustom?' in':'')+'" onclick="addToCustomByIdx('+dCards.indexOf(card)+');event.stopPropagation()" title="Ajouter au panier personnalisé">+</button>';
         _zoomList.push({nl:card.nl,name:card.name});var zi=_zoomList.length-1;
-        html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq">'+card.qty+'</div><div class="dname cz-clickable" onclick="openCardZoomAt('+zi+')" title="Zoomer">'+esc(card.name)+dkBdg+'</div>'+pc+priceCell+addBtn+'</div>';
+        html+='<div class="'+rc+(pendQD?' rpend':'')+'"><div class="dq-grp"><button class="dq-mini dq-dec" data-nl="'+esc(card.nl)+'" title="−1 (ou supprimer si dernière copie)" tabindex="-1">−</button><div class="dq">'+card.qty+'</div><button class="dq-mini dq-inc" data-nl="'+esc(card.nl)+'" title="+1" tabindex="-1">+</button></div><div class="dname cz-clickable" onclick="openCardZoomAt('+zi+')" title="Zoomer">'+esc(card.name)+dkBdg+'</div>'+pc+priceCell+addBtn+'</div>';
       });
       html+='</div>'; // /dsec-wrap
     });
@@ -14089,6 +14180,142 @@ function montageFillOwned(){
   _montageSave();renderDeckMontage();
   if(changed===0)toastWarning('Aucun changement — toutes les cartes possédées sont déjà placées.');
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// QUICK PASTE IMPORT — coller une decklist depuis Moxfield/Archidekt/Arena/MTGO
+// directement dans le deck actif. La fonction parseList() existante gère déjà
+// les sections (// Sideboard, etc.), les set codes (SET-123), les annotations
+// [tag], et le format permissif (qty + nom). Cette modal expose simplement ça
+// dans le builder, où elle manquait — c'était le gap n°1 vs Moxfield.
+// Édition rapide qty inline : boutons +/− à côté du nombre dans la liste deck.
+// Delegation globale → on n'attache pas un handler par carte (perf + simplicité).
+// Click +1, click − = -1 (supprime si dernière copie).
+function _deckChangeQty(nl,delta){
+  if(!actDeck||!decks[actDeck])return;
+  var card=dCards.find(function(c){return c.nl===nl;});if(!card)return;
+  var newQty=(card.qty||1)+delta;
+  if(newQty<=0){
+    dCards=dCards.filter(function(c){return c.nl!==nl;});
+  } else {
+    card.qty=newQty;
+  }
+  var dk=decks[actDeck];
+  dk.cards=dCards.map(function(c){return {name:c.name,nl:c.nl,qty:c.qty,set:c.set||'',num:c.num||'',sec:c.sec||'Deck'};});
+  dk.rawName=dCards.map(function(c){return (c.qty||1)+' '+c.name+(c.set?' ('+c.set+')':'')+(c.num?' '+c.num:'')+(c.sec&&c.sec!=='Deck'?' // '+c.sec:'');}).join('\n');
+  dk.updatedAt=Date.now();
+  // Reset montage si carte retirée
+  if(newQty<=0){var dd=_montageData();if(dd)delete dd[nl];_montageSave();}
+  if(typeof saveDecks==='function')saveDecks();
+  if(typeof renderDeck==='function')renderDeck();
+}
+// Délégation globale sur les mini-boutons qty
+(function(){
+  var inst=false;
+  function bind(){
+    if(inst)return;inst=true;
+    document.addEventListener('click',function(ev){
+      var btn=ev.target&&ev.target.closest&&ev.target.closest('.dq-mini');
+      if(!btn)return;
+      ev.stopPropagation();ev.preventDefault();
+      var nl=btn.getAttribute('data-nl');if(!nl)return;
+      var delta=btn.classList.contains('dq-dec')?-1:1;
+      _deckChangeQty(nl,delta);
+    });
+    // CSS injecté dynamiquement pour les mini-boutons
+    if(document.getElementById('dq-mini-style'))return;
+    var st=document.createElement('style');st.id='dq-mini-style';
+    st.textContent='.dq-grp{display:inline-flex;align-items:stretch;gap:0;border-radius:5px;overflow:hidden;background:var(--s2);border:.5px solid var(--bd2);height:22px;flex-shrink:0}'
+      +'.dq-grp .dq{display:inline-flex;align-items:center;justify-content:center;min-width:24px;padding:0 4px;font-weight:600;color:var(--gold2);background:rgba(0,0,0,.3)}'
+      +'.dq-mini{background:transparent;border:none;color:var(--tx2);cursor:pointer;padding:0 7px;font-size:.95rem;line-height:1;font-family:inherit;transition:background .1s,color .1s}'
+      +'.dq-mini:hover{background:rgba(201,168,76,.18);color:var(--gold2)}'
+      +'.dq-dec:hover{background:rgba(220,80,80,.18);color:var(--rd2)}';
+    if(document.head)document.head.appendChild(st);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+function openDeckPasteModal(){
+  if(!actDeck||!decks[actDeck]){
+    if(typeof toastError==='function')toastError('Ouvre ou crée d\'abord un deck');
+    return;
+  }
+  var ov=document.getElementById('deck-paste-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='deck-paste-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5700;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)closeDeckPasteModal();});
+  }
+  var dk=decks[actDeck];
+  var dkName=dk.name||'(sans nom)';
+  var curN=dCards.reduce(function(s,c){return s+(c.qty||1);},0);
+  var h='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:680px;width:100%;padding:22px 26px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.4rem;color:var(--gold2);flex:1">📋 Coller une decklist</div>';
+  h+='<button class="btn btnsm" onclick="closeDeckPasteModal()" aria-label="Fermer">✕</button></div>';
+  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:14px">Colle la liste depuis Moxfield, Archidekt, Arena, MTGO, ou tout format texte. Le parser détecte les <b>sections</b> (Sideboard/Commander/Maybeboard), les <b>set codes</b> (SET-123), et les <b>annotations</b>. Deck actif : <b style="color:var(--gold2)">'+esc(dkName)+'</b> · '+curN+' carte(s) actuellement.</div>';
+  h+='<textarea id="deck-paste-text" placeholder="Exemples acceptés :&#10;&#10;4 Lightning Bolt&#10;1 Sol Ring (CMR) 313&#10;4x Counterspell&#10;&#10;// Sideboard&#10;2 Veil of Summer&#10;&#10;COMMANDANT&#10;1 Atraxa, Praetors\' Voice" style="width:100%;height:240px;padding:12px;background:var(--s3);color:var(--tx);border:.5px solid var(--bd2);border-radius:7px;font-family:monospace;font-size:.82rem;resize:vertical;box-sizing:border-box;line-height:1.5" oninput="_deckPastePreview()"></textarea>';
+  h+='<div id="deck-paste-preview" style="margin-top:10px;min-height:22px;font-size:.82rem;color:var(--tx3);font-style:italic">— Aperçu apparaît ici en collant —</div>';
+  // Mode : remplacer ou ajouter
+  h+='<div style="margin-top:14px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:8px;font-size:.82rem;color:var(--tx2)">';
+  h+='<label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:5px"><input type="radio" name="deck-paste-mode" value="append" checked> <span><b>Ajouter</b> — fusionne avec le deck actuel (+1 si carte déjà présente)</span></label>';
+  h+='<label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="radio" name="deck-paste-mode" value="replace"> <span><b style="color:var(--rd2)">Remplacer</b> — efface le deck actuel ('+curN+' carte'+(curN>1?'s':'')+') et importe la liste collée</span></label>';
+  h+='</div>';
+  // Footer
+  h+='<div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;padding-top:14px;margin-top:14px;border-top:.5px solid var(--bd)">';
+  h+='<div style="flex:1;font-size:.7rem;color:var(--tx3);font-style:italic">⚡ Détection set code optionnelle · valide via cache local si catalogue Scryfall installé</div>';
+  h+='<button class="btn btnsm" onclick="closeDeckPasteModal()">Annuler</button>';
+  h+='<button class="btn btnp btnsm" id="deck-paste-go" onclick="_deckPasteApply()">📥 Importer</button>';
+  h+='</div>';
+  h+='</div>';
+  ov.innerHTML=h;ov.style.display='flex';
+  setTimeout(function(){var t=document.getElementById('deck-paste-text');if(t)t.focus();},50);
+}
+function closeDeckPasteModal(){var ov=document.getElementById('deck-paste-ov');if(ov)ov.style.display='none';}
+function _deckPastePreview(){
+  var ta=document.getElementById('deck-paste-text');var prev=document.getElementById('deck-paste-preview');
+  if(!ta||!prev)return;
+  var raw=ta.value;if(!raw.trim()){prev.innerHTML='— Aperçu apparaît ici en collant —';return;}
+  try{
+    var parsed=parseList(raw);
+    var total=parsed.reduce(function(s,c){return s+(c.qty||1);},0);
+    var secs={};parsed.forEach(function(c){secs[c.sec||'Deck']=(secs[c.sec||'Deck']||0)+(c.qty||1);});
+    var secStr=Object.keys(secs).map(function(k){return secs[k]+' '+k;}).join(' · ');
+    prev.innerHTML='<span style="color:var(--gr2)">✓ '+total+' carte'+(total>1?'s':'')+' détectée'+(total>1?'s':'')+'</span> — <span style="color:var(--tx2)">'+esc(secStr)+'</span>';
+  }catch(e){prev.innerHTML='<span style="color:var(--rd2)">Erreur parsing : '+esc(e.message||'')+'</span>';}
+}
+function _deckPasteApply(){
+  var ta=document.getElementById('deck-paste-text');if(!ta)return;
+  var raw=ta.value;if(!raw.trim()){if(typeof toastError==='function')toastError('Liste vide');return;}
+  var modeEl=document.querySelector('input[name="deck-paste-mode"]:checked');
+  var mode=modeEl?modeEl.value:'append';
+  if(!actDeck||!decks[actDeck])return;
+  var parsed;try{parsed=parseList(raw);}catch(e){if(typeof toastError==='function')toastError('Parser : '+e.message);return;}
+  if(!parsed.length){if(typeof toastError==='function')toastError('Aucune carte détectée');return;}
+  var dk=decks[actDeck];
+  if(mode==='replace'){
+    dCards=[];
+    // Reset montage builds aussi (puisque les cartes ne sont plus pertinentes)
+    if(dk.built&&userId&&dk.built[userId])dk.built[userId]={};
+  }
+  // Merge cartes : si déjà présente, incrémente qty ; sinon push
+  parsed.forEach(function(p){
+    var nl=stripDFC(p.name||'').toLowerCase();
+    var existing=dCards.find(function(c){return c.nl===nl;});
+    if(existing)existing.qty=(existing.qty||1)+(p.qty||1);
+    else dCards.push({name:p.name,nl:nl,qty:p.qty||1,sec:p.sec||'Deck',set:p.set||'',num:p.num||''});
+  });
+  // Sync sur le doc deck
+  dk.cards=dCards.map(function(c){return {name:c.name,nl:c.nl,qty:c.qty,set:c.set||'',num:c.num||'',sec:c.sec||'Deck'};});
+  dk.rawName=dCards.map(function(c){return (c.qty||1)+' '+c.name+(c.set?' ('+c.set+')':'')+(c.num?' '+c.num:'')+(c.sec&&c.sec!=='Deck'?' // '+c.sec:'');}).join('\n');
+  dk.updatedAt=Date.now();
+  if(typeof saveDecks==='function')saveDecks();
+  if(typeof renderDeck==='function')renderDeck();
+  if(typeof renderDeckMontage==='function')renderDeckMontage();
+  if(typeof renderDBar==='function')renderDBar();
+  closeDeckPasteModal();
+  var verb=mode==='replace'?'Remplacement':'Ajout';
+  if(typeof toastSuccess==='function')toastSuccess('📥 '+verb+' : '+parsed.length+' ligne'+(parsed.length>1?'s':'')+' importée'+(parsed.length>1?'s':'')+'.');
+}
+
 function montageSearchSubmit(){
   var inp=document.getElementById('montage-quickadd');if(!inp)return;
   var q=(inp.value||'').toLowerCase().trim();if(!q)return;
