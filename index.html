@@ -40,14 +40,42 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-04-9';
-// Force update du service worker à chaque chargement + auto-reload si nouvelle version
+window.APP_BUILD='2026-06-05-1';
+// Force update du service worker à chaque chargement.
+// Précédemment : reload automatique dès qu'une nouvelle version est active —
+// problème = perte d'état si l'utilisateur est en train d'éditer un deck.
+// Nouveau : on affiche un banner persistant « Nouvelle version dispo » avec un
+// bouton « Recharger » + un dismiss. L'utilisateur décide quand recharger.
 if('serviceWorker' in navigator && !window.electronAPI){
   navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.update();});});
-  var _swReloaded=false;
-  function _swDoReload(){if(!_swReloaded){_swReloaded=true;window.location.reload();}}
-  navigator.serviceWorker.addEventListener('controllerchange',_swDoReload);
-  navigator.serviceWorker.addEventListener('message',function(e){if(e.data&&e.data.type==='sw-activated')_swDoReload();});
+  var _swBannerShown=false;
+  function _swShowUpdateBanner(){
+    if(_swBannerShown)return;
+    _swBannerShown=true;
+    // Injection après DOMContentLoaded pour s'assurer que body existe.
+    var inject=function(){
+      if(document.getElementById('sw-update-banner'))return;
+      var b=document.createElement('div');
+      b.id='sw-update-banner';
+      b.style.cssText='position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:99999;background:linear-gradient(180deg,#3a2008 0%,#180d04 100%);border:1.5px solid #c9a84c;border-radius:11px;padding:10px 14px;box-shadow:0 8px 28px rgba(0,0,0,.65),0 0 22px rgba(201,168,76,.25);display:flex;align-items:center;gap:12px;font-family:Crimson Pro,Georgia,serif;color:#e4d5b7;max-width:calc(100vw - 28px);animation:swBannerSlide .35s ease-out';
+      b.innerHTML='<span style="font-size:1.25rem">⚡</span>'
+        +'<div style="font-size:.85rem;line-height:1.35">Nouvelle version disponible<div style="font-size:.72rem;color:#a09070;font-style:italic">Recharge pour appliquer les dernières améliorations</div></div>'
+        +'<button id="sw-update-reload" style="background:linear-gradient(180deg,#c9a84c,#9a7228);border:none;color:#1a0e04;font-weight:700;padding:7px 14px;border-radius:7px;cursor:pointer;font-family:inherit;font-size:.82rem">Recharger</button>'
+        +'<button id="sw-update-dismiss" style="background:transparent;border:.5px solid rgba(201,168,76,.35);color:#a09070;padding:7px 10px;border-radius:7px;cursor:pointer;font-family:inherit;font-size:.78rem">Plus tard</button>';
+      document.body.appendChild(b);
+      document.getElementById('sw-update-reload').addEventListener('click',function(){window.location.reload();});
+      document.getElementById('sw-update-dismiss').addEventListener('click',function(){var x=document.getElementById('sw-update-banner');if(x)x.remove();_swBannerShown=false;});
+      // Animation CSS ajoutée une seule fois.
+      if(!document.getElementById('sw-banner-anim')){
+        var st=document.createElement('style');st.id='sw-banner-anim';
+        st.textContent='@keyframes swBannerSlide{from{transform:translateX(-50%) translateY(20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}';
+        document.head.appendChild(st);
+      }
+    };
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject);else inject();
+  }
+  navigator.serviceWorker.addEventListener('controllerchange',_swShowUpdateBanner);
+  navigator.serviceWorker.addEventListener('message',function(e){if(e.data&&e.data.type==='sw-activated')_swShowUpdateBanner();});
 }
 </script>
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
@@ -1045,6 +1073,11 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .pf-color-chip:focus-visible{outline:2px solid var(--gold2);outline-offset:2px}
 .bld-wiz-feature:hover{box-shadow:0 0 18px rgba(201,168,76,.32);transform:translateY(-2px)}
 .bld-wiz-feature{transition:transform .15s,box-shadow .15s}
+/* Section avancée repliée du wizard : la chevron tourne quand le bloc est ouvert. */
+.bld-wiz-more summary::-webkit-details-marker{display:none}
+.bld-wiz-more[open] summary{color:var(--tx2)}
+.bld-wiz-more[open] summary::before{content:''}
+.bld-wiz-more summary:hover{color:var(--gold2)}
 @media(max-width:680px){.ana-valid-diff-grid{grid-template-columns:1fr}.ana-valid-score-num{font-size:2.6rem}}
 /* ─── KPI Tiles : restyling pro (gradients, icons, hover, trends, sparklines) ─── */
 .ana-kpi-tile{background:linear-gradient(135deg,rgba(218,180,107,.07) 0%,rgba(91,140,245,.04) 100%);border:.5px solid var(--bd2);border-radius:12px;padding:14px 16px;position:relative;overflow:hidden;transition:all .25s;min-height:90px}
@@ -3062,7 +3095,7 @@ details > summary::-webkit-details-marker{display:none}
     <div id="colllist"></div>
   </div>
   </div><!-- /coll-cols -->
-  <div id="collempty"><div class="ml-empty"><div class="ml-empty-ico">🃏</div><div class="ml-empty-title" data-i18n="coll.empty.title">Collection vide</div><div class="ml-empty-hint" data-i18n="coll.empty.hint">Importe un fichier CSV depuis CardNexus, Moxfield ou Manabox, ou ajoute des cartes à la main pour démarrer ta collection.</div></div></div>
+  <div id="collempty"><div class="ml-empty"><div class="ml-empty-ico">🃏</div><div class="ml-empty-title" data-i18n="coll.empty.title">Collection vide</div><div class="ml-empty-hint" data-i18n="coll.empty.hint">Importe un fichier CSV depuis CardNexus, Moxfield ou Manabox, ou ajoute des cartes à la main pour démarrer ta collection.</div><div class="ml-empty-action"><button class="btn btnp btnsm" onclick="document.getElementById('coll-import-fin').click()">⬆ Importer un CSV</button><button class="btn btnsm" onclick="toggleCollAddForm()">➕ Ajout manuel</button><button class="btn btnsm" onclick="openScan()">📷 Scanner</button></div></div></div>
 </div>
 
 <!-- SCRYFALL -->
@@ -3727,13 +3760,14 @@ details > summary::-webkit-details-marker{display:none}
   </div>
 </div>
 
-<!-- WIZARD: écran d'entrée -->
+<!-- WIZARD: écran d'entrée — 4 entrées principales + 4 secondaires repliables -->
 <div id="bld-wizard">
   <div style="text-align:center;margin-bottom:1.5rem">
     <div class="lbl" style="font-size:1.1rem;margin-bottom:.3rem">Créer un deck</div>
-    <div style="color:var(--tx3);font-size:.82rem">Choisis comment commencer — un deck vide, un commandant, un archétype, ou un méta-deck adapté à ta collection</div>
+    <div style="color:var(--tx3);font-size:.82rem">Choisis comment commencer — la tuile dorée combine tout en un seul flow</div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px">
+  <!-- 4 entrées principales toujours visibles : Deck parfait (phare) + 3 entry points clairs -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:10px">
     <div class="card bld-wiz-opt bld-wiz-feature" style="padding:1.25rem;background:linear-gradient(180deg,rgba(201,168,76,.12) 0%,rgba(201,168,76,.04) 100%);border:1.5px solid var(--gold)" onclick="mlPerfectDeckOpen()" title="Génère le deck optimal selon ta collection, ton commandant, ton budget et l'analyse ManaLAB">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">⚗</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center;color:var(--gold2)">Deck parfait ManaLAB</div>
@@ -3749,32 +3783,38 @@ details > summary::-webkit-details-marker{display:none}
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Depuis un commandant</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Génère un deck complet (EDHREC + synergies + courbe)</div>
     </div>
-    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openDiscover('synergies')">
-      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🎯</div>
-      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Par archétype / synergies</div>
-      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Tokens, sacrifice, spellslinger, voltron…</div>
-    </div>
-    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openDiscover('proposer')">
-      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🔎</div>
-      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Méta-decks adaptés</div>
-      <div style="color:var(--tx3);font-size:.78rem;text-align:center">5 propositions méta selon ta collection ou ton budget</div>
-    </div>
     <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="if(typeof openBuildable==='function')openBuildable()">
       <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🔨</div>
       <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Decks réalisables</div>
       <div style="color:var(--tx3);font-size:.78rem;text-align:center">Decks que tu peux monter avec tes cartes actuelles</div>
     </div>
-    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="if(typeof openCommReco==='function')openCommReco()">
-      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">📊</div>
-      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Recos communauté</div>
-      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Cartes les plus jouées par commandant (EDHREC)</div>
-    </div>
-    <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="_bldOpenCmdRecoModal()">
-      <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🎲</div>
-      <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Commandants suggérés</div>
-      <div style="color:var(--tx3);font-size:.78rem;text-align:center">Commandants pour lesquels tu as déjà du matériel</div>
-    </div>
   </div>
+  <!-- Bloc options avancées repliable (collapsible) — n'encombre pas l'utilisateur nouveau venu -->
+  <details class="bld-wiz-more" style="margin-bottom:14px">
+    <summary style="cursor:pointer;list-style:none;text-align:center;padding:9px 14px;color:var(--tx3);font-size:.85rem;font-family:'Goudy Mediaeval',serif;letter-spacing:.05em;border-top:.5px dashed var(--bd2);border-bottom:.5px dashed var(--bd2);user-select:none">▾ Plus d'options de génération (4)</summary>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:14px">
+      <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openDiscover('synergies')">
+        <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🎯</div>
+        <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Par archétype / synergies</div>
+        <div style="color:var(--tx3);font-size:.78rem;text-align:center">Tokens, sacrifice, spellslinger, voltron…</div>
+      </div>
+      <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="openDiscover('proposer')">
+        <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🔎</div>
+        <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Méta-decks adaptés</div>
+        <div style="color:var(--tx3);font-size:.78rem;text-align:center">5 propositions méta selon ta collection ou ton budget</div>
+      </div>
+      <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="if(typeof openCommReco==='function')openCommReco()">
+        <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">📊</div>
+        <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Recos communauté</div>
+        <div style="color:var(--tx3);font-size:.78rem;text-align:center">Cartes les plus jouées par commandant (EDHREC)</div>
+      </div>
+      <div class="card bld-wiz-opt" style="padding:1.25rem" onclick="_bldOpenCmdRecoModal()">
+        <div style="font-size:2.2rem;text-align:center;margin-bottom:.6rem">🎲</div>
+        <div style="font-weight:600;font-size:1rem;margin-bottom:.35rem;text-align:center">Commandants suggérés</div>
+        <div style="color:var(--tx3);font-size:.78rem;text-align:center">Commandants pour lesquels tu as déjà du matériel</div>
+      </div>
+    </div>
+  </details>
   <!-- Actions secondaires : import URL, templates, multi-montage, listes -->
   <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;font-size:.82rem">
     <button class="btn btnsm" onclick="openUrlImport()" title="Importer depuis Moxfield, Archidekt, etc.">🔗 Importer depuis URL</button>
@@ -8659,7 +8699,18 @@ function _bldOpenCmdRecoModal(){
   try{
     var recoHtml=_homeRecoHtml();
     if(recoHtml&&recoHtml.trim())inner+=recoHtml;
-    else inner+='<div style="padding:30px;text-align:center;color:var(--tx3);font-style:italic">Aucun commandant suggéré pour le moment. Importe plus de cartes dans ta collection pour avoir des suggestions plus pertinentes.</div>';
+    else{
+      // Empty state contextuel : si collection vide ou faible → CTA import direct
+      var _profColl=(typeof getProfCards==='function')?(getProfCards(0)||[]):[];
+      var _totalCards=_profColl.reduce(function(s,c){return s+(c.qty||1);},0);
+      var _cta=_totalCards<80
+        ?'<button class="btn btnp btnsm" onclick="(function(){var ov=document.getElementById(\'mod\');if(ov)ov.remove();goTab(\'coll\');setTimeout(function(){var f=document.getElementById(\'coll-import-fin\');if(f)f.click();},200);})()">⬆ Importer ma collection</button>'
+        :'';
+      var _hint=_totalCards<80
+        ?'Ta collection ne contient que '+_totalCards+' carte(s). Il faut au moins ~80 cartes pour que les suggestions soient pertinentes.'
+        :'Aucun commandant ne réunit assez de cartes compatibles dans ta collection. Importe plus de cartes ou essaie « Decks réalisables ».';
+      inner+=mlEmpty('🎲','Aucun commandant suggéré',_hint,_cta);
+    }
   }catch(e){inner+='<div style="padding:20px;color:var(--tx3)">Une erreur est survenue : '+esc(e.message||'')+'</div>';}
   inner+='</div>';
   ov.innerHTML=inner;
@@ -9026,7 +9077,15 @@ function openBuildable(){
     }).sort(function(a,b){return b.pct-a.pct;});
   var body;
   if(!rows.length){
-    body=mlEmpty('🔨','Aucun deck','Crée des decks pour voir lesquels tu peux monter avec ta collection.');
+    // Empty state contextuel : si collection vide → CTA import ; sinon → CTA création deck
+    var hasColl=Object.keys(owned).length>0;
+    var cta=hasColl
+      ?'<button class="btn btnp btnsm" onclick="document.getElementById(\'ml-bld-ov\').remove();goTab(\'build\')">➕ Créer mon premier deck</button>'
+      :'<button class="btn btnp btnsm" onclick="document.getElementById(\'ml-bld-ov\').remove();goTab(\'coll\');setTimeout(function(){var f=document.getElementById(\'coll-import-fin\');if(f)f.click();},200)">⬆ Importer ma collection</button> <button class="btn btnsm" onclick="document.getElementById(\'ml-bld-ov\').remove();goTab(\'build\')">➕ Créer un deck à la main</button>';
+    var hint=hasColl
+      ?'Crée des decks pour voir lesquels tu peux monter avec ta collection.'
+      :'Importe ta collection d\'abord — sans cartes, on ne peut pas calculer ce que tu peux monter.';
+    body=mlEmpty('🔨','Aucun deck à comparer',hint,cta);
   }else{
     body='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px">Pourcentage de cartes possédées par deck (les terrains de base sont considérés disponibles).</div>';
     body+=rows.map(function(r){
@@ -9057,6 +9116,13 @@ function _maybeShowWelcome(){
   var seen;try{seen=localStorage.getItem('mtg_welcomed');}catch(e){}
   if(!seen)setTimeout(showWelcome,500);
 }
+// Onboarding 3 étapes orienté ACTION (vs ancienne version purement descriptive).
+// L'utilisateur arrive avec un objectif clair par étape : importer collection →
+// créer deck → lancer Coach Mode. Skip toujours possible. Flag `mtg_welcomed`
+// localStorage = vu, ne réapparaît plus. État step géré en variable globale (pas
+// de cycle complexe — c'est juste 3 vues).
+var _welcomeStep=1;
+var _WELCOME_TOTAL=3;
 function showWelcome(){
   var ov=document.getElementById('ml-welcome-ov');
   if(!ov){
@@ -9064,28 +9130,68 @@ function showWelcome(){
     ov.id='ml-welcome-ov';
     document.body.appendChild(ov);
   }
-  var spaces=[
-    {ico:'🏠',t:'Accueil',d:'Ton tableau de bord : collection, decks, parties en un coup d\'œil.'},
-    {ico:'🃏',t:'Collection',d:'Gère tes cartes (import CSV) et explore les extensions Magic.'},
-    {ico:'🛠',t:'Decks',d:'Construis tes decks, et analyse-les en profondeur (manabase, courbe, faiblesses).'},
-    {ico:'⚔',t:'Jouer',d:'Simulateur d\'arène solo ou multijoueur, et infos sur le métagame.'},
-    {ico:'🤝',t:'Social',d:'Échange des cartes avec tes amis et gère des listes d\'achat partagées.'},
-    {ico:'⚙',t:'Outils',d:'Convertisseur de formats CSV et règles complètes du jeu.'}
-  ];
-  ov.innerHTML='<div class="ml-welcome">'
-    +'<div class="ml-welcome-hd"><h2>Bienvenue sur ManaLAB</h2>'
-    +'<p>Ton QG pour gérer ta collection, tes decks et tes parties Magic.</p></div>'
-    +'<div class="ml-welcome-body">'
-    +spaces.map(function(s){
-      return '<div class="ml-welcome-space"><div class="ico">'+s.ico+'</div>'
-        +'<div class="txt"><b>'+s.t+'</b><div>'+s.d+'</div></div></div>';
-    }).join('')
-    +'<div class="ml-welcome-tips">💡 Astuce : appuie sur <kbd>Ctrl</kbd>+<kbd>K</kbd> n\'importe où pour la recherche rapide. '
-    +'Change le thème visuel dans <b>⚙ → Paramètres</b>.</div>'
-    +'</div>'
-    +'<div class="ml-welcome-ft"><button class="btn btnp" onclick="closeWelcome()">C\'est parti →</button></div>'
-    +'</div>';
+  _welcomeStep=1;
+  _renderWelcomeStep();
   ov.classList.add('show');
+}
+function _welcomeGoto(n){
+  if(n<1||n>_WELCOME_TOTAL)return;
+  _welcomeStep=n;_renderWelcomeStep();
+}
+function _renderWelcomeStep(){
+  var ov=document.getElementById('ml-welcome-ov');if(!ov)return;
+  // 3 étapes : chacune décrit UN objectif + UN CTA principal + 1 option « skip pour l'instant »
+  var steps=[
+    {
+      n:1,ico:'🃏',title:'Étape 1 — Importe ta collection',
+      body:'<p style="font-size:.95rem;color:var(--tx2);line-height:1.6;margin-bottom:14px">ManaLAB lit les exports CSV de <b>CardNexus</b>, <b>Moxfield</b> ou <b>Manabox</b>. C\'est ce qui rend toutes les autres fonctions vraiment utiles : sans collection, on ne peut pas calculer ce que tu possèdes, ni proposer des swaps réalistes.</p>'
+        +'<p style="font-size:.82rem;color:var(--tx3);font-style:italic">Tu peux aussi ajouter manuellement quelques cartes ou les scanner avec ton téléphone — ce sera juste plus long.</p>',
+      ctaLbl:'⬆ Importer un CSV maintenant',
+      cta:'closeWelcome();goTab(\'coll\');setTimeout(function(){var f=document.getElementById(\'coll-import-fin\');if(f)f.click();},250);'
+    },
+    {
+      n:2,ico:'♠',title:'Étape 2 — Crée ou importe ton premier deck',
+      body:'<p style="font-size:.95rem;color:var(--tx2);line-height:1.6;margin-bottom:14px">Le <b style="color:var(--gold2)">Deck parfait ManaLAB</b> combine ta collection, EDHREC et notre moteur d\'analyse pour bâtir un deck optimal. Tu peux aussi partir d\'un deck vierge, ou coller une liste depuis Moxfield/Archidekt.</p>'
+        +'<p style="font-size:.82rem;color:var(--tx3);font-style:italic">Plus de 8 modes de création disponibles selon ton style — depuis un commandant, par archétype, ou réalisables avec ta collection.</p>',
+      ctaLbl:'⚗ Découvrir le Deck parfait ManaLAB',
+      cta:'closeWelcome();goTab(\'build\');setTimeout(function(){if(typeof mlPerfectDeckOpen===\'function\')mlPerfectDeckOpen();},300);'
+    },
+    {
+      n:3,ico:'💡',title:'Étape 3 — Lance le Coach Mode',
+      body:'<p style="font-size:.95rem;color:var(--tx2);line-height:1.6;margin-bottom:14px">C\'est ce qui rend ManaLAB <b>unique</b> : un coaching en 5 étapes (Diagnostic → Verdict → Plan → Application → Validation) qui détecte les faiblesses de ton deck et te propose des swaps validés par le moteur.</p>'
+        +'<p style="font-size:.82rem;color:var(--tx3);font-style:italic">Aucun autre outil de gestion Magic (Moxfield, Archidekt) ne propose ce type de coaching personnalisé.</p>',
+      ctaLbl:'📊 Aller à l\'onglet Analyse',
+      cta:'closeWelcome();goTab(\'analyse\');if(typeof anaInit===\'function\')anaInit();'
+    }
+  ];
+  var s=steps[_welcomeStep-1];
+  // Bouton précédent si pas étape 1, bouton suivant si pas étape finale, bouton CTA principal
+  var html='<div class="ml-welcome ml-welcome-onboard">';
+  html+='<div class="ml-welcome-hd">';
+  html+='<div style="font-size:.72rem;color:var(--gold2);letter-spacing:.08em;margin-bottom:6px;font-family:\'Goudy Mediaeval\',serif">BIENVENUE SUR MANALAB · '+_welcomeStep+' / '+_WELCOME_TOTAL+'</div>';
+  html+='<h2 style="margin:0 0 4px;font-size:1.4rem">'+s.ico+' '+esc(s.title)+'</h2>';
+  html+='</div>';
+  // Body
+  html+='<div class="ml-welcome-body" style="padding:18px 24px">';
+  html+=s.body;
+  html+='</div>';
+  // Progress dots + Footer
+  var dots='';
+  for(var i=1;i<=_WELCOME_TOTAL;i++){
+    dots+='<button onclick="_welcomeGoto('+i+')" aria-label="Aller à l\'étape '+i+'" style="width:9px;height:9px;border-radius:50%;border:none;cursor:pointer;background:'+(i===_welcomeStep?'var(--gold2)':'var(--bd2)')+';padding:0;margin:0 3px"></button>';
+  }
+  html+='<div style="display:flex;align-items:center;gap:8px;padding:14px 24px;border-top:.5px solid var(--bd)">';
+  html+='<div style="flex:1;display:flex;align-items:center">'+dots+'</div>';
+  if(_welcomeStep>1)html+='<button class="btn btnsm" onclick="_welcomeGoto('+(_welcomeStep-1)+')">◀ Précédent</button>';
+  html+='<button class="btn btnsm" onclick="closeWelcome()" title="Skip — l\'onboarding ne réapparaîtra plus">Passer</button>';
+  if(_welcomeStep<_WELCOME_TOTAL){
+    html+='<button class="btn btnp btnsm" onclick="_welcomeGoto('+(_welcomeStep+1)+')">Suivant ▶</button>';
+  }
+  // CTA principal de l'étape
+  html+='<button class="btn btnp btnsm" style="background:linear-gradient(180deg,#3a2008 0%,#180d04 100%);border:1.5px solid var(--gold)" onclick="'+s.cta+'">'+esc(s.ctaLbl)+'</button>';
+  html+='</div>';
+  html+='</div>';
+  var ov=document.getElementById('ml-welcome-ov');if(ov)ov.innerHTML=html;
 }
 function closeWelcome(){
   var ov=document.getElementById('ml-welcome-ov');if(ov)ov.classList.remove('show');
