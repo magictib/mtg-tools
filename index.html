@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-05-12';
+window.APP_BUILD='2026-06-05-13';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -932,7 +932,15 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .fc.active{background:rgba(180,140,50,.15);border-color:var(--ac);color:var(--ac2)}
 .fsrch{flex:1;min-width:100px;padding:5px 11px;border-radius:8px;border:.5px solid var(--bd2);background:var(--s2);color:var(--tx);font-family:'Crimson Pro',serif;font-size:.8rem;outline:none}
 .dhdr{display:grid;grid-template-columns:26px 1fr 68px 68px 68px 56px 22px;gap:5px;padding:4px 9px;font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.05em;text-transform:uppercase;border-bottom:.5px solid var(--bd);margin-bottom:5px}
-.drow{display:grid;grid-template-columns:26px 1fr 68px 68px 68px 56px 22px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .1s;cursor:default}
+.drow{display:grid;grid-template-columns:auto 1fr 68px 68px 68px 56px 22px;gap:5px;align-items:center;padding:5px 9px;border-radius:6px;border:.5px solid var(--bd);background:var(--s2);font-size:.77rem;margin-bottom:3px;transition:background .12s,border-color .12s,transform .12s;cursor:default;animation:deckRowFadeIn .2s ease-out}
+.drow:hover{background:var(--s3);border-color:rgba(201,168,76,.35);transform:translateX(2px)}
+@keyframes deckRowFadeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+/* Pulse subtile quand la qty change (déclenchée via animation CSS au mount) */
+.dq-grp{animation:dqPop .25s ease-out}
+@keyframes dqPop{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}
+/* Section headers avec slide-in soft pour donner de la profondeur */
+.dsec{animation:secSlideIn .25s ease-out}
+@keyframes secSlideIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
 .dadd-btn{background:none;border:1px solid var(--bd2);border-radius:4px;color:var(--tx3);font-size:12px;width:20px;height:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:background .15s,color .15s}
 .dadd-btn:hover{background:var(--gold2);color:#000;border-color:var(--gold2)}
 .dadd-btn.in{background:var(--gold2);color:#000;border-color:var(--gold2)}
@@ -3478,6 +3486,8 @@ details > summary::-webkit-details-marker{display:none}
       <div class="lbl" style="margin-bottom:0" id="etitle">Nouveau deck</div>
       <button class="btn btnsm btnp" onclick="newDeck()" style="margin-left:auto" data-i18n="deck.new">+ Nouveau deck</button>
       <button class="btn btnsm" onclick="openDeckPasteModal()" title="Coller une decklist (Moxfield, Archidekt, Arena, MTGO, format texte) pour la parser en masse">📋 Coller une liste</button>
+      <button class="btn btnsm" id="deck-undo-btn" onclick="deckUndo()" title="Annuler la dernière action (Ctrl+Z)" disabled>↩</button>
+      <button class="btn btnsm" id="deck-redo-btn" onclick="deckRedo()" title="Rétablir (Ctrl+Y)" disabled>↪</button>
       <button class="btn btnsm" id="playtestbtn" onclick="openPlaytest(actDeck)" title="Simule la main d'ouverture et les premiers tours" style="display:none">🎮 Playtest</button>
       <button class="btn btnsm" id="ccbtn" onclick="openCustomCategories(actDeck)" title="Organise tes cartes en catégories perso" style="display:none">📂 Cats</button>
       <button class="btn btnsm" id="publicbtn" onclick="toggleDeckPublic(actDeck)" title="Publier dans l'explorateur" style="display:none">🔒 Privé</button>
@@ -3585,7 +3595,7 @@ details > summary::-webkit-details-marker{display:none}
         <button class="fc" onclick="dFlt('no',this)">✗ Manquantes</button>
         <button class="fc" onclick="dFlt('borrow',this)">🤝 Emprunter</button>
         <button class="fc" onclick="dFlt('cmd',this)">🛒 Commander</button>
-        <input class="fsrch" id="fsrch" type="text" placeholder="Rechercher..." oninput="renderDeck()">
+        <input class="fsrch" id="fsrch" type="text" placeholder="Rechercher… (ex: c:U cmc<=2 t:creature)" oninput="renderDeck()" title="Syntaxe : c:U (couleur), cmc:2 cmc<=3 (coût), t:creature (type), o:flying (oracle), ou juste un nom">
       </div>
       <div class="dhdr" id="dlisthdr"><div>Qté</div><div>Carte</div><div style="text-align:center">—</div><div style="text-align:right">Prix</div><div></div></div>
       <div id="dlist"></div>
@@ -3606,6 +3616,7 @@ details > summary::-webkit-details-marker{display:none}
       <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;margin-bottom:4px">TRIER PAR</div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
         <button class="dm active" id="dsort-sec" onclick="setDSort('sec',this)">Section</button>
+        <button class="dm" id="dsort-role" onclick="setDSort('role',this)" title="Mode Architect : groupe les cartes par rôle détecté (ramp / pioche / removal / win con…)">🎭 Rôle</button>
         <button class="dm" id="dsort-type" onclick="setDSort('type',this)">Type</button>
         <button class="dm" id="dsort-cmc" onclick="setDSort('cmc',this)">CMC</button>
         <button class="dm" id="dsort-name" onclick="setDSort('name',this)">Nom</button>
@@ -12276,6 +12287,9 @@ function loadDeck(id){
   // Toujours re-parser depuis rawName si dispo : auto-repare les decks sauvegardes avec d'anciens parsers (truncation)
   var freshCards=d.rawName?parseList(d.rawName):null;
   dCards=(freshCards&&freshCards.length)?freshCards:(d.cards||[]);
+  // Reset stack Undo/Redo + snapshot initial pour avoir un état de base auquel revenir
+  _deckHistStack=[];_deckHistIdx=-1;_deckHistDeckId=id;
+  _deckHistSnapshot();
   _customAchat=[];renderCustomPanel();
   document.getElementById('dnamein').value=d.name;
   document.getElementById('ta-name').value=d.rawName||d.raw||'';
@@ -12884,8 +12898,59 @@ function setDSort(mode,btn){
   renderDeck();
 }
 function setDSecondarySort(mode){_montageSecondarySort=mode;renderDeck();}
+// Définitions des rôles pour le mode Architect — utilisé pour grouper les cartes
+// par fonction dans le deck. Détection heuristique : typeLine + oracleText.
+// Ordre = priorité d'apparition dans la vue (ramp en haut, terrains en bas).
+var _DECK_ROLE_DEFS={
+  ramp:    {lbl:'🌱 Ramp',           color:'#90c890'},
+  draw:    {lbl:'📜 Pioche',         color:'#88c8f0'},
+  removal: {lbl:'⚔ Removal',         color:'#e07070'},
+  wipe:    {lbl:'🌊 Wipe',           color:'#a060ff'},
+  counter: {lbl:'🛑 Contresort',     color:'#9088f0'},
+  wincon:  {lbl:'👑 Win condition',  color:'#dcc882'},
+  creature:{lbl:'🐉 Créatures',      color:'#bcae8e'},
+  spell:   {lbl:'✨ Sorts',          color:'#c8a8ff'},
+  enchant: {lbl:'🌿 Enchantements',  color:'#f5b95b'},
+  artifact:{lbl:'⚙ Artefacts',       color:'#a09070'},
+  land:    {lbl:'🌍 Terrains',       color:'var(--tx3)'},
+  other:   {lbl:'• Autres',          color:'var(--tx2)'}
+};
+var _DECK_ROLE_ORDER=['ramp','draw','removal','wipe','counter','wincon','creature','spell','enchant','artifact','land','other'];
+function _deckRoleOf(card){
+  var meta=dCardMeta[card.nl]||{};
+  var tl=(meta.typeLine||'').toLowerCase();
+  var ot=(meta.oracleText||'').toLowerCase();
+  if(tl.indexOf('land')>=0)return 'land';
+  // Ramp : tutor land, add mana (non-land), treasure, extra land drops
+  if(/search your library for (a|up to (one|two|three|four|five)) (basic )?(land|plains|island|swamp|mountain|forest|gate)/.test(ot))return 'ramp';
+  if(/add \{[wubrgcxs0-9]\}|adds? (one|two|three|four|five|x) ?mana/.test(ot))return 'ramp';
+  if(/create.*treasure token|put a (basic )?land card.*onto the battlefield|may play (an |a )?additional land/.test(ot))return 'ramp';
+  // Wipe : board wipes destroy/exile all creatures
+  if(/destroy all (creatures|nonland permanents)|exile all (creatures|nonland permanents)|each creature gets -\d+\/-\d+/.test(ot))return 'wipe';
+  // Counter (contresort)
+  if(/^counter target|\.\s*counter target/.test(ot)&&/instant|sorcery/.test(tl))return 'counter';
+  // Removal ciblé
+  if(/destroy target (creature|nonland permanent|enchantment|artifact|planeswalker)|exile target (creature|nonland permanent|enchantment|artifact|planeswalker)/.test(ot))return 'removal';
+  if(/deals? \d+ damage to (target|any) (creature|player or creature|any target)/.test(ot)&&/instant|sorcery/.test(tl))return 'removal';
+  // Draw : pioche pure
+  if(/draws? (a|one|two|three|four|five|six|seven|x|that many) cards?/.test(ot))return 'draw';
+  // Wincon : grosse créature OU effets « gagner la partie »
+  if(meta.power&&parseInt(meta.power,10)>=5)return 'wincon';
+  if(/wins? the game|opponents? lose the game|.*equal to that.*lose life/.test(ot))return 'wincon';
+  // Type-based fallback
+  if(tl.indexOf('creature')>=0)return 'creature';
+  if(/instant|sorcery/.test(tl))return 'spell';
+  if(tl.indexOf('enchantment')>=0)return 'enchant';
+  if(tl.indexOf('artifact')>=0)return 'artifact';
+  return 'other';
+}
 function getVSec(c){
   if(dSortMode==='sec')return c.sec;
+  if(dSortMode==='role'){
+    var r=_deckRoleOf(c);
+    var def=_DECK_ROLE_DEFS[r];
+    return def?def.lbl:_DECK_ROLE_DEFS.other.lbl;
+  }
   if(dSortMode==='name')return 'Cartes';
   var meta=dCardMeta[c.nl]||{};
   var tl=(meta.typeLine||'').toLowerCase();
@@ -13886,18 +13951,78 @@ function dkDrop(e,targetId,pi){
   if(actDeck)analyzeDeck();
   _dkDragId=null;_dkDragPi=null;
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// RECHERCHE AVANCÉE deck : syntaxe `c:U cmc<=3 t:creature o:flying nom partiel`.
+// Permet à un power user de filtrer instantanément sans clic — c'est ce qui
+// rend Moxfield/Scryfall si addictifs. Multi-tokens combinés en AND.
+//
+// Syntaxe supportée :
+//   c:U  ou  color:U      → couleur (multi : c:UB pour bleu ET noir)
+//   cmc:2                  → coût exact
+//   cmc<=3 / cmc>=4 / cmc<2 / cmc>5 / cmc=2  → coût avec opérateur
+//   t:creature  ou  type:land  → type partiel
+//   o:flying  ou  oracle:draw    → texte oracle partiel
+//   r:rare  ou  rarity:mythic    → rareté exacte
+//   <tout le reste>        → match dans le nom
+function _parseDeckSearchQuery(raw){
+  var q={name:'',colors:null,cmcOp:null,cmcVal:null,type:'',oracle:'',rarity:'',hasFilter:false};
+  if(!raw)return q;
+  var nameParts=[];
+  var tokens=raw.split(/\s+/);
+  tokens.forEach(function(t){
+    var m;
+    if((m=t.match(/^c(?:olor)?:([wubrgWUBRG]+)$/))){
+      q.colors=m[1].toUpperCase().split('');q.hasFilter=true;return;
+    }
+    if((m=t.match(/^cmc(<=|>=|<|>|=)(\d+)$/i))){
+      q.cmcOp=m[1];q.cmcVal=parseInt(m[2],10);q.hasFilter=true;return;
+    }
+    if((m=t.match(/^cmc:(\d+)$/i))){
+      q.cmcOp='=';q.cmcVal=parseInt(m[1],10);q.hasFilter=true;return;
+    }
+    if((m=t.match(/^t(?:ype)?:(.+)$/i))){q.type=m[1].toLowerCase();q.hasFilter=true;return;}
+    if((m=t.match(/^o(?:racle)?:(.+)$/i))){q.oracle=m[1].toLowerCase();q.hasFilter=true;return;}
+    if((m=t.match(/^r(?:arity)?:(.+)$/i))){q.rarity=m[1].toLowerCase();q.hasFilter=true;return;}
+    nameParts.push(t.toLowerCase());
+  });
+  if(nameParts.length){q.name=nameParts.join(' ');q.hasFilter=true;}
+  return q;
+}
+function _matchDeckSearch(card,meta,q){
+  if(q.name&&card.nl.indexOf(q.name)<0)return false;
+  if(q.colors){
+    var cardColors=(meta.colors||[]).map(function(s){return s.toUpperCase();});
+    // AND : toutes les couleurs demandées doivent être dans la carte
+    for(var i=0;i<q.colors.length;i++){if(cardColors.indexOf(q.colors[i])<0)return false;}
+  }
+  if(q.cmcOp!=null){
+    var cmc=meta.cmc||0;
+    if(q.cmcOp==='='&&cmc!==q.cmcVal)return false;
+    if(q.cmcOp==='<='&&cmc>q.cmcVal)return false;
+    if(q.cmcOp==='>='&&cmc<q.cmcVal)return false;
+    if(q.cmcOp==='<'&&cmc>=q.cmcVal)return false;
+    if(q.cmcOp==='>'&&cmc<=q.cmcVal)return false;
+  }
+  if(q.type&&(meta.typeLine||'').toLowerCase().indexOf(q.type)<0)return false;
+  if(q.oracle&&(meta.oracleText||'').toLowerCase().indexOf(q.oracle)<0)return false;
+  if(q.rarity&&(meta.rarity||'').toLowerCase()!==q.rarity)return false;
+  return true;
+}
 function renderDeck(){
   if(dViewMode==='montage'){if(typeof renderDeckMontage==='function')renderDeckMontage(true);return;}
   _syncProfsForCtx('deck');
   var pms=profs.map(function(_,i){return getPMap(i);});
-  var srch=(document.getElementById('fsrch')?document.getElementById('fsrch').value:'').toLowerCase();
+  var srchRaw=(document.getElementById('fsrch')?document.getElementById('fsrch').value:'').trim();
+  var srchQ=_parseDeckSearchQuery(srchRaw);
+  var srch=srchQ.name; // pour rétro-compat (utilisé en simple fallback)
   var usages=profs.map(function(_,i){return getDeckUsage(i);});
   function mx(c){return Math.max.apply(null,pms.map(function(m){return m.get(getKey(c))||0;}));}
   var _owPmR=pms[dOwner],_owUsgR=getDeckUsageByPriority(dOwner,actDeck);
   var _ownerDataMissing=dOwner>=1&&(!profs[dOwner]||!profs[dOwner].length);
   function ownerFreeR(c){var h=_owPmR.get(getKey(c))||0;var u=(_owUsgR.get(c.nl)||{qty:0}).qty;return Math.max(0,h-u);}
   var filtered=dCards.filter(function(c){
-    if(srch&&c.nl.indexOf(srch)<0)return false;
+    // Filtre de recherche enrichie (c:U cmc:<=2 t:creature o:flying name)
+    if(srchQ.hasFilter&&!_matchDeckSearch(c,dCardMeta[c.nl]||{},srchQ))return false;
     var x=mx(c);
     if(_ownerDataMissing&&dFMode!=='all'&&dFMode!=='cmd')return true;
     var f0=ownerFreeR(c);
@@ -13951,6 +14076,11 @@ function renderDeck(){
   else if(dSortMode==='cmc'){secs.sort(function(a,b){var va=parseInt(a.replace('CMC ',''))||0,vb=parseInt(b.replace('CMC ',''))||0;return va-vb;});}
   else if(dSortMode==='set'){secs.sort(function(a,b){return a.localeCompare(b);});}
   else if(dSortMode==='color'){var _CSEC=['Blanc','Bleu','Noir','Rouge','Vert','Multicolore','Incolore','Terrains'];secs.sort(function(a,b){var ia=_CSEC.indexOf(a),ib=_CSEC.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});}
+  else if(dSortMode==='role'){
+    // Mode Architect : ordre prédéfini selon priorité fonctionnelle (ramp en haut, terrains en bas)
+    var _ROLE_LBLS=_DECK_ROLE_ORDER.map(function(k){return _DECK_ROLE_DEFS[k].lbl;});
+    secs.sort(function(a,b){var ia=_ROLE_LBLS.indexOf(a),ib=_ROLE_LBLS.indexOf(b);if(ia<0)ia=99;if(ib<0)ib=99;return ia-ib;});
+  }
   // Drop multi-zone : en mode tri par section, chaque bloc reçoit data-drop-sec
   // pour que le drop handler route la carte dans la bonne zone (Deck/Sideboard/Reserve).
   // Dans les autres modes de tri (CMC/couleur/…), les « sections » sont visuelles
@@ -14186,12 +14316,85 @@ function montageFillOwned(){
 // les sections (// Sideboard, etc.), les set codes (SET-123), les annotations
 // [tag], et le format permissif (qty + nom). Cette modal expose simplement ça
 // dans le builder, où elle manquait — c'était le gap n°1 vs Moxfield.
+// ═════════════════════════════════════════════════════════════════════════════
+// UNDO / REDO du deck — stack par deck, max 20 entrées. Snapshot complet de
+// dCards (JSON.stringify) à chaque mutation. Léger même pour 100 cartes (~5 KB).
+// Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z bindés au document quand on est sur l'onglet Deck.
+var _deckHistStack=[],_deckHistIdx=-1,_deckHistDeckId=null;
+var _DECK_HIST_MAX=20;
+function _deckHistSnapshot(){
+  if(!actDeck||!dCards)return;
+  // Reset stack si on a changé de deck
+  if(_deckHistDeckId!==actDeck){_deckHistStack=[];_deckHistIdx=-1;_deckHistDeckId=actDeck;}
+  // Si on est au milieu de l'historique (après undo), efface les redo qui ne sont plus valides
+  if(_deckHistIdx<_deckHistStack.length-1){_deckHistStack=_deckHistStack.slice(0,_deckHistIdx+1);}
+  var snap=JSON.stringify(dCards);
+  // Évite les doublons consécutifs
+  if(_deckHistStack.length&&_deckHistStack[_deckHistStack.length-1]===snap)return;
+  _deckHistStack.push(snap);
+  if(_deckHistStack.length>_DECK_HIST_MAX)_deckHistStack.shift();
+  _deckHistIdx=_deckHistStack.length-1;
+  _deckHistUpdateUI();
+}
+function _deckHistUpdateUI(){
+  var undoBtn=document.getElementById('deck-undo-btn');
+  var redoBtn=document.getElementById('deck-redo-btn');
+  if(undoBtn)undoBtn.disabled=_deckHistIdx<=0;
+  if(redoBtn)redoBtn.disabled=_deckHistIdx>=_deckHistStack.length-1;
+}
+function _deckUndoRestore(snap){
+  try{
+    var arr=JSON.parse(snap);
+    dCards=arr;
+    var dk=decks[actDeck];if(!dk)return;
+    dk.cards=dCards.map(function(c){return {name:c.name,nl:c.nl,qty:c.qty,set:c.set||'',num:c.num||'',sec:c.sec||'Deck'};});
+    dk.rawName=dCards.map(function(c){return (c.qty||1)+' '+c.name+(c.set?' ('+c.set+')':'')+(c.num?' '+c.num:'')+(c.sec&&c.sec!=='Deck'?' // '+c.sec:'');}).join('\n');
+    dk.updatedAt=Date.now();
+    if(typeof saveDecks==='function')saveDecks();
+    if(typeof renderDeck==='function')renderDeck();
+    if(typeof renderDeckMontage==='function')renderDeckMontage(true);
+  }catch(e){console.warn('[undo] restore failed',e);}
+}
+function deckUndo(){
+  if(_deckHistDeckId!==actDeck)return;
+  if(_deckHistIdx<=0){if(typeof toastInfo==='function')toastInfo('Rien à annuler');return;}
+  _deckHistIdx--;
+  _deckUndoRestore(_deckHistStack[_deckHistIdx]);
+  _deckHistUpdateUI();
+  if(typeof toastInfo==='function')toastInfo('↩ Action annulée');
+}
+function deckRedo(){
+  if(_deckHistDeckId!==actDeck)return;
+  if(_deckHistIdx>=_deckHistStack.length-1){if(typeof toastInfo==='function')toastInfo('Rien à rétablir');return;}
+  _deckHistIdx++;
+  _deckUndoRestore(_deckHistStack[_deckHistIdx]);
+  _deckHistUpdateUI();
+  if(typeof toastInfo==='function')toastInfo('↪ Action rétablie');
+}
+// Raccourcis clavier Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z — installés une seule fois,
+// actifs uniquement quand on est sur l'onglet Deck ET pas dans un input/textarea.
+(function(){
+  var inst=false;
+  function bind(){
+    if(inst)return;inst=true;
+    document.addEventListener('keydown',function(ev){
+      if(_currentTab!=='deck')return;
+      var t=ev.target,tag=t&&t.tagName;
+      if(tag==='INPUT'||tag==='TEXTAREA'||(t&&t.isContentEditable))return;
+      var key=(ev.key||'').toLowerCase();
+      if((ev.ctrlKey||ev.metaKey)&&key==='z'&&!ev.shiftKey){ev.preventDefault();deckUndo();}
+      else if((ev.ctrlKey||ev.metaKey)&&(key==='y'||(key==='z'&&ev.shiftKey))){ev.preventDefault();deckRedo();}
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
 // Édition rapide qty inline : boutons +/− à côté du nombre dans la liste deck.
 // Delegation globale → on n'attache pas un handler par carte (perf + simplicité).
 // Click +1, click − = -1 (supprime si dernière copie).
 function _deckChangeQty(nl,delta){
   if(!actDeck||!decks[actDeck])return;
   var card=dCards.find(function(c){return c.nl===nl;});if(!card)return;
+  _deckHistSnapshot();
   var newQty=(card.qty||1)+delta;
   if(newQty<=0){
     dCards=dCards.filter(function(c){return c.nl!==nl;});
@@ -14285,6 +14488,7 @@ function _deckPastePreview(){
 function _deckPasteApply(){
   var ta=document.getElementById('deck-paste-text');if(!ta)return;
   var raw=ta.value;if(!raw.trim()){if(typeof toastError==='function')toastError('Liste vide');return;}
+  _deckHistSnapshot();
   var modeEl=document.querySelector('input[name="deck-paste-mode"]:checked');
   var mode=modeEl?modeEl.value:'append';
   if(!actDeck||!decks[actDeck])return;
@@ -14409,6 +14613,8 @@ function bldAddCardByName(name,opts){
     if(localCard)return localCard;
     return scryfallNamedCached(name,{exact:false});
   }).then(function(card){
+    // Snapshot Undo seulement si on a une carte valide (sinon pas de modif)
+    if(card)_deckHistSnapshot();
     if(!card){
       if(typeof toastError==='function')toastError('Carte introuvable : « '+name+' »');
       return false;
