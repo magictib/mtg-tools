@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-18';
+window.APP_BUILD='2026-06-06-19';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -4116,6 +4116,20 @@ details > summary::-webkit-details-marker{display:none}
         <button class="atelier-ab-mini-btn" onclick="if(typeof mlPerfectDeckOpen==='function')mlPerfectDeckOpen()" title="Deck parfait ManaLAB">⚗ Parfait</button>
         <button class="atelier-ab-mini-btn" onclick="if(typeof enterFocusMode==='function')enterFocusMode()" title="Mode plein écran (Esc pour sortir) — cache la nav et tout le superflu">⛶ Focus</button>
         <button class="atelier-ab-expand" onclick="_atelierToggleActionBar('expand')" title="Tout afficher (cartes détaillées)">▾ Détails</button>
+      </div>
+    </div>
+    <!-- ANALYSE LIVE — apparaît dès qu'un deck a 10+ cartes pour aider à construire -->
+    <div id="atelier-live" class="atelier-live" style="display:none;margin:0 0 12px;padding:10px 12px;background:linear-gradient(180deg,rgba(201,168,76,.05),rgba(201,168,76,.01));border:1px solid rgba(201,168,76,.28);border-radius:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:.86rem;color:var(--gold2);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em">📊 ANALYSE LIVE</span>
+        <span id="atelier-live-score" style="font-size:.74rem;color:var(--tx3);font-style:italic"></span>
+        <span style="flex:1"></span>
+        <button id="atelier-live-toggle" onclick="_atelierLiveToggle()" style="padding:3px 9px;background:transparent;border:.5px solid var(--bd2);border-radius:5px;color:var(--tx3);font-family:inherit;font-size:.72rem;cursor:pointer">▾ Replier</button>
+      </div>
+      <div id="atelier-live-body">
+        <div id="atelier-live-curve" style="margin-bottom:8px"></div>
+        <div id="atelier-live-types" style="margin-bottom:8px"></div>
+        <div id="atelier-live-checklist"></div>
       </div>
     </div>
     <div class="lbl" style="margin-bottom:4px" data-i18n="deck.owner">Profil propriétaire</div>
@@ -13307,7 +13321,152 @@ function _atelierUpdateSubtitle(){
   sub.textContent=bits.join(' · ');
   sub.style.color='var(--tx2)';
   sub.style.fontStyle='normal';
+  // Aussi mettre à jour l'analyse live
+  if(typeof _atelierLiveUpdate==='function')_atelierLiveUpdate();
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ANALYSE LIVE — apparaît dans l'Atelier dès que le deck a 10+ cartes
+// Affiche mana curve, distribution types, checklist « ce qui manque » pour le format
+// ───────────────────────────────────────────────────────────────────────────
+function _atelierLiveToggle(){
+  var body=document.getElementById('atelier-live-body');
+  var btn=document.getElementById('atelier-live-toggle');
+  if(!body||!btn)return;
+  var collapsed=body.style.display==='none';
+  body.style.display=collapsed?'block':'none';
+  btn.textContent=collapsed?'▾ Replier':'▸ Déplier';
+  try{localStorage.setItem('mtg_live_collapsed',collapsed?'0':'1');}catch(e){}
+}
+function _atelierLiveUpdate(){
+  var box=document.getElementById('atelier-live');if(!box)return;
+  if(!actDeck||!decks[actDeck]||!dCards||dCards.length<5){box.style.display='none';return;}
+  var total=dCards.reduce(function(s,c){return s+(c.qty||1);},0);
+  if(total<10){box.style.display='none';return;}
+  box.style.display='block';
+  // Restauration état replié
+  try{
+    if(localStorage.getItem('mtg_live_collapsed')==='1'){
+      var bdy=document.getElementById('atelier-live-body');if(bdy)bdy.style.display='none';
+      var b=document.getElementById('atelier-live-toggle');if(b)b.textContent='▸ Déplier';
+    }
+  }catch(e){}
+
+  // ─── Mana curve (CMC 0-7+) hors terrains ───
+  var curve=[0,0,0,0,0,0,0,0];
+  var typeCounts={Land:0,Creature:0,Instant:0,Sorcery:0,Enchantment:0,Artifact:0,Planeswalker:0,Battle:0};
+  var hasRamp=0, hasRemoval=0, hasDraw=0, hasCounter=0, hasWipe=0;
+  dCards.forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    var qty=c.qty||1;
+    if(!meta){return;}
+    var tl=(meta.typeLine||'').toLowerCase();
+    var ot=(meta.oracleText||'').toLowerCase();
+    // Types primaires
+    if(tl.indexOf('land')>=0){typeCounts.Land+=qty;}
+    else if(tl.indexOf('creature')>=0){typeCounts.Creature+=qty;}
+    else if(tl.indexOf('planeswalker')>=0){typeCounts.Planeswalker+=qty;}
+    else if(tl.indexOf('battle')>=0){typeCounts.Battle+=qty;}
+    else if(tl.indexOf('instant')>=0){typeCounts.Instant+=qty;}
+    else if(tl.indexOf('sorcery')>=0){typeCounts.Sorcery+=qty;}
+    else if(tl.indexOf('enchantment')>=0){typeCounts.Enchantment+=qty;}
+    else if(tl.indexOf('artifact')>=0){typeCounts.Artifact+=qty;}
+    // Mana curve (hors terrains)
+    if(tl.indexOf('land')<0){
+      var cmc=Math.max(0,Math.min(7,Math.floor(meta.cmc||0)));
+      curve[cmc]+=qty;
+    }
+    // Heuristiques rôles (signal grossier mais utile pour checklist)
+    var isLand=tl.indexOf('land')>=0;
+    if(!isLand){
+      if(/(search your library for.*land|add \{[wubrg]\}|add one mana|add (two|three|one) mana)/.test(ot))hasRamp+=qty;
+      if(/(destroy target|exile target.*(creature|permanent|artifact|enchantment|planeswalker))/.test(ot))hasRemoval+=qty;
+      if(/(draw (a|two|three|x|that many) card|investigate|scry [2-9])/.test(ot))hasDraw+=qty;
+      if(/counter target/.test(ot))hasCounter+=qty;
+      if(/(destroy all|exile all|each (creature|opponent).*sacrifice|wrath of god)/.test(ot))hasWipe+=qty;
+    }
+  });
+  var maxCurve=Math.max(1,Math.max.apply(null,curve));
+
+  // ─── Render mana curve ───
+  var curveHtml='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">Courbe de mana (sans terrains)</div>';
+  curveHtml+='<div style="display:flex;gap:3px;align-items:flex-end;height:48px">';
+  for(var i=0;i<curve.length;i++){
+    var h=Math.round((curve[i]/maxCurve)*40);
+    var lbl=(i===7?'7+':i);
+    var col=curve[i]===0?'rgba(255,255,255,.08)':'linear-gradient(180deg,var(--gold),#7a5a1f)';
+    curveHtml+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:0">'
+      +'<div style="font-size:.62rem;color:var(--tx2);margin-bottom:1px">'+(curve[i]||'')+'</div>'
+      +'<div style="width:100%;height:'+(h||2)+'px;background:'+col+';border-radius:2px 2px 0 0"></div>'
+      +'<div style="font-size:.62rem;color:var(--tx3);margin-top:2px">'+lbl+'</div>'
+      +'</div>';
+  }
+  curveHtml+='</div>';
+  var curveEl=document.getElementById('atelier-live-curve');if(curveEl)curveEl.innerHTML=curveHtml;
+
+  // ─── Render distribution types ───
+  var typeLbls={Land:'⛰',Creature:'👊',Instant:'⚡',Sorcery:'🌀',Enchantment:'✨',Artifact:'⚙',Planeswalker:'👑',Battle:'⚔'};
+  var typeHtml='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">Distribution par type</div>';
+  typeHtml+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+  Object.keys(typeCounts).forEach(function(k){
+    if(typeCounts[k]<=0)return;
+    typeHtml+='<span style="padding:3px 8px;background:rgba(201,168,76,.08);border:.5px solid var(--bd2);border-radius:12px;font-size:.72rem;color:var(--tx2)">'
+      +typeLbls[k]+' '+k+' <b style="color:var(--gold2)">'+typeCounts[k]+'</b></span>';
+  });
+  typeHtml+='</div>';
+  var tEl=document.getElementById('atelier-live-types');if(tEl)tEl.innerHTML=typeHtml;
+
+  // ─── Checklist « ce qui manque » selon format ───
+  var fmt=(decks[actDeck].format||'').toLowerCase();
+  var targets={};
+  if(fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker'){
+    targets={Land:{min:36,max:40,lbl:'Terrains'},Ramp:{min:8,max:12,actual:hasRamp,lbl:'Ramp'},Removal:{min:8,max:12,actual:hasRemoval,lbl:'Removal ciblé'},Draw:{min:8,max:12,actual:hasDraw,lbl:'Pioche'},Wipe:{min:2,max:5,actual:hasWipe,lbl:'Wraths'}};
+  }else{
+    targets={Land:{min:22,max:26,lbl:'Terrains'},Removal:{min:4,max:8,actual:hasRemoval,lbl:'Removal'},Draw:{min:4,max:10,actual:hasDraw,lbl:'Pioche'},Counter:{min:0,max:6,actual:hasCounter,lbl:'Contresorts'}};
+  }
+  var checkHtml='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">Ce qui manque pour ce format</div>';
+  checkHtml+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+  Object.keys(targets).forEach(function(k){
+    var t=targets[k];
+    var v=(k==='Land')?typeCounts.Land:t.actual;
+    var ok=v>=t.min, warn=!ok&&v>=Math.max(1,Math.floor(t.min*0.6));
+    var col=ok?'#7ec86a':(warn?'#e8c14a':'#d9645a');
+    var ico=ok?'✓':(warn?'~':'✗');
+    checkHtml+='<span style="padding:3px 9px;background:rgba('+(ok?'126,200,106':(warn?'232,193,74':'217,100,90'))+',.10);border:.5px solid '+col+';border-radius:12px;font-size:.72rem;color:'+col+'">'
+      +ico+' '+t.lbl+' <b>'+v+'</b><span style="color:var(--tx3);font-weight:400">/'+t.min+'</span></span>';
+  });
+  checkHtml+='</div>';
+  var cEl=document.getElementById('atelier-live-checklist');if(cEl)cEl.innerHTML=checkHtml;
+
+  // ─── Score résumé (haut du panneau) ───
+  var pass=0,nb=0;
+  Object.keys(targets).forEach(function(k){
+    nb++;var t=targets[k];var v=(k==='Land')?typeCounts.Land:t.actual;
+    if(v>=t.min)pass++;
+  });
+  var scoreEl=document.getElementById('atelier-live-score');
+  if(scoreEl){
+    var pct=nb?Math.round(pass*100/nb):0;
+    var col=pct>=80?'#7ec86a':(pct>=50?'#e8c14a':'#d9645a');
+    scoreEl.innerHTML='· <span style="color:'+col+';font-weight:600">'+pass+'/'+nb+' critères OK</span> ('+pct+'%)';
+  }
+}
+// Wrap renderDeck pour rafraîchir l'analyse live à chaque changement
+(function(){
+  function bind(){
+    if(typeof window.renderDeck!=='function')return setTimeout(bind,200);
+    if(window.renderDeck.__liveWrapped)return;
+    var orig=window.renderDeck;
+    window.renderDeck=function(){
+      var r=orig.apply(this,arguments);
+      try{_atelierLiveUpdate();}catch(e){}
+      return r;
+    };
+    window.renderDeck.__liveWrapped=true;
+  }
+  if(document.readyState==='complete')setTimeout(bind,300);
+  else window.addEventListener('load',function(){setTimeout(bind,300);});
+})();
 // Mini-modal ajout rapide par nom — exemple de référence d'utilisation des
 // classes utilitaires .ml-modal-ov/.ml-modal/.ml-modal-hdr/foot/etc. (Direction 1).
 // Tout nouveau composant modal devrait suivre ce pattern.
