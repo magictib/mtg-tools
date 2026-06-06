@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-10';
+window.APP_BUILD='2026-06-06-11';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1127,8 +1127,18 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 /* Header de l'Atelier : titre doré + sous-titre dynamique */
 .atelier-hdr{position:relative}
 .more-nav-item:hover{background:rgba(201,168,76,.14);color:var(--gold2)!important}
-/* Action bar « ➕ AJOUTER DES CARTES » — proéminente, 4 grosses cards */
-.atelier-action-bar{margin:14px 0 12px;padding:14px 12px 10px;background:linear-gradient(180deg,rgba(201,168,76,.06),rgba(201,168,76,.01));border:1px solid rgba(201,168,76,.32);border-radius:12px}
+/* Action bar « ➕ AJOUTER DES CARTES » — adaptive (full quand vide/léger, compact quand >30) */
+.atelier-action-bar{margin:14px 0 12px;padding:14px 12px 10px;background:linear-gradient(180deg,rgba(201,168,76,.06),rgba(201,168,76,.01));border:1px solid rgba(201,168,76,.32);border-radius:12px;transition:padding .2s}
+.atelier-ab-full{display:block}
+.atelier-ab-mini{display:none;align-items:center;gap:6px;flex-wrap:wrap}
+.atelier-action-bar.is-collapsed{padding:7px 12px;position:sticky;top:0;z-index:20;background:linear-gradient(180deg,rgba(22,18,16,.96),rgba(15,11,8,.92));backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 4px 18px rgba(0,0,0,.45)}
+.atelier-action-bar.is-collapsed .atelier-ab-full{display:none}
+.atelier-action-bar.is-collapsed .atelier-ab-mini{display:flex}
+.atelier-ab-mini-lbl{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.78rem;letter-spacing:.06em;margin-right:4px}
+.atelier-ab-mini-btn{padding:5px 10px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(0,0,0,.22));border:.5px solid var(--bd2);border-radius:6px;color:var(--tx2);font-family:inherit;font-size:.74rem;cursor:pointer;transition:all .12s;white-space:nowrap}
+.atelier-ab-mini-btn:hover{border-color:var(--gold);color:var(--gold2);background:linear-gradient(180deg,rgba(201,168,76,.12),rgba(201,168,76,.02))}
+.atelier-ab-expand,.atelier-ab-collapse{margin-left:auto;padding:4px 9px;background:transparent;border:.5px solid var(--bd2);border-radius:5px;color:var(--tx3);font-family:inherit;font-size:.74rem;cursor:pointer;letter-spacing:.04em;transition:all .12s}
+.atelier-ab-expand:hover,.atelier-ab-collapse:hover{border-color:var(--gold);color:var(--gold2)}
 .atelier-ab-hdr{display:flex;align-items:center;gap:10px;margin-bottom:11px}
 .atelier-ab-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(201,168,76,.4),transparent)}
 .atelier-ab-title{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.86rem;letter-spacing:.12em;white-space:nowrap}
@@ -1166,6 +1176,16 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .asb-sep{width:1px;height:18px;background:var(--bd2)}
 .asb-fmt{font-family:monospace;color:var(--gold2);background:rgba(201,168,76,.14);padding:2px 9px;border-radius:5px;font-size:.78rem;letter-spacing:.04em}
 .asb-ban .asb-num{animation:paPulse 1.5s ease-in-out infinite}
+/* Mode compact du bandeau stats (deck déjà bien rempli) — fusionne visuellement avec l'action bar mini */
+.atelier-stats-bar--compact{padding:6px 12px;gap:10px;font-size:.95em}
+.atelier-stats-bar--compact .asb-num{font-size:.98rem}
+.atelier-stats-bar--compact .asb-lbl{font-size:.66rem}
+.atelier-stats-bar--compact .asb-sep{height:14px}
+.atelier-stats-bar--compact .asb-fmt{font-size:.7rem;padding:1px 7px}
+/* Quand action bar collapsed ET stats compact présents, on aligne visuellement
+   (les 2 bandeaux deviennent une "double barre" sticky/quasi-sticky) */
+.atelier-action-bar.is-collapsed + .atelier-stats-bar--compact,
+.atelier-action-bar.is-collapsed ~ .atelier-stats-bar--compact{margin-top:6px}
 /* Auto-détection archétype live dans le panel stats (P1 #9) */
 .deck-arch-live{margin-top:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(201,168,76,.10),rgba(201,168,76,.02));border:.5px solid rgba(201,168,76,.4);border-radius:9px;display:flex;align-items:center;gap:10px;font-family:'Crimson Pro',serif}
 .dal-ico{font-size:1.7rem;line-height:1}
@@ -3778,36 +3798,49 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm" id="sharebtn" onclick="shareDeck(actDeck)" style="display:none">🔗 Partager</button>
       <button class="btn btnsm btnrd" id="delbtn" onclick="deleteDeck()" style="display:none" data-i18n="deck.delete">✕ Supprimer</button>
     </div>
-    <!-- ACTION BAR « AJOUTER DES CARTES » — proéminente, 4 grosses cards -->
-    <div class="atelier-action-bar">
-      <div class="atelier-ab-hdr">
-        <span class="atelier-ab-line"></span>
-        <span class="atelier-ab-title">➕ AJOUTER DES CARTES</span>
-        <span class="atelier-ab-line"></span>
+    <!-- ACTION BAR « AJOUTER DES CARTES » — adaptive : full quand deck vide/léger, compact quand >30 cartes -->
+    <div class="atelier-action-bar" id="atelier-action-bar">
+      <!-- VUE FULL : 4 grosses cards (deck vide ou < 30 cartes) -->
+      <div class="atelier-ab-full">
+        <div class="atelier-ab-hdr">
+          <span class="atelier-ab-line"></span>
+          <span class="atelier-ab-title">➕ AJOUTER DES CARTES</span>
+          <span class="atelier-ab-line"></span>
+          <button class="atelier-ab-collapse" onclick="_atelierToggleActionBar('collapse')" title="Réduire (deck déjà bien rempli)">▴</button>
+        </div>
+        <div class="atelier-ab-grid">
+          <button class="atelier-ab-card" onclick="openQuickAddCard()" title="Saisis le nom d'une carte + Entrée pour l'ajouter (autocomplete instantané)">
+            <div class="atelier-ab-ico">✏</div>
+            <div class="atelier-ab-name">Une carte</div>
+            <div class="atelier-ab-sub">Tape le nom + Entrée</div>
+          </button>
+          <button class="atelier-ab-card" onclick="openDeckPasteModal()" title="Colle une decklist Moxfield, Archidekt, Arena, MTGO ou texte brut">
+            <div class="atelier-ab-ico">📋</div>
+            <div class="atelier-ab-name">Une liste</div>
+            <div class="atelier-ab-sub">Coller depuis Moxfield…</div>
+          </button>
+          <button class="atelier-ab-card" onclick="_collSideToggle()" title="Affiche ta collection en sidebar — drag-drop carte vers le deck">
+            <div class="atelier-ab-ico">🃏</div>
+            <div class="atelier-ab-name">Ma collection</div>
+            <div class="atelier-ab-sub">Drag-drop vers le deck</div>
+          </button>
+          <button class="atelier-ab-card" onclick="if(typeof mlPerfectDeckOpen==='function')mlPerfectDeckOpen()" title="Génère un deck complet adapté à ta collection et ton budget">
+            <div class="atelier-ab-ico">⚗</div>
+            <div class="atelier-ab-name">Deck parfait</div>
+            <div class="atelier-ab-sub">Générer auto</div>
+          </button>
+        </div>
+        <div class="atelier-ab-tip">💡 <b>Astuce</b> : tu peux aussi <b>drag une carte depuis Scryfall</b> (ou Moxfield) directement vers cette zone. Et modifier la quantité de chaque carte avec les boutons <code>− / +</code>.</div>
       </div>
-      <div class="atelier-ab-grid">
-        <button class="atelier-ab-card" onclick="openQuickAddCard()" title="Saisis le nom d'une carte + Entrée pour l'ajouter (autocomplete instantané)">
-          <div class="atelier-ab-ico">✏</div>
-          <div class="atelier-ab-name">Une carte</div>
-          <div class="atelier-ab-sub">Tape le nom + Entrée</div>
-        </button>
-        <button class="atelier-ab-card" onclick="openDeckPasteModal()" title="Colle une decklist Moxfield, Archidekt, Arena, MTGO ou texte brut">
-          <div class="atelier-ab-ico">📋</div>
-          <div class="atelier-ab-name">Une liste</div>
-          <div class="atelier-ab-sub">Coller depuis Moxfield…</div>
-        </button>
-        <button class="atelier-ab-card" onclick="_collSideToggle()" title="Affiche ta collection en sidebar — drag-drop carte vers le deck">
-          <div class="atelier-ab-ico">🃏</div>
-          <div class="atelier-ab-name">Ma collection</div>
-          <div class="atelier-ab-sub">Drag-drop vers le deck</div>
-        </button>
-        <button class="atelier-ab-card" onclick="if(typeof mlPerfectDeckOpen==='function')mlPerfectDeckOpen()" title="Génère un deck complet adapté à ta collection et ton budget">
-          <div class="atelier-ab-ico">⚗</div>
-          <div class="atelier-ab-name">Deck parfait</div>
-          <div class="atelier-ab-sub">Générer auto</div>
-        </button>
+      <!-- VUE MINI : barre compacte (deck > 30 cartes ou utilisateur a manuellement réduit) -->
+      <div class="atelier-ab-mini">
+        <span class="atelier-ab-mini-lbl">➕ Ajouter :</span>
+        <button class="atelier-ab-mini-btn" onclick="openQuickAddCard()" title="Saisir une carte par nom">✏ Carte</button>
+        <button class="atelier-ab-mini-btn" onclick="openDeckPasteModal()" title="Coller une decklist">📋 Liste</button>
+        <button class="atelier-ab-mini-btn" onclick="_collSideToggle()" title="Sidebar collection drag-drop">🃏 Collection</button>
+        <button class="atelier-ab-mini-btn" onclick="if(typeof mlPerfectDeckOpen==='function')mlPerfectDeckOpen()" title="Deck parfait ManaLAB">⚗ Parfait</button>
+        <button class="atelier-ab-expand" onclick="_atelierToggleActionBar('expand')" title="Tout afficher (cartes détaillées)">▾ Détails</button>
       </div>
-      <div class="atelier-ab-tip">💡 <b>Astuce</b> : tu peux aussi <b>drag une carte depuis Scryfall</b> (ou Moxfield) directement vers cette zone. Et modifier la quantité de chaque carte avec les boutons <code>− / +</code>.</div>
     </div>
     <div class="lbl" style="margin-bottom:4px" data-i18n="deck.owner">Profil propriétaire</div>
     <div class="posel" id="prof-grid-deck"></div>
@@ -12803,6 +12836,36 @@ function _atelierToggleMore(){
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
 })();
+// Atelier adaptive : auto-collapse l'action bar « ➕ AJOUTER DES CARTES » dès que
+// le deck dépasse 30 cartes (rythme de construction passé, l'utilisateur peaufine).
+// L'utilisateur peut forcer expand/collapse manuellement — préférence persistée par deck.
+var _ATELIER_AB_THRESHOLD=30;
+function _atelierGetForcedMode(){
+  if(!actDeck)return null;
+  try{return localStorage.getItem('mtg_ab_mode_'+actDeck);}catch(e){return null;}
+}
+function _atelierSetForcedMode(mode){
+  if(!actDeck)return;
+  try{
+    if(mode)localStorage.setItem('mtg_ab_mode_'+actDeck,mode);
+    else localStorage.removeItem('mtg_ab_mode_'+actDeck);
+  }catch(e){}
+}
+function _atelierToggleActionBar(action){
+  // action = 'collapse' | 'expand' | 'auto'
+  _atelierSetForcedMode(action==='auto'?null:action);
+  _atelierApplyActionBarMode();
+}
+function _atelierApplyActionBarMode(){
+  var bar=document.getElementById('atelier-action-bar');if(!bar)return;
+  var totalC=(dCards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+  var forced=_atelierGetForcedMode();
+  var collapsed;
+  if(forced==='collapse')collapsed=true;
+  else if(forced==='expand')collapsed=false;
+  else collapsed=(totalC>=_ATELIER_AB_THRESHOLD);
+  bar.classList.toggle('is-collapsed',collapsed);
+}
 function _atelierUpdateSubtitle(){
   var sub=document.getElementById('etitle-sub');if(!sub)return;
   if(!actDeck||!decks[actDeck]){
@@ -12889,8 +12952,9 @@ function loadDeck(id){
   _deckHistSnapshot();
   // Bouton « ⚡ Parcours » visible quand un deck est actif
   var jBtn=document.getElementById('deck-journey-btn');if(jBtn)jBtn.style.display='inline-flex';
-  // Sous-titre dynamique de l'Atelier
+  // Sous-titre dynamique + mode action bar adaptif au chargement
   if(typeof _atelierUpdateSubtitle==='function')_atelierUpdateSubtitle();
+  if(typeof _atelierApplyActionBarMode==='function')_atelierApplyActionBarMode();
   // Refresh banlist du format actif (P0 #6) — cache 7 jours par format
   _currentBanlistSet=null;
   if(typeof _refreshBanlistForCurrentDeck==='function')setTimeout(_refreshBanlistForCurrentDeck,100);
@@ -15133,7 +15197,8 @@ function renderDeck(){
     var _countColor=_tgt?(_tot===_tgt?'var(--gr2)':_tot<_tgt?'var(--am)':'var(--rd2)'):'var(--gold2)';
     var _totalEur=0;
     dCards.forEach(function(c){var m=dCardMeta[c.nl]||{};var p=(m.priceEur)||(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])||0;if(p>0)_totalEur+=p*(c.qty||1);});
-    var _bandeau='<div class="atelier-stats-bar">';
+    var _compactCls=(_tot>=30)?' atelier-stats-bar--compact':'';
+    var _bandeau='<div class="atelier-stats-bar'+_compactCls+'">';
     _bandeau+='<div class="asb-item"><span class="asb-num" style="color:'+_countColor+'">'+_tot+(_tgt?'<span class="asb-tgt">/'+_tgt+'</span>':'')+'</span><span class="asb-lbl">cartes</span></div>';
     if(_totalEur>0)_bandeau+='<div class="asb-sep"></div><div class="asb-item"><span class="asb-num" style="color:var(--gold2)">'+_totalEur.toFixed(0)+' €</span><span class="asb-lbl">valeur</span></div>';
     if(dFormat)_bandeau+='<div class="asb-sep"></div><div class="asb-item"><span class="asb-fmt">'+esc(dFormat.charAt(0).toUpperCase()+dFormat.slice(1))+'</span></div>';
@@ -15148,6 +15213,7 @@ function renderDeck(){
   document.getElementById('dlist').innerHTML=html;
   // Sync du sous-titre dynamique de l'Atelier après chaque mutation
   if(typeof _atelierUpdateSubtitle==='function')_atelierUpdateSubtitle();
+  if(typeof _atelierApplyActionBarMode==='function')_atelierApplyActionBarMode();
 }
 
 // ===== ZOOM CARTE (lightbox global, partagé entre toutes les listes) =====
