@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-19';
+window.APP_BUILD='2026-06-06-20';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -4129,7 +4129,8 @@ details > summary::-webkit-details-marker{display:none}
       <div id="atelier-live-body">
         <div id="atelier-live-curve" style="margin-bottom:8px"></div>
         <div id="atelier-live-types" style="margin-bottom:8px"></div>
-        <div id="atelier-live-checklist"></div>
+        <div id="atelier-live-checklist" style="margin-bottom:8px"></div>
+        <div id="atelier-live-recos"></div>
       </div>
     </div>
     <div class="lbl" style="margin-bottom:4px" data-i18n="deck.owner">Profil propriétaire</div>
@@ -13426,6 +13427,9 @@ function _atelierLiveUpdate(){
   }
   var checkHtml='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">Ce qui manque pour ce format</div>';
   checkHtml+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+  // Mapping clé interne → key staples (Ramp/Removal/Draw/Counter/Wipe → ramp/removal/draw/counter/wipe)
+  var keyToStaple={Ramp:'ramp',Removal:'removal',Draw:'draw',Counter:'counter',Wipe:'wipe'};
+  var deficits=[];
   Object.keys(targets).forEach(function(k){
     var t=targets[k];
     var v=(k==='Land')?typeCounts.Land:t.actual;
@@ -13434,9 +13438,14 @@ function _atelierLiveUpdate(){
     var ico=ok?'✓':(warn?'~':'✗');
     checkHtml+='<span style="padding:3px 9px;background:rgba('+(ok?'126,200,106':(warn?'232,193,74':'217,100,90'))+',.10);border:.5px solid '+col+';border-radius:12px;font-size:.72rem;color:'+col+'">'
       +ico+' '+t.lbl+' <b>'+v+'</b><span style="color:var(--tx3);font-weight:400">/'+t.min+'</span></span>';
+    if(!ok && keyToStaple[k]){
+      deficits.push({key:keyToStaple[k],lbl:t.lbl,miss:t.min-v});
+    }
   });
   checkHtml+='</div>';
   var cEl=document.getElementById('atelier-live-checklist');if(cEl)cEl.innerHTML=checkHtml;
+  // Recommandations basées sur les déficits
+  if(typeof _atelierLiveRecosRender==='function')_atelierLiveRecosRender(deficits);
 
   // ─── Score résumé (haut du panneau) ───
   var pass=0,nb=0;
@@ -13449,6 +13458,187 @@ function _atelierLiveUpdate(){
     var pct=nb?Math.round(pass*100/nb):0;
     var col=pct>=80?'#7ec86a':(pct>=50?'#e8c14a':'#d9645a');
     scoreEl.innerHTML='· <span style="color:'+col+';font-weight:600">'+pass+'/'+nb+' critères OK</span> ('+pct+'%)';
+  }
+}
+// ───────────────────────────────────────────────────────────────────────────
+// AUTO-CATÉGORISATION — détecte le rôle d'une carte via son oracle text + types
+// Retourne un tableau de tags : ramp, removal, draw, counter, wipe, tutor,
+// recursion, protection, ramp-land, manarock, beats, finisher, anti-creature, …
+// ───────────────────────────────────────────────────────────────────────────
+var _ML_CAT_LBL={
+  ramp:{ico:'🌱',lbl:'Ramp',col:'#7ec86a'},
+  removal:{ico:'🎯',lbl:'Removal',col:'#d9645a'},
+  draw:{ico:'📖',lbl:'Pioche',col:'#7eb3d9'},
+  counter:{ico:'🛡',lbl:'Contre',col:'#8a7ed9'},
+  wipe:{ico:'💥',lbl:'Wrath',col:'#e8645a'},
+  tutor:{ico:'🔮',lbl:'Tutor',col:'#d9a4e8'},
+  recursion:{ico:'⚰',lbl:'Récursion',col:'#9d9d9d'},
+  protection:{ico:'✨',lbl:'Protection',col:'#e8d97e'},
+  lifegain:{ico:'❤',lbl:'Vie',col:'#e87ea4'},
+  finisher:{ico:'👹',lbl:'Finisher',col:'#c14ad9'},
+  combo:{ico:'🔗',lbl:'Combo',col:'#a4e8c8'},
+  manarock:{ico:'💎',lbl:'Manarock',col:'#c8a878'},
+  utility:{ico:'⚙',lbl:'Utility',col:'#8c8c8c'}
+};
+function mlCategorizeCard(meta){
+  if(!meta)return [];
+  var tags=[];
+  var ot=(meta.oracleText||'').toLowerCase();
+  var tl=(meta.typeLine||'').toLowerCase();
+  var isLand=tl.indexOf('land')>=0;
+  var isArtifact=tl.indexOf('artifact')>=0;
+  var isCreature=tl.indexOf('creature')>=0;
+  // Mana rock (artifact avec « add ... mana ») hors terrains
+  if(isArtifact && !isLand && /add (one|two|three|\{[wubrgc])/.test(ot))tags.push('manarock');
+  // Ramp non-terrain : « search your library for...land », « add {G/W/etc} »
+  if(!isLand && !isArtifact && /search your library for.* basic land|search your library for.* land/.test(ot))tags.push('ramp');
+  if(!isLand && /add \{[wubrgc]\}|add one mana|add two mana|add three mana/.test(ot)&&!tags.includes('manarock')&&!tags.includes('ramp'))tags.push('ramp');
+  // Removal ciblé
+  if(/destroy target (creature|permanent|artifact|enchantment|planeswalker|nonland)/.test(ot)
+   ||/exile target (creature|permanent|artifact|enchantment|planeswalker|nonland)/.test(ot))tags.push('removal');
+  // Wrath / sweeper
+  if(/destroy all (creature|permanent|nonland)|exile all (creature|permanent|nonland)|each (creature|opponent).* sacrifice/.test(ot))tags.push('wipe');
+  // Pioche
+  if(/draw (a|two|three|four|x|that many) cards?|investigate|scry [2-9]/.test(ot))tags.push('draw');
+  // Contresort
+  if(/counter target (spell|ability)/.test(ot))tags.push('counter');
+  // Tutor
+  if(/search your library for (a|an|two|three|up to|any) (?!basic land)(card|creature|artifact|enchantment|instant|sorcery|planeswalker)/.test(ot))tags.push('tutor');
+  // Récursion (cimetière → main/champ de bataille)
+  if(/return target (creature|card|permanent) (card )?from your graveyard|return (it|target) from your graveyard|put .* from your graveyard onto the battlefield/.test(ot))tags.push('recursion');
+  // Protection / hexproof / indestructible / contre-sort de protection
+  if(/(hexproof|indestructible|protection from|prevent .* damage|target .* gains? (hexproof|indestructible|protection))/.test(ot))tags.push('protection');
+  // Gain de vie
+  if(/(gain (\d+|x) life|life equal to|gain that much life)/.test(ot))tags.push('lifegain');
+  // Finisher : créature CMC 6+ ou « target opponent loses » / « deals damage equal to »
+  if(isCreature && (meta.cmc||0)>=6)tags.push('finisher');
+  if(/each opponent loses|target opponent loses|deals damage equal to|target player loses the game|wins the game/.test(ot))tags.push('finisher');
+  // Combo flag (très grossier : « infinite » ou « untap target permanent » + indices)
+  if(/infinite|untap target (permanent|nonland permanent)|copy target spell/.test(ot))tags.push('combo');
+  return tags;
+}
+// Cache des tags par nl pour éviter recalcul
+var _mlCardTags={};
+function mlCardTags(nl){
+  if(_mlCardTags[nl])return _mlCardTags[nl];
+  var meta=(typeof dCardMeta!=='undefined')?dCardMeta[nl]:null;
+  var tags=mlCategorizeCard(meta);
+  _mlCardTags[nl]=tags;
+  return tags;
+}
+function mlCardTagsBadges(nl,maxN){
+  var tags=mlCardTags(nl);if(!tags.length)return '';
+  if(maxN)tags=tags.slice(0,maxN);
+  return tags.map(function(t){
+    var d=_ML_CAT_LBL[t];if(!d)return '';
+    return '<span class="ml-cat-tag" data-cat="'+t+'" title="'+d.lbl+'" style="display:inline-flex;align-items:center;gap:2px;padding:1px 5px;background:rgba(255,255,255,.04);border:.5px solid '+d.col+';border-radius:8px;font-size:.62rem;color:'+d.col+';margin-left:3px;line-height:1.3">'+d.ico+'</span>';
+  }).join('');
+}
+// ───────────────────────────────────────────────────────────────────────────
+// STAPLES par catégorie + couleur — base statique des cartes les plus jouées
+// (sélection éprouvée, mix prix abordable + format Commander friendly).
+// Affichées comme suggestions quand un critère de la checklist est sous le seuil.
+// ───────────────────────────────────────────────────────────────────────────
+var _ML_STAPLES={
+  ramp:{
+    C:['Sol Ring','Arcane Signet','Mind Stone','Thought Vessel','Commander\'s Sphere','Fellwar Stone'],
+    G:['Cultivate','Kodama\'s Reach','Rampant Growth','Farseek','Nature\'s Lore','Three Visits','Skyshroud Claim','Wood Elves','Sakura-Tribe Elder','Birds of Paradise','Llanowar Elves','Elvish Mystic'],
+    W:['Land Tax','Smothering Tithe','Loyal Warhound'],
+    U:['Talisman of Curiosity'],
+    B:['Dark Ritual','Talisman of Dominance'],
+    R:['Wayfarer\'s Bauble','Mana Geyser']
+  },
+  removal:{
+    W:['Swords to Plowshares','Path to Exile','Generous Gift','Banishing Light','Oblivion Ring'],
+    U:['Pongify','Rapid Hybridization','Reality Shift'],
+    B:['Go for the Throat','Doom Blade','Hero\'s Downfall','Cut Down','Infernal Grasp','Bone Shards'],
+    R:['Lightning Bolt','Chaos Warp','Abrade','Anguished Unmaking'],
+    G:['Beast Within','Krosan Grip','Force of Vigor'],
+    C:['Hour of Devastation','Meteor Golem']
+  },
+  draw:{
+    U:['Rhystic Study','Mystic Remora','Brainstorm','Ponder','Preordain','Fact or Fiction','Consecrated Sphinx','Mystic Confluence'],
+    B:['Phyrexian Arena','Night\'s Whisper','Sign in Blood','Read the Bones','Necropotence'],
+    G:['Sylvan Library','Beast Whisperer','Guardian Project','Harmonize'],
+    W:['Esper Sentinel','Mentor of the Meek','Skullclamp'],
+    C:['Solemn Simulacrum','Wayfarer\'s Bauble']
+  },
+  counter:{
+    U:['Counterspell','Negate','Swan Song','Mana Drain','Force of Will','Arcane Denial','Fierce Guardianship','Dispel','Mana Leak']
+  },
+  wipe:{
+    W:['Wrath of God','Damn','Akroma\'s Vengeance','Day of Judgment','Austere Command'],
+    B:['Damnation','Toxic Deluge','Damn','Languish'],
+    R:['Blasphemous Act','Wildfire','Anger of the Gods','Pyroclasm'],
+    G:['Hour of Reckoning']
+  },
+  protection:{
+    W:['Heroic Intervention','Teferi\'s Protection','Flawless Maneuver','Boros Charm'],
+    G:['Heroic Intervention'],
+    U:['Counterspell','Spell Pierce']
+  },
+  recursion:{
+    B:['Reanimate','Animate Dead','Necromancy','Dance of the Dead','Doomed Necromancer'],
+    G:['Eternal Witness','Regrowth','Noxious Revival','Reclaim']
+  },
+  tutor:{
+    B:['Demonic Tutor','Vampiric Tutor','Diabolic Intent','Grim Tutor'],
+    G:['Worldly Tutor','Sylvan Tutor','Green Sun\'s Zenith'],
+    W:['Enlightened Tutor','Idyllic Tutor'],
+    U:['Mystical Tutor','Personal Tutor']
+  }
+};
+function mlSuggestStaples(cat,colors,limit){
+  var pool=_ML_STAPLES[cat];if(!pool)return [];
+  var out=[];
+  var hasC=true; // colorless always available
+  // Ordre : commun (C) puis chaque couleur du deck
+  if(pool.C)pool.C.forEach(function(n){out.push(n);});
+  ['W','U','B','R','G'].forEach(function(c){
+    if(colors&&colors.indexOf(c)>=0&&pool[c]){pool[c].forEach(function(n){out.push(n);});}
+  });
+  // Dédupliquer
+  var seen={},uniq=[];
+  out.forEach(function(n){var k=n.toLowerCase();if(!seen[k]){seen[k]=1;uniq.push(n);}});
+  return uniq.slice(0,limit||6);
+}
+function _atelierLiveRecosRender(deficits){
+  var el=document.getElementById('atelier-live-recos');if(!el)return;
+  if(!deficits||!deficits.length){el.innerHTML='';return;}
+  var dk=decks[actDeck]||{};
+  var colors=dk.colors||dColors||[];
+  // Présentes dans le deck pour ne pas re-suggérer
+  var present={};
+  dCards.forEach(function(c){present[(c.name||'').toLowerCase().trim()]=1;});
+  var h='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">💡 Suggestions pour combler les déficits</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:6px">';
+  deficits.forEach(function(d){
+    var staples=mlSuggestStaples(d.key,colors,8).filter(function(n){return !present[n.toLowerCase()];}).slice(0,5);
+    if(!staples.length)return;
+    var info=_ML_CAT_LBL[d.key]||{ico:'?',lbl:d.lbl||d.key,col:'var(--gold2)'};
+    h+='<div style="padding:6px 9px;background:rgba(255,255,255,.025);border-left:2px solid '+info.col+';border-radius:5px">';
+    h+='<div style="font-size:.74rem;color:'+info.col+';margin-bottom:4px">'+info.ico+' <b>'+info.lbl+'</b> — il en manque '+d.miss+' :</div>';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+    staples.forEach(function(n){
+      h+='<button class="reco-add-btn" onclick="_atelierRecoAdd(\''+escJs(n)+'\')" title="Ajouter '+esc(n)+' au deck" style="padding:3px 9px;background:rgba(201,168,76,.08);border:.5px solid var(--bd2);border-radius:11px;color:var(--tx2);font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s">+ '+esc(n)+'</button>';
+    });
+    h+='</div></div>';
+  });
+  h+='</div>';
+  // Style hover
+  h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.15)!important}</style>';
+  el.innerHTML=h;
+}
+function _atelierRecoAdd(name){
+  if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
+  if(typeof bldAddCardByName==='function'){
+    bldAddCardByName(name).then(function(ok){
+      if(ok){try{mlPlaySound&&mlPlaySound('pop');mlVibratePulse&&mlVibratePulse();}catch(e){}
+        if(typeof toast==='function')toast('✓ '+name+' ajouté');
+      }else{
+        if(typeof toastError==='function')toastError('Carte introuvable : '+name);
+      }
+    });
   }
 }
 // Wrap renderDeck pour rafraîchir l'analyse live à chaque changement
@@ -16408,7 +16598,8 @@ function renderDeck(){
         var isBanned=_currentBanlistSet&&(_currentBanlistSet.has(card.nl)||_currentBanlistSet.has((card.name||'').toLowerCase().trim()));
         var banBadge=isBanned?'<span class="card-ban-badge" title="Bannie en '+esc(_banlistFmtNorm(dFormat))+'">⛔ BAN</span>':'';
         var bannedClass=isBanned?' card-banned':'';
-        html+='<div class="'+rc+(pendQD?' rpend':'')+bannedClass+'" data-hover-card="'+esc(card.nl)+'"><div class="dq-grp"><button class="dq-mini dq-dec" data-nl="'+esc(card.nl)+'" title="−1 (ou supprimer si dernière copie)" tabindex="-1">−</button><div class="dq">'+card.qty+'</div><button class="dq-mini dq-inc" data-nl="'+esc(card.nl)+'" title="+1" tabindex="-1">+</button></div><div class="dname cz-clickable" onclick="openCardZoomAt('+zi+')" title="Zoomer">'+esc(card.name)+dkBdg+banBadge+verBtnInline+'</div>'+pc+priceCell+addBtn+'</div>';
+        var catBadges=(typeof mlCardTagsBadges==='function')?mlCardTagsBadges(card.nl,3):'';
+        html+='<div class="'+rc+(pendQD?' rpend':'')+bannedClass+'" data-hover-card="'+esc(card.nl)+'"><div class="dq-grp"><button class="dq-mini dq-dec" data-nl="'+esc(card.nl)+'" title="−1 (ou supprimer si dernière copie)" tabindex="-1">−</button><div class="dq">'+card.qty+'</div><button class="dq-mini dq-inc" data-nl="'+esc(card.nl)+'" title="+1" tabindex="-1">+</button></div><div class="dname cz-clickable" onclick="openCardZoomAt('+zi+')" title="Zoomer">'+esc(card.name)+catBadges+dkBdg+banBadge+verBtnInline+'</div>'+pc+priceCell+addBtn+'</div>';
       });
       html+='</div>'; // /dsec-wrap
     });
