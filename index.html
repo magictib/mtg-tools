@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-4';
+window.APP_BUILD='2026-06-06-5';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1041,6 +1041,27 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
   #coll-side{width:90vw;left:-95vw}
   .cs-grid{grid-template-columns:repeat(auto-fill,minmax(74px,1fr))}
 }
+/* Top decks featured sur la home (P1 #8) */
+.home-featured-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.home-featured{display:flex;gap:11px;padding:13px 14px;background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(201,168,76,.01));border:.5px solid var(--bd2);border-radius:11px;text-decoration:none;color:var(--tx);transition:all .15s;font-family:'Crimson Pro',serif;cursor:pointer}
+.home-featured:hover{transform:translateY(-3px);border-color:var(--gold);box-shadow:0 8px 22px rgba(0,0,0,.5),0 0 18px rgba(201,168,76,.22);background:linear-gradient(135deg,rgba(201,168,76,.16),rgba(201,168,76,.03))}
+.hfd-rank{font-size:1.4rem;line-height:1;flex-shrink:0;opacity:.85}
+.hfd-body{flex:1;min-width:0}
+.hfd-name{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:1rem;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hfd-owner{font-size:.72rem;color:var(--tx3);margin-bottom:3px}
+.hfd-owner b{color:var(--tx2);font-weight:600}
+.hfd-fmt{background:rgba(201,168,76,.18);color:var(--gold2);padding:1px 6px;border-radius:4px;font-size:.65rem;font-family:monospace;text-transform:uppercase;letter-spacing:.04em}
+.hfd-cmd{font-size:.74rem;color:#c8a8ff;font-style:italic;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hfd-stats{display:flex;gap:10px;font-size:.74rem;margin-top:3px}
+.hfd-likes{color:var(--rd2)}
+.hfd-comments{color:var(--tx2)}
+/* Auto-détection archétype live dans le panel stats (P1 #9) */
+.deck-arch-live{margin-top:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(201,168,76,.10),rgba(201,168,76,.02));border:.5px solid rgba(201,168,76,.4);border-radius:9px;display:flex;align-items:center;gap:10px;font-family:'Crimson Pro',serif}
+.dal-ico{font-size:1.7rem;line-height:1}
+.dal-txt{flex:1;min-width:0}
+.dal-lbl{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;letter-spacing:.03em}
+.dal-hint{font-size:.7rem;color:var(--tx3);font-style:italic;margin-top:1px}
+.dal-meta{font-size:.66rem;color:var(--tx2);font-family:monospace;background:rgba(0,0,0,.3);padding:2px 6px;border-radius:5px}
 /* Confettis : 32 particules tombent + tournent depuis le centre du panel */
 @keyframes confettiFall{
   0%{transform:translate(-50%,-50%) rotate(0);opacity:1}
@@ -9375,9 +9396,13 @@ function renderHome(){
   }
   // ── Commandants suggérés (après mes decks/parties) ──
   try{html+=_homeRecoHtml();}catch(e){}
+  // ── Top decks featured (P1 #8) — placeholder rempli en async via Firestore ──
+  html+='<div id="home-featured-decks-slot"></div>';
   // ── Activité des amis (en BAS, après tout le contenu personnel) ──
   try{html+=_homeActivityHtml();}catch(e){}
   host.innerHTML=html;
+  // Fetch async des top decks publics (triés par nb de likes décroissant)
+  setTimeout(_homeFetchFeaturedDecks,200);
   _maybeShowWelcome();
   _recordCollValue();
 }
@@ -9463,6 +9488,60 @@ function _bldOpenCmdRecoModal(){
   inner+='</div>';
   ov.innerHTML=inner;
   ov.style.display='flex';
+}
+// Top decks featured sur la home (P1 #8). Cache 1 heure pour éviter de
+// resolliciter Firestore à chaque renderHome. Affichage en grille compacte
+// avec : nom, auteur, commandant, nb likes/comments.
+var _homeFeaturedCache=null;
+var _homeFeaturedTs=0;
+function _homeFetchFeaturedDecks(){
+  var slot=document.getElementById('home-featured-decks-slot');if(!slot)return;
+  // Cache 1h
+  if(_homeFeaturedCache&&Date.now()-_homeFeaturedTs<3600000){
+    slot.innerHTML=_homeRenderFeaturedDecks(_homeFeaturedCache);
+    return;
+  }
+  if(typeof db==='undefined')return;
+  // Top 6 par nb de likes (tri client-side, queryLimit 50)
+  db.collection('public_decks').limit(50).get().then(function(snap){
+    var arr=[];
+    snap.forEach(function(d){
+      var data=d.data()||{};
+      var likes=Array.isArray(data.likes)?data.likes.length:0;
+      var comments=Array.isArray(data.comments)?data.comments.length:0;
+      arr.push({id:d.id,name:data.name||'Deck sans nom',ownerName:data.ownerName||'?',format:data.format||'',commander:data.commander&&data.commander.name||'',likes:likes,comments:comments,sharedAt:data.sharedAt||0,score:likes*2+comments});
+    });
+    arr.sort(function(a,b){return b.score-a.score;});
+    arr=arr.slice(0,6);
+    _homeFeaturedCache=arr;
+    _homeFeaturedTs=Date.now();
+    slot.innerHTML=_homeRenderFeaturedDecks(arr);
+  }).catch(function(){slot.innerHTML='';});
+}
+function _homeRenderFeaturedDecks(arr){
+  if(!arr||!arr.length)return '';
+  var html='<div class="home-section"><div class="home-sec-title">🔥 Decks populaires de la communauté <span class="home-sec-count">'+arr.length+'</span></div>';
+  html+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:8px;font-style:italic">Les decks publics les plus aimés et commentés. Clique pour les explorer.</div>';
+  html+='<div class="home-featured-grid">';
+  arr.forEach(function(d){
+    var url='/deck/'+encodeURIComponent(d.id);
+    var fmt=d.format?'<span class="hfd-fmt">'+esc(d.format)+'</span>':'';
+    var cmd=d.commander?'<div class="hfd-cmd">👑 '+esc(d.commander)+'</div>':'';
+    html+='<a class="home-featured" href="'+esc(url)+'" target="_blank" rel="noopener">';
+    html+='<div class="hfd-rank">⭐</div>';
+    html+='<div class="hfd-body">';
+    html+='<div class="hfd-name">'+esc(d.name)+'</div>';
+    html+='<div class="hfd-owner">par <b>'+esc(d.ownerName)+'</b>'+(fmt?' · '+fmt:'')+'</div>';
+    html+=cmd;
+    html+='<div class="hfd-stats">';
+    if(d.likes>0)html+='<span class="hfd-likes">❤ '+d.likes+'</span>';
+    if(d.comments>0)html+='<span class="hfd-comments">💬 '+d.comments+'</span>';
+    html+='</div>';
+    html+='</div>';
+    html+='</a>';
+  });
+  html+='</div></div>';
+  return html;
 }
 function _homeRecoHtml(){
   var recs=_recoCommanders();
@@ -9952,21 +10031,105 @@ function closeWelcome(){
 // formats, brackets, scoring. Helper gloss(term, label?) → renvoie un span
 // cliquable. Un seul popover global, fermé au click extérieur.
 var _GLOSS_QUICK={
+  // ─── Formats ───
   'EDH':{lbl:'EDH (Commander)',def:'Format Magic à 100 cartes singleton dirigé par un commandant légendaire. Tu joues à 4 (1v1v1v1) avec 40 PV de départ. Le format le plus joué en casual.'},
   'PDH':{lbl:'PDH (Pauper Commander)',def:'Variante d\'EDH où toutes les cartes (y compris le commandant) doivent être des communes ou peu communes. Budget réduit, gameplay axé interaction.'},
   'cEDH':{lbl:'cEDH (Commander compétitif)',def:'EDH joué à puissance maximale : tutors, fast mana (Sol Ring, Mana Vault), combos rapides T3-T4. Bracket 5. Très différent du Commander casual.'},
+  'Standard':{lbl:'Standard',def:'Format avec les ~3 dernières années de sets seulement (~7 extensions). Rotation chaque automne. Format compétitif officiel, decks à 60 cartes + 15 sideboard.'},
+  'Modern':{lbl:'Modern',def:'Format avec toutes les cartes depuis Mirrodin (2003). Pas de rotation. Banlist active. Decks puissants, archétypes variés. 60+15 cartes.'},
+  'Pioneer':{lbl:'Pioneer',def:'Format avec toutes les cartes depuis Return to Ravnica (2012). Pas de fetchlands. Plus jeune que Modern, plus accessible.'},
+  'Legacy':{lbl:'Legacy',def:'Format avec presque toutes les cartes Magic. Fast mana et fast combo autorisés. Banlist large. Très puissant et cher.'},
+  'Vintage':{lbl:'Vintage',def:'Format avec TOUTES les cartes (sauf banlist mince). Power 9 légal mais restreint à 1 copie. Le plus puissant, le plus cher.'},
+  'Pauper':{lbl:'Pauper',def:'Format où seules les cartes COMMUNES sont autorisées. Budget réduit, archétypes affûtés. Très populaire en ligne.'},
+  'Brawl':{lbl:'Brawl',def:'Variante Standard du Commander : 60 cartes singleton + commandant légendaire. 1v1 ou 4 joueurs selon mode.'},
+  // ─── Power / Bracket ───
   'Bracket':{lbl:'Bracket (1-5)',def:'Échelle officielle WotC de power level pour Commander. 1 = casual précon, 2 = upgrade léger, 3 = équilibré, 4 = optimisé non-cEDH, 5 = cEDH. Aide à matcher les decks en partie.'},
   'Game changer':{lbl:'Game Changer',def:'Cartes officielles WotC marquées comme « game-changers » (ex. Sol Ring, Vampiric Tutor, Cyclonic Rift). Très puissantes — leur nombre détermine partiellement le bracket d\'un deck.'},
+  'Power level':{lbl:'Power level',def:'Niveau global de puissance d\'un deck. En Commander, mesuré par Bracket (1-5) WotC. Important pour matcher des decks d\'intensité comparable en partie.'},
+  'Power 9':{lbl:'Power 9',def:'Les 9 cartes les plus puissantes de Magic (Black Lotus, Time Walk, Ancestral Recall, Mox Pearl/Sapphire/Jet/Ruby/Emerald, Timetwister). Légales seulement en Vintage, restreintes à 1 copie.'},
+  // ─── Référence ─────
   'EDHREC':{lbl:'EDHREC',def:'Site qui agrège les decklists publiques pour donner les % d\'inclusion des cartes par commandant. ManaLAB utilise ces stats pour évaluer la synergie de chaque carte avec un commandant donné.'},
+  'Scryfall':{lbl:'Scryfall',def:'Base de données et moteur de recherche de cartes Magic le plus complet. ManaLAB utilise leurs données (oracle text, prix, images) pour toutes les fonctions.'},
+  'Cardmarket':{lbl:'Cardmarket',def:'Marketplace européen #1 pour acheter/vendre Magic. ManaLAB importe leurs prix pour les listes d\'achat physiques.'},
+  // ─── Jeu — phases et zones ───
   'Mulligan':{lbl:'Mulligan',def:'Remélanger ta main d\'ouverture pour en avoir une nouvelle, avec une carte de moins (règle de Londres). Décision-clé du début de partie.'},
+  'Upkeep':{lbl:'Upkeep',def:'Étape d\'entretien : après l\'untap, avant la pioche. Certains effets se déclenchent ici (« At the beginning of your upkeep »).'},
+  'Main phase':{lbl:'Main phase',def:'Phase principale (avant et après le combat) où tu peux jouer terrains, créatures, sorts de rituel. Tu en as 2 par tour.'},
+  'Combat':{lbl:'Combat',def:'Phase d\'attaque/blocage. Étapes : début → déclaration attaquants → bloqueurs → dégâts → fin combat. Critique pour les decks aggro.'},
+  'End step':{lbl:'End step',def:'Dernière phase avant de passer la main. Beaucoup d\'effets se déclenchent ici (« At the beginning of the end step »). Bon moment pour jouer des éphémères.'},
+  'Battlefield':{lbl:'Battlefield (champ de bataille)',def:'Zone où vont les permanents en jeu (créatures, terrains, artefacts, enchantements, planeswalkers). La zone principale du jeu.'},
+  'Library':{lbl:'Library (bibliothèque)',def:'Le deck mélangé face cachée. Pioche depuis le dessus. Si tu dois piocher avec library vide, tu perds.'},
+  'Graveyard':{lbl:'Graveyard (cimetière)',def:'Pile face visible des cartes détruites/défaussées/jouées. Beaucoup de decks recyclent depuis ici (récursion).'},
+  'Exile':{lbl:'Exile (zone d\'exil)',def:'Zone face visible « hors du jeu ». Plus difficile à récupérer que le cimetière. Beaucoup de removal exile.'},
+  'Hand':{lbl:'Hand (main)',def:'Tes cartes en main. Cap par défaut : 7 cartes à la fin de ton tour, sinon défausse.'},
+  'Stack':{lbl:'Stack (pile)',def:'Zone où les sorts et capacités attendent de se résoudre. Résolution LIFO (dernier entré, premier sorti). Permet les réponses (instant, contresort).'},
+  'Command zone':{lbl:'Command zone',def:'Zone spéciale pour les commandants et emblèmes. En Commander, ton commandant y commence et y retourne au lieu d\'aller cimetière/exil (optionnel, +2 mana à chaque relance).'},
+  // ─── Catégories de cartes ───
   'Ramp':{lbl:'Ramp',def:'Cartes qui produisent du mana en plus (Sol Ring, Cultivate, Birds of Paradise). Permet de jouer ses sorts plus tôt. Catégorie centrale d\'un bon deck Commander.'},
   'Removal':{lbl:'Removal',def:'Sorts qui détruisent ou exilent un permanent adverse (Path to Exile, Beast Within, Swords to Plowshares). Indispensable pour gérer les menaces des adversaires.'},
   'Wipe':{lbl:'Wipe (board wipe)',def:'Sort qui détruit toutes les créatures (Wrath of God, Cyclonic Rift). Sortie de prison quand l\'adversaire a posé trop de créatures.'},
   'Tutor':{lbl:'Tutor',def:'Sort qui cherche une carte précise dans la bibliothèque (Demonic Tutor, Mystical Tutor). Augmente énormément la consistance — souvent restreint en bracket bas.'},
   'Combo':{lbl:'Combo',def:'Interaction de 2-3 cartes qui produit une boucle infinie ou gagne la partie immédiatement (Thoracle+Consultation, Isochron Scepter+Dramatic Reversal). Pilier des decks cEDH.'},
+  'Counterspell':{lbl:'Counterspell (contresort)',def:'Sort éphémère qui annule un autre sort sur la pile avant qu\'il se résolve. Outil défensif clé du bleu (Counterspell, Force of Will, Mana Drain).'},
+  'Wincon':{lbl:'Wincon (win condition)',def:'Carte ou combo qui fait gagner la partie. Tout deck doit en avoir au moins 1-2 fiables. Sans wincon clair = deck qui « stalle ».'},
+  'Cantrip':{lbl:'Cantrip',def:'Sort bon marché (1 mana) qui fait piocher une carte (Brainstorm, Ponder, Preordain). Lubrifie le deck sans coûter de cartes.'},
+  'Fetch land':{lbl:'Fetch land',def:'Terrain qui se sacrifie pour aller chercher un autre terrain dans la bibliothèque (Scalding Tarn, Polluted Delta). Améliore la consistance couleur. Chers.'},
+  'Shock land':{lbl:'Shock land',def:'Terrain bicolore qui entre en jeu engagé sauf si tu paies 2 vie (Steam Vents, Watery Grave). Référence des manabases compétitives.'},
+  'Dual land':{lbl:'Dual land',def:'Terrain qui produit 2 couleurs. Plusieurs catégories : originaux (ABU), shock, fetch, check, pain, fast. Pierre angulaire d\'un deck multicolore.'},
+  // ─── Mécaniques ETB / triggers ───
+  'ETB':{lbl:'ETB (Enters the Battlefield)',def:'Capacité déclenchée quand un permanent entre en jeu (« When ~ enters the battlefield »). Très commun, souvent abusé via blink.'},
+  'Dies trigger':{lbl:'Dies trigger',def:'Capacité déclenchée quand une créature meurt (va au cimetière depuis le champ). Pilier des decks sacrifice (Blood Artist, Zulaport Cutthroat).'},
+  'Blink':{lbl:'Blink (flicker)',def:'Exiler temporairement un permanent puis le ramener — re-déclenche son ETB. Pivot des decks blink (Ephara, Yorion, Aminatou).'},
+  'Sacrifice':{lbl:'Sacrifice',def:'Le contrôleur met un permanent au cimetière. Beaucoup de cartes le demandent comme coût ou le punissent (aristocrats).'},
+  'Tap':{lbl:'Tap (engager)',def:'Tourner un permanent de 90°. La plupart des terrains et capacités demandent de tap. Untap au début de ton tour.'},
+  'Flash':{lbl:'Flash',def:'Tu peux lancer ce sort au moment où tu pourrais lancer un éphémère (sur tour adverse, en réponse). Pivot des Flash decks (Vendilion Clique).'},
+  // ─── Archétypes ───
+  'Aggro':{lbl:'Aggro',def:'Stratégie agressive : créatures rapides bon marché, sorts directs, but = tuer l\'adversaire en 4-5 tours. Burn, Mono-Red, Goblins.'},
+  'Midrange':{lbl:'Midrange',def:'Bonnes valeurs sur la courbe, créatures à 2/3/4 manas + removal. Joue le long jeu sans être full control. Jund, Rock, Selesnya.'},
+  'Control':{lbl:'Control',def:'Interaction lourde (contresorts, removal, board wipes), finisher unique tardif. Cherche à fatiguer l\'adversaire. Azorius, Esper.'},
+  'Tempo':{lbl:'Tempo',def:'Mix d\'aggro et control : créatures cheap + bounce/counter/removal pas chers pour ralentir l\'adversaire pendant qu\'on tape.'},
+  'Tokens':{lbl:'Tokens',def:'Stratégie qui multiplie les créatures via tokens (gobelins, soldats, oiseaux). Anthems pour les pumper. Selesnya Tokens, Krenko.'},
+  'Tribal':{lbl:'Tribal',def:'Deck centré sur une race/classe : Goblin, Elfes, Vampires, Dragons. Synergies entre membres du tribu. Lords boostent leur type.'},
+  'Voltron':{lbl:'Voltron',def:'Commandant équipé/enchanté à mort pour 1-shot l\'adversaire par dégâts de commandant (21+). Uril, Sram, Light-Paws.'},
+  'Stax':{lbl:'Stax',def:'Stratégie de verrouillage : effets qui empêchent l\'adversaire de jouer (Winter Orb, Smokestack). Lent mais étouffant. Souvent détesté.'},
+  'Spellslinger':{lbl:'Spellslinger',def:'Deck qui lance plein de sorts non-créatures (éphémères/rituels) et profite des triggers « when you cast » (Storm, Izzet).'},
+  'Mill':{lbl:'Mill',def:'Stratégie : forcer l\'adversaire à mettre des cartes de sa bibliothèque au cimetière. Le fait perdre quand il pioche avec library vide.'},
+  'Lifegain':{lbl:'Lifegain',def:'Stratégie autour du gain de PV (lien de vie, drain). Combo avec payoffs (Aetherflux Reservoir, Sanguine Bond).'},
+  'Reanimator':{lbl:'Reanimator',def:'Mettre des grosses créatures au cimetière, les ressusciter pas cher (Reanimate, Animate Dead). Skip la courbe de mana.'},
+  'Burn':{lbl:'Burn',def:'Aggro extrême : sorts directs vers l\'adversaire (Lightning Bolt, Lava Spike, Shock). Cherche à faire 20 dégâts en 4-5 tours.'},
+  // ─── Couleurs ───
+  'WUBRG':{lbl:'WUBRG',def:'Les 5 couleurs Magic : W (Blanc), U (Bleu), B (Noir), R (Rouge), G (Vert). Notation officielle.'},
+  'Mono':{lbl:'Monocolor',def:'Deck à une seule couleur. Cohérent en mana, mais limité par les outils de la couleur. Mono-Red = aggro classique.'},
+  'Identité couleur':{lbl:'Identité couleur (color identity)',def:'En Commander : toutes les couleurs présentes dans le coût + texte du commandant. Tes cartes ne peuvent contenir que ces couleurs (sinon illégal).'},
+  'Splash':{lbl:'Splash',def:'Ajouter une couleur mineure dans un deck principalement d\'autres couleurs. Ex : « Naya splash bleu » pour des contresorts.'},
+  // ─── Termes Pro ───
+  'Netdeck':{lbl:'Netdeck',def:'Copier une decklist trouvée sur Internet (tournois, EDHREC). Pas péjoratif mais souvent moins fun que brewer soi-même.'},
+  'Brew':{lbl:'Brew',def:'Construire un deck original, hors méta. « Brewing » = phase créative. ManaLAB Coach Mode est conçu pour aider les brewers.'},
+  'Meta':{lbl:'Meta (métagame)',def:'État courant des decks populaires/forts dans un format. Le « meta » évolue avec les nouveaux sets et bannings.'},
+  'Sideboard':{lbl:'Sideboard',def:'15 cartes en plus du deck principal (sauf EDH). Échangeables entre les manches d\'un même match selon le matchup.'},
+  'Maybeboard':{lbl:'Maybeboard',def:'Liste informelle de cartes envisagées mais non incluses. Sert au brewing — comparer plusieurs versions.'},
+  'Matchup':{lbl:'Matchup',def:'Confrontation entre 2 decks/archétypes. « Bon matchup » = tu gagnes souvent. Le sideboard se construit en pensant aux matchups attendus.'},
+  'Tier':{lbl:'Tier',def:'Niveau de force d\'un deck dans le méta. Tier 1 = meilleur, Tier 2 = compétitif, Tier 3 = jouable mais moins fort. Évolue avec le méta.'},
+  // ─── EDH spécifique ───
+  'Partner':{lbl:'Partner (commandant)',def:'Mot-clé qui permet d\'avoir 2 commandants au lieu d\'1. Combinable (ex: Tymna + Thrasios). Élargit l\'identité couleur.'},
+  'Background':{lbl:'Background',def:'Variante de Partner introduite avec D&D. Le commandant principal peut avoir un Background qui ajoute des couleurs et un effet passif.'},
+  'Cmd damage':{lbl:'Commander damage',def:'En Commander : 21 dégâts cumulés par UN même commandant à un joueur = ce joueur perd. Voie de victoire alternative.'},
+  'Sol Ring':{lbl:'Sol Ring',def:'Artefact iconique : 1 mana, tape pour 2 mana incolore. Présent dans 90 % des decks Commander. Game changer officiel.'},
+  'Arcane Signet':{lbl:'Arcane Signet',def:'Artefact 2 manas qui tape pour 1 mana de n\'importe quelle couleur de ton identité commandant. Rock universel en EDH.'},
+  // ─── Concepts généraux ───
   'Synergie':{lbl:'Synergie',def:'Mesure de l\'adéquation d\'une carte avec le commandant et les thèmes du deck. ManaLAB calcule la synergie via regex sur le texte oracle + données EDHREC.'},
   'Archétype':{lbl:'Archétype',def:'Stratégie globale du deck : aggro (rush), midrange (valeurs), control (interaction), combo (boucle), tokens (multiplication), etc. Influence quelles cartes sont bonnes ou mauvaises pour ce deck.'},
-  'Manabase':{lbl:'Manabase',def:'Les ~37 terrains du deck + sources de couleur (rocks de mana, dorks). Bien construire sa manabase = jouer ses sorts à temps. ManaLAB calcule la cohérence couleur via probabilités hypergéométriques.'}
+  'Manabase':{lbl:'Manabase',def:'Les ~37 terrains du deck + sources de couleur (rocks de mana, dorks). Bien construire sa manabase = jouer ses sorts à temps. ManaLAB calcule la cohérence couleur via probabilités hypergéométriques.'},
+  'CMC':{lbl:'CMC (coût converti)',def:'Coût total en mana d\'une carte, peu importe la couleur. Une carte {2}{U}{U} a un CMC de 4. Renommé « Mana Value » officiellement mais CMC reste l\'usage.'},
+  'Pip':{lbl:'Pip (symbole de mana)',def:'Symbole de mana coloré dans un coût ({W}, {U}). Compter les pips d\'un deck = mesurer la dévotion à chaque couleur. ManaLAB affiche cette stat live.'},
+  'Curve':{lbl:'Mana curve (courbe)',def:'Distribution des CMC dans ton deck (combien à 1, 2, 3, 4 manas…). Bonne courbe = jouer un sort chaque tour. ManaLAB l\'affiche en bargraph live.'},
+  'Tempo':{lbl:'Tempo',def:'Avantage de rythme : qui « va plus vite » que l\'autre. Sacrifier du tempo (jouer un sort plus lent) peut donner de la value à long terme.'},
+  'Value':{lbl:'Value (carte d\'avantage)',def:'Mesure de « combien tu gagnes pour ce que tu dépenses ». Une carte qui pioche 2 cartes pour 2 manas = beaucoup de value. Pilier midrange.'},
+  'Trick':{lbl:'Trick (combat trick)',def:'Éphémère bon marché qui pump une créature au combat pour surprendre l\'adversaire (Giant Growth, Counterflux). Pivot des decks aggro.'},
+  // ─── EDHREC / synergies ───
+  'Recursion':{lbl:'Récursion (recursion)',def:'Capacité de ramener des cartes depuis le cimetière (Eternal Witness, Sun Titan, Reanimate). Génère beaucoup de value, surtout en cimetière-deck.'},
+  'Card draw':{lbl:'Card draw',def:'Effet qui te fait piocher des cartes. La pioche garantit que tu trouves tes cartes clés. Tout deck en a besoin (8-12 sources en EDH).'},
+  'Card advantage':{lbl:'Card advantage',def:'Avoir plus de cartes en main/en jeu que l\'adversaire. Atteint par la pioche, la récursion, les 2-pour-1. Pilier de la stratégie long terme.'}
 };
 // Génère un span cliquable. `term` est la clé du dictionnaire ; `label` permet
 // d'afficher un texte différent du terme (utile pour adapter la grammaire).
@@ -13248,7 +13411,9 @@ function renderDeckStats(){
   var valHtml=totalEur>0?'<div style="margin-top:8px;padding:7px 11px;background:rgba(201,168,76,.07);border:.5px solid rgba(201,168,76,.3);border-radius:7px;font-size:.78rem;display:flex;justify-content:space-between;color:var(--tx2)"><span>Valeur €</span><b style="color:var(--gold2)">'+totalEur.toFixed(2)+' €</b></div>':'';
   // Validation cohérence : format target count + couleur identité commandant + banlist
   var warnHtml=_renderDeckValidation(totalC);
-  extraEl.innerHTML=countBadge+pipsHtml+valHtml+warnHtml;
+  // Auto-détection archétype LIVE (P1 #9) — heuristique légère basée sur rôles+courbe
+  var archHtml=_renderDeckArchLive(cmcBuckets,tCnt,totalC);
+  extraEl.innerHTML=countBadge+pipsHtml+valHtml+archHtml+warnHtml;
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // Validation banlist temps réel (P0 #6) — fetch la banlist Scryfall du format
@@ -13348,6 +13513,46 @@ function _fireConfetti(){
   }
   document.body.appendChild(box);
   setTimeout(function(){if(box.parentNode)box.remove();},1600);
+}
+// Détection live d'archétype dans le builder (P1 #9). Heuristique basée sur la
+// répartition par CMC + types + comptages de rôles via _deckRoleOf. Affichée
+// dans le panel stats — indicative, pas obligatoire. Met à jour à chaque render.
+function _renderDeckArchLive(cmcBuckets,tCnt,totalC){
+  if(!dCards||!dCards.length||totalC<10)return '';
+  // Compte par rôle pour finesse
+  var roles={ramp:0,draw:0,removal:0,wipe:0,counter:0,wincon:0};
+  var creatureCount=tCnt.creature||0;
+  var spellCount=(tCnt.instant||0)+(tCnt.sorcery||0);
+  var landCount=tCnt.land||0;
+  var nonLand=totalC-landCount;
+  dCards.forEach(function(c){
+    var r=_deckRoleOf(c);
+    if(roles[r]!=null)roles[r]+=(c.qty||1);
+  });
+  // CMC moyen (non-land)
+  var totalNonLandCmc=0,nonLandCount=0;
+  for(var i=0;i<cmcBuckets.length;i++){totalNonLandCmc+=i*cmcBuckets[i];nonLandCount+=cmcBuckets[i];}
+  var avgCmc=nonLandCount?totalNonLandCmc/nonLandCount:0;
+  // Low-cost creatures (CMC <= 2)
+  var lowCmc=(cmcBuckets[0]||0)+(cmcBuckets[1]||0)+(cmcBuckets[2]||0);
+  // Heuristique : ordre des tests = priorité (combo > control > aggro > bigmana > midrange)
+  var arch='midrange';
+  // Combo : beaucoup de tutors/draw + peu de wincons explicites
+  if(roles.draw>=8&&roles.wincon<=3&&spellCount>=12){arch='combo';}
+  // Control : counterspells dominants + wipes + draw
+  else if(roles.counter>=4&&roles.wipe>=2&&roles.draw>=6){arch='control';}
+  // Aggro : courbe basse + créatures dominantes + peu de gros sorts
+  else if(avgCmc<2.5&&creatureCount>=18&&lowCmc>=16){arch='aggro';}
+  // Big mana : courbe haute + ramp massif
+  else if(avgCmc>4.0&&roles.ramp>=10){arch='bigmana';}
+  // Tempo : créatures cheap + counterspells + removal cheap
+  else if(avgCmc<3.0&&creatureCount>=14&&roles.counter>=3){arch='tempo';}
+  // Prison : beaucoup de removal/wipe + peu de wincons
+  else if(roles.wipe>=4&&roles.removal>=6&&roles.wincon<=2){arch='prison';}
+  // Toolbox : variété de rôles équilibrée
+  else if(roles.ramp>=4&&roles.draw>=4&&roles.removal>=4&&roles.wincon>=2){arch='toolbox';}
+  var def=(_ARCH_LABELS&&_ARCH_LABELS[arch])||{ico:'🌳',label:'Midrange',hint:'Équilibré'};
+  return '<div class="deck-arch-live" title="Détection automatique selon la répartition courbe/rôles. Indicatif."><div class="dal-ico">'+def.ico+'</div><div class="dal-txt"><div class="dal-lbl">'+esc(def.label)+'</div><div class="dal-hint">'+esc(def.hint||'')+'</div></div><div class="dal-meta">CMC moyen '+avgCmc.toFixed(1)+'</div></div>';
 }
 // Validation cohérence : alertes count format + couleur identité hors limites
 function _renderDeckValidation(totalC){
