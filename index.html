@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-17';
+window.APP_BUILD='2026-06-06-18';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -4060,6 +4060,18 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm" id="publicbtn" onclick="toggleDeckPublic(actDeck)" style="display:none">🔒 Privé</button>
       <button class="btn btnsm" id="sharebtn" onclick="shareDeck(actDeck)" style="display:none">🔗 Partager</button>
       <button class="btn btnsm btnrd" id="delbtn" onclick="deleteDeck()" style="display:none" data-i18n="deck.delete">✕ Supprimer</button>
+    </div>
+    <!-- Barre de recherche INLINE persistante (visible dès qu'un deck est ouvert) -->
+    <div class="atelier-search-row" id="atelier-search-row" style="display:none;margin:6px 0 12px;position:relative">
+      <div style="display:flex;gap:8px;align-items:center;padding:9px 11px;background:linear-gradient(180deg,rgba(201,168,76,.08),rgba(201,168,76,.02));border:1px solid var(--gold);border-radius:10px;box-shadow:0 0 0 1px rgba(201,168,76,.12) inset">
+        <span style="font-size:1.05rem;color:var(--gold2)" aria-hidden="true">🔍</span>
+        <input id="atelier-search-input" type="text" data-card-autocomplete autocomplete="off"
+               placeholder="Rechercher une carte… (tape le nom + Entrée pour l'ajouter au deck)"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();_atelierSearchSubmit();}"
+               style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--tx);font-size:.95rem;font-family:inherit;padding:2px 0">
+        <button class="btn btnsm btnp" onclick="_atelierSearchSubmit()" style="white-space:nowrap;padding:5px 12px;font-size:.78rem">➕ Ajouter</button>
+      </div>
+      <div id="atelier-search-feedback" style="margin-top:5px;font-size:.74rem;color:var(--tx3);font-style:italic;min-height:16px;padding-left:6px"></div>
     </div>
     <!-- ACTION BAR « AJOUTER DES CARTES » — adaptive : full quand deck vide/léger, compact quand >30 cartes -->
     <div class="atelier-action-bar" id="atelier-action-bar">
@@ -13205,27 +13217,47 @@ function setOwner(i){
 // historique, dispo directement depuis la card « Une carte »).
 function _atelierToggleMore(){
   var m=document.getElementById('atelier-more-menu');if(!m)return;
+  var wrap=document.getElementById('atelier-more-wrap');
   var open=m.style.display==='block';
-  m.style.display=open?'none':'block';
-  if(!open){
-    // Sync visibilité des items selon l'état du deck actif
-    ['m-playtest','m-cats','m-public','m-share','m-del'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=actDeck?'block':'none';});
-    if(actDeck&&decks[actDeck]){
-      var pubBtn=document.getElementById('m-public');
-      if(pubBtn)pubBtn.textContent=decks[actDeck].isPublic?'🌐 Rendre privé':'🔒 Rendre public';
-    }
+  if(open){m.style.display='none';return;}
+  // Portail : on déplace le menu dans <body> pour éviter tout overflow:hidden ou contexte d'empilement parent
+  if(m.parentNode!==document.body){document.body.appendChild(m);}
+  // Positionnement fixed sous le bouton ⋯ Plus
+  var btn=wrap?wrap.querySelector('button'):null;
+  if(btn){
+    var r=btn.getBoundingClientRect();
+    m.style.position='fixed';
+    m.style.top=(r.bottom+4)+'px';
+    m.style.right=Math.max(8,(window.innerWidth-r.right))+'px';
+    m.style.left='auto';
+    m.style.zIndex='99999';
+  }
+  m.style.display='block';
+  // Sync visibilité des items selon l'état du deck actif
+  ['m-playtest','m-cats','m-public','m-share','m-del'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=actDeck?'block':'none';});
+  if(actDeck&&decks[actDeck]){
+    var pubBtn=document.getElementById('m-public');
+    if(pubBtn)pubBtn.textContent=decks[actDeck].isPublic?'🌐 Rendre privé':'🔒 Rendre public';
   }
 }
-// Fermeture au clic extérieur
+// Fermeture au clic extérieur + repositionnement au scroll/resize
 (function(){
   var inst=false;
+  function close(){var m=document.getElementById('atelier-more-menu');if(m)m.style.display='none';}
   function bind(){
     if(inst)return;inst=true;
     document.addEventListener('click',function(ev){
       var menu=document.getElementById('atelier-more-menu');if(!menu||menu.style.display!=='block')return;
       var wrap=document.getElementById('atelier-more-wrap');
-      if(wrap&&!wrap.contains(ev.target))menu.style.display='none';
+      // Si on clique dans le menu lui-même → laisser le handler de l'item
+      if(menu.contains(ev.target))return;
+      // Si on clique sur le bouton ⋯ Plus → laisser toggle gérer
+      if(wrap&&wrap.contains(ev.target))return;
+      close();
     });
+    window.addEventListener('scroll',close,true);
+    window.addEventListener('resize',close);
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
 })();
@@ -13928,6 +13960,31 @@ function openQuickAddCard(){
   ov.classList.add('show');
   setTimeout(function(){var i=document.getElementById('qac-input');if(i)i.focus();},80);
 }
+// Barre de recherche inline persistante dans l'Atelier — ajoute direct au deck actif.
+function _atelierSearchSubmit(){
+  var inp=document.getElementById('atelier-search-input');if(!inp)return;
+  var name=inp.value.trim();if(!name)return;
+  var fb=document.getElementById('atelier-search-feedback');
+  if(!actDeck||!decks[actDeck]){if(fb)fb.textContent='✗ Ouvre ou crée d\'abord un deck';return;}
+  if(typeof bldAddCardByName==='function'){
+    if(fb)fb.textContent='⏳ Recherche de "'+name+'"…';
+    bldAddCardByName(name).then(function(ok){
+      if(ok){
+        if(fb){fb.innerHTML='<span style="color:var(--gold2)">✓ Ajouté :</span> '+name.replace(/</g,'&lt;')+' — tu peux enchaîner';}
+        try{mlPlaySound&&mlPlaySound('pop');mlVibratePulse&&mlVibratePulse();}catch(e){}
+        inp.value='';inp.focus();
+      }else{
+        if(fb)fb.innerHTML='<span style="color:var(--rd2)">✗ Carte introuvable :</span> '+name.replace(/</g,'&lt;');
+        try{mlPlaySound&&mlPlaySound('error');}catch(e){}
+      }
+    }).catch(function(){if(fb)fb.textContent='✗ Erreur lors de la recherche';});
+  }
+}
+// Affichage conditionnel : visible UNIQUEMENT quand un deck est ouvert
+function _atelierSearchSyncVisibility(){
+  var row=document.getElementById('atelier-search-row');if(!row)return;
+  row.style.display=actDeck?'block':'none';
+}
 function _qacSubmit(){
   var inp=document.getElementById('qac-input');if(!inp)return;
   var name=inp.value.trim();if(!name)return;
@@ -13962,11 +14019,12 @@ function newDeck(){
   setDeckColors([]);
   deckCmdClear();
   setOwner(0);renderDBar();
+  if(typeof _atelierSearchSyncVisibility==='function')_atelierSearchSyncVisibility();
   document.getElementById('deditor').scrollIntoView({behavior:'smooth'});
 }
 function loadDeck(id){
   var d=decks[id];if(!d)return;
-  if(actDeck===id){actDeck=null;dCards=[];document.getElementById('deckres').style.display='none';var jBtnOff=document.getElementById('deck-journey-btn');if(jBtnOff)jBtnOff.style.display='none';if(typeof _atelierUpdateSubtitle==='function')_atelierUpdateSubtitle();renderDBar();return;}
+  if(actDeck===id){actDeck=null;dCards=[];document.getElementById('deckres').style.display='none';var jBtnOff=document.getElementById('deck-journey-btn');if(jBtnOff)jBtnOff.style.display='none';if(typeof _atelierUpdateSubtitle==='function')_atelierUpdateSubtitle();if(typeof _atelierSearchSyncVisibility==='function')_atelierSearchSyncVisibility();renderDBar();return;}
   actDeck=id;
   // Toujours re-parser depuis rawName si dispo : auto-repare les decks sauvegardes avec d'anciens parsers (truncation)
   var freshCards=d.rawName?parseList(d.rawName):null;
@@ -13979,6 +14037,7 @@ function loadDeck(id){
   // Sous-titre dynamique + mode action bar adaptif au chargement
   if(typeof _atelierUpdateSubtitle==='function')_atelierUpdateSubtitle();
   if(typeof _atelierApplyActionBarMode==='function')_atelierApplyActionBarMode();
+  if(typeof _atelierSearchSyncVisibility==='function')_atelierSearchSyncVisibility();
   // Refresh banlist du format actif (P0 #6) — cache 7 jours par format
   _currentBanlistSet=null;
   if(typeof _refreshBanlistForCurrentDeck==='function')setTimeout(_refreshBanlistForCurrentDeck,100);
@@ -17670,9 +17729,35 @@ function renderMultiMontage(){
 }
 var _mmLastSecStats={};
 
+// Achat : ouvert en POP-UP modale au lieu d'inline pour ne pas casser le flux d'analyse.
 function toggleAchatPanel(){
-  var p=document.getElementById('achat-panel');
-  p.style.display=p.style.display==='none'?'block':'none';
+  var p=document.getElementById('achat-panel');if(!p)return;
+  var ov=document.getElementById('achat-modal-ov');
+  // 1re ouverture : on crée l'overlay et on y migre le panel
+  if(!ov){
+    ov=document.createElement('div');ov.id='achat-modal-ov';ov.className='ml-modal-ov center';
+    ov.innerHTML='<div class="ml-modal" style="max-width:640px;width:92vw;max-height:88vh;display:flex;flex-direction:column">'
+      +'<div class="ml-modal-hdr"><div style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:1.05rem">🛒 Liste d\'achat</div>'
+      +'<button class="ml-modal-close" onclick="document.getElementById(\'achat-modal-ov\').classList.remove(\'show\')" title="Fermer (Esc)">✕</button></div>'
+      +'<div id="achat-modal-body" style="padding:14px 18px 8px;overflow:auto;flex:1"></div>'
+      +'<div class="ml-modal-foot" style="padding:10px 18px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;gap:8px">'
+      +'<button class="btn btnsm" onclick="document.getElementById(\'achat-modal-ov\').classList.remove(\'show\')">Fermer</button>'
+      +'</div></div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('achat-modal-ov');if(o&&o.classList.contains('show'))o.classList.remove('show');}});
+  }
+  var body=document.getElementById('achat-modal-body');
+  if(ov.classList.contains('show')){
+    // Fermeture : on remet le panel à sa place d'origine pour ne pas perdre les références
+    ov.classList.remove('show');
+    return;
+  }
+  // Migration du panel dans la modale (déplacement DOM, pas de clone : on garde les refs vivantes)
+  if(p.parentNode!==body){body.appendChild(p);}
+  p.style.display='block';
+  p.style.background='transparent';p.style.border='none';p.style.padding='0';
+  ov.classList.add('show');
 }
 function renderAchatOptions(){
   var mode=document.querySelector('input[name="achat-mode"]:checked');
