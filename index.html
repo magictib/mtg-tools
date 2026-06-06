@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-7';
+window.APP_BUILD='2026-06-06-8';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1068,6 +1068,27 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .precon-foot{display:flex;justify-content:space-between;font-size:.7rem;border-top:.5px solid var(--bd);padding-top:6px;margin-top:6px}
 .precon-set{color:var(--tx3);font-family:monospace}
 .precon-price{color:var(--gold2);font-weight:600}
+/* Tokens generator (P2 #17) */
+.tokens-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;max-height:60vh;overflow-y:auto;padding-right:4px}
+.token-card{padding:12px 14px;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.2));border:.5px solid var(--bd2);border-radius:11px;font-family:'Crimson Pro',serif}
+.token-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.token-ico{font-size:1.5rem;line-height:1}
+.token-name{flex:1;font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.98rem}
+.token-count{background:rgba(0,0,0,.4);color:var(--gold2);font-weight:700;font-family:monospace;padding:2px 8px;border-radius:5px;font-size:.78rem;border:.5px solid var(--gold)}
+.token-sub{font-size:.7rem;color:var(--tx3);font-style:italic;margin-bottom:6px;line-height:1.4}
+.token-sources{display:flex;flex-wrap:wrap;gap:4px}
+.token-src{background:rgba(201,168,76,.10);color:var(--tx2);padding:2px 7px;border-radius:4px;font-size:.7rem;cursor:default}
+.token-src:hover{background:rgba(201,168,76,.22);color:var(--gold2)}
+.token-src-more{font-size:.68rem;color:var(--tx3);font-style:italic;align-self:center}
+/* Sideboard guide (P2 #14) */
+.sbg-entry{padding:11px 14px;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.2));border:.5px solid var(--bd2);border-radius:10px;font-family:'Crimson Pro',serif}
+.sbg-entry-hdr{display:flex;justify-content:space-between;align-items:center;font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;margin-bottom:7px}
+.sbg-line{display:flex;align-items:flex-start;gap:8px;font-size:.84rem;line-height:1.6;margin-bottom:4px;color:var(--tx)}
+.sbg-tag{display:inline-block;width:22px;height:22px;border-radius:4px;font-weight:700;text-align:center;line-height:21px;flex-shrink:0;font-family:monospace}
+.sbg-tag.in{background:rgba(120,200,144,.20);color:var(--gr2);border:.5px solid rgba(120,200,144,.5)}
+.sbg-tag.out{background:rgba(220,80,80,.18);color:var(--rd2);border:.5px solid rgba(220,80,80,.5)}
+.sbg-cards{flex:1;color:var(--tx2);font-family:monospace;font-size:.82rem}
+.sbg-notes{margin-top:6px;font-size:.72rem;color:var(--tx3);font-style:italic;padding-top:6px;border-top:.5px solid var(--bd)}
 /* Auto-détection archétype live dans le panel stats (P1 #9) */
 .deck-arch-live{margin-top:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(201,168,76,.10),rgba(201,168,76,.02));border:.5px solid rgba(201,168,76,.4);border-radius:9px;display:flex;align-items:center;gap:10px;font-family:'Crimson Pro',serif}
 .dal-ico{font-size:1.7rem;line-height:1}
@@ -3656,6 +3677,8 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm" onclick="_collSideToggle()" title="Afficher ta collection en sidebar pour drag-drop carte → deck (style Arena)">🃏 Collection</button>
       <button class="btn btnsm" id="deck-undo-btn" onclick="deckUndo()" title="Annuler la dernière action (Ctrl+Z)" disabled>↩</button>
       <button class="btn btnsm" id="deck-redo-btn" onclick="deckRedo()" title="Rétablir (Ctrl+Y)" disabled>↪</button>
+      <button class="btn btnsm" onclick="openTokensGenerator()" title="Liste les tokens que ton deck peut créer (treasure, créatures, food, clue…). Utile pour acheter les tokens en physique.">🎭 Tokens</button>
+      <button class="btn btnsm" onclick="openSideboardGuide()" title="Plan de sideboard par matchup : « contre Burn, sors X, mets Y »">🎯 Sideboard</button>
       <button class="btn btnsm" id="playtestbtn" onclick="openPlaytest(actDeck)" title="Simule la main d'ouverture et les premiers tours" style="display:none">🎮 Playtest</button>
       <button class="btn btnsm" id="ccbtn" onclick="openCustomCategories(actDeck)" title="Organise tes cartes en catégories perso" style="display:none">📂 Cats</button>
       <button class="btn btnsm" id="publicbtn" onclick="toggleDeckPublic(actDeck)" title="Publier dans l'explorateur" style="display:none">🔒 Privé</button>
@@ -55421,6 +55444,220 @@ var _WOTC_PRECONS=[
   {n:'Sliver Swarm',cmd:'Sliver Gravemother',ci:'WUBRG',set:'CMM',theme:'Tribal Sliver',price:65,year:2023},
   {n:'Enduring Enchantments',cmd:'Anikthea, Hand of Erebos',ci:'WB',set:'CMM',theme:'Enchantress',price:48,year:2023}
 ];
+// ═════════════════════════════════════════════════════════════════════════════
+// P2 #17 — Tokens generator visuel. Analyse l'oracle text de chaque carte du
+// deck pour détecter les tokens créés, regroupe par type/couleur/PT, et affiche
+// quelles cartes les créent. Utile pour acheter les tokens en physique +
+// comprendre la « densité de board » potentielle du deck.
+//
+// Patterns supportés :
+//   - Créature tokens (« create a 1/1 white Soldier creature token »)
+//   - Tokens nommés (« create a Treasure / Food / Clue / Blood / Map / Powerstone »)
+//   - Tokens d'artefact / enchantement (« create a Equipment token »)
+//   - Emblèmes (planeswalkers)
+var _TOKEN_DEFS={
+  treasure:{name:'Treasure',ico:'💰',type:'Artifact',ability:'Tap, sacrifice : ajoute 1 mana de la couleur de ton choix.'},
+  food:{name:'Food',ico:'🍔',type:'Artifact',ability:'{2}, Tap, sacrifice : gagne 3 PV.'},
+  clue:{name:'Clue',ico:'🔍',type:'Artifact',ability:'{2}, sacrifice : pioche une carte.'},
+  blood:{name:'Blood',ico:'🩸',type:'Artifact',ability:'{1}, Tap, défausse une carte, sacrifice : pioche une carte.'},
+  map:{name:'Map',ico:'🗺',type:'Artifact',ability:'{1}, Tap, sacrifice : carte explore.'},
+  gold:{name:'Gold',ico:'🪙',type:'Artifact',ability:'Sacrifice : ajoute 1 mana de la couleur de ton choix.'},
+  powerstone:{name:'Powerstone',ico:'💎',type:'Artifact',ability:'Tap : ajoute {C} (mana incolore non-créature).'},
+  shard:{name:'Shard',ico:'🔹',type:'Enchantement',ability:'Sacrifice : annule un sort/capacité (utilisé par Eldraine etc.).'}
+};
+function _detectDeckTokens(){
+  var byKey={};
+  // Helper : ajoute une entrée
+  function add(key,src,qty){
+    if(!byKey[key])byKey[key]={key:key,sources:[],totalSrc:0};
+    var existing=byKey[key].sources.filter(function(s){return s.nl===src.nl;})[0];
+    if(existing)existing.qty+=qty;
+    else byKey[key].sources.push({nl:src.nl,name:src.name,qty:qty});
+    byKey[key].totalSrc+=qty;
+  }
+  dCards.forEach(function(c){
+    var meta=dCardMeta[c.nl]||{};
+    var o=(meta.oracleText||'').toLowerCase();
+    if(!o)return;
+    var qty=c.qty||1;
+    // 1. Tokens nommés (Treasure, Food, Clue, Blood, Map, Gold, Powerstone)
+    Object.keys(_TOKEN_DEFS).forEach(function(k){
+      var re=new RegExp('create[s]?\\s+(a|an|x|one|two|three|four|five|\\d+)\\s+([^.]{0,40}\\s)?'+k+'\\s+token','i');
+      if(re.test(o))add(k,c,qty);
+    });
+    // 2. Créature tokens : « create a/X N/M [color]? [type]? creature token »
+    var creatureRe=/create[s]?\s+(a|an|x|one|two|three|four|five|six|seven|eight|\d+)\s+([^.]{0,60})(\d+\/\d+)?\s*([^.]{0,30})?creature token/gi;
+    var m;
+    while((m=creatureRe.exec(o))!==null){
+      var middle=(m[2]||'')+(m[4]||'');
+      // Extract color + creature type
+      var color='';var ctype='';
+      if(/white\s+/i.test(middle))color='W';
+      else if(/blue\s+/i.test(middle))color='U';
+      else if(/black\s+/i.test(middle))color='B';
+      else if(/red\s+/i.test(middle))color='R';
+      else if(/green\s+/i.test(middle))color='G';
+      else if(/colorless\s+/i.test(middle))color='C';
+      var typeMatch=middle.match(/(soldier|zombie|spirit|goblin|elf|dragon|angel|demon|beast|wolf|cat|treefolk|insect|spider|rat|knight|warrior|wizard|elemental|saproling|squirrel|food|treasure|servo|thopter|construct|drake|skeleton|bird|elephant|ape|wurm|hydra|merfolk|samurai|ninja|sliver|vampire|werewolf|kor|kithkin|halfling|noble|citizen|peasant|inkling|faerie|kavu|aetherborn|horror|illusion|eldrazi|phyrexian|spider|treasure|squid|dinosaur|cleric|monk|advisor|shapeshifter|orc|robot|frog|fish|nightmare|rebel|reflection|scout|specter|whale)/i);
+      if(typeMatch)ctype=typeMatch[1].charAt(0).toUpperCase()+typeMatch[1].slice(1).toLowerCase();
+      var ptMatch=(m[3]||(middle.match(/\d+\/\d+/)||[''])[0]);
+      var key='creature:'+(ctype||'?')+':'+(ptMatch||'?')+':'+(color||'?');
+      add(key,c,qty);
+    }
+    // 3. Tokens d'artefact / enchantement nommés (rare, ex: « create a Cat enchantment token »)
+    var enchRe=/create[s]?\s+(a|an|x|one|two|three|four|five|\d+)\s+([^.]{0,30}\s)?(equipment|aura|enchantment|artifact)\s+token/i;
+    if(enchRe.test(o)){
+      var em=o.match(enchRe);
+      var subT=em&&em[3]?em[3].charAt(0).toUpperCase()+em[3].slice(1):'Permanent';
+      add('perm:'+subT,c,qty);
+    }
+  });
+  return Object.keys(byKey).map(function(k){return byKey[k];});
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// P2 #14 — Sideboard guide par matchup (MVP).
+// Stockage : decks[id].sideboardGuide = [{matchup, plan:[{action:'in'|'out', card}]}]
+// UI : modal pour éditer le plan par matchup. Reuse parseList pour l'import vite.
+function openSideboardGuide(){
+  if(!actDeck||!decks[actDeck]){
+    if(typeof toastError==='function')toastError('Ouvre d\'abord un deck');return;
+  }
+  var dk=decks[actDeck];
+  if(!dk.sideboardGuide)dk.sideboardGuide=[];
+  var ov=document.getElementById('sbg-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='sbg-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5600;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.style.display='none';});
+  }
+  _renderSideboardGuide();
+  ov.style.display='flex';
+}
+function _renderSideboardGuide(){
+  var ov=document.getElementById('sbg-ov');if(!ov||!actDeck)return;
+  var dk=decks[actDeck];if(!dk)return;
+  var guide=dk.sideboardGuide||[];
+  var deckName=dk.name||'(sans nom)';
+  var h='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:760px;width:100%;padding:22px 26px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🎯 Sideboard Guide</div>';
+  h+='<button class="btn btnsm" onclick="document.getElementById(\'sbg-ov\').style.display=\'none\'">✕</button></div>';
+  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:16px">Plan de sideboard pour <b>'+esc(deckName)+'</b>. Définit un plan par matchup attendu : « contre Burn, sors X, mets Y ». Stocké dans le deck — accessible avant chaque match.</div>';
+  if(!guide.length){
+    h+='<div style="padding:30px;text-align:center;color:var(--tx3);font-style:italic;background:rgba(255,255,255,.02);border:.5px dashed var(--bd2);border-radius:9px;margin-bottom:14px">Aucun plan défini.<br><br>Crée un plan pour les matchups que tu rencontres souvent (Burn, Control, Combo, Tokens, etc.).</div>';
+  } else {
+    h+='<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">';
+    guide.forEach(function(g,idx){
+      h+='<div class="sbg-entry">';
+      h+='<div class="sbg-entry-hdr"><b>vs '+esc(g.matchup||'?')+'</b><button onclick="_sideboardDel('+idx+')" title="Supprimer ce plan" class="btn btnsm btnrd" style="padding:2px 8px;font-size:.7rem">✕</button></div>';
+      var ins=(g.in||'').trim();
+      var outs=(g.out||'').trim();
+      if(ins)h+='<div class="sbg-line"><span class="sbg-tag in">+</span><span class="sbg-cards">'+esc(ins).replace(/\n/g,'<br>')+'</span></div>';
+      if(outs)h+='<div class="sbg-line"><span class="sbg-tag out">−</span><span class="sbg-cards">'+esc(outs).replace(/\n/g,'<br>')+'</span></div>';
+      if(g.notes)h+='<div class="sbg-notes">📝 '+esc(g.notes)+'</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+  // Form pour ajouter un plan
+  h+='<div style="padding:14px;background:rgba(255,255,255,.02);border:.5px solid var(--bd2);border-radius:10px;margin-bottom:8px">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);margin-bottom:10px">Ajouter un plan</div>';
+  h+='<label class="pf-lbl">MATCHUP</label>';
+  h+='<input id="sbg-matchup" type="text" placeholder="ex: Burn, Control, Combo, Mono-Red Aggro…" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.92rem;margin-bottom:10px;box-sizing:border-box">';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
+  h+='<div><label class="pf-lbl" style="color:var(--gr2)">+ ENTRENT (in)</label><textarea id="sbg-in" placeholder="2 Veil of Summer&#10;1 Damping Sphere&#10;2 Rest in Peace" rows="3" style="width:100%;padding:8px 10px;background:var(--s3);border:.5px solid rgba(120,200,144,.4);border-radius:7px;color:var(--tx);font-size:.85rem;font-family:monospace;resize:vertical;box-sizing:border-box"></textarea></div>';
+  h+='<div><label class="pf-lbl" style="color:var(--rd2)">− SORTENT (out)</label><textarea id="sbg-out" placeholder="2 Brainstorm&#10;1 Counterspell&#10;2 Force of Will" rows="3" style="width:100%;padding:8px 10px;background:var(--s3);border:.5px solid rgba(220,80,80,.4);border-radius:7px;color:var(--tx);font-size:.85rem;font-family:monospace;resize:vertical;box-sizing:border-box"></textarea></div>';
+  h+='</div>';
+  h+='<label class="pf-lbl">NOTES (optionnel)</label>';
+  h+='<input id="sbg-notes" type="text" placeholder="ex: Mulligan agressif, garde 2 lands + 1 sort < 2 manas" style="width:100%;padding:9px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.85rem;margin-bottom:10px;box-sizing:border-box">';
+  h+='<button class="btn btnp btnsm" onclick="_sideboardAdd()" style="width:100%">➕ Ajouter ce plan</button>';
+  h+='</div>';
+  h+='</div>';
+  ov.innerHTML=h;
+}
+function _sideboardAdd(){
+  if(!actDeck||!decks[actDeck])return;
+  var matchup=((document.getElementById('sbg-matchup')||{}).value||'').trim();
+  if(!matchup){if(typeof toastError==='function')toastError('Indique le matchup');return;}
+  var ins=((document.getElementById('sbg-in')||{}).value||'').trim();
+  var outs=((document.getElementById('sbg-out')||{}).value||'').trim();
+  var notes=((document.getElementById('sbg-notes')||{}).value||'').trim();
+  if(!ins&&!outs){if(typeof toastError==='function')toastError('Renseigne au moins les cartes qui entrent ou sortent');return;}
+  var dk=decks[actDeck];
+  if(!dk.sideboardGuide)dk.sideboardGuide=[];
+  dk.sideboardGuide.push({matchup:matchup,in:ins,out:outs,notes:notes,ts:Date.now()});
+  dk.updatedAt=Date.now();
+  if(typeof saveDecks==='function')saveDecks();
+  _renderSideboardGuide();
+  if(typeof toastSuccess==='function')toastSuccess('🎯 Plan ajouté vs '+matchup);
+}
+function _sideboardDel(idx){
+  if(!actDeck||!decks[actDeck])return;
+  var dk=decks[actDeck];
+  if(!dk.sideboardGuide||!dk.sideboardGuide[idx])return;
+  dk.sideboardGuide.splice(idx,1);
+  dk.updatedAt=Date.now();
+  if(typeof saveDecks==='function')saveDecks();
+  _renderSideboardGuide();
+}
+function openTokensGenerator(){
+  if(!actDeck||!decks[actDeck]){
+    if(typeof toastError==='function')toastError('Ouvre d\'abord un deck');return;
+  }
+  var ov=document.getElementById('tokens-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='tokens-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5600;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.style.display='none';});
+  }
+  var tokens=_detectDeckTokens();
+  var deckName=(decks[actDeck]||{}).name||'(sans nom)';
+  var h='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:760px;width:100%;padding:22px 26px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">🎭 Tokens générés</div>';
+  h+='<button class="btn btnsm" onclick="document.getElementById(\'tokens-ov\').style.display=\'none\'">✕</button></div>';
+  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:16px">Tous les tokens que <b>'+esc(deckName)+'</b> peut générer, regroupés par type. Pratique pour préparer ton matériel physique (acheter les tokens) et estimer la densité de board.</div>';
+  if(!tokens.length){
+    h+='<div style="padding:30px;text-align:center;color:var(--tx3);font-style:italic">Aucun token détecté dans ce deck.<br><br>Le scanner regarde le texte oracle de chaque carte pour repérer « create a N/M creature token », « treasure », « clue », « food », etc.</div>';
+  } else {
+    var totalSources=tokens.reduce(function(s,t){return s+t.totalSrc;},0);
+    h+='<div style="margin-bottom:14px;padding:9px 12px;background:rgba(201,168,76,.10);border:.5px solid rgba(201,168,76,.4);border-radius:8px;font-size:.84rem;color:var(--tx2)"><b style="color:var(--gold2)">'+tokens.length+'</b> type'+(tokens.length>1?'s':'')+' de token détecté'+(tokens.length>1?'s':'')+' depuis <b style="color:var(--gold2)">'+totalSources+'</b> carte'+(totalSources>1?'s':'')+'.</div>';
+    h+='<div class="tokens-grid">';
+    tokens.forEach(function(t){
+      var label,ico='🎴',sub='';
+      if(t.key.indexOf('creature:')===0){
+        var p=t.key.split(':');
+        var ctype=p[1]!=='?'?p[1]:'Créature';
+        var pt=p[2]!=='?'?p[2]:'';
+        var col=p[3]!=='?'?p[3]:'';
+        label=ctype+(pt?' '+pt:'');
+        var colMap={W:'⚪',U:'🔵',B:'⚫',R:'🔴',G:'🟢',C:'◇'};
+        ico=colMap[col]||'🐉';
+        sub='Créature';
+      } else if(t.key.indexOf('perm:')===0){
+        label=t.key.split(':')[1];
+        ico='🌿';sub='Permanent';
+      } else if(_TOKEN_DEFS[t.key]){
+        var def=_TOKEN_DEFS[t.key];
+        label=def.name;ico=def.ico;sub=def.type+' · '+def.ability;
+      } else { label=t.key;ico='?';sub=''; }
+      h+='<div class="token-card">';
+      h+='<div class="token-card-hdr"><div class="token-ico">'+ico+'</div><div class="token-name">'+esc(label)+'</div><div class="token-count">×'+t.totalSrc+'</div></div>';
+      if(sub)h+='<div class="token-sub">'+esc(sub)+'</div>';
+      h+='<div class="token-sources">';
+      t.sources.slice(0,5).forEach(function(s){
+        h+='<span class="token-src" data-hover-card="'+esc(s.nl)+'">'+(s.qty>1?s.qty+'× ':'')+esc(s.name)+'</span>';
+      });
+      if(t.sources.length>5)h+='<span class="token-src-more">… +'+(t.sources.length-5)+' autre(s)</span>';
+      h+='</div></div>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  ov.innerHTML=h;ov.style.display='flex';
+}
 function openPreconsBrowser(){
   var ov=document.getElementById('precons-ov');
   if(!ov){

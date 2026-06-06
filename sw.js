@@ -1,4 +1,4 @@
-const CACHE = 'manalab-v300';
+const CACHE = 'manalab-v301';
 const STATIC = [
   './manifest.json',
   './icon.svg'
