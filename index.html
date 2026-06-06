@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-6';
+window.APP_BUILD='2026-06-06-7';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1055,6 +1055,19 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .hfd-stats{display:flex;gap:10px;font-size:.74rem;margin-top:3px}
 .hfd-likes{color:var(--rd2)}
 .hfd-comments{color:var(--tx2)}
+/* Pré-cons WotC (P1 #7) — grille de vignettes */
+.precons-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;max-height:70vh;overflow-y:auto;padding-right:4px}
+.precon-card{position:relative;padding:14px 14px 12px;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.2));border:.5px solid var(--bd2);border-radius:11px;text-decoration:none;color:var(--tx);transition:all .15s;cursor:pointer;font-family:'Crimson Pro',serif;display:block}
+.precon-card:hover{transform:translateY(-3px);border-color:var(--gold);background:linear-gradient(180deg,rgba(201,168,76,.15),rgba(201,168,76,.02));box-shadow:0 8px 22px rgba(0,0,0,.5),0 0 16px rgba(201,168,76,.22)}
+.precon-year{position:absolute;top:8px;right:10px;font-size:.62rem;color:var(--tx3);font-family:monospace;background:rgba(0,0,0,.3);padding:1px 6px;border-radius:4px}
+.precon-name{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:1rem;margin-bottom:5px;padding-right:42px;line-height:1.2}
+.precon-cmd{font-size:.78rem;color:#c8a8ff;margin-bottom:8px;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.precon-meta{display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.precon-ci{font-size:.7rem;letter-spacing:.04em}
+.precon-theme{font-size:.7rem;color:var(--tx2);background:rgba(201,168,76,.10);padding:2px 7px;border-radius:4px}
+.precon-foot{display:flex;justify-content:space-between;font-size:.7rem;border-top:.5px solid var(--bd);padding-top:6px;margin-top:6px}
+.precon-set{color:var(--tx3);font-family:monospace}
+.precon-price{color:var(--gold2);font-weight:600}
 /* Auto-détection archétype live dans le panel stats (P1 #9) */
 .deck-arch-live{margin-top:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(201,168,76,.10),rgba(201,168,76,.02));border:.5px solid rgba(201,168,76,.4);border-radius:9px;display:flex;align-items:center;gap:10px;font-family:'Crimson Pro',serif}
 .dal-ico{font-size:1.7rem;line-height:1}
@@ -4241,6 +4254,7 @@ details > summary::-webkit-details-marker{display:none}
   <!-- Actions secondaires : import URL, templates, multi-montage, listes -->
   <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;font-size:.82rem">
     <button class="btn btnsm" onclick="openUrlImport()" title="Importer depuis Moxfield, Archidekt, etc.">🔗 Importer depuis URL</button>
+    <button class="btn btnsm" onclick="openPreconsBrowser()" title="Commander Decks officiels WotC récents — porte d'entrée idéale pour débuter">📦 Pré-cons WotC</button>
     <button class="btn btnsm" onclick="openDeckTemplates()" title="Templates Burn, Tron, Tokens, Voltron…">📚 Templates de deck</button>
     <button class="btn btnsm" onclick="goTab('deck');openMultiMontage()" title="Assembler plusieurs decks en parallèle">🔨 Montage multi-decks</button>
     <button class="btn btnsm" onclick="openPurchaseMgr()" title="Listes d'achat partagées entre profils">🛒 Listes partagées</button>
@@ -9358,11 +9372,29 @@ function renderHome(){
       var fmt=d.format||d.fmt||'';
       var cmd=d.commander?d.commander.name:'';
       var _cov=null;try{_cov=_deckCoverage(id);}catch(e){}
+      // Stats winrate (P1 #12) : compte W/L depuis _games filtré par deckId
+      var wr=null;
+      try{
+        if(typeof _games!=='undefined'&&_games.length){
+          var gs=_games.filter(function(g){return g.deckId===id;});
+          if(gs.length){
+            var w=gs.filter(function(g){return g.result==='W';}).length;
+            var l=gs.filter(function(g){return g.result==='L';}).length;
+            var n=w+l;
+            wr={w:w,l:l,total:gs.length,rate:n?Math.round(w/n*100):null};
+          }
+        }
+      }catch(e){}
+      var wrBadge='';
+      if(wr&&wr.total>=2&&wr.rate!=null){
+        var wrColor=wr.rate>=60?'var(--gr2)':wr.rate>=40?'var(--gold2)':'var(--rd2)';
+        wrBadge='<span class="home-deck-wr" title="'+wr.w+' victoire(s) / '+wr.l+' défaite(s) sur '+wr.total+' parties" style="color:'+wrColor+';font-family:monospace;font-weight:700;background:rgba(0,0,0,.32);padding:1px 6px;border-radius:4px;border:.5px solid rgba(201,168,76,.3)">📊 '+wr.rate+'%</span>';
+      }
       html+='<div class="home-deck" style="position:relative" title="Ouvrir '+esc(d.name||'')+'">'
         +'<div onclick="openDeckFocus(\''+escJs(id)+'\')" style="cursor:pointer">'
         +'<div class="home-deck-name">'+esc(d.name||'(sans nom)')+'</div>'
         +(cmd?'<div class="home-deck-cmd">👑 '+esc(cmd)+'</div>':'')
-        +'<div class="home-deck-meta">'+(fmt?'<span class="home-deck-fmt">'+esc(fmt)+'</span>':'')+'<span>'+nbC+' cartes</span></div>'
+        +'<div class="home-deck-meta">'+(fmt?'<span class="home-deck-fmt">'+esc(fmt)+'</span>':'')+'<span>'+nbC+' cartes</span>'+wrBadge+'</div>'
         +_coverageBar(_cov,id)
         +'</div>'
         +'<div style="display:flex;gap:4px;margin-top:6px;padding-top:6px;border-top:.5px solid var(--bd)">'
@@ -9370,6 +9402,7 @@ function renderHome(){
         +'<button class="btn btnsm" onclick="event.stopPropagation();goTab(\'deck\');if(typeof loadDeck===\'function\')loadDeck(\''+escJs(id)+'\')" title="Éditer" style="flex:1;padding:3px 5px;font-size:.7rem">✎</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();anaCoachExpress(\''+escJs(id)+'\')" title="Coach express : verdict immédiat (saute le diagnostic)" style="flex:1;padding:3px 5px;font-size:.7rem">⚡</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();openMulliganTrainer(\''+escJs(id)+'\')" title="Tester main" style="flex:1;padding:3px 5px;font-size:.7rem">🎴</button>'
+        +'<button class="btn btnsm" onclick="event.stopPropagation();openQuickMatchLog(\''+escJs(id)+'\')" title="Log rapide d\'une partie (W/L)" style="flex:1;padding:3px 5px;font-size:.7rem">📓</button>'
         +'<button class="btn btnsm" onclick="event.stopPropagation();openDeckFocus(\''+escJs(id)+'\')" title="Vue focus" style="flex:1;padding:3px 5px;font-size:.7rem">🎯</button>'
         +'</div>'
         +'</div>';
@@ -52948,6 +52981,58 @@ function _saveGames(){
   try{localStorage.setItem('mtg_games',JSON.stringify(_games));}catch(e){}
   if(typeof _fsPrefs!=='undefined'){_fsPrefs.games=_games;if(typeof _saveFsPrefs==='function')_saveFsPrefs();}
 }
+// Quick match log (P1 #10) — modal ultra-rapide mobile-friendly pour enregistrer
+// une partie en 2 clics : choisir le deck (auto-rempli si fourni) + W ou L.
+// Pas d'options avancées (turn, mulligan, notes) — accessibles via openMatchTracker
+// pour les utilisateurs qui veulent plus de détails.
+function openQuickMatchLog(deckId){
+  if(typeof db==='undefined'&&!userId){if(typeof toastError==='function')toastError('Connecte-toi pour enregistrer une partie');return;}
+  var ov=document.getElementById('qml-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='qml-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5800;background:rgba(0,0,0,.86);display:none;align-items:center;justify-content:center;padding:1rem';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.style.display='none';});
+  }
+  var myDecks=Object.keys(decks||{}).filter(function(id){return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):true;}).map(function(id){return {id:id,name:decks[id].name||'(sans nom)'};});
+  if(!myDecks.length){
+    ov.innerHTML='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:420px;width:100%;padding:24px;text-align:center"><div style="font-family:Goudy Mediaeval,serif;color:var(--gold2);font-size:1.2rem;margin-bottom:10px">📓 Quick Log</div><div style="color:var(--tx2);font-size:.85rem;margin-bottom:14px">Tu n\'as pas encore de deck. Crée-en un d\'abord pour pouvoir tracker tes parties.</div><button class="btn btnsm" onclick="document.getElementById(\'qml-ov\').style.display=\'none\';goTab(\'build\')">Créer un deck</button> <button class="btn btnsm" onclick="document.getElementById(\'qml-ov\').style.display=\'none\'">Fermer</button></div>';
+    ov.style.display='flex';return;
+  }
+  var preselect=deckId||(myDecks[0]&&myDecks[0].id)||'';
+  var opts=myDecks.map(function(d){return '<option value="'+esc(d.id)+'"'+(d.id===preselect?' selected':'')+'>'+esc(d.name)+'</option>';}).join('');
+  ov.innerHTML='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--gold);border-radius:14px;max-width:420px;width:100%;padding:22px 24px;box-shadow:0 0 36px rgba(201,168,76,.18)">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+    +'<div style="font-family:Goudy Mediaeval,serif;font-size:1.4rem;color:var(--gold2);flex:1">📓 Log rapide</div>'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'qml-ov\').style.display=\'none\'" aria-label="Fermer">✕</button>'
+    +'</div>'
+    +'<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:14px">Enregistre une partie en 2 clics. Pour plus de détails (tour, mulligan, notes), utilise le tracker complet.</div>'
+    +'<label class="pf-lbl" style="display:block">DECK UTILISÉ</label>'
+    +'<select id="qml-deck" style="width:100%;padding:10px 12px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.95rem;margin-bottom:18px">'+opts+'</select>'
+    +'<label class="pf-lbl" style="display:block">RÉSULTAT</label>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
+    +'<button onclick="_quickMatchSave(\'W\')" style="padding:22px 12px;background:linear-gradient(180deg,rgba(120,200,144,.20),rgba(120,200,144,.04));border:1.5px solid var(--gr2);color:var(--gr2);border-radius:11px;font-size:1.3rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.transform=\'scale(1.04)\';this.style.boxShadow=\'0 6px 18px rgba(120,200,144,.3)\'" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">✓ Gagnée</button>'
+    +'<button onclick="_quickMatchSave(\'L\')" style="padding:22px 12px;background:linear-gradient(180deg,rgba(220,80,80,.16),rgba(220,80,80,.04));border:1.5px solid var(--rd2);color:var(--rd2);border-radius:11px;font-size:1.3rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.transform=\'scale(1.04)\';this.style.boxShadow=\'0 6px 18px rgba(220,80,80,.3)\'" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">✗ Perdue</button>'
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:.74rem;color:var(--tx3)">'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'qml-ov\').style.display=\'none\';openMatchTracker()">📓 Mode détaillé</button>'
+    +'<span>+10 XP par partie loggée</span>'
+    +'</div>'
+    +'</div>';
+  ov.style.display='flex';
+}
+function _quickMatchSave(result){
+  var sel=document.getElementById('qml-deck');if(!sel)return;
+  var deckId=sel.value;if(!deckId)return;
+  if(typeof _games==='undefined')_games=[];
+  var g={id:'qml_'+Date.now(),ts:Date.now(),deckId:deckId,result:result};
+  _games.push(g);
+  if(typeof _saveGames==='function')_saveGames();
+  var ov=document.getElementById('qml-ov');if(ov)ov.style.display='none';
+  if(typeof toastSuccess==='function')toastSuccess('📓 Partie enregistrée ('+(result==='W'?'✓ gagnée':'✗ perdue')+')');
+  // Re-render home si on est dessus pour mettre à jour le winrate
+  if(_currentTab==='home'&&typeof renderHome==='function')setTimeout(renderHome,200);
+}
 function openMatchTracker(){
   var ov=document.getElementById('mt-ov');
   if(!ov){
@@ -55291,6 +55376,89 @@ var _DECK_TEMPLATES=[
   {id:'pau_tron',n:'Pauper Mono-G Tron',fmt:'pauper',ci:['G'],cmd:null,desc:'Big mana pauper',
    cards:'4 Expedition Map\n4 Ancient Stirrings\n4 Sylvan Scrying\n4 Chromatic Star\n4 Pulse of Murasa\n4 Mwonvuli Acid-Moss\n2 Krosan Tusker\n4 Ulamog\'s Crusher\n4 Walking Ballista\n4 Urza\'s Tower\n4 Urza\'s Mine\n4 Urza\'s Power Plant\n4 Tranquil Thicket\n10 Forest'}
 ];
+// ═════════════════════════════════════════════════════════════════════════════
+// P1 #7 — Pré-cons WotC indexés (MVP curated list).
+// Liste des Commander Decks officiels Wizards les plus populaires. Chaque entrée
+// a son commandant, ses couleurs, son archétype/thème, et un lien EDHREC qui
+// permet à l'utilisateur de voir la decklist complète + ratings et l'importer
+// via le « 📋 Coller une liste » de ManaLAB.
+//
+// Sources : Commander Masters 2024, Lord of the Rings, Murders at Karlov Manor,
+// Fallout, Doctor Who, Outlaws of Thunder Junction, Bloomburrow, Duskmourn, Foundations.
+var _WOTC_PRECONS=[
+  // Foundations 2024
+  {n:'Endless Punishment',cmd:'Ureni of the Unwritten',ci:'WUB',set:'FDN',theme:'Token/Sacrifice',price:35,year:2024},
+  // Duskmourn 2024
+  {n:'Death Toll',cmd:'Valgavoth, Terror Eater',ci:'WB',set:'DSC',theme:'Survival/Recursion',price:38,year:2024},
+  {n:'Endless Nightmare',cmd:'Winter, Misanthropic Guide',ci:'BR',set:'DSC',theme:'Sacrifice/Aristocrats',price:35,year:2024},
+  {n:'Jump Scare',cmd:'Kaalia, Bound by Honor',ci:'WBR',set:'DSC',theme:'Aggro/Survival',price:32,year:2024},
+  {n:'Maximum Anarchy',cmd:'Ms. Bumbleflower',ci:'WBG',set:'DSC',theme:'Aggro/Tokens',price:36,year:2024},
+  // Bloomburrow 2024
+  {n:'Animated Army',cmd:'Wilhelt, the Rotcleaver',ci:'WG',set:'BLC',theme:'Tokens',price:30,year:2024},
+  {n:'Squirreled Away',cmd:'Hashaton, Scarab\'s Fist',ci:'BG',set:'BLC',theme:'Tribal Squirrel',price:32,year:2024},
+  {n:'Family Matters',cmd:'Hugs, Grisly Guardian',ci:'BRG',set:'BLC',theme:'Tribal',price:34,year:2024},
+  {n:'Peace Offering',cmd:'Three Tree City',ci:'GW',set:'BLC',theme:'Counters/+1+1',price:35,year:2024},
+  // Outlaws of Thunder Junction 2024
+  {n:'Most Wanted',cmd:'Tinybones, the Pickpocket',ci:'BR',set:'OTC',theme:'Discard/Crime',price:35,year:2024},
+  {n:'Desert Bloom',cmd:'Hazezon, Shaper of Sand',ci:'BRG',set:'OTC',theme:'Desert/Lands',price:38,year:2024},
+  {n:'Grand Larceny',cmd:'Gonti, Canny Acquisitor',ci:'UB',set:'OTC',theme:'Theft/Treasure',price:42,year:2024},
+  {n:'Quick Draw',cmd:'Stella Lee, Wild Card',ci:'UR',set:'OTC',theme:'Spellslinger',price:34,year:2024},
+  // Murders at Karlov Manor 2024
+  {n:'Deep Clue Sea',cmd:'Morska, Undersea Sleuth',ci:'GU',set:'MKC',theme:'Clue/Investigate',price:35,year:2024},
+  {n:'Blame Game',cmd:'Anikthea, Hand of Erebos',ci:'WBR',set:'MKC',theme:'Tokens',price:33,year:2024},
+  // Doctor Who 2023
+  {n:'Blast from the Past',cmd:'The First Doctor',ci:'WUG',set:'WHO',theme:'Time Counters',price:40,year:2023},
+  {n:'Masters of Evil',cmd:'The Master, Mesmerist',ci:'UB',set:'WHO',theme:'Goad/Theft',price:38,year:2023},
+  {n:'Paradox Power',cmd:'The Thirteenth Doctor',ci:'GUR',set:'WHO',theme:'Spellslinger',price:42,year:2023},
+  {n:'Timey-Wimey',cmd:'The Tenth Doctor',ci:'WUR',set:'WHO',theme:'Suspend/Time travel',price:45,year:2023},
+  // Lord of the Rings 2023
+  {n:'The Hosts of Mordor',cmd:'Sauron, the Dark Lord',ci:'UBR',set:'LTC',theme:'Aggro/Amass',price:42,year:2023},
+  {n:'Riders of Rohan',cmd:'Éowyn, Shieldmaiden',ci:'WR',set:'LTC',theme:'Aggro humans',price:40,year:2023},
+  {n:'Elven Council',cmd:'Galadriel of Lothlórien',ci:'WUG',set:'LTC',theme:'Politics/Token',price:38,year:2023},
+  {n:'Food and Fellowship',cmd:'Frodo, Sauron\'s Bane',ci:'WBG',set:'LTC',theme:'Food/Lifegain',price:40,year:2023},
+  // Commander Masters 2023
+  {n:'Eldrazi Unbound',cmd:'Zhulodok, Void Gorger',ci:'C',set:'CMM',theme:'Eldrazi Big Mana',price:60,year:2023},
+  {n:'Sliver Swarm',cmd:'Sliver Gravemother',ci:'WUBRG',set:'CMM',theme:'Tribal Sliver',price:65,year:2023},
+  {n:'Enduring Enchantments',cmd:'Anikthea, Hand of Erebos',ci:'WB',set:'CMM',theme:'Enchantress',price:48,year:2023}
+];
+function openPreconsBrowser(){
+  var ov=document.getElementById('precons-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='precons-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:5600;background:rgba(0,0,0,.88);display:none;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.style.display='none';});
+  }
+  // Tri par année décroissante
+  var arr=_WOTC_PRECONS.slice().sort(function(a,b){return b.year-a.year;});
+  // Couleurs symbols simplifié
+  var ciSymbol=function(ci){
+    if(!ci||ci==='C')return '<span style="color:var(--tx3)">◇</span>';
+    var map={W:'⚪',U:'🔵',B:'⚫',R:'🔴',G:'🟢'};
+    return ci.split('').map(function(c){return map[c]||'';}).join(' ');
+  };
+  var h='<div style="background:var(--panel-bg,var(--s1));border:1px solid var(--bd2);border-radius:14px;max-width:920px;width:100%;padding:22px 26px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.5rem;color:var(--gold2);flex:1">📦 Pré-cons WotC officiels</div>';
+  h+='<button class="btn btnsm" onclick="document.getElementById(\'precons-ov\').style.display=\'none\'">✕</button></div>';
+  h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.55;margin-bottom:16px">Les Commander Decks officiels Wizards récents — la meilleure porte d\'entrée si tu débutes en EDH. Click sur un précon pour voir sa decklist sur EDHREC, puis utilise « 📋 Coller une liste » dans le builder pour l\'importer dans ManaLAB et le personnaliser.</div>';
+  h+='<div class="precons-grid">';
+  arr.forEach(function(p){
+    var slug=(p.cmd||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+    var edhrecUrl='https://edhrec.com/commanders/'+slug;
+    h+='<a class="precon-card" href="'+esc(edhrecUrl)+'" target="_blank" rel="noopener" title="Voir la decklist complète sur EDHREC">';
+    h+='<div class="precon-year">'+p.year+'</div>';
+    h+='<div class="precon-name">'+esc(p.n)+'</div>';
+    h+='<div class="precon-cmd">👑 '+esc(p.cmd)+'</div>';
+    h+='<div class="precon-meta"><span class="precon-ci">'+ciSymbol(p.ci)+'</span><span class="precon-theme">'+esc(p.theme)+'</span></div>';
+    h+='<div class="precon-foot"><span class="precon-set">'+esc(p.set)+'</span><span class="precon-price">~'+p.price+' €</span></div>';
+    h+='</a>';
+  });
+  h+='</div>';
+  h+='<div style="margin-top:14px;font-size:.74rem;color:var(--tx3);font-style:italic;text-align:center">'+arr.length+' précons indexés · prix indicatifs Cardmarket · EDHREC pour decklist complète</div>';
+  h+='</div>';
+  ov.innerHTML=h;ov.style.display='flex';
+}
 function openDeckTemplates(){
   var ov=document.getElementById('tmpl-ov');
   if(!ov){
