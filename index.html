@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-13';
+window.APP_BUILD='2026-06-06-14';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1279,6 +1279,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 #scroll-top-btn.show{display:flex}
 #scroll-top-btn:hover{transform:translateY(-3px);box-shadow:var(--sh-card-hover),var(--sh-glow-gold-strong)}
 #scroll-top-btn:active{transform:translateY(-1px) scale(.96)}
+/* Spinner standard doré ManaLAB (Direction 4 polish — version unifiée) */
+.ml-loading-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 16px;color:var(--tx2)}
+.ml-spinner-gold{display:inline-block;border-style:solid;border-color:rgba(201,168,76,.18);border-top-color:var(--gold2);border-radius:50%;animation:ml-spin .85s linear infinite}
+.ml-spinner-gold.ml-spinner-sm{width:18px;height:18px;border-width:2.5px}
+.ml-spinner-gold,.ml-spinner-gold.ml-spinner-md{width:30px;height:30px;border-width:3px}
+.ml-spinner-gold.ml-spinner-lg{width:46px;height:46px;border-width:4px}
+.ml-loading-msg{font-size:.82rem;font-style:italic;color:var(--tx3);text-align:center;max-width:280px;line-height:1.45}
 /* Mode compact du bandeau stats (deck déjà bien rempli) — fusionne visuellement avec l'action bar mini */
 .atelier-stats-bar--compact{padding:6px 12px;gap:10px;font-size:.95em}
 .atelier-stats-bar--compact .asb-num{font-size:.98rem}
@@ -12909,6 +12916,61 @@ function setOwner(i){
   dOwner=i;
   renderProfSlots('deck','prof-grid-deck');
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// Direction 4 polish — handlers globaux qui réparent les frictions partout d'un coup
+// au lieu d'auditer 20+ modales individuellement.
+//
+// Helper 1 : Esc ferme la modale visible la plus récente (z-index le plus élevé).
+// Marche pour TOUTES les modales qui suivent un des patterns reconnus :
+//   - #foo-ov avec display:flex (overlay flex centré)
+//   - .ml-modal-ov.show (nouveau pattern utilitaire)
+//   - element[role="dialog"]
+// Si plusieurs modales empilées, ferme la plus récente seulement.
+(function(){
+  var inst=false;
+  function bind(){
+    if(inst)return;inst=true;
+    document.addEventListener('keydown',function(ev){
+      if(ev.key!=='Escape')return;
+      // Si on est dans un input/textarea/contenteditable, on ne ferme pas (Esc = blur déjà natif)
+      var t=document.activeElement;
+      if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)){
+        // Mais on quand même tente de fermer si la modale parente est focussée
+        var hostModal=t.closest&&t.closest('.ml-modal-ov.show,[role="dialog"][aria-modal="true"]');
+        if(!hostModal)return;
+      }
+      // Cherche toutes les modales actuellement visibles
+      var candidates=[];
+      // Pattern A : .ml-modal-ov.show (nouveaux composants)
+      document.querySelectorAll('.ml-modal-ov.show').forEach(function(el){
+        candidates.push({el:el,z:parseInt(getComputedStyle(el).zIndex)||0,closer:function(){el.classList.remove('show');}});
+      });
+      // Pattern B : overlays *-ov à display flex (composants historiques)
+      document.querySelectorAll('[id$="-ov"]').forEach(function(el){
+        if(el.classList.contains('ml-modal-ov'))return; // déjà capté par A
+        var cs=getComputedStyle(el);
+        if(cs.display==='flex'||cs.display==='block'){
+          var z=parseInt(cs.zIndex)||0;
+          if(z>0){
+            candidates.push({el:el,z:z,closer:function(){
+              // 1. essaye un bouton .close ou .ml-modal-close dans la modale
+              var cb=el.querySelector('.ml-modal-close,[onclick*="close"],[aria-label*="ermer"],[aria-label*="lose"]');
+              if(cb&&cb.click){cb.click();return;}
+              // 2. fallback : juste hide
+              el.style.display='none';
+            }});
+          }
+        }
+      });
+      if(!candidates.length)return;
+      // Trie par z-index décroissant et ferme la première
+      candidates.sort(function(a,b){return b.z-a.z;});
+      try{candidates[0].closer();ev.preventDefault();}catch(e){}
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Direction 3 polish — scroll-to-top button + ripple position tracking.
 // Le bouton apparaît après 400px de scroll, disparaît proche du sommet.
@@ -33112,12 +33174,24 @@ function mlEmpty(icon,title,subtitle,cta){
     +(cta?'<button class="btn btnp btnsm" onclick="'+cta.onclick+'">'+esc(cta.label)+'</button>':'')
     +'</div>';
 }
-// Helper : loading spinner inline
+// Helper : loading spinner standard (Direction 4 polish — version unifiée dorée)
+// Utilise .ml-spinner (CSS doré ManaLAB) au lieu du violet historique.
+// Usage : mlLoading('Chargement de tes decks…') → HTML prêt à injecter
 function mlLoading(message){
-  return '<div style="text-align:center;padding:30px 20px;color:var(--tx3)">'
-    +'<div class="ml-spinner" style="display:inline-block;width:24px;height:24px;border:3px solid rgba(180,140,255,.2);border-top-color:#c8a8ff;border-radius:50%;animation:ml-spin .8s linear infinite;margin-bottom:10px"></div>'
-    +(message?'<div style="font-size:.82rem;font-style:italic">'+esc(message)+'</div>':'')
+  return '<div class="ml-loading-wrap">'
+    +'<div class="ml-spinner-gold"></div>'
+    +(message?'<div class="ml-loading-msg">'+esc(message)+'</div>':'')
     +'</div>';
+}
+// Version dynamique : retourne un élément DOM (utile pour clonage / cleanup explicit)
+function mlLoader(message,opts){
+  opts=opts||{};
+  var size=opts.size||'md'; // 'sm' / 'md' / 'lg'
+  var el=document.createElement('div');
+  el.className='ml-loading-wrap';
+  el.innerHTML='<div class="ml-spinner-gold ml-spinner-'+size+'"></div>'
+    +(message?'<div class="ml-loading-msg">'+esc(message)+'</div>':'');
+  return el;
 }
 // Toast léger (auto-dismiss)
 // Toast legacy : route vers le système de toasts unifié (un seul style dans l'app).
@@ -36818,9 +36892,14 @@ function _toastNext(){
   _toastBusy=true;
   el.classList.remove('t-success','t-error','t-warning','t-info','has-action');
   if(item.type&&item.type!=='default')el.classList.add('t-'+item.type);
+  // Stocke msg+type+class .ml-toast pour le dédoublonnage (Direction 4 polish)
+  el.classList.add('ml-toast');
+  el.dataset.msg=item.msg.replace(/\s+\(×\d+\)$/,''); // sans le compteur pour matcher
+  el.dataset.type=item.type;
+  el.dataset.count='1';
   if(item.undo){
     el.classList.add('has-action');
-    el.innerHTML='<span></span><button class="toast-undo" type="button">Annuler</button>';
+    el.innerHTML='<span class="ml-toast-msg"></span><button class="toast-undo" type="button">Annuler</button>';
     el.firstChild.textContent=item.msg;
     var btn=el.querySelector('.toast-undo');
     btn.onclick=function(ev){
@@ -36830,7 +36909,8 @@ function _toastNext(){
       setTimeout(function(){_toastBusy=false;_toastNext();},200);
     };
   }else{
-    el.textContent=item.msg;
+    el.innerHTML='<span class="ml-toast-msg"></span>';
+    var span=el.querySelector('.ml-toast-msg');if(span)span.textContent=item.msg;
   }
   el.classList.add('show');
   setTimeout(function(){
@@ -36845,6 +36925,27 @@ function showToast(msg,arg2,arg3){
   else if(typeof arg2==='string'){type=arg2;if(typeof arg3==='number')dur=arg3;else if(arg3&&typeof arg3==='object'){if(arg3.dur)dur=arg3.dur;if(arg3.undo)undo=arg3.undo;}}
   else if(arg2&&typeof arg2==='object'){if(arg2.type)type=arg2.type;if(arg2.dur)dur=arg2.dur;if(arg2.undo)undo=arg2.undo;}
   if(undo&&dur<3500)dur=5000; // laisser le temps de cliquer
+  // Dédoublonnage intelligent (Direction 4 polish) : si le toast actuellement
+  // visible OU le dernier en queue a le même message, on incrémente son compteur
+  // au lieu d'empiler. Évite les rafales lors d'actions répétées (ex: 4 cartes
+  // ajoutées d'affilée).
+  var lastQ=_toastQueue.length?_toastQueue[_toastQueue.length-1]:null;
+  if(lastQ&&lastQ.msg===msg&&lastQ.type===type&&!undo){
+    lastQ.dedup=(lastQ.dedup||1)+1;
+    lastQ.msg=msg+' (×'+lastQ.dedup+')';
+    _toastNext();return;
+  }
+  // Si un toast est actuellement affiché avec le même contenu, ignore (silent dedup)
+  var visToast=document.querySelector('.ml-toast');
+  if(visToast&&visToast.dataset.msg===msg&&visToast.dataset.type===type&&!undo){
+    var c=parseInt(visToast.dataset.count||'1',10)+1;
+    visToast.dataset.count=c;
+    var span=visToast.querySelector('.ml-toast-msg');
+    if(span)span.textContent=msg+' (×'+c+')';
+    return;
+  }
+  // Limite l'empilement à 4 toasts max en queue (évite les rafales monstrueuses)
+  if(_toastQueue.length>=4){_toastQueue.shift();}
   _toastQueue.push({msg:msg,type:type,dur:dur,undo:undo});
   _toastHistory.unshift({msg:msg,type:type,ts:Date.now()});
   if(_toastHistory.length>30)_toastHistory.length=30;
