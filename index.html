@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-5';
+window.APP_BUILD='2026-06-06-6';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -3638,6 +3638,7 @@ details > summary::-webkit-details-marker{display:none}
     <div class="row" style="margin-bottom:.75rem">
       <div class="lbl" style="margin-bottom:0" id="etitle">Nouveau deck</div>
       <button class="btn btnsm btnp" onclick="newDeck()" style="margin-left:auto" data-i18n="deck.new">+ Nouveau deck</button>
+      <button class="btn btnsm" id="deck-journey-btn" onclick="if(actDeck)journeyStart(actDeck)" title="Lancer le parcours « Cycle de vie » : Build → Analyser → Achever" style="display:none;background:linear-gradient(180deg,rgba(201,168,76,.22),rgba(201,168,76,.04));border-color:var(--gold);color:var(--gold2)">⚡ Parcours</button>
       <button class="btn btnsm" onclick="openDeckPasteModal()" title="Coller une decklist (Moxfield, Archidekt, Arena, MTGO, format texte) pour la parser en masse">📋 Coller une liste</button>
       <button class="btn btnsm" onclick="_collSideToggle()" title="Afficher ta collection en sidebar pour drag-drop carte → deck (style Arena)">🃏 Collection</button>
       <button class="btn btnsm" id="deck-undo-btn" onclick="deckUndo()" title="Annuler la dernière action (Ctrl+Z)" disabled>↩</button>
@@ -3789,11 +3790,12 @@ details > summary::-webkit-details-marker{display:none}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btnsm btnp" id="btnachat" onclick="toggleAchatPanel()" style="display:none;flex:1">🛒 Achat</button>
       </div>
-      <div style="display:flex;gap:3px;margin-bottom:10px">
-        <button class="dm dview-btn active" data-mode="list" onclick="setDView('list')" style="flex:1;font-size:.74rem">≡ Liste</button>
-        <button class="dm dview-btn" data-mode="image" onclick="setDView('image')" style="flex:1;font-size:.74rem">🖼 Images</button>
-        <button class="dm dview-btn" data-mode="stack" onclick="setDView('stack')" style="flex:1;font-size:.74rem" title="Vue Stack par CMC (inspirée Arena) : pile verticale par coût mana">📊 Stack</button>
-        <button class="dm dview-btn" data-mode="montage" onclick="setDView('montage')" style="flex:1;font-size:.74rem" title="Suivre le montage physique du deck">🔨 Montage</button>
+      <!-- Vue : 2x2 grid pour tenir dans les 220px du panel stats sans déborder -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:10px">
+        <button class="dm dview-btn active" data-mode="list" onclick="setDView('list')" style="font-size:.72rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:5px 6px">≡ Liste</button>
+        <button class="dm dview-btn" data-mode="image" onclick="setDView('image')" style="font-size:.72rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:5px 6px">🖼 Images</button>
+        <button class="dm dview-btn" data-mode="stack" onclick="setDView('stack')" title="Vue Stack par CMC (inspirée Arena) : pile verticale par coût mana" style="font-size:.72rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:5px 6px">📊 Stack</button>
+        <button class="dm dview-btn" data-mode="montage" onclick="setDView('montage')" title="Suivre le montage physique du deck" style="font-size:.72rem;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:5px 6px">🔨 Montage</button>
       </div>
       <div style="font-size:9px;color:var(--tx3);font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;margin-bottom:4px">TRIER PAR</div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
@@ -8372,6 +8374,8 @@ function goTab(id, fromHistory) {
     }
     if(id==='build'){_renderBuildCollBtns();bldInitDeckSel();bldRenderSwapsPanel();_bldRefreshView();_initPropProfSel();}
   }catch(e){console.warn('[goTab] init page '+id,e);}
+  // Sidebar collection : visible UNIQUEMENT sur l'onglet deck — sinon cache tout
+  try{if(typeof _collSideSyncTab==='function')_collSideSyncTab();}catch(e){}
   if(_userLang&&_userLang!=='en'){
     var _pg=document.getElementById('pg-'+id);
     if(_pg)setTimeout(function(){_pg.querySelectorAll('img').forEach(_localizeOneImg);},120);
@@ -12609,7 +12613,7 @@ function newDeck(){
 }
 function loadDeck(id){
   var d=decks[id];if(!d)return;
-  if(actDeck===id){actDeck=null;dCards=[];document.getElementById('deckres').style.display='none';renderDBar();return;}
+  if(actDeck===id){actDeck=null;dCards=[];document.getElementById('deckres').style.display='none';var jBtnOff=document.getElementById('deck-journey-btn');if(jBtnOff)jBtnOff.style.display='none';renderDBar();return;}
   actDeck=id;
   // Toujours re-parser depuis rawName si dispo : auto-repare les decks sauvegardes avec d'anciens parsers (truncation)
   var freshCards=d.rawName?parseList(d.rawName):null;
@@ -12617,6 +12621,8 @@ function loadDeck(id){
   // Reset stack Undo/Redo + snapshot initial pour avoir un état de base auquel revenir
   _deckHistStack=[];_deckHistIdx=-1;_deckHistDeckId=id;
   _deckHistSnapshot();
+  // Bouton « ⚡ Parcours » visible quand un deck est actif
+  var jBtn=document.getElementById('deck-journey-btn');if(jBtn)jBtn.style.display='inline-flex';
   // Refresh banlist du format actif (P0 #6) — cache 7 jours par format
   _currentBanlistSet=null;
   if(typeof _refreshBanlistForCurrentDeck==='function')setTimeout(_refreshBanlistForCurrentDeck,100);
@@ -15052,7 +15058,8 @@ function _collSideToggle(){
   var s=document.getElementById('coll-side');var h=document.getElementById('coll-side-handle');
   if(!s||!h)return;
   var open=s.classList.toggle('show');
-  h.style.display=open?'none':'flex';
+  // Le handle ne s'affiche QUE sur l'onglet deck (pas d'élément flottant sur la home)
+  h.style.display=(open||_currentTab!=='deck')?'none':'flex';
   try{localStorage.setItem('mtg_coll_side_open',open?'1':'0');}catch(e){}
   if(open)_collSideRender();
 }
@@ -15060,9 +15067,19 @@ function _collSideRestore(){
   var s=document.getElementById('coll-side');var h=document.getElementById('coll-side-handle');
   if(!s||!h)return;
   var open=false;try{open=localStorage.getItem('mtg_coll_side_open')==='1';}catch(e){}
-  // Auto-show seulement si on est sur l'onglet deck
-  if(open&&_currentTab==='deck'){s.classList.add('show');h.style.display='none';_collSideRender();}
+  // Auto-show seulement si on est sur l'onglet deck. Sinon tout est caché.
+  if(_currentTab!=='deck'){
+    s.classList.remove('show');h.style.display='none';return;
+  }
+  if(open){s.classList.add('show');h.style.display='none';_collSideRender();}
   else{h.style.display='flex';}
+}
+// Re-appelle à chaque changement de tab pour synchroniser visibilité
+function _collSideSyncTab(){
+  var s=document.getElementById('coll-side');var h=document.getElementById('coll-side-handle');
+  if(!s||!h)return;
+  if(_currentTab!=='deck'){s.classList.remove('show');h.style.display='none';}
+  else{_collSideRestore();}
 }
 function _collSideToggleColor(c){
   var i=_collSideColors.indexOf(c);
