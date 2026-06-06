@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-12';
+window.APP_BUILD='2026-06-06-13';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -684,8 +684,10 @@ body.has-subtabs #wrap-main{padding-top:86px}
 .ml-modal-input:focus{border-color:rgba(180,140,255,.6);box-shadow:0 0 0 2px rgba(180,140,255,.18)}
 .ml-modal-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center}
 @keyframes ml-modal-pop{0%{transform:scale(.92);opacity:0}100%{transform:scale(1);opacity:1}}
-@keyframes ml-toast-in{0%{transform:translateX(-50%) translateY(20px);opacity:0}100%{transform:translateX(-50%) translateY(0);opacity:1}}
-@keyframes ml-toast-out{0%{opacity:1}100%{transform:translateX(-50%) translateY(20px);opacity:0}}
+/* Toast animation (Direction 3 polish) — rebond léger + slide-up depuis le bas-centré.
+   cubic-bezier ressemble à un small spring physics. */
+@keyframes ml-toast-in{0%{transform:translateX(-50%) translateY(40px) scale(.94);opacity:0}60%{transform:translateX(-50%) translateY(-4px) scale(1.02);opacity:1}100%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}}
+@keyframes ml-toast-out{0%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}100%{transform:translateX(-50%) translateY(24px) scale(.96);opacity:0}}
 @keyframes ml-spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
 .btn{padding:7px 16px;border-radius:4px;font-size:.9rem;font-family:var(--ff-head);font-weight:600;cursor:pointer;border:1.5px solid var(--btn-bd);background:var(--btn-bg);color:var(--btn-col);text-shadow:0 1px 2px rgba(0,0,0,.8);outline:1px solid var(--btn-out);outline-offset:-4px;box-shadow:inset 0 1px 0 rgba(255,190,50,.1),0 0 0 1px rgba(0,0,0,.75),0 2px 0 rgba(0,0,0,.5),0 3px 8px rgba(0,0,0,.55);transition:filter .15s,transform .1s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
 .btn:hover{filter:brightness(1.2)}.btn:active{transform:translateY(1px);box-shadow:inset 0 1px 4px rgba(0,0,0,.6),0 0 0 1px rgba(0,0,0,.75),0 1px 3px rgba(0,0,0,.5)}
@@ -1239,6 +1241,44 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
 .ml-card-base.spacious{padding:var(--sp-lg) var(--sp-xl)}
 /* Labels uniformes pour les inputs/formulaires modaux */
 .ml-label{display:block;font-size:.78rem;color:var(--tx3);margin-bottom:5px;letter-spacing:.04em;font-family:'Goudy Mediaeval',serif;text-transform:uppercase}
+/* ════════════════════════════════════════════════════════════════════════════
+   DIRECTION 3 — Animations & micro-interactions premium
+   ════════════════════════════════════════════════════════════════════════════ */
+/* Smooth scroll global — mais respect prefers-reduced-motion */
+html{scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+/* Cross-fade entre vues du deck — appliqué via classe .view-fading sur #dlist */
+#dlist{transition:opacity var(--tr-fast) ease-out}
+#dlist.view-fading{opacity:0}
+/* Loading shimmer pour images de cartes en attente */
+@keyframes ml-shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.ml-img-loading{position:relative;background:linear-gradient(90deg,var(--s2) 25%,rgba(201,168,76,.08) 50%,var(--s2) 75%);background-size:200% 100%;animation:ml-shimmer 1.6s infinite linear}
+img.ml-img-loading{filter:blur(2px) brightness(.85)}
+img[loading="lazy"]{transition:opacity var(--tr-base) ease-out,filter var(--tr-base) ease-out}
+img[loading="lazy"]:not([src]),img[loading="lazy"][src=""]{opacity:0}
+/* Hover ripple sur les boutons CTA dorés — effet glow doré qui pulse au survol */
+.btnp:hover,.dea-card:hover,.atelier-ab-card:hover,.bld-wiz-feature:hover,.home-intent-primary:hover{position:relative}
+.btnp::before,.atelier-ab-card::before,.dea-card::before{content:'';position:absolute;inset:0;border-radius:inherit;background:radial-gradient(circle at var(--ripple-x,50%) var(--ripple-y,50%),rgba(255,210,80,.32) 0%,transparent 60%);opacity:0;transition:opacity var(--tr-fast);pointer-events:none}
+.btnp:hover::before,.atelier-ab-card:hover::before,.dea-card:hover::before{opacity:1}
+.btnp:active::before{animation:ml-ripple .55s ease-out}
+@keyframes ml-ripple{0%{opacity:1;transform:scale(.85)}100%{opacity:0;transform:scale(1.4)}}
+/* Atelier action bar : transition smooth entre full ↔ mini */
+.atelier-action-bar{transition:padding var(--tr-base) ease-out,background var(--tr-base) ease-out}
+.atelier-ab-full,.atelier-ab-mini{animation:ml-fade-in var(--tr-base) ease-out}
+@keyframes ml-fade-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+/* Modales : animation pop élégante à l'ouverture */
+.ml-modal-ov.show .ml-modal{animation:ml-modal-pop-in .25s cubic-bezier(.34,1.56,.64,1)}
+@keyframes ml-modal-pop-in{0%{transform:scale(.92);opacity:0}100%{transform:scale(1);opacity:1}}
+/* Polish générique : focus visible doré sur les éléments focusables */
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:var(--r-sm)}
+/* Scroll-to-top button (apparaît quand on scroll bas) */
+#scroll-top-btn{position:fixed;bottom:24px;right:24px;width:44px;height:44px;background:var(--grad-panel-hdr);border:1.5px solid var(--gold);border-radius:50%;color:var(--gold2);font-size:1.2rem;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:var(--sh-card),var(--sh-glow-gold);z-index:99;transition:transform var(--tr-fast),box-shadow var(--tr-fast),opacity var(--tr-base);font-family:inherit;animation:ml-fade-in var(--tr-base) ease-out}
+#scroll-top-btn.show{display:flex}
+#scroll-top-btn:hover{transform:translateY(-3px);box-shadow:var(--sh-card-hover),var(--sh-glow-gold-strong)}
+#scroll-top-btn:active{transform:translateY(-1px) scale(.96)}
 /* Mode compact du bandeau stats (deck déjà bien rempli) — fusionne visuellement avec l'action bar mini */
 .atelier-stats-bar--compact{padding:6px 12px;gap:10px;font-size:.95em}
 .atelier-stats-bar--compact .asb-num{font-size:.98rem}
@@ -2886,6 +2926,8 @@ details > summary::-webkit-details-marker{display:none}
      Géré par journeyStart() / journeyRender() / journeyClose(). Toujours présent
      dans le DOM, affiché conditionnellement via .show. -->
 <div id="journey-bar" role="navigation" aria-label="Parcours du deck"></div>
+<!-- Scroll-to-top button (Direction 3 polish) — apparaît si on scroll bas -->
+<button id="scroll-top-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Remonter en haut" aria-label="Remonter en haut">↑</button>
 <!-- P0 #4 : Sidebar collection fixe à gauche (slide-in via _collSideToggle).
      Contient recherche + filtres + vignettes draggables vers le deck. Style Arena. -->
 <aside id="coll-side" aria-label="Ma collection — drag-drop vers le deck">
@@ -12868,6 +12910,30 @@ function setOwner(i){
   renderProfSlots('deck','prof-grid-deck');
 }
 // ═════════════════════════════════════════════════════════════════════════════
+// Direction 3 polish — scroll-to-top button + ripple position tracking.
+// Le bouton apparaît après 400px de scroll, disparaît proche du sommet.
+(function(){
+  var inst=false;
+  function bind(){
+    if(inst)return;inst=true;
+    window.addEventListener('scroll',function(){
+      var b=document.getElementById('scroll-top-btn');if(!b)return;
+      if(window.scrollY>400)b.classList.add('show');else b.classList.remove('show');
+    },{passive:true});
+    // Ripple position tracking : capte la position du curseur pour orienter le glow radial
+    document.addEventListener('mousemove',function(ev){
+      var t=ev.target&&ev.target.closest&&ev.target.closest('.btnp,.dea-card,.atelier-ab-card');
+      if(!t)return;
+      var r=t.getBoundingClientRect();
+      var x=((ev.clientX-r.left)/r.width*100).toFixed(0);
+      var y=((ev.clientY-r.top)/r.height*100).toFixed(0);
+      t.style.setProperty('--ripple-x',x+'%');
+      t.style.setProperty('--ripple-y',y+'%');
+    },{passive:true});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+// ═════════════════════════════════════════════════════════════════════════════
 // REFONTE ATELIER (Variante A) — fonctions supports.
 // _atelierToggleMore : dropdown « ⋯ Plus » dans le header de l'atelier.
 // _atelierUpdateSubtitle : sous-titre dynamique "82 cartes · Commander · Atraxa"
@@ -14654,14 +14720,20 @@ function _dPersistVersionsToDeck(){
   if(typeof saveDecks==='function')saveDecks();
 }
 function setDView(mode){
-  if(mode!=='list'&&mode!=='image'&&mode!=='montage')return;
+  if(mode!=='list'&&mode!=='image'&&mode!=='stack'&&mode!=='montage')return;
   dViewMode=mode;
   document.querySelectorAll('.dview-btn').forEach(function(b){b.classList.toggle('active',b.dataset.mode===mode);});
   var hdr=document.getElementById('dlisthdr');
   if(hdr)hdr.style.display=mode==='list'?'':'none';
-  if(mode==='image')fetchDeckImages();
-  else if(mode==='montage'){if(typeof renderDeckMontage==='function')renderDeckMontage();}
-  else renderDeck();
+  // Cross-fade entre vues (Direction 3 polish) : fade-out, render, fade-in
+  var dlist=document.getElementById('dlist');
+  if(dlist)dlist.classList.add('view-fading');
+  setTimeout(function(){
+    if(mode==='image')fetchDeckImages();
+    else if(mode==='montage'){if(typeof renderDeckMontage==='function')renderDeckMontage();}
+    else renderDeck();
+    if(dlist)requestAnimationFrame(function(){dlist.classList.remove('view-fading');});
+  },120);
 }
 function toggleDView(){setDView(dViewMode==='list'?'image':(dViewMode==='image'?'montage':'list'));}
 function fetchDeckImages(){
