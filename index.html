@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-15';
+window.APP_BUILD='2026-06-06-16';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1540,9 +1540,14 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .ana-coach-btn:disabled{opacity:.35;cursor:not-allowed}
 .ana-coach-btn.primary{background:linear-gradient(135deg,var(--gold) 0%,#b8924d 100%);color:#1a1206;border-color:var(--gold2);font-weight:bold}
 .ana-coach-btn.primary:hover{box-shadow:0 4px 14px rgba(218,180,107,.4)}
-.ana-coach-toggle{display:inline-flex;align-items:center;gap:6px;background:transparent;border:.5px solid var(--bd2);color:var(--tx3);padding:5px 12px;border-radius:18px;font-size:.78rem;cursor:pointer;font-family:'Goudy Mediaeval',serif;letter-spacing:.06em;transition:all .15s;margin-left:8px}
-.ana-coach-toggle:hover{border-color:var(--gold);color:var(--gold2)}
-.ana-coach-toggle.active{background:linear-gradient(135deg,rgba(218,180,107,.18) 0%,rgba(91,140,245,.10) 100%);border-color:var(--gold);color:var(--gold2)}
+/* Bouton bascule Mode Coach ↔ Expert — TRÈS visible (fix UX 2026-06-06) */
+.ana-coach-toggle{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(180deg,rgba(201,168,76,.22),rgba(201,168,76,.06));border:1.5px solid var(--gold);color:var(--gold2);padding:8px 18px;border-radius:24px;font-size:.88rem;font-weight:700;cursor:pointer;font-family:'Goudy Mediaeval',serif;letter-spacing:.08em;transition:all .15s;margin-left:8px;box-shadow:0 0 16px rgba(201,168,76,.22),0 4px 10px rgba(0,0,0,.4);text-transform:uppercase;animation:coachToggleGlow 2.4s ease-in-out infinite}
+.ana-coach-toggle:hover{transform:translateY(-2px);box-shadow:0 0 22px rgba(201,168,76,.4),0 6px 14px rgba(0,0,0,.55);background:linear-gradient(180deg,rgba(201,168,76,.32),rgba(201,168,76,.10))}
+.ana-coach-toggle.active{background:linear-gradient(135deg,rgba(218,180,107,.30) 0%,rgba(91,140,245,.16) 100%);border-color:var(--gold);color:#fff;animation:none}
+@keyframes coachToggleGlow{
+  0%,100%{box-shadow:0 0 16px rgba(201,168,76,.22),0 4px 10px rgba(0,0,0,.4)}
+  50%{box-shadow:0 0 26px rgba(201,168,76,.42),0 4px 10px rgba(0,0,0,.4)}
+}
 .ana-coach-issue{display:grid;grid-template-columns:32px 1fr 90px;gap:12px;align-items:center;padding:10px 0;border-bottom:.5px solid var(--bd2)}
 .ana-coach-issue-ico{font-size:1.5rem;text-align:center}
 .ana-coach-issue-name{font-size:.92rem;color:var(--tx)}
@@ -3953,7 +3958,7 @@ details > summary::-webkit-details-marker{display:none}
         <!-- Bouton Plus qui regroupe les actions secondaires -->
         <div style="position:relative;display:inline-block" id="atelier-more-wrap">
           <button class="btn btnsm" onclick="_atelierToggleMore()" title="Plus d'actions sur ce deck">⋯ Plus</button>
-          <div id="atelier-more-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:200px;background:linear-gradient(180deg,#1a0e04,#0c0a07);border:1px solid var(--gold);border-radius:9px;box-shadow:0 12px 32px rgba(0,0,0,.7);z-index:50;padding:5px">
+          <div id="atelier-more-menu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:200px;background:linear-gradient(180deg,#1a0e04,#0c0a07);border:1px solid var(--gold);border-radius:9px;box-shadow:0 12px 32px rgba(0,0,0,.7);z-index:5000;padding:5px">
             <button class="more-nav-item" onclick="openTokensGenerator();_atelierToggleMore()" style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--tx);font-family:inherit;font-size:.84rem;padding:7px 11px;cursor:pointer;border-radius:5px">🎭 Tokens générés</button>
             <button class="more-nav-item" onclick="openSideboardGuide();_atelierToggleMore()" style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--tx);font-family:inherit;font-size:.84rem;padding:7px 11px;cursor:pointer;border-radius:5px">🎯 Sideboard guide</button>
             <button class="more-nav-item" id="m-playtest" onclick="openPlaytest(actDeck);_atelierToggleMore()" style="display:none;width:100%;text-align:left;background:none;border:none;color:var(--tx);font-family:inherit;font-size:.84rem;padding:7px 11px;cursor:pointer;border-radius:5px">🎮 Playtest</button>
@@ -4260,7 +4265,14 @@ details > summary::-webkit-details-marker{display:none}
   </div>
   <div id="ana-results" style="display:none"></div>
 </div>
-<div id="ana-zoom" onclick="this.style.display='none'"><img src="" alt=""></div>
+<!-- Zoom carte/swap avec navigation ←/→ (fix UX 2026-06-06).
+     Click overlay → ferme. Boutons nav prev/next. Compteur N/total. -->
+<div id="ana-zoom" onclick="if(event.target===this)this.style.display='none'">
+  <img src="" alt="" id="ana-zoom-img" onclick="event.stopPropagation()">
+  <button class="ana-zoom-nav prev" onclick="event.stopPropagation();_anaZoomNav(-1)" id="ana-zoom-prev" title="Carte précédente (←)" aria-label="Précédente">◀</button>
+  <button class="ana-zoom-nav next" onclick="event.stopPropagation();_anaZoomNav(1)" id="ana-zoom-next" title="Carte suivante (→)" aria-label="Suivante">▶</button>
+  <div class="ana-zoom-counter" id="ana-zoom-counter"></div>
+</div>
 
 <style>
 @keyframes _anaSpin{to{transform:rotate(360deg)}}
@@ -4328,8 +4340,44 @@ details > summary::-webkit-details-marker{display:none}
 .ana-swap-img:last-child{border-bottom:none}
 .ana-swap-img .ana-img-card{max-width:160px;margin:0 auto}
 .ana-swap-arrow{font-size:22px;color:var(--gold2);text-align:center}
-#ana-zoom{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:99999;display:none;align-items:center;justify-content:center;cursor:pointer;padding:20px}
-#ana-zoom img{max-width:96vw;max-height:96vh;border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.9)}
+#ana-zoom{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:99999;display:none;align-items:center;justify-content:center;cursor:pointer;padding:20px;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+#ana-zoom img{max-width:96vw;max-height:96vh;border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.9);cursor:default;animation:ml-modal-pop-in .22s cubic-bezier(.34,1.56,.64,1)}
+/* Boutons de navigation ←/→ + compteur (fix UX 2026-06-06) */
+.ana-zoom-nav{position:fixed;top:50%;transform:translateY(-50%);width:60px;height:60px;background:linear-gradient(180deg,#3a2008,#180d04);border:1.5px solid var(--gold);color:var(--gold2);border-radius:50%;cursor:pointer;font-size:1.4rem;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 28px rgba(0,0,0,.7),0 0 18px rgba(201,168,76,.25);transition:transform .15s,box-shadow .15s;font-family:inherit;z-index:1}
+.ana-zoom-nav:hover:not(:disabled){transform:translateY(-50%) scale(1.08);box-shadow:0 12px 36px rgba(0,0,0,.8),0 0 26px rgba(201,168,76,.4)}
+.ana-zoom-nav:disabled{opacity:.25;cursor:not-allowed}
+.ana-zoom-nav.prev{left:24px}
+.ana-zoom-nav.next{right:24px}
+.ana-zoom-counter{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:linear-gradient(180deg,#1a0e04,#0c0a07);border:1px solid var(--gold);border-radius:99px;padding:8px 18px;color:var(--gold2);font-family:'Goudy Mediaeval',serif;font-size:.85rem;letter-spacing:.08em;box-shadow:0 6px 20px rgba(0,0,0,.65);pointer-events:none}
+@media(max-width:560px){.ana-zoom-nav{width:48px;height:48px;font-size:1.1rem}.ana-zoom-nav.prev{left:10px}.ana-zoom-nav.next{right:10px}}
+/* Modale Zoom triage (fix UX 2026-06-06) — clic sur ligne du triage */
+.triage-zoom-card{position:relative;max-width:960px;width:100%;background:linear-gradient(180deg,var(--s2),var(--s1));border:1.5px solid var(--gold);border-radius:14px;padding:22px 28px;box-shadow:0 16px 60px rgba(0,0,0,.85),0 0 32px rgba(201,168,76,.2);font-family:'Crimson Pro',serif;animation:ml-modal-pop-in .25s cubic-bezier(.34,1.56,.64,1)}
+.triage-zoom-close{position:absolute;top:12px;right:14px;background:none;border:none;color:var(--tx3);font-size:1.3rem;cursor:pointer;padding:4px 10px;border-radius:6px;transition:all .12s;z-index:2}
+.triage-zoom-close:hover{background:rgba(220,80,80,.14);color:var(--rd2)}
+.triage-zoom-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;padding-right:40px}
+.triage-zoom-title{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:1.3rem;letter-spacing:.04em}
+.triage-zoom-counter{background:rgba(0,0,0,.4);color:var(--tx2);font-family:monospace;padding:4px 12px;border-radius:99px;font-size:.82rem;border:.5px solid var(--bd2)}
+.triage-zoom-body{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:18px}
+.triage-zoom-col{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 12px;background:var(--grad-dark-soft);border:.5px solid var(--bd2);border-radius:11px}
+.triage-zoom-col-lbl{font-family:'Goudy Mediaeval',serif;color:var(--tx3);font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
+.triage-zoom-col-lbl.gold{color:var(--gold2)}
+.triage-zoom-col-lbl.purple{color:#c8a8ff}
+.triage-zoom-img{width:100%;max-width:180px;border-radius:9px;box-shadow:0 8px 22px rgba(0,0,0,.55);background:#000}
+.triage-zoom-img-fallback{width:100%;max-width:180px;aspect-ratio:5/7;border-radius:9px;background:var(--grad-dark-strong);border:.5px solid var(--bd2);display:flex;align-items:flex-end;justify-content:center;padding:8px;font-family:'Goudy Mediaeval',serif;color:var(--tx2);text-align:center;font-size:.85rem}
+.triage-zoom-name{font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:.95rem;text-align:center;letter-spacing:.02em}
+.triage-zoom-meta{font-size:.78rem;font-family:monospace;padding:2px 9px;border-radius:5px;background:rgba(0,0,0,.3)}
+.triage-zoom-meta.gold{color:var(--gold2);border:.5px solid rgba(201,168,76,.3)}
+.triage-zoom-meta.purple{color:#c8a8ff;border:.5px solid rgba(200,168,255,.3)}
+.triage-zoom-empty{color:var(--tx3);font-style:italic;padding:40px 12px;font-size:.85rem}
+.triage-zoom-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px}
+.triage-zoom-flag{display:flex;align-items:center;justify-content:center;gap:10px;padding:18px 14px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(0,0,0,.22));border:1.5px solid var(--bd2);border-radius:11px;color:var(--tx);font-size:1.6rem;cursor:pointer;font-family:'Goudy Mediaeval',serif;transition:transform .12s,border-color .12s,box-shadow .12s,background .12s}
+.triage-zoom-flag span{font-size:.92rem;letter-spacing:.04em}
+.triage-zoom-flag:hover{transform:translateY(-2px);border-color:var(--gold);box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.triage-zoom-flag.keep.active{background:linear-gradient(180deg,rgba(120,200,144,.30),rgba(120,200,144,.08));border-color:var(--gr2);color:#1a0e04;box-shadow:0 0 18px rgba(120,200,144,.4)}
+.triage-zoom-flag.maybe.active{background:linear-gradient(180deg,rgba(245,185,91,.30),rgba(245,185,91,.08));border-color:var(--am);color:#1a0e04;box-shadow:0 0 18px rgba(245,185,91,.4)}
+.triage-zoom-flag.change.active{background:linear-gradient(180deg,rgba(224,112,112,.30),rgba(224,112,112,.08));border-color:var(--rd2);color:#fff;box-shadow:0 0 18px rgba(224,112,112,.4)}
+.triage-zoom-hint{text-align:center;font-size:.74rem;color:var(--tx3);font-style:italic;padding-top:8px;border-top:.5px solid var(--bd)}
+@media(max-width:760px){.triage-zoom-body{grid-template-columns:1fr;gap:10px}.triage-zoom-img{max-width:140px}.triage-zoom-actions{grid-template-columns:1fr}.triage-zoom-flag{padding:14px;font-size:1.3rem}}
 /* ─── MTG Loader (pièce mana qui roule entre les doigts) ──────── */
 #mtg-loader{position:fixed;inset:0;background:rgba(7,4,2,.88);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:99998;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;transition:opacity .25s}
 #mtg-loader-txt{display:none}
@@ -21869,7 +21917,7 @@ function _purRenderGroupsPanel(lst){
           var pr=(typeof c.actualPrice==='number')?c.actualPrice.toFixed(2)+'€':'';
           html+='<div style="width:84px;text-align:center" title="'+esc(c.name)+(c.set?' ['+esc(c.set)+']':'')+'">'
             +'<div style="position:relative">'
-            +'<img src="'+imgUrl+'" loading="lazy" alt="'+esc(c.name)+'" onclick="anaZoom(this.src)" '
+            +'<img src="'+imgUrl+'" loading="lazy" alt="'+esc(c.name)+'" onclick="anaZoom(this)" '
             +'onerror="this.onerror=null;this.src=\'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(c.name||'')+'&format=image&version=small\'" '
             +'style="width:84px;border-radius:6px;cursor:zoom-in;display:block;box-shadow:0 3px 9px rgba(0,0,0,.5)">'
             +((c.qty||1)>1?'<span style="position:absolute;top:3px;left:3px;background:rgba(0,0,0,.8);color:#fff;border-radius:8px;padding:0 5px;font-size:.62rem">'+c.qty+'×</span>':'')
@@ -38294,11 +38342,184 @@ function anaImageUrl(name,meta){
   return 'https://api.scryfall.com/cards/named?exact='+encodeURIComponent(name)+'&format=image&version=normal';
 }
 
-function anaZoom(url){
-  var z=document.getElementById('ana-zoom');if(!z||!url)return;
-  z.querySelector('img').src=url;
+// Navigation ←/→ dans le zoom analyse (fix UX 2026-06-06).
+// Si on passe un élément cliqué, on collecte automatiquement les images soeurs
+// dans le même container parent (.ana-card-group, .ana-img-grid, etc.) pour
+// permettre de défiler entre cartes/swaps.
+var _anaZoomList=[];
+var _anaZoomIdx=0;
+// ═════════════════════════════════════════════════════════════════════════════
+// Zoom du triage du deck (fix UX 2026-06-06) — clic sur une ligne ouvre une
+// vue plein écran avec les 3 cartes (carte du deck + swap maison + swap méta),
+// boutons de flag (garde/à voir/change) en gros, et navigation ←/→ entre les
+// lignes. Inspiré du _anaApplyZoom du Coach Mode.
+var _triageZoomCtx={deckId:null,orderedNls:[],swapByCutNl:{},rowMetaByNl:{},idx:0,open:false};
+function openTriageZoom(deckId,nl){
+  if(!_triageZoomCtx.orderedNls.length){
+    // Reconstruit la liste à partir du DOM en fallback
+    var rows=document.querySelectorAll('[data-flag-row]');
+    _triageZoomCtx.orderedNls=Array.from(rows).map(function(r){return r.getAttribute('data-flag-row');});
+    _triageZoomCtx.deckId=deckId;
+  }
+  var i=_triageZoomCtx.orderedNls.indexOf(nl);
+  _triageZoomCtx.idx=i>=0?i:0;
+  _triageZoomCtx.open=true;
+  _renderTriageZoom();
+  // Bind clavier
+  document.addEventListener('keydown',_triageZoomKey);
+}
+function closeTriageZoom(){
+  _triageZoomCtx.open=false;
+  var ov=document.getElementById('triage-zoom-ov');if(ov)ov.remove();
+  document.removeEventListener('keydown',_triageZoomKey);
+}
+function _triageZoomNav(delta){
+  var n=_triageZoomCtx.orderedNls.length;if(!n)return;
+  var next=Math.max(0,Math.min(n-1,_triageZoomCtx.idx+delta));
+  if(next===_triageZoomCtx.idx)return;
+  _triageZoomCtx.idx=next;
+  _renderTriageZoom();
+}
+function _triageZoomKey(ev){
+  if(!_triageZoomCtx.open)return;
+  if(ev.key==='Escape'){ev.preventDefault();closeTriageZoom();}
+  else if(ev.key==='ArrowLeft'){ev.preventDefault();_triageZoomNav(-1);}
+  else if(ev.key==='ArrowRight'){ev.preventDefault();_triageZoomNav(1);}
+  else if(ev.key==='1'){ev.preventDefault();_triageZoomFlag('keep');}
+  else if(ev.key==='2'){ev.preventDefault();_triageZoomFlag('maybe');}
+  else if(ev.key==='3'){ev.preventDefault();_triageZoomFlag('change');}
+}
+function _triageZoomFlag(act){
+  var nl=_triageZoomCtx.orderedNls[_triageZoomCtx.idx];
+  if(!nl||!_triageZoomCtx.deckId)return;
+  var cur=(typeof _anaFlagGet==='function')?_anaFlagGet(_triageZoomCtx.deckId,nl):null;
+  if(typeof _anaFlagSet==='function')_anaFlagSet(_triageZoomCtx.deckId,nl,cur===act?'':act);
+  // Re-render
+  setTimeout(_renderTriageZoom,30);
+}
+function _renderTriageZoom(){
+  var ov=document.getElementById('triage-zoom-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='triage-zoom-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.92);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px';
+    ov.addEventListener('click',function(ev){if(ev.target===ov)closeTriageZoom();});
+    document.body.appendChild(ov);
+  }
+  var nl=_triageZoomCtx.orderedNls[_triageZoomCtx.idx];if(!nl)return;
+  var deckId=_triageZoomCtx.deckId;
+  // Trouve la row dans le DOM original pour récupérer les infos
+  var sourceRow=document.querySelector('[data-flag-row="'+nl+'"]');
+  // Récupère meta + swaps depuis _anaState
+  var meta=_anaData[nl]||{};
+  var sug=(_anaState&&_anaState.optResult&&_anaState.optResult.swapByCutNl&&_anaState.optResult.swapByCutNl[nl])
+    ||_triageZoomCtx.swapByCutNl[nl]||{};
+  var rowName=(meta.name)||nl;
+  var cardImg=(typeof anaImageUrl==='function')?anaImageUrl(rowName,meta):'';
+  var maisonImg=sug.maison?((typeof anaImageUrl==='function')?anaImageUrl(sug.maison.name,_anaData[sug.maison.nl]||{}):''):'';
+  var metaImg=sug.meta?((typeof anaImageUrl==='function')?anaImageUrl(sug.meta.name,_anaData[sug.meta.nl]||{}):''):'';
+  var flag=(typeof _anaFlagGet==='function')?_anaFlagGet(deckId,nl):null;
+  var n=_triageZoomCtx.orderedNls.length;
+  var h='<div class="triage-zoom-card" onclick="event.stopPropagation()">';
+  h+='<button class="ana-zoom-nav prev" onclick="_triageZoomNav(-1)" '+(_triageZoomCtx.idx<=0?'disabled':'')+' title="Précédent (←)">◀</button>';
+  h+='<button class="ana-zoom-nav next" onclick="_triageZoomNav(1)" '+(_triageZoomCtx.idx>=n-1?'disabled':'')+' title="Suivant (→)">▶</button>';
+  h+='<button class="triage-zoom-close" onclick="closeTriageZoom()" title="Fermer (Esc)">✕</button>';
+  h+='<div class="triage-zoom-hdr"><div class="triage-zoom-title">📋 Triage carte par carte</div><div class="triage-zoom-counter">'+(_triageZoomCtx.idx+1)+' / '+n+'</div></div>';
+  h+='<div class="triage-zoom-body">';
+  // Carte deck
+  h+='<div class="triage-zoom-col"><div class="triage-zoom-col-lbl">Carte du deck</div>';
+  h+=cardImg?'<img src="'+esc(cardImg)+'" alt="" class="triage-zoom-img" onerror="this.style.display=\'none\'">':'<div class="triage-zoom-img-fallback">'+esc(rowName)+'</div>';
+  h+='<div class="triage-zoom-name">'+esc(rowName)+'</div></div>';
+  // Swap maison
+  h+='<div class="triage-zoom-col"><div class="triage-zoom-col-lbl gold">🔧 Swap maison</div>';
+  if(sug.maison){
+    h+=maisonImg?'<img src="'+esc(maisonImg)+'" alt="" class="triage-zoom-img" onerror="this.style.display=\'none\'">':'';
+    h+='<div class="triage-zoom-name">+ '+esc(sug.maison.name)+'</div>';
+    if(sug.maison.gain!=null)h+='<div class="triage-zoom-meta gold">+'+sug.maison.gain.toFixed(1)+' pts</div>';
+  } else h+='<div class="triage-zoom-empty">— Aucun</div>';
+  h+='</div>';
+  // Swap méta
+  h+='<div class="triage-zoom-col"><div class="triage-zoom-col-lbl purple">🌐 Swap méta EDHREC</div>';
+  if(sug.meta){
+    h+=metaImg?'<img src="'+esc(metaImg)+'" alt="" class="triage-zoom-img" onerror="this.style.display=\'none\'">':'';
+    h+='<div class="triage-zoom-name">+ '+esc(sug.meta.name)+'</div>';
+    if(sug.meta.addFreq!=null)h+='<div class="triage-zoom-meta purple">'+Math.round(sug.meta.addFreq*100)+'% des decks</div>';
+  } else h+='<div class="triage-zoom-empty">— Aucun</div>';
+  h+='</div>';
+  h+='</div>';
+  // Boutons flag GROS
+  h+='<div class="triage-zoom-actions">';
+  h+='<button class="triage-zoom-flag keep'+(flag==='keep'?' active':'')+'" onclick="_triageZoomFlag(\'keep\')" title="Garde — swap refusé (1)">✅ <span>Je garde</span></button>';
+  h+='<button class="triage-zoom-flag maybe'+(flag==='maybe'?' active':'')+'" onclick="_triageZoomFlag(\'maybe\')" title="À voir (2)">🤔 <span>À voir</span></button>';
+  h+='<button class="triage-zoom-flag change'+(flag==='change'?' active':'')+'" onclick="_triageZoomFlag(\'change\')" title="Change — swap accepté (3)">🔄 <span>Je change</span></button>';
+  h+='</div>';
+  h+='<div class="triage-zoom-hint">← → naviguer · 1/2/3 décider · Esc fermer</div>';
+  h+='</div>';
+  ov.innerHTML=h;
+}
+function anaZoom(srcOrEl){
+  var z=document.getElementById('ana-zoom');if(!z)return;
+  var url='';
+  // Cas 1 : on passe un élément DOM → on construit la liste sœurs
+  if(srcOrEl&&srcOrEl.tagName){
+    url=srcOrEl.dataset.img||srcOrEl.getAttribute('src')||'';
+    // Cherche le container : .ana-card-group, .ana-img-grid, ou parent direct
+    var container=srcOrEl.closest('.ana-img-grid,.ana-card-group,.ana-swap-row,.ana-apply-grid,.ana-trier-grid')
+      ||srcOrEl.parentElement;
+    if(container){
+      var imgs=container.querySelectorAll('img[onclick*="anaZoom"],img.ana-swap-card-img,img.ana-apply-img,.ana-img-card');
+      _anaZoomList=[];
+      imgs.forEach(function(im){
+        var u=im.dataset.img||im.getAttribute('src')||'';
+        if(u&&_anaZoomList.indexOf(u)<0)_anaZoomList.push(u);
+      });
+      _anaZoomIdx=Math.max(0,_anaZoomList.indexOf(url));
+    } else {
+      _anaZoomList=[url];_anaZoomIdx=0;
+    }
+  } else if(typeof srcOrEl==='string'){
+    url=srcOrEl;
+    _anaZoomList=[url];_anaZoomIdx=0;
+  }
+  if(!url)return;
+  _anaZoomRender();
   z.style.display='flex';
 }
+function _anaZoomRender(){
+  var z=document.getElementById('ana-zoom');if(!z)return;
+  var img=z.querySelector('#ana-zoom-img');
+  var cnt=z.querySelector('#ana-zoom-counter');
+  var prev=z.querySelector('#ana-zoom-prev');
+  var next=z.querySelector('#ana-zoom-next');
+  if(!_anaZoomList.length)return;
+  if(img)img.src=_anaZoomList[_anaZoomIdx];
+  var hasNav=_anaZoomList.length>1;
+  if(prev){prev.style.display=hasNav?'flex':'none';prev.disabled=_anaZoomIdx<=0;}
+  if(next){next.style.display=hasNav?'flex':'none';next.disabled=_anaZoomIdx>=_anaZoomList.length-1;}
+  if(cnt)cnt.textContent=hasNav?((_anaZoomIdx+1)+' / '+_anaZoomList.length):'';
+}
+function _anaZoomNav(delta){
+  if(!_anaZoomList.length)return;
+  var n=_anaZoomList.length;
+  var next=Math.max(0,Math.min(n-1,_anaZoomIdx+delta));
+  if(next===_anaZoomIdx)return;
+  _anaZoomIdx=next;
+  _anaZoomRender();
+}
+// Clavier global ← / → / Esc quand le zoom est ouvert
+(function(){
+  var inst=false;
+  function bind(){
+    if(inst)return;inst=true;
+    document.addEventListener('keydown',function(ev){
+      var z=document.getElementById('ana-zoom');
+      if(!z||z.style.display!=='flex')return;
+      if(ev.key==='ArrowLeft'){ev.preventDefault();_anaZoomNav(-1);}
+      else if(ev.key==='ArrowRight'){ev.preventDefault();_anaZoomNav(1);}
+      else if(ev.key==='Escape'){ev.preventDefault();z.style.display='none';}
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
 function _anaImgFallback(img){
   var fb=img.dataset.fallback;
   if(fb&&img.src!==fb){
@@ -39446,13 +39667,13 @@ function _anaCoachStepPlan(){
       h+='<div class="ana-swap-row">';
       h+='<div class="ana-swap-rank">Swap #'+(idx+1)+'</div>';
       h+='<div class="ana-swap-card">';
-      h+='<img src="'+esc(cutImg)+'" alt="'+esc(sw.cut.name||'')+'" class="ana-swap-card-img cut" loading="lazy" onclick="anaZoom(this.src)" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
+      h+='<img src="'+esc(cutImg)+'" alt="'+esc(sw.cut.name||'')+'" class="ana-swap-card-img cut" loading="lazy" onclick="anaZoom(this)" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
       h+='<div class="ana-swap-card-name cut">'+_swQty(sw.cut.qty)+esc(sw.cut.name||'?')+'</div>';
       h+='<div class="ana-swap-card-meta">'+((cutMeta.typeLine||'').split('—')[0].trim()||'?')+' · '+(cutMeta.cmc!=null?cutMeta.cmc+' mana':'?')+'</div>';
       h+='</div>';
       h+='<div class="ana-swap-arrow"><div class="ana-swap-arrow-icon">▶</div><div class="ana-swap-arrow-label">'+((sw.cut.qty||1)>1?'remplace ('+sw.cut.qty+'×)':'remplace')+'</div></div>';
       h+='<div class="ana-swap-card">';
-      h+='<img src="'+esc(addImg)+'" alt="'+esc(sw.add.name||'')+'" class="ana-swap-card-img" loading="lazy" onclick="anaZoom(this.src)" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
+      h+='<img src="'+esc(addImg)+'" alt="'+esc(sw.add.name||'')+'" class="ana-swap-card-img" loading="lazy" onclick="anaZoom(this)" onerror="this.src=_CARD_IMG_PLACEHOLDER">';
       h+='<div class="ana-swap-card-name">'+_swQty(sw.add.qty)+esc(sw.add.name||'?')+'</div>';
       h+='<div class="ana-swap-card-meta">'+((addMeta.typeLine||'').split('—')[0].trim()||'?')+' · '+(addMeta.cmc!=null?addMeta.cmc+' mana':'?')+'</div>';
       h+='</div>';
@@ -43979,7 +44200,7 @@ function _anaOptImgCard(name,meta,scoreStr,scoreCol,ownQty){
   }
   if(img){
     var safeImg=img.replace(/"/g,'&quot;');
-    return '<div class="ana-img-card" data-img="'+safeImg+'" onclick="anaZoom(this.dataset.img)" title="'+safeName+'">'
+    return '<div class="ana-img-card" data-img="'+safeImg+'" onclick="anaZoom(this)" title="'+safeName+'">'
       +'<img src="'+img+'" loading="lazy" alt="'+safeName+'" onerror="_anaImgFallback(this)">'
       +(scoreStr?'<div class="ana-img-badge" style="color:'+scoreCol+'">'+scoreStr+'</div>':'')
       +ownBadge
@@ -46775,7 +46996,7 @@ async function anaRender(deckId){
         var imgUrl='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version=small';
         h+='<div style="width:86px;text-align:center" title="'+esc(name)+'">'
           +'<img src="'+imgUrl+'" loading="lazy" alt="'+esc(name)+'" '
-          +'onclick="anaZoom(this.src)" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'block\'" '
+          +'onclick="anaZoom(this)" onerror="this.style.display=\'none\';this.nextSibling.style.display=\'block\'" '
           +'style="width:86px;border-radius:6px;cursor:zoom-in;display:block;box-shadow:0 3px 10px rgba(0,0,0,.5)">'
           +'<div style="display:none;width:86px;height:120px;background:var(--s3);border-radius:6px;font-size:9px;color:var(--tx3);padding:6px;box-sizing:border-box;align-items:center;justify-content:center">'+esc(name)+'</div>'
           +'<div style="font-size:8.5px;color:var(--tx3);margin-top:2px;line-height:1.2;word-break:break-word">'+esc(name)+'</div>'
@@ -47420,7 +47641,9 @@ async function anaRender(deckId){
         +'<div style="text-align:center">DÉCISION</div>'
         +'</div>';
     }
-    html+='<div class="thin-scroll" id="ana-flag-list" style="max-height:520px;overflow-y:auto">';
+    html+='<div class="thin-scroll ana-trier-grid" id="ana-flag-list" style="max-height:520px;overflow-y:auto">';
+    // Construit la liste ordonnée pour la navigation zoom
+    _triageZoomCtx.deckId=deckId;_triageZoomCtx.orderedNls=[];_triageZoomCtx.swapByCutNl=_swapByCutNl||{};
     // Tri : type primaire puis nom
     var sorted=nonLandRows.slice().sort(function(a,b){
       var ta=((a.meta&&a.meta.typeLine||'').split(' — ')[0]||'').toLowerCase();
@@ -47430,6 +47653,7 @@ async function anaRender(deckId){
     });
     sorted.forEach(function(r){
       var nl=r.card.nl;if(!nl)return;
+      _triageZoomCtx.orderedNls.push(nl);
       var flag=_anaFlagGet(deckId,nl);
       var tl=(r.meta&&r.meta.typeLine||'').split(' — ')[0];
       var cmc=(r.meta&&r.meta.cmc!=null)?r.meta.cmc:'?';
@@ -47453,7 +47677,7 @@ async function anaRender(deckId){
         // Colonnes fixes : ~170px par carte (lisible, pas envahissant) plutôt que 1fr qui
         // étirait les images à 600 px+ sur écran large. justify-content:start ancre à gauche
         // pour ne pas centrer la ligne dans un océan d'espace vide.
-        html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="display:grid;grid-template-columns:170px 170px 170px 100px;gap:12px;align-items:center;justify-content:start;padding:8px 0;border-bottom:.5px solid var(--bd2)'+rowBg+'">'
+        html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" onclick="if(!event.target.closest(\'.ana-flag-btn,[data-flag-btn]\'))openTriageZoom(\''+escJs(deckId)+'\',\''+escJs(nl)+'\')" title="Cliquer pour zoomer le swap avec navigation ←/→" style="display:grid;grid-template-columns:170px 170px 170px 100px;gap:12px;align-items:center;justify-content:start;padding:8px 0;border-bottom:.5px solid var(--bd2);cursor:pointer;transition:background .12s'+rowBg+'" onmouseover="this.style.background=\'rgba(201,168,76,.08)\'" onmouseout="this.style.background=\''+(flag==='change'?'rgba(224,112,112,.07)':flag==='maybe'?'rgba(245,185,91,.06)':'')+'\'">'
           +'<div>'+_anaOptImgCard(r.card.name,rMeta,'','#e07070')+'<div style="font-size:9px;color:var(--tx3);text-align:center;margin-top:2px">'+esc(tl)+' · '+cmc+'</div></div>'
           +'<div title="Swap suggéré par notre analyse">'+maisonImg+'</div>'
           +'<div title="Swap suggéré d\'après les decks EDHREC">'+metaImg+'</div>'
@@ -47467,7 +47691,7 @@ async function anaRender(deckId){
         var metaHtml=sug.meta
           ?'<span style="color:'+(consensus?'#78c890':'#c8a8ff')+'">+ '+esc(sug.meta.name)+(consensus?' ✓':'')+'</span>'+(sug.meta.addFreq!=null?' <span style="color:var(--tx3);font-size:9px">'+Math.round(sug.meta.addFreq*100)+'%</span>':'')
           :'<span style="color:var(--tx3);font-style:italic">—</span>';
-        html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" style="display:grid;grid-template-columns:1.4fr 1.3fr 1.3fr 100px;gap:8px;align-items:center;padding:6px 0;border-bottom:.5px solid var(--bd2)'+rowBg+'">'
+        html+='<div data-flag-row="'+esc(nl)+'" data-name-lc="'+esc((r.card.name||'').toLowerCase())+'" onclick="if(!event.target.closest(\'.ana-flag-btn,[data-flag-btn]\'))openTriageZoom(\''+escJs(deckId)+'\',\''+escJs(nl)+'\')" title="Cliquer pour zoomer le swap avec navigation ←/→" style="display:grid;grid-template-columns:1.4fr 1.3fr 1.3fr 100px;gap:8px;align-items:center;padding:6px 0;border-bottom:.5px solid var(--bd2);cursor:pointer;transition:background .12s'+rowBg+'">'
           +'<div style="min-width:0">'
             +'<div style="font-size:11.5px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap'+(flag==='change'?';text-decoration:line-through;opacity:.7':'')+'">'+esc(r.card.name)+'</div>'
             +'<div style="font-size:9px;color:var(--tx3)">'+esc(tl)+' · '+cmc+' mana</div>'
