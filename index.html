@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-06-20';
+window.APP_BUILD='2026-06-07-21';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1041,6 +1041,18 @@ table.maptbl td{padding:4px 8px;border-bottom:.5px solid var(--bd)}
    Sidebar collection (P0 #4) — panneau fixe à gauche, slide-in. Style Arena.
    ════════════════════════════════════════════════════════════════════════════ */
 #coll-side{position:fixed;top:0;left:-340px;bottom:0;width:320px;background:linear-gradient(180deg,#161210 0%,#0c0a07 100%);border-right:1.5px solid var(--gold);box-shadow:8px 0 36px rgba(0,0,0,.85);z-index:475;transition:left .25s cubic-bezier(.2,.7,.4,1);display:flex;flex-direction:column;font-family:'Crimson Pro',serif;overflow:hidden}
+/* Sidebar deck en Analyse — symétrique gauche/droite */
+#deck-side{position:fixed;top:0;bottom:0;width:320px;background:linear-gradient(180deg,#161210 0%,#0c0a07 100%);z-index:475;transition:left .25s cubic-bezier(.2,.7,.4,1),right .25s cubic-bezier(.2,.7,.4,1);display:flex;flex-direction:column;font-family:'Crimson Pro',serif;overflow:hidden}
+#deck-side[data-side="left"]{left:-340px;border-right:1.5px solid var(--gold);box-shadow:8px 0 36px rgba(0,0,0,.85)}
+#deck-side[data-side="left"].show{left:0}
+#deck-side[data-side="right"]{right:-340px;left:auto;border-left:1.5px solid var(--gold);box-shadow:-8px 0 36px rgba(0,0,0,.85)}
+#deck-side[data-side="right"].show{right:0}
+#deck-side .cs-flip{background:none;border:.5px solid var(--bd2);border-radius:5px;color:var(--gold2);width:26px;height:26px;cursor:pointer;font-size:.85rem;display:flex;align-items:center;justify-content:center;transition:background .12s}
+#deck-side .cs-flip:hover{background:rgba(201,168,76,.18)}
+#deck-side-handle{position:fixed;top:50%;transform:translateY(-50%);width:32px;height:64px;background:linear-gradient(180deg,#3a2008,#180d04);border:1px solid var(--gold);color:var(--gold2);font-size:1.4rem;cursor:pointer;z-index:474;display:none;align-items:center;justify-content:center;box-shadow:4px 0 14px rgba(0,0,0,.65);transition:width .15s}
+#deck-side-handle[data-side="left"]{left:0;border-left:none;border-radius:0 11px 11px 0;box-shadow:4px 0 14px rgba(0,0,0,.65)}
+#deck-side-handle[data-side="right"]{right:0;border-right:none;border-radius:11px 0 0 11px;box-shadow:-4px 0 14px rgba(0,0,0,.65)}
+#deck-side-handle:hover{width:40px}
 #coll-side.show{left:0}
 .cs-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--gold);background:linear-gradient(180deg,rgba(201,168,76,.10),transparent)}
 .cs-title{flex:1;font-family:'Goudy Mediaeval',serif;color:var(--gold2);font-size:1.05rem;letter-spacing:.04em}
@@ -3113,6 +3125,22 @@ details > summary::-webkit-details-marker{display:none}
   <div class="cs-tip">💡 Glisse une carte sur l'éditeur pour l'ajouter.</div>
 </aside>
 <button id="coll-side-handle" onclick="_collSideToggle()" title="Afficher ma collection (drag-drop)" aria-label="Afficher ma collection">🃏</button>
+<!-- Sidebar deck (onglet Analyse) — jumelle de coll-side mais affiche le deck analysé.
+     L'utilisateur peut la mettre à gauche ou à droite via le bouton ⇆. -->
+<aside id="deck-side" data-side="left" aria-label="Cartes du deck — visualisation rapide">
+  <div class="cs-hdr">
+    <span class="cs-title">📋 Deck en analyse</span>
+    <button class="cs-flip" onclick="_deckSideFlip()" title="Basculer gauche / droite" aria-label="Basculer côté">⇆</button>
+    <button class="cs-close" onclick="_deckSideToggle()" aria-label="Fermer la sidebar">✕</button>
+  </div>
+  <div class="cs-search-row">
+    <input type="text" id="ds-search" placeholder="Filtrer les cartes du deck…" oninput="_deckSideRender()">
+  </div>
+  <div class="cs-info" id="ds-info"></div>
+  <div class="cs-grid" id="ds-grid"></div>
+  <div class="cs-tip">🃏 Survole pour zoomer · clique pour scroller vers la carte dans l'analyse.</div>
+</aside>
+<button id="deck-side-handle" onclick="_deckSideToggle()" title="Afficher les cartes du deck" aria-label="Afficher le deck">📋</button>
 <!-- Overlay raccourcis clavier (? ou Ctrl+/) -->
 <div id="kbd-help-overlay" onclick="if(event.target===this)closeKbdHelp()">
   <div id="kbd-help-box">
@@ -15858,6 +15886,9 @@ function _dFetchPrintings(name,nl,cb){
     }).catch(function(){delete _dPrintingsLoading[nl];cb&&cb();});
 }
 // Sélecteur de version d'art en grille (au lieu du défilement ‹ › un par un)
+// Sélecteur de version persistant — flèches ←/→ pour naviguer entre les cartes du deck
+// sans fermer le popup (utile pour passer en revue tous les arts d'un deck).
+var _dVerPickerNl=null;
 function dPickVersion(nl){
   var card=(typeof dCards!=='undefined'?dCards:[]).find(function(c){return c.nl===nl;});
   if(!card)return;
@@ -15866,25 +15897,92 @@ function dPickVersion(nl){
     _dFetchPrintings(card.name,nl,function(){dPickVersion(nl);});
     return;
   }
+  _dVerPickerNl=nl;
+  _dVerPickerRender();
+}
+function _dVerPickerRender(){
+  var nl=_dVerPickerNl;if(!nl)return;
+  var card=(typeof dCards!=='undefined'?dCards:[]).find(function(c){return c.nl===nl;});
+  if(!card){_dVerPickerClose();return;}
+  if(!_dPrintingsCache[nl]){
+    _dFetchPrintings(card.name,nl,function(){_dVerPickerRender();});
+    return;
+  }
   var arr=_dPrintingsCache[nl];if(!arr.length)return;
   var cur=_dVersionPick[nl]||0;
-  var html='<div style="font-size:.74rem;color:var(--tx3);text-align:center;margin-bottom:8px">'+arr.length+' version(s) — clique pour choisir l\'art</div>';
-  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;max-height:58vh;overflow-y:auto;justify-content:center">';
+  // Index dans dCards (filtré ≥1 carte) pour calcul prev/next
+  var deckList=(typeof dCards!=='undefined')?dCards:[];
+  var deckIdx=deckList.findIndex(function(c){return c.nl===nl;});
+  var deckN=deckList.length;
+  var prevName=deckN>1?deckList[(deckIdx-1+deckN)%deckN].name:'';
+  var nextName=deckN>1?deckList[(deckIdx+1)%deckN].name:'';
+  var ov=document.getElementById('dver-pick-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='dver-pick-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)_dVerPickerClose();});
+    document.addEventListener('keydown',_dVerPickerKey);
+  }
+  var h='<div class="ml-modal" style="max-width:840px;width:94vw;max-height:90vh;display:flex;flex-direction:column">';
+  h+='<div class="ml-modal-hdr" style="display:flex;align-items:center;gap:8px">';
+  h+='<button onclick="_dVerPickerNav(-1)" '+(deckN<=1?'disabled':'')+' title="Carte précédente du deck (← ou A)" style="padding:6px 10px;background:rgba(201,168,76,.08);border:.5px solid var(--bd2);border-radius:6px;color:var(--gold2);font-family:inherit;font-size:.9rem;cursor:pointer'+(deckN<=1?';opacity:.3;cursor:default':'')+'">←</button>';
+  h+='<div style="flex:1;min-width:0">';
+  h+='<div class="ml-modal-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎨 '+esc(card.name)+'</div>';
+  h+='<div style="font-size:.7rem;color:var(--tx3);margin-top:2px">'+arr.length+' version(s) · carte '+(deckIdx+1)+'/'+deckN+(prevName?' · ← '+esc(prevName).slice(0,30):'')+(nextName?' · '+esc(nextName).slice(0,30)+' →':'')+'</div>';
+  h+='</div>';
+  h+='<button onclick="_dVerPickerNav(1)" '+(deckN<=1?'disabled':'')+' title="Carte suivante du deck (→ ou D)" style="padding:6px 10px;background:rgba(201,168,76,.08);border:.5px solid var(--bd2);border-radius:6px;color:var(--gold2);font-family:inherit;font-size:.9rem;cursor:pointer'+(deckN<=1?';opacity:.3;cursor:default':'')+'">→</button>';
+  h+='<button class="ml-modal-close" onclick="_dVerPickerClose()" title="Fermer (Esc)">✕</button>';
+  h+='</div>';
+  h+='<div style="padding:10px 14px;overflow-y:auto;flex:1">';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:10px">';
   arr.forEach(function(p,i){
-    html+='<div onclick="dApplyVersionPick(\''+escJs(nl)+'\','+i+')" style="width:122px;cursor:pointer;text-align:center;border:2px solid '+(i===cur?'var(--gold2)':'transparent')+';border-radius:8px;padding:2px">'
-      +'<img src="'+esc(p.image||'')+'" loading="lazy" style="width:116px;border-radius:6px;display:block">'
-      +'<div style="font-size:8.5px;color:var(--tx3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((p.set||'').toUpperCase())+' #'+esc(p.num||'')+'</div></div>';
+    h+='<div onclick="dApplyVersionPick(\''+escJs(nl)+'\','+i+')" style="cursor:pointer;text-align:center;border:2px solid '+(i===cur?'var(--gold2)':'transparent')+';border-radius:8px;padding:3px;transition:transform .12s" onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'\'">'
+      +'<img src="'+esc(p.image||'')+'" loading="lazy" style="width:100%;border-radius:6px;display:block">'
+      +'<div style="font-size:.66rem;color:var(--tx3);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc((p.set||'').toUpperCase())+' #'+esc(p.num||'')+'</div></div>';
   });
-  html+='</div>';
-  if(typeof mlAlert==='function')mlAlert('Versions — '+card.name,html,{html:true,okLabel:'Fermer'});
+  h+='</div></div>';
+  h+='<div class="ml-modal-foot" style="padding:8px 14px;border-top:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;font-size:.72rem;color:var(--tx3)">';
+  h+='<span>← → : carte préc/suiv · Esc : fermer</span>';
+  h+='<button class="btn btnsm" onclick="_dVerPickerClose()">Fermer</button>';
+  h+='</div></div>';
+  ov.innerHTML=h;
+  ov.classList.add('show');
+}
+function _dVerPickerNav(delta){
+  var deckList=(typeof dCards!=='undefined')?dCards:[];
+  if(deckList.length<2)return;
+  var idx=deckList.findIndex(function(c){return c.nl===_dVerPickerNl;});
+  if(idx<0)return;
+  var next=deckList[(idx+delta+deckList.length)%deckList.length];
+  _dVerPickerNl=next.nl;
+  // Si printings pas en cache, fetch puis re-render
+  if(!_dPrintingsCache[next.nl]){
+    _dFetchPrintings(next.name,next.nl,function(){_dVerPickerRender();});
+  }else{
+    _dVerPickerRender();
+  }
+}
+function _dVerPickerKey(e){
+  var ov=document.getElementById('dver-pick-ov');if(!ov||!ov.classList.contains('show'))return;
+  // Ignore si l'utilisateur tape dans un input/textarea
+  if(e.target&&/^(INPUT|TEXTAREA)$/.test(e.target.tagName))return;
+  if(e.key==='Escape'){e.preventDefault();_dVerPickerClose();}
+  else if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A'){e.preventDefault();_dVerPickerNav(-1);}
+  else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D'){e.preventDefault();_dVerPickerNav(1);}
+}
+function _dVerPickerClose(){
+  var ov=document.getElementById('dver-pick-ov');if(!ov)return;
+  ov.classList.remove('show');
+  _dVerPickerNl=null;
 }
 function dApplyVersionPick(nl,idx){
-  if(typeof _mlClose==='function')_mlClose(null);
   var arr=_dPrintingsCache[nl];if(!arr||!arr.length)return;
   var len=arr.length;
   // dCycleVersion(+1) appliquera tous les effets de bord → on se place juste avant la cible
   _dVersionPick[nl]=((idx-1)%len+len)%len;
   dCycleVersion(nl,1);
+  // Re-render le picker pour mettre à jour la bordure dorée — pas de fermeture
+  if(_dVerPickerNl===nl)_dVerPickerRender();
 }
 function dCycleVersion(nl,delta){
   var card=(typeof dCards!=='undefined'?dCards:[]).find(function(c){return c.nl===nl;});
@@ -16895,7 +16993,105 @@ function _collSideSyncTab(){
   if(!s||!h)return;
   if(_currentTab!=='deck'){s.classList.remove('show');h.style.display='none';}
   else{_collSideRestore();}
+  // Sync de la sidebar deck (visible uniquement sur l'onglet analyse)
+  if(typeof _deckSideSyncTab==='function')_deckSideSyncTab();
 }
+// ───────────────────────────────────────────────────────────────────────────
+// SIDEBAR DECK (onglet Analyse) — jumelle de coll-side
+// Affiche la liste du deck en cours d'analyse avec vignettes draggables.
+// Choix gauche/droite via bouton ⇆, persisté en localStorage.
+// ───────────────────────────────────────────────────────────────────────────
+function _deckSideToggle(){
+  var s=document.getElementById('deck-side');var h=document.getElementById('deck-side-handle');
+  if(!s||!h)return;
+  var open=s.classList.toggle('show');
+  h.style.display=(open||_currentTab!=='analyse')?'none':'flex';
+  try{localStorage.setItem('mtg_deck_side_open',open?'1':'0');}catch(e){}
+  if(open)_deckSideRender();
+}
+function _deckSideFlip(){
+  var s=document.getElementById('deck-side');var h=document.getElementById('deck-side-handle');
+  if(!s||!h)return;
+  var side=s.getAttribute('data-side')==='left'?'right':'left';
+  s.setAttribute('data-side',side);
+  h.setAttribute('data-side',side);
+  try{localStorage.setItem('mtg_deck_side_pos',side);}catch(e){}
+}
+function _deckSideRestore(){
+  var s=document.getElementById('deck-side');var h=document.getElementById('deck-side-handle');
+  if(!s||!h)return;
+  var side='left';try{side=localStorage.getItem('mtg_deck_side_pos')||'left';}catch(e){}
+  s.setAttribute('data-side',side);h.setAttribute('data-side',side);
+  var open=false;try{open=localStorage.getItem('mtg_deck_side_open')==='1';}catch(e){}
+  if(_currentTab!=='analyse'){s.classList.remove('show');h.style.display='none';return;}
+  if(open){s.classList.add('show');h.style.display='none';_deckSideRender();}
+  else{h.style.display='flex';}
+}
+function _deckSideSyncTab(){
+  var s=document.getElementById('deck-side');var h=document.getElementById('deck-side-handle');
+  if(!s||!h)return;
+  if(_currentTab!=='analyse'){s.classList.remove('show');h.style.display='none';}
+  else{_deckSideRestore();}
+}
+function _deckSideRender(){
+  var grid=document.getElementById('ds-grid');if(!grid)return;
+  var info=document.getElementById('ds-info');
+  // Cible : le deck actuellement analysé. _anaDeckId si dispo, sinon dCards.
+  var cards=[];
+  try{
+    if(typeof _anaDeckId!=='undefined'&&_anaDeckId&&decks[_anaDeckId]){
+      cards=decks[_anaDeckId].cards||[];
+    }
+  }catch(e){}
+  if(!cards.length&&typeof dCards!=='undefined')cards=dCards;
+  if(!cards.length){
+    grid.innerHTML='<div class="cs-empty">Aucun deck en analyse.</div>';
+    if(info)info.textContent='';
+    return;
+  }
+  var srch=((document.getElementById('ds-search')||{}).value||'').toLowerCase().trim();
+  var arr=cards.filter(function(c){
+    if(!srch)return true;
+    var n=(c.name||'').toLowerCase(), nl=(c.nl||'').toLowerCase();
+    return n.indexOf(srch)>=0||nl.indexOf(srch)>=0;
+  });
+  arr=arr.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
+  if(info){
+    var tot=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+    info.textContent=arr.length+' carte'+(arr.length>1?'s':'')+' uniques · '+tot+' au total';
+  }
+  if(!arr.length){
+    grid.innerHTML='<div class="cs-empty">Aucun résultat.</div>';return;
+  }
+  var html='';
+  arr.forEach(function(c){
+    var nl=c.nl||(typeof stripDFC==='function'?stripDFC(c.name||'').toLowerCase():(c.name||'').toLowerCase());
+    var img=(typeof dImgCache!=='undefined'&&dImgCache[nl])||(typeof _purImgCache!=='undefined'&&_purImgCache&&_purImgCache[nl])||'';
+    html+='<div class="cs-card" data-hover-card="'+esc(nl)+'" onclick="_deckSideScrollTo(\''+escJs(nl)+'\')" title="'+esc(c.name)+' — clique pour scroller vers la carte">';
+    if(img){
+      html+='<img src="'+esc(img)+'" alt="'+esc(c.name)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
+      html+='<div class="cs-card-fallback" style="display:none">'+esc(c.name)+'</div>';
+    } else {
+      html+='<div class="cs-card-fallback">'+esc(c.name)+'</div>';
+    }
+    html+='<div class="cs-card-qty">'+(c.qty||1)+'×</div>';
+    html+='</div>';
+  });
+  grid.innerHTML=html;
+}
+function _deckSideScrollTo(nl){
+  // Scroll vers la première occurrence de la carte dans l'analyse
+  var el=document.querySelector('[data-ana-card="'+nl+'"]')
+       ||document.querySelector('[data-hover-card="'+nl+'"]')
+       ||document.querySelector('img[alt][src*="'+nl+'"]');
+  if(el&&el.scrollIntoView){el.scrollIntoView({behavior:'smooth',block:'center'});
+    el.style.outline='2px solid var(--gold)';
+    setTimeout(function(){el.style.outline='';},1500);
+  }
+}
+// Auto-restore au boot (si flag actif + on est sur analyse)
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(_deckSideRestore,500);});
+else setTimeout(_deckSideRestore,500);
 function _collSideToggleColor(c){
   var i=_collSideColors.indexOf(c);
   if(i>=0)_collSideColors.splice(i,1);else _collSideColors.push(c);
