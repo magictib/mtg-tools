@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-07-24';
+window.APP_BUILD='2026-06-07-25';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -13745,7 +13745,16 @@ function _atelierLiveRecosRender(deficits){
   h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.15)!important}</style>';
   el.innerHTML=h;
 }
+// Mode SWAP par défaut quand un deck est ouvert (au lieu d'ajout brut) :
+// propose à l'utilisateur de remplacer une carte du deck par celle suggérée.
 function _atelierRecoAdd(name){
+  if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
+  // Ouvre la modale de swap : on n'ajoute pas tout de suite, on demande quelle carte couper.
+  _atelierRecoSwapOpen(name);
+}
+// Variante directe (utilisée par le panel EDHRec où le contexte est l'ajout) :
+// ajoute sans demande de swap.
+function _atelierRecoAddDirect(name){
   if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
   if(typeof bldAddCardByName==='function'){
     bldAddCardByName(name).then(function(ok){
@@ -13753,6 +13762,94 @@ function _atelierRecoAdd(name){
         if(typeof toast==='function')toast('✓ '+name+' ajouté');
       }else{
         if(typeof toastError==='function')toastError('Carte introuvable : '+name);
+      }
+    });
+  }
+}
+// Modale de swap : carte suggérée ↔ carte du deck à couper.
+function _atelierRecoSwapOpen(addName){
+  if(!actDeck||!decks[actDeck])return;
+  var ov=document.getElementById('reco-swap-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='reco-swap-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('show'))ov.classList.remove('show');});
+  }
+  // Pré-sélectionne les "moins efficaces" du deck (heuristique : score le plus bas via dCardMeta + tags ratés).
+  // À défaut de score, on présente toutes les cartes triées par nom.
+  var deck=decks[actDeck];var cards=(deck.cards||[]).slice();
+  // Tri par score si dispo, sinon nom
+  cards.sort(function(a,b){
+    var ma=(typeof dCardMeta!=='undefined')?dCardMeta[a.nl]:null;
+    var mb=(typeof dCardMeta!=='undefined')?dCardMeta[b.nl]:null;
+    var sa=(ma&&ma.cmc!=null)?ma.cmc:0;
+    var sb=(mb&&mb.cmc!=null)?mb.cmc:0;
+    return sa-sb||(a.name||'').localeCompare(b.name||'');
+  });
+  var h='<div class="ml-modal" style="max-width:680px;width:94vw;max-height:88vh;display:flex;flex-direction:column">';
+  h+='<div class="ml-modal-hdr">';
+  h+='<div class="ml-modal-title">🔁 Swap : <span style="color:var(--gold2)">+ '+esc(addName)+'</span></div>';
+  h+='<button class="ml-modal-close" onclick="document.getElementById(\'reco-swap-ov\').classList.remove(\'show\')">✕</button>';
+  h+='</div>';
+  h+='<div style="padding:10px 14px;font-size:.8rem;color:var(--tx2);line-height:1.5">Quelle carte du deck veux-tu retirer pour faire de la place à <b style="color:var(--gold2)">'+esc(addName)+'</b> ?<br><span style="font-size:.72rem;color:var(--tx3);font-style:italic">Astuce : les cartes ≤ 2 CMC ou hors-plan sont souvent les meilleurs candidats au cut.</span></div>';
+  h+='<div style="padding:0 14px 4px"><input id="reco-swap-filter" type="text" placeholder="Filtrer les cartes du deck…" style="width:100%;box-sizing:border-box;padding:7px 10px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.84rem;font-family:inherit" oninput="_atelierRecoSwapFilter(this.value)"></div>';
+  h+='<div id="reco-swap-list" style="flex:1;overflow-y:auto;padding:8px 14px 4px;display:flex;flex-direction:column;gap:3px">';
+  cards.forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    var cmc=(meta&&meta.cmc!=null)?meta.cmc:'?';
+    var tl=meta?(meta.typeLine||'').split(' — ')[0]:'';
+    h+='<button class="reco-swap-row" data-name="'+esc(c.name)+'" onclick="_atelierRecoSwapApply(\''+escJs(addName)+'\',\''+escJs(c.name)+'\','+(c.qty||1)+')" style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.025);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-family:inherit;font-size:.82rem;cursor:pointer;text-align:left;transition:all .12s">';
+    h+='<span style="min-width:30px;color:var(--gold2);font-weight:600;font-size:.78rem">'+cmc+'</span>';
+    h+='<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>';
+    if(tl)h+='<span style="color:var(--tx3);font-size:.7rem">'+esc(tl)+'</span>';
+    h+='<span style="color:var(--tx2);font-size:.74rem">×'+(c.qty||1)+'</span>';
+    h+='</button>';
+  });
+  h+='</div>';
+  h+='<div class="ml-modal-foot" style="padding:8px 14px;border-top:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">';
+  h+='<button class="btn btnsm" onclick="document.getElementById(\'reco-swap-ov\').classList.remove(\'show\');_atelierRecoAddDirect(\''+escJs(addName)+'\')" title="Ajouter la carte sans en retirer une autre">+ Ajouter sans cut</button>';
+  h+='<button class="btn btnsm" onclick="document.getElementById(\'reco-swap-ov\').classList.remove(\'show\')">Annuler</button>';
+  h+='</div></div>';
+  h+='<style>.reco-swap-row:hover{border-color:var(--gold)!important;background:rgba(201,168,76,.10)!important;color:var(--gold2)!important}</style>';
+  ov.innerHTML=h;
+  ov.classList.add('show');
+}
+function _atelierRecoSwapFilter(q){
+  q=(q||'').toLowerCase().trim();
+  var rows=document.querySelectorAll('#reco-swap-list .reco-swap-row');
+  rows.forEach(function(r){
+    var n=(r.getAttribute('data-name')||'').toLowerCase();
+    r.style.display=(!q||n.indexOf(q)>=0)?'flex':'none';
+  });
+}
+function _atelierRecoSwapApply(addName,cutName,cutQty){
+  if(!actDeck||!decks[actDeck])return;
+  var ov=document.getElementById('reco-swap-ov');if(ov)ov.classList.remove('show');
+  // Retire 1 exemplaire de la carte cut, ajoute 1 exemplaire de addName
+  var deck=decks[actDeck];
+  var idx=(deck.cards||[]).findIndex(function(c){return (c.name||'').toLowerCase()===cutName.toLowerCase();});
+  if(idx<0){if(typeof toastError==='function')toastError('Carte introuvable dans le deck : '+cutName);return;}
+  if(deck.cards[idx].qty>1)deck.cards[idx].qty--;
+  else deck.cards.splice(idx,1);
+  // Synchronise dCards si on est sur ce deck
+  if(typeof actDeck!=='undefined'&&actDeck===actDeck&&typeof dCards!=='undefined'){
+    var di=dCards.findIndex(function(c){return (c.name||'').toLowerCase()===cutName.toLowerCase();});
+    if(di>=0){if(dCards[di].qty>1)dCards[di].qty--;else dCards.splice(di,1);}
+  }
+  // Ajoute la nouvelle carte
+  if(typeof bldAddCardByName==='function'){
+    bldAddCardByName(addName).then(function(ok){
+      if(ok){
+        try{mlPlaySound&&mlPlaySound('pop');mlVibratePulse&&mlVibratePulse();}catch(e){}
+        if(typeof toast==='function')toast('🔁 −'+cutName+'  / +'+addName);
+        try{saveDecks();}catch(e){}
+        if(typeof renderDeck==='function')renderDeck();
+      }else{
+        if(typeof toastError==='function')toastError('Impossible d\'ajouter '+addName+' (carte non trouvée). Le cut a été annulé.');
+        // Restaure la carte coupée
+        if(idx<deck.cards.length&&(deck.cards[idx].name||'').toLowerCase()===cutName.toLowerCase()){deck.cards[idx].qty++;}
+        else deck.cards.splice(idx,0,{name:cutName,nl:(typeof stripDFC==='function'?stripDFC(cutName).toLowerCase():cutName.toLowerCase()),qty:1,sec:'Deck'});
       }
     });
   }
@@ -13911,7 +14008,7 @@ function _mlEdhrecRenderSection(title,tag,list,owned,limit){
     if(has){
       h+='<span style="color:#7ec86a;font-size:.7rem">✓ dans ton deck</span>';
     }else{
-      h+='<button onclick="_atelierRecoAdd(\''+escJs(name)+'\')" title="Ajouter au deck actif" style="padding:3px 9px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:8px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer">+ Ajouter</button>';
+      h+='<button onclick="_atelierRecoAddDirect(\''+escJs(name)+'\')" title="Ajouter au deck actif (sans swap)" style="padding:3px 9px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:8px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer">+ Ajouter</button>';
     }
     h+='</div>';
   });
@@ -14796,7 +14893,11 @@ function openQuickAddCard(){
     +'<button class="btn btnp btnsm" onclick="_qacSubmit()">➕ Ajouter</button>'
     +'</div></div>';
   ov.classList.add('show');
-  setTimeout(function(){var i=document.getElementById('qac-input');if(i)i.focus();},80);
+  setTimeout(function(){
+    var i=document.getElementById('qac-input');if(i)i.focus();
+    // Force l'attachement de l'autocomplete (le modal est créé dynamiquement après _autoAttachCardInputs initial)
+    if(typeof _autoAttachCardInputs==='function')_autoAttachCardInputs();
+  },80);
 }
 // Barre de recherche inline persistante dans l'Atelier — ajoute direct au deck actif.
 function _atelierSearchSubmit(){
@@ -42549,6 +42650,15 @@ function anaRoles(meta){
     counter:t.counter>=1?1:0,
     mill:t.mill>=3?1:0,
     reanimate:t.reanimate>=1?1:0,
+    // Rôles spécialisés — surfacés dans le label « pourquoi cette carte » pour ne
+    // plus afficher « aucun rôle utile détecté » sur des outils comme Bloodthrone
+    // Vampire (sac outlet) ou Eternal Witness (récursion).
+    sac_outlet:t.sac_outlet>=0.6?1:0,
+    protection:t.protection>=0.8?1:0,
+    manarock:t.manarock?1:0,
+    untap_creature:t.untap_creature>=0.6?1:0,
+    deathtouch_grant:t.deathtouch_grant>=0.6?1:0,
+    lifelink_grant:t.lifelink_grant>=0.6?1:0,
     land:0,
     creature:tl.indexOf('creature')>=0?1:0
   };
@@ -49007,7 +49117,15 @@ async function anaRender(deckId){
   function cardScoreReason(r,isTop){
     if(!r||!r.meta)return '';
     var bits=[];
-    var roleFr={ramp:'ramp',draw:'pioche',removal:'retrait',interaction:'interaction',wincon:'win con',land:'terrain'};
+    var roleFr={
+      ramp:'ramp',draw:'pioche',removal:'retrait',interaction:'interaction',
+      wincon:'win con',land:'terrain',
+      // Rôles spécialisés — affichés pour ne pas dire à tort « aucun rôle utile »
+      sac_outlet:'sac outlet',recursion:'récursion',wrath:'wrath',counter:'contre',
+      mill:'mill',reanimate:'réanimation',protection:'protection',
+      manarock:'mana rock',untap_creature:'untap',
+      deathtouch_grant:'deathtouch grant',lifelink_grant:'lifelink grant'
+    };
     var roleKeys=Object.keys(r.roles||{}).filter(function(k){return r.roles[k]&&roleFr[k];});
     if(isTop){
       if(roleKeys.length)bits.push('rôle '+roleKeys.map(function(k){return roleFr[k];}).join(', '));
@@ -49017,11 +49135,22 @@ async function anaRender(deckId){
       if(r.meta.cmc!=null&&r.meta.cmc<=2&&!r.roles.land)bits.push('faible coût ('+r.meta.cmc+' mana)');
       if(detectedArch&&_ARCH_LABELS&&_ARCH_LABELS[detectedArch])bits.push('cadre dans l\'archétype '+_ARCH_LABELS[detectedArch].label.toLowerCase());
     } else {
+      // Indique d'abord le rôle détecté (s'il y en a un) — important pour ne pas
+      // suggérer faussement « inutile » à des cartes comme Bloodthrone Vampire (sac outlet)
+      // ou Wayfarer's Bauble (ramp lent mais ramp quand même).
+      // On exclut « creature » qui n'est pas un rôle en soi.
+      var usefulRoles=roleKeys.filter(function(k){return k!=='creature';});
+      if(usefulRoles.length)bits.push('rôle '+usefulRoles.map(function(k){return roleFr[k];}).join(', '));
       if(r.meta.cmc>=5)bits.push('coût élevé ('+r.meta.cmc+' mana) pour peu d\'impact mesuré');
-      if(!roleKeys.length||(roleKeys.length===1&&roleKeys[0]==='wincon'&&r.score<2))bits.push('aucun rôle utile détecté');
+      if(!usefulRoles.length||(usefulRoles.length===1&&usefulRoles[0]==='wincon'&&r.score<2))bits.push('aucun rôle utile détecté');
       var synLow=(typeof _anaThemeSynergyScore==='function')?_anaThemeSynergyScore(r.meta,_anaCurrentThemes):0;
       if(synLow<0.3)bits.push('pas de synergie avec les thèmes du deck');
       if(r.score<1.5)bits.push('score contextuel très faible');
+      // Hint pédagogique : si la carte a un rôle utile mais que le format est saturé
+      // dans cette catégorie, l'expliquer plutôt que de la traiter comme nulle.
+      if(usefulRoles.length&&r.score>=1.5&&r.score<6){
+        bits.push('rôle déjà bien couvert dans le deck — cut envisageable si tu veux faire de la place');
+      }
     }
     return bits.length?bits.join(' · '):'';
   }
@@ -54315,6 +54444,22 @@ function mlPerfectDeckOpen(){
   h+='<option value="spellslinger">Spellslinger — sorts non-créatures</option>';
   h+='<option value="voltron">Voltron — commandant équipé/enchanté</option>';
   h+='</select></div>';
+  // ── 7bis) Cible : nouveau deck ou deck en cours ?
+  var _hasCurDeck=(typeof actDeck!=='undefined'&&actDeck&&typeof decks!=='undefined'&&decks[actDeck]);
+  h+='<div style="margin-bottom:14px;padding:10px 12px;background:rgba(201,168,76,.06);border:.5px solid var(--bd2);border-radius:8px">';
+  h+='<label class="pf-lbl" style="display:block;margin-bottom:6px">CIBLE DU DECK GÉNÉRÉ</label>';
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  h+='<label style="display:flex;align-items:center;gap:6px;padding:6px 11px;border:.5px solid var(--bd2);border-radius:7px;cursor:pointer;font-size:.78rem;background:transparent">'
+    +'<input type="radio" name="pf-target" value="new" '+(!_hasCurDeck?'checked':'')+' style="margin:0">'
+    +'➕ Créer un nouveau deck</label>';
+  if(_hasCurDeck){
+    h+='<label style="display:flex;align-items:center;gap:6px;padding:6px 11px;border:.5px solid var(--gold);border-radius:7px;cursor:pointer;font-size:.78rem;background:rgba(201,168,76,.10)">'
+      +'<input type="radio" name="pf-target" value="current" checked style="margin:0">'
+      +'✎ Remplir le deck ouvert : <b style="color:var(--gold2);margin-left:3px">'+esc(decks[actDeck].name||'(sans nom)')+'</b></label>';
+  }
+  h+='</div>';
+  h+='<div style="font-size:.66rem;color:var(--tx3);margin-top:4px;font-style:italic">Si tu choisis « Remplir le deck ouvert », les cartes générées seront ajoutées/fusionnées au deck actuel (sans écraser les cartes existantes).</div>';
+  h+='</div>';
   // ── 8) Actions
   h+='<div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;padding-top:14px;border-top:.5px solid var(--bd)">';
   h+='<div style="flex:1;font-size:.7rem;color:var(--tx3);font-style:italic">⚡ La génération prend quelques secondes (analyse EDHREC + scoring).</div>';
@@ -54380,6 +54525,10 @@ function mlPerfectDeckGenerate(){
   }
   // Mémorise les contraintes globales pour le pipeline _dgenBuild (lu via _dgenState)
   // Le pipeline existant ne lit que source/level — on stocke les extras pour usage futur.
+  // Cible : nouveau deck OU deck en cours
+  var pfTarget='new';
+  var tEl=document.querySelector('input[name="pf-target"]:checked');
+  if(tEl)pfTarget=tEl.value;
   _dgenState={
     source:(pct>=100?'coll':'all'),
     level:lvl,
@@ -54388,7 +54537,9 @@ function mlPerfectDeckGenerate(){
     pfProfIdx:profIdx,
     pfArchetype:arch,
     pfColors:colors,
-    pfFormat:fmt
+    pfFormat:fmt,
+    pfTarget:pfTarget,
+    pfTargetDeckId:(pfTarget==='current'&&typeof actDeck!=='undefined')?actDeck:null
   };
   mlPerfectDeckClose();
   // ── Routage selon les inputs ──
@@ -54774,6 +54925,41 @@ function _dgenCreate(){
   if(r.metrics){
     metaNotes+='\nBracket: '+r.metrics.bracket+' · Plan A: '+r.metrics.plan+' ('+r.metrics.coherence+'%) · Vitesse: T'+r.metrics.speedTurn+' · Interaction instant: '+r.metrics.instantInteraction;
   }
+  // ── CIBLE : nouveau deck (défaut) OU fusion dans le deck en cours
+  var pfTarget=(_dgenState&&_dgenState.pfTarget)||'new';
+  var targetDeckId=(_dgenState&&_dgenState.pfTargetDeckId)||null;
+  if(pfTarget==='current'&&targetDeckId&&decks[targetDeckId]){
+    // Fusion : on ajoute les cartes générées au deck existant en évitant les doublons.
+    var dk=decks[targetDeckId];
+    var existing={};
+    (dk.cards||[]).forEach(function(c){existing[(c.name||'').toLowerCase().trim()]=c;});
+    var added=0,merged=0;
+    parsed.forEach(function(c){
+      var k=(c.name||'').toLowerCase().trim();
+      if(existing[k]){merged++;return;} // doublon → on garde la version existante
+      (dk.cards=dk.cards||[]).push(c);added++;
+    });
+    // Re-stringify rawName pour refléter le nouveau contenu (préserve l'ordre original + ajouts à la fin)
+    var lines=[];
+    (dk.cards||[]).forEach(function(c){lines.push((c.qty||1)+' '+(c.name||''));});
+    dk.rawName=lines.join('\n');
+    dk.notes=(dk.notes?dk.notes+'\n\n':'')+'═ Deck Parfait ['+new Date().toLocaleString('fr-FR')+'] ═\n'+metaNotes+'\n→ '+added+' cartes ajoutées, '+merged+' déjà présentes (conservées).';
+    dk.updatedAt=Date.now();
+    try{saveDecks();}catch(e){}
+    if(typeof toastSuccess==='function')toastSuccess('✓ '+added+' cartes ajoutées à « '+(dk.name||'deck')+' »'+(merged?' ('+merged+' déjà présentes)':''));
+    closeDeckGenerator();
+    setTimeout(function(){
+      if(typeof goTab==='function')goTab('build');
+      // Reload pour rafraîchir l'éditeur si le deck est déjà ouvert
+      if(typeof actDeck!=='undefined'&&actDeck===targetDeckId){
+        // Toggle pour forcer le reload
+        var sav=actDeck;actDeck=null;
+        if(typeof loadDeck==='function')loadDeck(sav);
+      }else if(typeof loadDeck==='function'){loadDeck(targetDeckId);}
+    },200);
+    return;
+  }
+  // Création d'un NOUVEAU deck
   decks[id]={
     name:r.commander+' (généré)',
     rawName:rawName,
