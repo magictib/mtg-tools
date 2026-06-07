@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-07-22';
+window.APP_BUILD='2026-06-07-23';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -13669,6 +13669,184 @@ function _atelierRecoAdd(name){
     });
   }
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// EDHREC INVERSE — tendances communauté pour le commandant du deck.
+// API publique JSON ouverte (pas de clé) : https://json.edhrec.com/pages/commanders/{slug}.json
+// Données : top cartes (% inclusion), high-synergy, gamechangers, new cards, similar commanders.
+// Cache localStorage 24h pour ne pas marteler l'API.
+// ═════════════════════════════════════════════════════════════════════════════
+function mlEdhrecSlug(name){
+  if(!name)return '';
+  return String(name).toLowerCase()
+    .replace(/['"`]/g,'')
+    .replace(/[,.()]/g,'')
+    .replace(/[\s/—–-]+/g,'-')
+    .replace(/[^a-z0-9-]/g,'')
+    .replace(/-+/g,'-').replace(/^-|-$/g,'');
+}
+function mlEdhrecCacheKey(slug){return 'mtg_edhrec_'+slug;}
+function mlEdhrecFetch(commanderName){
+  var slug=mlEdhrecSlug(commanderName);
+  if(!slug)return Promise.resolve(null);
+  // Cache 24h
+  try{
+    var c=JSON.parse(localStorage.getItem(mlEdhrecCacheKey(slug))||'null');
+    if(c&&c.t&&Date.now()-c.t<86400000)return Promise.resolve(c.d);
+  }catch(e){}
+  var url='https://json.edhrec.com/pages/commanders/'+slug+'.json';
+  return fetch(url).then(function(r){
+    if(!r.ok)return null;
+    return r.json();
+  }).then(function(d){
+    if(d){try{localStorage.setItem(mlEdhrecCacheKey(slug),JSON.stringify({t:Date.now(),d:d}));}catch(e){}}
+    return d;
+  }).catch(function(){return null;});
+}
+function _mlEdhrecNorm(n){return (n||'').toLowerCase().trim().replace(/[''`]/g,"'").replace(/\s+/g,' ');}
+function mlEdhrecExtractCategory(data,tag){
+  if(!data||!data.container||!data.container.json_dict)return null;
+  // Nouvelle structure : cardlists au niveau container.json_dict
+  var lists=(data.container.json_dict.cardlists)||[];
+  for(var i=0;i<lists.length;i++){
+    if(lists[i].tag===tag)return lists[i];
+  }
+  return null;
+}
+function mlEdhrecExtractCategoryFlex(data){
+  // Helper qui retourne toutes les catégories disponibles à la racine
+  if(!data)return [];
+  var lists=(data.cardlists)||(data.container&&data.container.json_dict&&data.container.json_dict.cardlists)||[];
+  return lists;
+}
+function mlEdhrecCardName(c){return c.name||c.cardname||(c.card&&c.card.name)||'';}
+function mlEdhrecCardSyn(c){return c.synergy!=null?c.synergy:(c.synergy_score!=null?c.synergy_score:0);}
+function mlEdhrecCardIncl(c){
+  // Inclusion : soit % direct, soit num_decks / potential_decks
+  if(c.inclusion!=null&&c.inclusion<=1.01)return Math.round(c.inclusion*100);
+  if(c.num_decks&&c.potential_decks)return Math.round(100*c.num_decks/c.potential_decks);
+  if(c.inclusion!=null)return Math.round(c.inclusion);
+  return 0;
+}
+// Rend le panneau EDHRec dans un container donné
+function mlEdhrecRender(deckId){
+  var mount=document.getElementById('ana-edhrec-panel');
+  if(!mount){
+    // Crée le mount juste après le bandeau de score si possible, sinon en tête de #ana-results
+    mount=document.createElement('div');
+    mount.id='ana-edhrec-panel';
+    mount.style.cssText='margin:14px 0;padding:0;border-radius:10px;background:linear-gradient(180deg,rgba(140,90,180,.06),rgba(140,90,180,.01));border:1px solid rgba(180,140,220,.32);overflow:hidden';
+    var res=document.getElementById('ana-results');
+    if(res){
+      // Insère en première position
+      if(res.firstChild)res.insertBefore(mount,res.firstChild);
+      else res.appendChild(mount);
+    }
+  }
+  var deck=decks[deckId];
+  if(!deck||!deck.commander||!deck.commander.name){
+    mount.style.display='none';return;
+  }
+  mount.style.display='block';
+  var cmdName=deck.commander.name;
+  // Loader pendant fetch
+  mount.innerHTML='<div style="padding:12px 14px;display:flex;align-items:center;gap:10px">'
+    +'<div class="ml-spinner-gold" style="width:18px;height:18px;border:2px solid rgba(180,140,220,.3);border-top-color:#b48cdc;border-radius:50%;animation:ml-spin 1s linear infinite"></div>'
+    +'<span style="font-size:.82rem;color:var(--tx2)">📊 Chargement des tendances EDHRec pour <b>'+esc(cmdName)+'</b>…</span></div>';
+  mlEdhrecFetch(cmdName).then(function(data){
+    if(!data){
+      mount.innerHTML='<div style="padding:10px 14px;font-size:.78rem;color:var(--tx3)">📊 EDHRec : pas de données pour <b>'+esc(cmdName)+'</b> (commandant trop récent ou peu joué). <span style="font-size:.7rem">Slug essayé : '+esc(mlEdhrecSlug(cmdName))+'</span></div>';
+      return;
+    }
+    _mlEdhrecRenderData(mount,data,deck,cmdName);
+  });
+}
+function _mlEdhrecRenderData(mount,data,deck,cmdName){
+  var lists=mlEdhrecExtractCategoryFlex(data);
+  // Cartes présentes dans le deck (normalisé)
+  var owned={};
+  (deck.cards||[]).forEach(function(c){owned[_mlEdhrecNorm(c.name)]=1;});
+  // Récupère catégories utiles
+  function findByTag(tag){return lists.filter(function(l){return l.tag===tag;})[0];}
+  var topcards=findByTag('topcards')||findByTag('top-cards');
+  var synergy=findByTag('highsynergycards')||findByTag('high-synergy-cards');
+  var newcards=findByTag('newcards')||findByTag('new-cards');
+  var gamechangers=findByTag('gamechangers')||findByTag('game-changers');
+  // Métadonnées (numbers)
+  var numDecks=(data.container&&data.container.json_dict&&data.container.json_dict.num_decks_avg)||data.num_decks_avg||0;
+  var similar=(data.container&&data.container.json_dict&&data.container.json_dict.similar)||data.similar||[];
+
+  var h='<div style="padding:11px 14px 5px 14px">';
+  h+='<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:6px">';
+  h+='<span style="font-size:1.15rem">📊</span>';
+  h+='<span style="font-family:\'Goudy Mediaeval\',serif;color:#d4b8ec;letter-spacing:.06em">TENDANCES COMMUNAUTÉ · EDHRec</span>';
+  if(numDecks)h+='<span style="font-size:.72rem;color:var(--tx3)">· '+numDecks.toLocaleString('fr-FR')+' decks analysés pour '+esc(cmdName)+'</span>';
+  h+='<span style="flex:1"></span>';
+  h+='<a href="https://edhrec.com/commanders/'+esc(mlEdhrecSlug(cmdName))+'" target="_blank" rel="noopener" style="font-size:.7rem;color:#b48cdc;text-decoration:none;border:.5px solid rgba(180,140,220,.4);border-radius:6px;padding:3px 8px">Ouvrir sur EDHRec ↗</a>';
+  h+='</div>';
+  h+='</div>';
+  h+='<div style="padding:0 14px 12px 14px">';
+  h+=_mlEdhrecRenderSection('🎯 Top cartes (taux d\'inclusion)','topcards',topcards,owned,10);
+  h+=_mlEdhrecRenderSection('💎 Forte synergie (rare ailleurs)','highsynergycards',synergy,owned,8);
+  if(newcards)h+=_mlEdhrecRenderSection('🆕 Nouvelles cartes qui montent','newcards',newcards,owned,6);
+  if(gamechangers)h+=_mlEdhrecRenderSection('⚡ Game changers','gamechangers',gamechangers,owned,6);
+  // Commandants similaires
+  if(similar&&similar.length){
+    h+='<div style="margin-top:10px;padding-top:8px;border-top:.5px dashed rgba(180,140,220,.25)">';
+    h+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">🔄 Commandants similaires</div>';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+    similar.slice(0,8).forEach(function(s){
+      var nm=s.name||s.cardname||(typeof s==='string'?s:'');
+      if(!nm)return;
+      h+='<span style="padding:3px 8px;background:rgba(180,140,220,.08);border:.5px solid rgba(180,140,220,.3);border-radius:11px;font-size:.7rem;color:#d4b8ec">'+esc(nm)+'</span>';
+    });
+    h+='</div></div>';
+  }
+  h+='</div>';
+  mount.innerHTML=h;
+}
+function _mlEdhrecRenderSection(title,tag,list,owned,limit){
+  if(!list||!list.cardviews||!list.cardviews.length)return '';
+  var cards=list.cardviews.slice(0,limit||10);
+  var h='<div style="margin-top:10px">';
+  h+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:5px">'+title+'</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:3px">';
+  cards.forEach(function(c){
+    var name=mlEdhrecCardName(c);if(!name)return;
+    var incl=mlEdhrecCardIncl(c);
+    var syn=mlEdhrecCardSyn(c);
+    var has=owned[_mlEdhrecNorm(name)];
+    var metric='';
+    if(tag==='highsynergycards'||tag==='gamechangers')metric=' <span style="color:#b48cdc;font-weight:600">syn '+(syn>0?'+':'')+(typeof syn==='number'?syn.toFixed(2):syn)+'</span>';
+    else metric=' <span style="color:var(--gold2);font-weight:600">'+incl+'%</span>';
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:'+(has?'rgba(126,200,106,.06)':'rgba(255,255,255,.02)')+';border-radius:6px;font-size:.76rem">';
+    h+='<span style="flex:1;color:var(--tx)">'+esc(name)+metric+'</span>';
+    if(has){
+      h+='<span style="color:#7ec86a;font-size:.7rem">✓ dans ton deck</span>';
+    }else{
+      h+='<button onclick="_atelierRecoAdd(\''+escJs(name)+'\')" title="Ajouter au deck actif" style="padding:3px 9px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:8px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer">+ Ajouter</button>';
+    }
+    h+='</div>';
+  });
+  h+='</div></div>';
+  return h;
+}
+// Hook : déclenche le render EDHRec après anaRender (différé pour ne pas bloquer)
+(function(){
+  function bind(){
+    if(typeof window.anaRender!=='function')return setTimeout(bind,200);
+    if(window.anaRender.__edhrecWrapped)return;
+    var orig=window.anaRender;
+    window.anaRender=function(deckId){
+      var r=orig.apply(this,arguments);
+      // Render différé pour ne pas bloquer le render principal
+      setTimeout(function(){try{mlEdhrecRender(deckId);}catch(e){}},600);
+      return r;
+    };
+    window.anaRender.__edhrecWrapped=true;
+  }
+  if(document.readyState==='complete')setTimeout(bind,300);
+  else window.addEventListener('load',function(){setTimeout(bind,300);});
+})();
 // Wrap renderDeck pour rafraîchir l'analyse live à chaque changement
 (function(){
   function bind(){
