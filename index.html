@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-07-25';
+window.APP_BUILD='2026-06-08-26';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -13720,30 +13720,232 @@ function mlSuggestStaples(cat,colors,limit){
 }
 function _atelierLiveRecosRender(deficits){
   var el=document.getElementById('atelier-live-recos');if(!el)return;
-  if(!deficits||!deficits.length){el.innerHTML='';return;}
-  var dk=decks[actDeck]||{};
-  var colors=dk.colors||dColors||[];
-  // Présentes dans le deck pour ne pas re-suggérer
-  var present={};
-  dCards.forEach(function(c){present[(c.name||'').toLowerCase().trim()]=1;});
-  var h='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">💡 Suggestions pour combler les déficits</div>';
-  h+='<div style="display:flex;flex-direction:column;gap:6px">';
-  deficits.forEach(function(d){
-    var staples=mlSuggestStaples(d.key,colors,8).filter(function(n){return !present[n.toLowerCase()];}).slice(0,5);
-    if(!staples.length)return;
-    var info=_ML_CAT_LBL[d.key]||{ico:'?',lbl:d.lbl||d.key,col:'var(--gold2)'};
-    h+='<div style="padding:6px 9px;background:rgba(255,255,255,.025);border-left:2px solid '+info.col+';border-radius:5px">';
-    h+='<div style="font-size:.74rem;color:'+info.col+';margin-bottom:4px">'+info.ico+' <b>'+info.lbl+'</b> — il en manque '+d.miss+' :</div>';
-    h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
-    staples.forEach(function(n){
-      h+='<button class="reco-add-btn" onclick="_atelierRecoAdd(\''+escJs(n)+'\')" title="Ajouter '+esc(n)+' au deck" style="padding:3px 9px;background:rgba(201,168,76,.08);border:.5px solid var(--bd2);border-radius:11px;color:var(--tx2);font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s">+ '+esc(n)+'</button>';
+  var h='';
+  if(deficits&&deficits.length){
+    var dk=decks[actDeck]||{};
+    var colors=dk.colors||dColors||[];
+    var present={};
+    dCards.forEach(function(c){present[(c.name||'').toLowerCase().trim()]=1;});
+    h+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">💡 Suggestions pour combler les déficits</div>';
+    h+='<div style="display:flex;flex-direction:column;gap:6px">';
+    deficits.forEach(function(d){
+      var staples=mlSuggestStaples(d.key,colors,8).filter(function(n){return !present[n.toLowerCase()];}).slice(0,5);
+      if(!staples.length)return;
+      var info=_ML_CAT_LBL[d.key]||{ico:'?',lbl:d.lbl||d.key,col:'var(--gold2)'};
+      h+='<div style="padding:6px 9px;background:rgba(255,255,255,.025);border-left:2px solid '+info.col+';border-radius:5px">';
+      h+='<div style="font-size:.74rem;color:'+info.col+';margin-bottom:4px">'+info.ico+' <b>'+info.lbl+'</b> — il en manque '+d.miss+' :</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      staples.forEach(function(n){
+        h+='<button class="reco-add-btn" onclick="_atelierRecoAdd(\''+escJs(n)+'\')" title="Ajouter '+esc(n)+' au deck" style="padding:3px 9px;background:rgba(201,168,76,.08);border:.5px solid var(--bd2);border-radius:11px;color:var(--tx2);font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s">+ '+esc(n)+'</button>';
+      });
+      h+='</div></div>';
+    });
+    h+='</div>';
+  }
+  // Toujours afficher le bouton « Évaluer une carte » : permet à l'utilisateur de proposer
+  // une carte et voir si elle vaut le coup + alternatives.
+  h+='<div style="margin-top:'+(deficits&&deficits.length?'10':'0')+'px;padding-top:8px;border-top:.5px dashed rgba(201,168,76,.18);display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+  h+='<span style="font-size:.74rem;color:var(--tx3)">🔍 Tu hésites sur une carte ?</span>';
+  h+='<button class="reco-add-btn" onclick="evalCardOpen()" style="padding:5px 12px;background:linear-gradient(180deg,rgba(201,168,76,.12),rgba(201,168,76,.04));border:.5px solid var(--gold);border-radius:7px;color:var(--gold2);font-family:inherit;font-size:.76rem;cursor:pointer">📊 Évaluer une carte</button>';
+  h+='<span style="font-size:.66rem;color:var(--tx3);font-style:italic">verdict + alternatives</span>';
+  h+='</div>';
+  h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.18)!important}</style>';
+  el.innerHTML=h;
+}
+// ───────────────────────────────────────────────────────────────────────────
+// ÉVALUATEUR DE CARTE — propose une carte, reçois un verdict + alternatives.
+// L'utilisateur tape une carte qu'il envisage d'ajouter au deck. On :
+//   1) Fetch via Scryfall si pas en cache _anaData
+//   2) Score la carte avec anaCardScore dans le contexte du deck (_anaCurrentThemes)
+//   3) Compare au score moyen des cartes du même rôle déjà dans le deck
+//   4) Propose alternatives : top cartes du deck dans le même rôle + staples du rôle
+//   5) Bouton « + Ajouter » / « 🔁 Swap »
+// ───────────────────────────────────────────────────────────────────────────
+function evalCardOpen(){
+  if(!actDeck||!decks[actDeck]){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
+  var ov=document.getElementById('eval-card-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='eval-card-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('show'))ov.classList.remove('show');});
+  }
+  ov.innerHTML='<div class="ml-modal" style="max-width:760px;width:94vw;max-height:90vh;display:flex;flex-direction:column">'
+    +'<div class="ml-modal-hdr">'
+    +'<div class="ml-modal-title">📊 Évaluer une carte</div>'
+    +'<button class="ml-modal-close" onclick="document.getElementById(\'eval-card-ov\').classList.remove(\'show\')">✕</button>'
+    +'</div>'
+    +'<div style="padding:12px 16px 0 16px;font-size:.82rem;color:var(--tx2);line-height:1.5">Tape le nom d\'une carte que tu envisages d\'ajouter à <b style="color:var(--gold2)">'+esc(decks[actDeck].name||'(deck)')+'</b>. Je te donne un verdict contextuel + des alternatives si je trouve mieux.</div>'
+    +'<div style="padding:10px 16px"><input id="eval-card-input" type="text" data-card-autocomplete autocomplete="off" placeholder="ex: Cultivate, Counterspell, Doom Blade…" onkeydown="if(event.key===\'Enter\'){event.preventDefault();evalCardRun();}" style="width:100%;box-sizing:border-box;padding:10px 13px;background:var(--s3);border:1px solid var(--gold);border-radius:8px;color:var(--tx);font-size:.95rem;font-family:inherit"></div>'
+    +'<div id="eval-card-body" style="flex:1;overflow-y:auto;padding:0 16px 12px 16px;min-height:120px"></div>'
+    +'<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+    +'<span style="font-size:.7rem;color:var(--tx3);font-style:italic">Entrée pour évaluer</span>'
+    +'<button class="btn btnp btnsm" onclick="evalCardRun()">📊 Évaluer</button>'
+    +'</div></div>';
+  ov.classList.add('show');
+  setTimeout(function(){
+    var i=document.getElementById('eval-card-input');if(i)i.focus();
+    if(typeof _autoAttachCardInputs==='function')_autoAttachCardInputs();
+  },80);
+}
+function evalCardRun(){
+  var inp=document.getElementById('eval-card-input');if(!inp)return;
+  var name=inp.value.trim();if(!name)return;
+  var body=document.getElementById('eval-card-body');
+  body.innerHTML='<div style="padding:18px;display:flex;align-items:center;gap:10px;color:var(--tx2)">'
+    +'<div style="width:18px;height:18px;border:2px solid rgba(201,168,76,.3);border-top-color:var(--gold);border-radius:50%;animation:ml-spin 1s linear infinite"></div>'
+    +'⏳ Recherche et analyse de <b style="color:var(--gold2);margin-left:4px">'+esc(name)+'</b>…</div>';
+  // Fetch via Scryfall
+  fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name))
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(card){
+      if(!card||!card.name){
+        body.innerHTML='<div style="padding:18px;color:var(--rd2)">✗ Carte introuvable : '+esc(name)+'</div>';
+        return;
+      }
+      var nl=(typeof stripDFC==='function'?stripDFC(card.name):card.name).toLowerCase();
+      // Ingestion : crée meta + tags
+      var meta;
+      try{meta=_anaIngestCard(card,nl);}catch(e){
+        body.innerHTML='<div style="padding:18px;color:var(--rd2)">✗ Erreur d\'analyse : '+(e&&e.message||'')+'</div>';
+        return;
+      }
+      _evalCardRenderVerdict(card,meta,nl);
+    })
+    .catch(function(){body.innerHTML='<div style="padding:18px;color:var(--rd2)">✗ Erreur réseau Scryfall.</div>';});
+}
+function _evalCardRenderVerdict(card,meta,nl){
+  var body=document.getElementById('eval-card-body');if(!body)return;
+  // Recalcule les thèmes pour le deck actif (peut différer de l'analyse précédente
+  // si l'utilisateur a changé de deck ou n'a pas encore lancé anaRender).
+  try{
+    if(typeof _anaCommanderThemes==='function'){
+      _anaCurrentThemes=_anaCommanderThemes(decks[actDeck]);
+    }
+  }catch(e){}
+  var th=_anaCurrentThemes||{};
+  // Roles + score
+  var roles=anaRoles(meta);
+  var baseScore=anaCardScore(meta);
+  var synWeight=1;
+  try{synWeight=_anaSynergyWeight?_anaSynergyWeight(meta,th):1;}catch(e){}
+  var score=baseScore*synWeight;
+  // Présence dans le deck ?
+  var alreadyIn=(decks[actDeck].cards||[]).find(function(c){return (c.name||'').toLowerCase().trim()===card.name.toLowerCase().trim();});
+  // Rôles utiles
+  var roleFr={ramp:'Ramp',draw:'Pioche',removal:'Removal',interaction:'Interaction',wincon:'Win con',wrath:'Wrath',counter:'Contresort',sac_outlet:'Sac outlet',protection:'Protection',manarock:'Mana rock',recursion:'Récursion',reanimate:'Réanimation',untap_creature:'Untap',mill:'Mill'};
+  var rolesActifs=Object.keys(roles).filter(function(k){return roles[k]&&roleFr[k];}).map(function(k){return roleFr[k];});
+  var domRole=Object.keys(roles).filter(function(k){return roles[k]&&['ramp','draw','removal','interaction','wincon','wrath','counter','sac_outlet','protection','recursion'].indexOf(k)>=0;})[0]||null;
+  // Synergie (forte / moyenne / faible)
+  var synP=0;try{synP=_anaThemeSynergyScore?_anaThemeSynergyScore(meta,th):0;}catch(e){}
+  // Compte combien de cartes du deck ont déjà ce rôle dominant (saturation)
+  var sameRoleInDeck=[];
+  if(domRole){
+    (decks[actDeck].cards||[]).forEach(function(c){
+      var m=(typeof _anaData!=='undefined'?_anaData[c.nl]:null)||(typeof dCardMeta!=='undefined'?dCardMeta[c.nl]:null);
+      if(!m||!m.tags)return;
+      var rs=anaRoles(m);
+      if(rs[domRole]){
+        var bs=anaCardScore(m);
+        var sw=1;try{sw=_anaSynergyWeight?_anaSynergyWeight(m,th):1;}catch(e){}
+        sameRoleInDeck.push({name:c.name,nl:c.nl,score:bs*sw,meta:m,qty:c.qty||1});
+      }
+    });
+    sameRoleInDeck.sort(function(a,b){return b.score-a.score;});
+  }
+  // === Verdict ===
+  // Seuils calibrés sur la distribution observée : top cartes ~30-50, moyennes ~5-15,
+  // faibles < 3, négatives = pénalisées par anti-synergies.
+  var verdict, vCol, vIco;
+  if(score>=20){verdict='Excellente carte dans ce contexte';vCol='#7ec86a';vIco='✓';}
+  else if(score>=10){verdict='Bonne carte, ça vaut le coup';vCol='#a8d97e';vIco='✓';}
+  else if(score>=5){verdict='Carte correcte — utile sans être prioritaire';vCol='#e8c14a';vIco='~';}
+  else if(score>=1){verdict='Carte faible dans ce contexte';vCol='#e88a4a';vIco='⚠';}
+  else {verdict='À éviter pour ce deck';vCol='#d9645a';vIco='✗';}
+  // Hint contextuel
+  var hints=[];
+  if(alreadyIn)hints.push('⚠ Déjà '+(alreadyIn.qty||1)+'× dans le deck');
+  if(domRole&&sameRoleInDeck.length>=8)hints.push('🔄 Rôle '+roleFr[domRole]+' déjà saturé ('+sameRoleInDeck.length+' cartes)');
+  if(synP>=1.5)hints.push('✨ Forte synergie avec ton plan ('+(th.labels||[]).slice(0,3).join(' / ')+')');
+  else if(synP>=0.8)hints.push('✓ Bonne synergie thématique');
+  else if(synP<0.3)hints.push('— Pas de synergie particulière avec les thèmes');
+  if((meta.cmc||0)>=5&&score<3)hints.push('💰 Coût élevé ('+meta.cmc+' mana) pour peu d\'impact mesuré');
+  // Format check (banlist)
+  var fmt=(decks[actDeck].format||'').toLowerCase();
+  if(fmt&&card.legalities&&card.legalities[fmt]&&card.legalities[fmt]!=='legal'){
+    hints.push('⛔ Statut en '+fmt+' : '+card.legalities[fmt]);
+  }
+  // === Alternatives ===
+  // 1) Cartes du même rôle dans le deck, plus mal notées → candidats au cut
+  var cutCandidates=sameRoleInDeck.filter(function(c){return c.score<score && c.nl!==nl;}).slice(0,5);
+  // 2) Staples du rôle déficitaire (couleurs du deck) qui ne sont pas déjà dedans
+  var dk=decks[actDeck];var colors=dk.colors||dColors||[];
+  var present={};(dk.cards||[]).forEach(function(c){present[(c.name||'').toLowerCase()]=1;});
+  var stapleSuggest=[];
+  if(domRole&&typeof mlSuggestStaples==='function'){
+    var stapleKey={ramp:'ramp',draw:'draw',removal:'removal',counter:'counter',wrath:'wipe',protection:'protection',recursion:'recursion'}[domRole];
+    if(stapleKey){
+      stapleSuggest=mlSuggestStaples(stapleKey,colors,10)
+        .filter(function(n){return n.toLowerCase()!==card.name.toLowerCase()&&!present[n.toLowerCase()];})
+        .slice(0,5);
+    }
+  }
+  // === Build HTML ===
+  var imgUrl=(card.image_uris&&card.image_uris.normal)||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.normal)||'';
+  var h='';
+  // Header carte + verdict
+  h+='<div style="display:flex;gap:14px;padding:12px 0 14px 0;border-bottom:.5px dashed rgba(201,168,76,.25)">';
+  if(imgUrl)h+='<img src="'+esc(imgUrl)+'" alt="'+esc(card.name)+'" style="width:130px;border-radius:8px;flex-shrink:0;box-shadow:0 4px 14px rgba(0,0,0,.5)">';
+  h+='<div style="flex:1;min-width:0">';
+  h+='<div style="font-family:\'Goudy Mediaeval\',serif;font-size:1.05rem;color:var(--gold2);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis">'+esc(card.name)+'</div>';
+  h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:6px">'+esc(card.type_line||'')+' · CMC '+(meta.cmc||0)+'</div>';
+  // Verdict bandeau
+  h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba('+(vCol==='#7ec86a'?'126,200,106':vCol==='#a8d97e'?'168,217,126':vCol==='#e8c14a'?'232,193,74':vCol==='#e88a4a'?'232,138,74':'217,100,90')+',.10);border:1px solid '+vCol+';border-radius:8px;margin-bottom:6px">';
+  h+='<span style="font-size:1.2rem;color:'+vCol+'">'+vIco+'</span>';
+  h+='<div style="flex:1"><div style="color:'+vCol+';font-weight:600;font-size:.85rem">'+verdict+'</div>';
+  h+='<div style="color:var(--tx3);font-size:.7rem">Score contextuel : <b style="color:'+vCol+'">'+score.toFixed(1)+'</b> · base '+baseScore.toFixed(1)+' × synergie '+synWeight.toFixed(2)+'</div></div>';
+  h+='</div>';
+  if(rolesActifs.length){
+    h+='<div style="font-size:.72rem;color:var(--tx2)"><b style="color:var(--gold2)">Rôle(s) détecté(s)</b> : '+rolesActifs.join(' · ')+'</div>';
+  }
+  if(hints.length){
+    h+='<div style="margin-top:5px;font-size:.72rem;color:var(--tx2);line-height:1.5">'+hints.map(function(h){return '<div>'+h+'</div>';}).join('')+'</div>';
+  }
+  h+='</div></div>';
+  // Actions principales
+  h+='<div style="display:flex;gap:7px;margin:10px 0 4px 0;flex-wrap:wrap">';
+  if(!alreadyIn){
+    h+='<button class="btn btnp btnsm" onclick="_atelierRecoAddDirect(\''+escJs(card.name)+'\');document.getElementById(\'eval-card-ov\').classList.remove(\'show\')" style="padding:7px 12px">+ Ajouter au deck</button>';
+    h+='<button class="btn btnsm" onclick="document.getElementById(\'eval-card-ov\').classList.remove(\'show\');_atelierRecoSwapOpen(\''+escJs(card.name)+'\')" style="padding:7px 12px">🔁 Faire un swap…</button>';
+  }else{
+    h+='<span style="padding:6px 10px;background:rgba(126,200,106,.10);border:.5px solid #7ec86a;border-radius:6px;font-size:.78rem;color:#7ec86a">✓ Déjà dans le deck</span>';
+  }
+  h+='</div>';
+  // Alternatives — cartes à remplacer
+  if(cutCandidates.length){
+    h+='<div style="margin-top:14px;padding-top:10px;border-top:.5px dashed rgba(201,168,76,.25)">';
+    h+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:5px"><b style="color:var(--gold2)">🔁 Tu peux remplacer par '+esc(card.name)+'</b> (cartes de même rôle dans ton deck, mieux notées en bas)</div>';
+    h+='<div style="display:flex;flex-direction:column;gap:3px">';
+    cutCandidates.forEach(function(c){
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:rgba(255,255,255,.025);border:.5px solid var(--bd2);border-radius:6px;font-size:.78rem">';
+      h+='<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>';
+      h+='<span style="color:'+(c.score<score-2?'#d9645a':c.score<score?'#e88a4a':'var(--tx3)')+';font-size:.74rem;font-weight:600">score '+c.score.toFixed(1)+'</span>';
+      h+='<button class="btn btnsm" onclick="document.getElementById(\'eval-card-ov\').classList.remove(\'show\');_atelierRecoSwapApply(\''+escJs(card.name)+'\',\''+escJs(c.name)+'\','+(c.qty||1)+')" style="padding:3px 8px;font-size:.7rem" title="Swap : remplace '+esc(c.name)+' par '+esc(card.name)+'">🔁 Swap</button>';
+      h+='</div>';
     });
     h+='</div></div>';
-  });
-  h+='</div>';
-  // Style hover
-  h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.15)!important}</style>';
-  el.innerHTML=h;
+  }
+  // Alternatives — staples du même rôle (si la carte évaluée n'est pas top)
+  if(stapleSuggest.length&&score<15){
+    h+='<div style="margin-top:14px;padding-top:10px;border-top:.5px dashed rgba(201,168,76,.25)">';
+    h+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:5px"><b style="color:var(--gold2)">💎 Alternatives de même rôle</b> (staples '+roleFr[domRole].toLowerCase()+' dans tes couleurs)</div>';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+    stapleSuggest.forEach(function(n){
+      h+='<button class="reco-add-btn" onclick="document.getElementById(\'eval-card-input\').value=\''+escJs(n)+'\';evalCardRun()" title="Évaluer '+esc(n)+' à la place" style="padding:4px 10px;background:rgba(201,168,76,.06);border:.5px solid var(--bd2);border-radius:11px;color:var(--tx2);font-family:inherit;font-size:.72rem;cursor:pointer">📊 '+esc(n)+'</button>';
+    });
+    h+='</div></div>';
+  }
+  body.innerHTML=h;
 }
 // Mode SWAP par défaut quand un deck est ouvert (au lieu d'ajout brut) :
 // propose à l'utilisateur de remplacer une carte du deck par celle suggérée.
