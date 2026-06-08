@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-48';
+window.APP_BUILD='2026-06-08-49';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1428,6 +1428,25 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 #ml-xp-pill{position:fixed;top:8px;right:14px;background:linear-gradient(180deg,rgba(201,168,76,.18),rgba(0,0,0,.4));border:1px solid var(--gold);border-radius:99px;padding:3px 10px;color:var(--gold2);font-family:'Goudy Mediaeval',serif;font-size:.72rem;letter-spacing:.06em;z-index:91;display:none;cursor:pointer;transition:transform .15s}
 #ml-xp-pill.show{display:block}
 #ml-xp-pill:hover{transform:translateY(2px)}
+/* ═══════════════════════════════════════════════════════════════════════════
+   MLCHART — animations d'entrée + skeleton shimmer.
+═══════════════════════════════════════════════════════════════════════════ */
+.ml-reveal{opacity:0;transform:translateY(14px);transition:opacity .6s cubic-bezier(.2,.7,.4,1),transform .6s cubic-bezier(.2,.7,.4,1)}
+.ml-revealed{opacity:1;transform:translateY(0)}
+@keyframes ml-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes ml-fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ml-scaleIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+/* Cards KPI : hover lift géré en JS pour préserver les autres transforms */
+.ml-kpi-card:hover .ml-kpi-ico{opacity:.7!important}
+/* Charts qui se construisent : path stroke-dasharray initial puis anim au reveal */
+.ml-revealed svg polyline,
+.ml-revealed svg path{animation:ml-draw .8s ease-out forwards}
+@keyframes ml-draw{from{stroke-dashoffset:1000}to{stroke-dashoffset:0}}
+/* Respect prefers-reduced-motion */
+@media(prefers-reduced-motion:reduce){
+  .ml-reveal{opacity:1;transform:none;transition:none}
+  .ml-skel-bar{animation:none!important}
+}
 /* ═══════════════════════════════════════════════════════════════════════════
    THÈME LAB — alternative data-viz scientifique au thème médiéval par défaut.
    Garde le gold ManaLAB en accent, change les fonts pour Inter + JetBrains Mono,
@@ -9397,8 +9416,143 @@ var mlChart=(function(){
     return bar(host,data,Object.assign({horizontal:true},opts||{}));
   }
 
+  // ─── COUNT-UP ANIMATION ──────────────────────────────────────────────────
+  // Anime un nombre de 0 (ou from) vers target avec easing easeOutQuart sur dur ms.
+  // Détecte si target est un float pour formater avec décimales.
+  // Respecte prefers-reduced-motion (skip anim, set direct).
+  function countUp(el,target,opts){
+    if(typeof el==='string')el=document.querySelector(el);
+    if(!el)return;
+    opts=opts||{};
+    var from=opts.from!=null?opts.from:0;
+    var dur=opts.duration||900;
+    var fmt=opts.fmt||function(v){
+      return target%1!==0?v.toFixed(1):Math.round(v).toLocaleString('fr-FR');
+    };
+    var suffix=opts.suffix||'';
+    var prefix=opts.prefix||'';
+    // Respect prefers-reduced-motion
+    try{if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      el.textContent=prefix+fmt(target)+suffix;return;
+    }}catch(_){}
+    var t0=performance.now();
+    function tick(now){
+      var p=Math.min(1,(now-t0)/dur);
+      var ease=1-Math.pow(1-p,4); // easeOutQuart
+      var v=from+(target-from)*ease;
+      el.textContent=prefix+fmt(v)+suffix;
+      if(p<1)requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  // ─── SKELETON LOADER ─────────────────────────────────────────────────────
+  // Affiche un placeholder shimmer pendant chargement async (style LinkedIn).
+  // Types : 'kpi' / 'chart' / 'card' / 'text'. Hauteur configurable.
+  function skeleton(host,type,opts){
+    if(typeof host==='string')host=document.querySelector(host);
+    if(!host)return;
+    opts=opts||{};
+    var presets={
+      kpi:{h:88,bars:[[60,12,8],[80,28,8],[120,10,10]]}, // label / value / sub
+      chart:{h:opts.height||180,bars:[[100,opts.height||180,0]]},
+      card:{h:140,bars:[[40,40,8],[80,14,8],[60,10,4]]},
+      text:{h:18,bars:[[100,18,0]]}
+    };
+    var p=presets[type]||presets.text;
+    var h='<div class="ml-skel" style="display:flex;flex-direction:column;gap:6px;padding:'+(type==='kpi'?'14px 16px':'12px')+';background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(0,0,0,.15));border:1px solid var(--bd2,#3a2e1a);border-radius:11px">';
+    p.bars.forEach(function(b){
+      h+='<div class="ml-skel-bar" style="width:'+b[0]+'%;height:'+b[1]+'px;border-radius:4px;background:linear-gradient(90deg,rgba(255,255,255,.04) 0%,rgba(255,255,255,.10) 50%,rgba(255,255,255,.04) 100%);background-size:200% 100%;animation:ml-shimmer 1.4s ease-in-out infinite"></div>';
+    });
+    h+='</div>';
+    host.innerHTML=h;
+  }
+  // ─── INTERSECTION OBSERVER : reveal au scroll ────────────────────────────
+  // Charts qui entrent dans le viewport reçoivent class 'ml-revealed' pour
+  // déclencher fade-in + slide-up CSS. Réduit le « tout apparaît d'un coup »
+  // au scroll initial.
+  var _revealObs=null;
+  function _setupReveal(){
+    if(_revealObs||!('IntersectionObserver'in window))return;
+    _revealObs=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){e.target.classList.add('ml-revealed');_revealObs.unobserve(e.target);}
+      });
+    },{threshold:0.12,rootMargin:'0px 0px -40px 0px'});
+  }
+  function observeReveal(el){
+    if(typeof el==='string')el=document.querySelector(el);
+    if(!el)return;
+    _setupReveal();
+    el.classList.add('ml-reveal');
+    if(_revealObs)_revealObs.observe(el);
+  }
+
+  // ─── KPI v2 — countUp intégré + delta + sparkline + onClick ──────────────
+  // Override de la fonction kpi originale (préservée si besoin via kpi.raw)
+  var _kpiOriginal=kpi;
+  function kpiV2(host,opts){
+    host=_mount(host);if(!host)return;
+    opts=opts||{};
+    var col=opts.color||PAL.accent;
+    var hasNumValue=typeof opts.value==='number';
+    var deltaHtml='';
+    if(opts.delta!=null){
+      var dv=opts.delta;
+      var dCol=dv>0?PAL.success:dv<0?PAL.danger:PAL.textDim;
+      var dArrow=dv>0?'▲':dv<0?'▼':'—';
+      deltaHtml='<div class="ml-kpi-delta" style="position:absolute;bottom:8px;right:10px;font-size:.7rem;color:'+dCol+';font-weight:600">'+dArrow+' '+Math.abs(dv).toFixed(dv%1?1:0)+(opts.deltaUnit||'%')+'</div>';
+    }else if(opts.trend!=null){
+      var t=opts.trend;
+      var tCol=t>0?PAL.success:t<0?PAL.danger:PAL.textDim;
+      deltaHtml='<div class="ml-kpi-delta" style="position:absolute;bottom:8px;right:10px;font-size:.7rem;color:'+tCol+';font-weight:600">'+(t>0?'▲':t<0?'▼':'—')+' '+Math.abs(t).toFixed(t%1?1:0)+(opts.trendUnit||'%')+'</div>';
+    }
+    var clickAttr=typeof opts.onClick==='function'?' style="cursor:pointer" data-clickable="1"':'';
+    var uid='kvg-'+Math.random().toString(36).slice(2,8);
+    var sparkH=opts.spark&&opts.spark.length?24:0;
+    var html='<div class="ml-kpi-card ml-reveal" '+clickAttr+' style="padding:14px 16px;background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(0,0,0,.15));border:1px solid '+col+';border-radius:11px;min-height:80px;position:relative;overflow:hidden;transition:transform .2s ease-out,box-shadow .2s ease-out,border-color .15s">'
+      +(opts.icon?'<div class="ml-kpi-ico" style="position:absolute;top:8px;right:10px;font-size:1.2rem;opacity:.4;transition:opacity .2s">'+opts.icon+'</div>':'')
+      +'<div style="font-size:.66rem;color:'+PAL.textDim+';letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:4px">'+_esc(opts.label||'')+'</div>'
+      +'<div class="ml-kpi-val" id="'+uid+'" style="font-size:1.7rem;color:'+col+';font-weight:700;line-height:1.1">'+(hasNumValue?'0':_esc(opts.value||''))+(opts.unit?'<span style="font-size:.7em;opacity:.7;margin-left:3px">'+opts.unit+'</span>':'')+'</div>'
+      +(opts.sub?'<div style="font-size:.7rem;color:'+PAL.textDim+';margin-top:3px;'+(deltaHtml?'padding-right:55px':'')+'">'+_esc(opts.sub)+'</div>':'')
+      +deltaHtml
+      +(opts.spark?'<div id="'+uid+'-spark" style="position:absolute;bottom:0;left:0;right:0;height:'+sparkH+'px;opacity:.55"></div>':'')
+      +'</div>';
+    host.innerHTML=html;
+    // Animation count-up sur nombre
+    if(hasNumValue){
+      var vEl=document.getElementById(uid);
+      if(vEl){
+        var unitHtml=opts.unit?'<span style="font-size:.7em;opacity:.7;margin-left:3px">'+opts.unit+'</span>':'';
+        // On extrait le node texte pour animer juste le chiffre (préserve le span unit)
+        vEl.innerHTML='<span class="ml-kpi-num">0</span>'+unitHtml;
+        var numEl=vEl.querySelector('.ml-kpi-num');
+        if(numEl)countUp(numEl,opts.value,{duration:1100,fmt:opts.fmt});
+      }
+    }
+    // Sparkline
+    if(opts.spark&&opts.spark.length){
+      var sparkEl=document.getElementById(uid+'-spark');
+      if(sparkEl)sparkline(sparkEl,opts.spark,{color:col,height:sparkH});
+    }
+    // Hover lift
+    var card=host.querySelector('.ml-kpi-card');
+    if(card){
+      card.addEventListener('mouseenter',function(){card.style.transform='translateY(-3px)';card.style.boxShadow='0 8px 22px rgba(0,0,0,.4),0 0 0 1px '+col;});
+      card.addEventListener('mouseleave',function(){card.style.transform='';card.style.boxShadow='';});
+    }
+    // onClick
+    if(typeof opts.onClick==='function'&&card){
+      card.addEventListener('click',function(e){opts.onClick(e,opts);});
+    }
+    // Reveal observer
+    observeReveal(host);
+  }
+  // Remplace kpi par la v2 (l'API ancienne reste compatible : tous les opts existants sont supportés)
+  kpi=kpiV2;
+  kpi.raw=_kpiOriginal;
+
   // EXPORT
-  return {bar:bar,line:line,radar:radar,pie:pie,heatmap:heatmap,histogram:histogram,treemap:treemap,kpi:kpi,sparkline:sparkline,activityHeatmap:activityHeatmap,timeline:timeline,pips:pips,PAL:PAL};
+  return {bar:bar,line:line,radar:radar,pie:pie,heatmap:heatmap,histogram:histogram,treemap:treemap,kpi:kpi,sparkline:sparkline,activityHeatmap:activityHeatmap,timeline:timeline,pips:pips,PAL:PAL,countUp:countUp,skeleton:skeleton,observeReveal:observeReveal};
 })();
 // ===== STATE =====
 var srcF='A', dstF='C';
