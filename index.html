@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-27';
+window.APP_BUILD='2026-06-08-28';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -13767,6 +13767,8 @@ function _atelierLiveRecosRender(deficits){
   h+='<div style="margin-top:'+(deficits&&deficits.length?'10':'0')+'px;padding-top:8px;border-top:.5px dashed rgba(201,168,76,.18);display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
   h+='<span style="font-size:.74rem;color:var(--tx3)">🔍 Tu hésites sur une carte ?</span>';
   h+='<button class="reco-add-btn" onclick="evalCardOpen()" style="padding:5px 12px;background:linear-gradient(180deg,rgba(201,168,76,.12),rgba(201,168,76,.04));border:.5px solid var(--gold);border-radius:7px;color:var(--gold2);font-family:inherit;font-size:.76rem;cursor:pointer">📊 Évaluer une carte</button>';
+  h+='<button class="reco-add-btn" onclick="compareCardsOpen()" title="Compare 2 cartes côte à côte dans le contexte du deck" style="padding:5px 12px;background:linear-gradient(180deg,rgba(180,140,220,.12),rgba(180,140,220,.04));border:.5px solid #b48cdc;border-radius:7px;color:#d4b8ec;font-family:inherit;font-size:.76rem;cursor:pointer">⚖ Comparer 2 cartes</button>';
+  h+='<button class="reco-add-btn" onclick="manaBaseAuditOpen()" title="Simule 1000 mains d\'ouverture, donne stats de mana base" style="padding:5px 12px;background:linear-gradient(180deg,rgba(126,200,106,.12),rgba(126,200,106,.04));border:.5px solid #7ec86a;border-radius:7px;color:#a8d97e;font-family:inherit;font-size:.76rem;cursor:pointer">🎲 Audit mana base</button>';
   h+='<span style="font-size:.66rem;color:var(--tx3);font-style:italic">verdict + alternatives</span>';
   h+='</div>';
   h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.18)!important}</style>';
@@ -13967,8 +13969,295 @@ function _evalCardRenderVerdict(card,meta,nl){
   }
   body.innerHTML=h;
 }
-// Mode SWAP par défaut quand un deck est ouvert (au lieu d'ajout brut) :
-// propose à l'utilisateur de remplacer une carte du deck par celle suggérée.
+// ───────────────────────────────────────────────────────────────────────────
+// COMPARATEUR DE CARTES 1v1 — extension de l'évaluateur.
+// Tape 2 cartes, compare leurs scores côte à côte dans le contexte du deck.
+// Verdict comparatif + swap one-click si l'une des 2 est déjà dans le deck.
+// ───────────────────────────────────────────────────────────────────────────
+function compareCardsOpen(){
+  if(!actDeck||!decks[actDeck]){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
+  var ov=document.getElementById('compare-cards-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='compare-cards-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('show'))ov.classList.remove('show');});
+  }
+  ov.innerHTML='<div class="ml-modal" style="max-width:880px;width:96vw;max-height:92vh;display:flex;flex-direction:column">'
+    +'<div class="ml-modal-hdr">'
+    +'<div class="ml-modal-title">⚖ Comparer 2 cartes</div>'
+    +'<button class="ml-modal-close" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\')">✕</button>'
+    +'</div>'
+    +'<div style="padding:12px 16px 0 16px;font-size:.82rem;color:var(--tx2);line-height:1.5">Tape les 2 cartes à comparer dans le contexte de <b style="color:var(--gold2)">'+esc(decks[actDeck].name||'(deck)')+'</b>.</div>'
+    +'<div style="padding:10px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    +'<input id="cmp-card-a" type="text" data-card-autocomplete autocomplete="off" placeholder="Carte A (ex: Cultivate)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();compareCardsRun();}" style="padding:9px 12px;background:var(--s3);border:1px solid var(--gold);border-radius:8px;color:var(--tx);font-size:.9rem;font-family:inherit;box-sizing:border-box;width:100%">'
+    +'<input id="cmp-card-b" type="text" data-card-autocomplete autocomplete="off" placeholder="Carte B (ex: Kodama\'s Reach)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();compareCardsRun();}" style="padding:9px 12px;background:var(--s3);border:1px solid var(--gold);border-radius:8px;color:var(--tx);font-size:.9rem;font-family:inherit;box-sizing:border-box;width:100%">'
+    +'</div>'
+    +'<div id="cmp-cards-body" style="flex:1;overflow-y:auto;padding:8px 16px 12px 16px;min-height:140px"></div>'
+    +'<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+    +'<span style="font-size:.7rem;color:var(--tx3);font-style:italic">Entrée dans un des champs pour comparer</span>'
+    +'<button class="btn btnp btnsm" onclick="compareCardsRun()">⚖ Comparer</button>'
+    +'</div></div>';
+  ov.classList.add('show');
+  setTimeout(function(){
+    var a=document.getElementById('cmp-card-a');if(a)a.focus();
+    if(typeof _autoAttachCardInputs==='function')_autoAttachCardInputs();
+  },80);
+}
+function compareCardsRun(){
+  var nA=(document.getElementById('cmp-card-a')||{}).value||'';
+  var nB=(document.getElementById('cmp-card-b')||{}).value||'';
+  nA=nA.trim();nB=nB.trim();
+  if(!nA||!nB){if(typeof toastError==='function')toastError('Renseigne les 2 cartes');return;}
+  var body=document.getElementById('cmp-cards-body');
+  body.innerHTML='<div style="padding:18px;display:flex;align-items:center;gap:10px;color:var(--tx2)">'
+    +'<div style="width:18px;height:18px;border:2px solid rgba(201,168,76,.3);border-top-color:var(--gold);border-radius:50%;animation:ml-spin 1s linear infinite"></div>'
+    +'⏳ Analyse comparative en cours…</div>';
+  Promise.all([
+    fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(nA)).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}),
+    fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(nB)).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;})
+  ]).then(function(res){
+    var cA=res[0],cB=res[1];
+    if(!cA){body.innerHTML='<div style="padding:18px;color:var(--rd2)">✗ Carte A introuvable</div>';return;}
+    if(!cB){body.innerHTML='<div style="padding:18px;color:var(--rd2)">✗ Carte B introuvable</div>';return;}
+    _compareCardsRender(cA,cB);
+  });
+}
+function _compareCardsRender(cA,cB){
+  var body=document.getElementById('cmp-cards-body');if(!body)return;
+  // Recalcule themes pour le deck actif
+  try{if(typeof _anaCommanderThemes==='function')_anaCurrentThemes=_anaCommanderThemes(decks[actDeck]);}catch(e){}
+  var th=_anaCurrentThemes||{};
+  function buildData(card){
+    var nl=(typeof stripDFC==='function'?stripDFC(card.name):card.name).toLowerCase();
+    var meta;try{meta=_anaIngestCard(card,nl);}catch(e){meta={};}
+    var roles=anaRoles(meta);
+    var baseScore=anaCardScore(meta);
+    var synW=1;try{synW=_anaSynergyWeight?_anaSynergyWeight(meta,th):1;}catch(e){}
+    var score=baseScore*synW;
+    var alreadyIn=(decks[actDeck].cards||[]).find(function(c){return (c.name||'').toLowerCase().trim()===card.name.toLowerCase().trim();});
+    var img=(card.image_uris&&card.image_uris.normal)||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris&&card.card_faces[0].image_uris.normal)||'';
+    var roleFr={ramp:'Ramp',draw:'Pioche',removal:'Removal',interaction:'Interaction',wincon:'Win con',wrath:'Wrath',counter:'Contresort',sac_outlet:'Sac outlet',protection:'Protection',manarock:'Mana rock',recursion:'Récursion',reanimate:'Réanimation',untap_creature:'Untap',mill:'Mill'};
+    var rs=Object.keys(roles).filter(function(k){return roles[k]&&roleFr[k];}).map(function(k){return roleFr[k];});
+    return {card:card,meta:meta,roles:rs,score:score,base:baseScore,syn:synW,img:img,nl:nl,inDeck:alreadyIn};
+  }
+  var dA=buildData(cA),dB=buildData(cB);
+  // Verdict
+  var diff=dA.score-dB.score;
+  var winner=Math.abs(diff)<0.5?null:(diff>0?'A':'B');
+  function cardCol(d,letter,isWinner){
+    var borderCol=isWinner?'#7ec86a':(winner&&!isWinner?'#8a8a8a':'var(--bd2)');
+    var h='<div style="border:'+(isWinner?'1.5':'1')+'px solid '+borderCol+';border-radius:10px;padding:10px;background:'+(isWinner?'rgba(126,200,106,.06)':'rgba(255,255,255,.02)')+'">';
+    h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+    h+='<span style="font-family:\'Goudy Mediaeval\',serif;color:'+(isWinner?'#7ec86a':'var(--gold2)')+';font-size:.92rem">'+(isWinner?'🏆 ':'')+letter+'. '+esc(d.card.name)+'</span>';
+    h+='</div>';
+    if(d.img)h+='<img src="'+esc(d.img)+'" alt="'+esc(d.card.name)+'" style="width:100%;max-width:200px;border-radius:7px;display:block;margin:0 auto 8px">';
+    h+='<div style="text-align:center;font-size:1.6rem;color:'+(isWinner?'#7ec86a':'var(--gold2)')+';font-weight:700;line-height:1">'+d.score.toFixed(1)+'</div>';
+    h+='<div style="text-align:center;font-size:.66rem;color:var(--tx3);margin-bottom:6px">score · base '+d.base.toFixed(1)+' × syn '+d.syn.toFixed(2)+'</div>';
+    h+='<div style="font-size:.7rem;color:var(--tx2);text-align:center">'+esc(d.card.type_line||'')+' · CMC '+(d.meta.cmc||0)+'</div>';
+    if(d.roles.length)h+='<div style="font-size:.7rem;color:var(--tx2);text-align:center;margin-top:4px">'+d.roles.join(' · ')+'</div>';
+    if(d.inDeck)h+='<div style="margin-top:6px;text-align:center;font-size:.7rem;color:#7ec86a">✓ Déjà '+(d.inDeck.qty||1)+'× dans ton deck</div>';
+    h+='</div>';
+    return h;
+  }
+  var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px">';
+  h+=cardCol(dA,'A',winner==='A');
+  h+=cardCol(dB,'B',winner==='B');
+  h+='</div>';
+  // Verdict bandeau
+  h+='<div style="margin-top:12px;padding:9px 12px;background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.3);border-radius:8px;text-align:center;font-size:.84rem;color:var(--tx2)">';
+  if(!winner){
+    h+='⚖ <b style="color:var(--gold2)">Match nul</b> — les 2 cartes sont équivalentes dans ce contexte (écart '+Math.abs(diff).toFixed(2)+').';
+  }else{
+    var winName=winner==='A'?dA.card.name:dB.card.name;
+    var loseName=winner==='A'?dB.card.name:dA.card.name;
+    var gap=Math.abs(diff).toFixed(1);
+    var verdict='clairement meilleur';
+    if(Math.abs(diff)<2)verdict='légèrement meilleur';
+    else if(Math.abs(diff)<5)verdict='meilleur';
+    else if(Math.abs(diff)<10)verdict='nettement meilleur';
+    else verdict='massivement meilleur';
+    h+='🏆 <b style="color:#7ec86a">'+esc(winName)+'</b> est '+verdict+' que <b>'+esc(loseName)+'</b> ici (+'+gap+' pts)';
+  }
+  h+='</div>';
+  // Actions de swap si l'une est dans le deck et l'autre pas
+  var actions='';
+  if(dA.inDeck&&!dB.inDeck&&winner==='B'){
+    actions+='<button class="btn btnp btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_atelierRecoSwapApply(\''+escJs(dB.card.name)+'\',\''+escJs(dA.card.name)+'\','+(dA.inDeck.qty||1)+')" style="padding:7px 12px">🔁 Remplacer '+esc(dA.card.name)+' par '+esc(dB.card.name)+'</button>';
+  }
+  if(dB.inDeck&&!dA.inDeck&&winner==='A'){
+    actions+='<button class="btn btnp btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_atelierRecoSwapApply(\''+escJs(dA.card.name)+'\',\''+escJs(dB.card.name)+'\','+(dB.inDeck.qty||1)+')" style="padding:7px 12px">🔁 Remplacer '+esc(dB.card.name)+' par '+esc(dA.card.name)+'</button>';
+  }
+  if(!dA.inDeck&&winner==='A'){
+    actions+='<button class="btn btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_atelierRecoAddDirect(\''+escJs(dA.card.name)+'\')" style="padding:7px 12px">+ Ajouter '+esc(dA.card.name)+'</button>';
+  }
+  if(!dB.inDeck&&winner==='B'){
+    actions+='<button class="btn btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_atelierRecoAddDirect(\''+escJs(dB.card.name)+'\')" style="padding:7px 12px">+ Ajouter '+esc(dB.card.name)+'</button>';
+  }
+  if(actions)h+='<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">'+actions+'</div>';
+  body.innerHTML=h;
+}
+// ───────────────────────────────────────────────────────────────────────────
+// AUDIT MANA BASE — simule 5000 mains de 7 (rapide via shuffle Fisher-Yates).
+// Mesure : % keepable, distribution lands, tour moyen pour caster commandant.
+// Indispensable pour calibrer le ratio terrains/non-terrains.
+// ───────────────────────────────────────────────────────────────────────────
+function manaBaseAuditOpen(){
+  if(!actDeck||!decks[actDeck]){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
+  var deck=decks[actDeck];
+  var cards=deck.cards||[];
+  if(!cards.length){if(typeof toastError==='function')toastError('Deck vide');return;}
+  var ov=document.getElementById('mana-audit-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='mana-audit-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('show'))ov.classList.remove('show');});
+  }
+  ov.innerHTML='<div class="ml-modal" style="max-width:780px;width:96vw;max-height:92vh;display:flex;flex-direction:column">'
+    +'<div class="ml-modal-hdr">'
+    +'<div class="ml-modal-title">🎲 Audit mana base — 5000 simulations</div>'
+    +'<button class="ml-modal-close" onclick="document.getElementById(\'mana-audit-ov\').classList.remove(\'show\')">✕</button>'
+    +'</div>'
+    +'<div id="mana-audit-body" style="flex:1;overflow-y:auto;padding:14px 18px"></div>'
+    +'<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:flex-end;gap:8px">'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'mana-audit-ov\').classList.remove(\'show\')">Fermer</button>'
+    +'</div></div>';
+  ov.classList.add('show');
+  setTimeout(function(){_manaBaseAuditRun(deck);},60);
+}
+function _manaBaseAuditRun(deck){
+  var body=document.getElementById('mana-audit-body');if(!body)return;
+  body.innerHTML='<div style="display:flex;align-items:center;gap:10px;color:var(--tx2)">'
+    +'<div style="width:18px;height:18px;border:2px solid rgba(126,200,106,.3);border-top-color:#7ec86a;border-radius:50%;animation:ml-spin 1s linear infinite"></div>'
+    +'⏳ Simulation de 5000 mains de 7…</div>';
+  setTimeout(function(){
+    // Construit la liste plate des cartes en respectant les quantités
+    var fmt=(deck.format||'').toLowerCase();
+    var handSize=7;
+    var isCmd=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
+    var pool=[];
+    (deck.cards||[]).forEach(function(c){
+      var qty=c.qty||1;
+      var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+      var tl=(meta&&meta.typeLine||'').toLowerCase();
+      var isLand=tl.indexOf('land')>=0;
+      var cmc=(meta&&meta.cmc!=null)?meta.cmc:99; // 99 = non chargé, ignoré dans low-CMC count
+      for(var i=0;i<qty;i++){
+        pool.push({isLand:isLand,cmc:cmc,loaded:!!meta});
+      }
+    });
+    if(pool.length<handSize){
+      body.innerHTML='<div style="color:var(--rd2);padding:14px">✗ Deck trop petit pour simuler ('+pool.length+' cartes).</div>';
+      return;
+    }
+    var totalLands=pool.filter(function(x){return x.isLand;}).length;
+    var totalLoaded=pool.filter(function(x){return x.loaded;}).length;
+    var totalLowCmc=pool.filter(function(x){return !x.isLand&&x.cmc<=3;}).length;
+    var N=5000;
+    var keepable=0,mulligan=0,flooded=0,screwed=0,perfect=0;
+    var landDistribution=[0,0,0,0,0,0,0,0]; // [0,1,...,7] lands in opener
+    var castTurnSum=0,castTurnHits=0; // moyenne du tour où on a ≥4 lands
+    var cmcCmd=deck.commander&&deck.commander.cmc;
+    if(cmcCmd==null)cmcCmd=isCmd?4:0; // par défaut on cible T4
+    // Shuffle Fisher-Yates puis pick les 7 premières + observer les 6 tours suivants
+    function shuffle(arr){
+      for(var i=arr.length-1;i>0;i--){
+        var j=Math.floor(Math.random()*(i+1));
+        var t=arr[i];arr[i]=arr[j];arr[j]=t;
+      }
+    }
+    var poolCopy=pool.slice();
+    for(var s=0;s<N;s++){
+      shuffle(poolCopy);
+      // Main d'ouverture
+      var hand=poolCopy.slice(0,handSize);
+      var nLands=hand.filter(function(x){return x.isLand;}).length;
+      var nLow=hand.filter(function(x){return !x.isLand&&x.cmc<=3;}).length;
+      landDistribution[Math.min(7,nLands)]++;
+      // Critères « keepable » : ≥2 lands ET ≥1 carte ≤3 CMC ET pas que des terrains
+      var ok=nLands>=2 && nLands<=5 && nLow>=1;
+      if(ok)keepable++;
+      else mulligan++;
+      if(nLands>=6)flooded++;
+      if(nLands<=1)screwed++;
+      if(nLands===3&&nLow>=2)perfect++; // main « parfaite »
+      // Combien de tours pour atteindre N lands ? On pioche 1 carte par tour
+      if(isCmd){
+        var landsInPlay=nLands;
+        for(var t=0;t<8;t++){
+          if(landsInPlay>=cmcCmd){castTurnSum+=(handSize-7+t);castTurnHits++;break;}
+          var drawn=poolCopy[handSize+t];if(drawn&&drawn.isLand)landsInPlay++;
+        }
+      }
+    }
+    var avgLands=0;for(var k=0;k<landDistribution.length;k++)avgLands+=k*landDistribution[k];
+    avgLands=avgLands/N;
+    var pct=function(n){return Math.round(n*100/N);};
+    var maxDist=Math.max.apply(null,landDistribution);
+    // Render
+    var h='';
+    h+='<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px">';
+    h+='<div style="flex:1;min-width:140px;padding:11px;background:rgba(126,200,106,.06);border:1px solid #7ec86a;border-radius:9px;text-align:center">';
+    h+='<div style="font-size:1.9rem;color:#7ec86a;font-weight:700;line-height:1">'+pct(keepable)+'%</div>';
+    h+='<div style="font-size:.72rem;color:var(--tx2);margin-top:3px">Mains gardables<br><span style="color:var(--tx3);font-size:.66rem">(≥2 lands, ≤5 lands, ≥1 carte ≤3 CMC)</span></div></div>';
+    h+='<div style="flex:1;min-width:140px;padding:11px;background:rgba(217,100,90,.06);border:1px solid #d9645a;border-radius:9px;text-align:center">';
+    h+='<div style="font-size:1.9rem;color:#d9645a;font-weight:700;line-height:1">'+pct(mulligan)+'%</div>';
+    h+='<div style="font-size:.72rem;color:var(--tx2);margin-top:3px">Mulligan recommandé</div></div>';
+    h+='<div style="flex:1;min-width:140px;padding:11px;background:rgba(232,138,74,.06);border:1px solid #e88a4a;border-radius:9px;text-align:center">';
+    h+='<div style="font-size:1.9rem;color:#e88a4a;font-weight:700;line-height:1">'+pct(screwed)+'%</div>';
+    h+='<div style="font-size:.72rem;color:var(--tx2);margin-top:3px">Mana screwed<br><span style="color:var(--tx3);font-size:.66rem">(≤1 land)</span></div></div>';
+    h+='<div style="flex:1;min-width:140px;padding:11px;background:rgba(74,160,232,.06);border:1px solid #4aa0e8;border-radius:9px;text-align:center">';
+    h+='<div style="font-size:1.9rem;color:#4aa0e8;font-weight:700;line-height:1">'+pct(flooded)+'%</div>';
+    h+='<div style="font-size:.72rem;color:var(--tx2);margin-top:3px">Mana flooded<br><span style="color:var(--tx3);font-size:.66rem">(≥6 lands)</span></div></div>';
+    h+='</div>';
+    // Histo distribution
+    h+='<div style="margin-bottom:14px"><div style="font-size:.8rem;color:var(--gold2);margin-bottom:6px">Distribution des terrains en main d\'ouverture</div>';
+    h+='<div style="display:flex;gap:4px;align-items:flex-end;height:90px;padding:6px 0;border-bottom:.5px solid var(--bd2)">';
+    for(var i=0;i<=7;i++){
+      var n=landDistribution[i];
+      var hpx=maxDist?Math.round((n/maxDist)*80):0;
+      var col=(i<=1?'#d9645a':i<=2?'#e88a4a':i<=4?'#7ec86a':i<=5?'#e88a4a':'#4aa0e8');
+      h+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">';
+      h+='<div style="font-size:.66rem;color:var(--tx2);margin-bottom:2px">'+pct(n)+'%</div>';
+      h+='<div style="width:100%;height:'+(hpx||2)+'px;background:'+col+';border-radius:3px 3px 0 0"></div>';
+      h+='<div style="font-size:.66rem;color:var(--tx3);margin-top:3px">'+i+'L</div>';
+      h+='</div>';
+    }
+    h+='</div></div>';
+    // Stats globales
+    h+='<div style="margin-bottom:14px;padding:10px 12px;background:rgba(201,168,76,.06);border-radius:8px;font-size:.78rem;color:var(--tx2);line-height:1.7">';
+    h+='<div>📊 <b>Stats du deck</b> : '+totalLands+' terrains / '+pool.length+' cartes ('+Math.round(totalLands*100/pool.length)+'%), '+totalLowCmc+' cartes ≤3 CMC.</div>';
+    h+='<div>📈 Espérance terrains en main : <b style="color:var(--gold2)">'+avgLands.toFixed(2)+'</b> ('+Math.round(avgLands*100/handSize)+'% de la main)</div>';
+    if(isCmd&&castTurnHits){
+      var avgT=castTurnSum/castTurnHits;
+      h+='<div>👑 Commandant ('+cmcCmd+' mana) castable en moyenne au tour <b style="color:var(--gold2)">'+avgT.toFixed(1)+'</b> dans '+pct(castTurnHits)+'% des cas</div>';
+    }
+    if(totalLoaded<pool.length){
+      h+='<div style="color:var(--am);margin-top:6px;font-size:.72rem">⚠ '+(pool.length-totalLoaded)+' cartes pas encore chargées (data Scryfall manquante) — relance après chargement complet pour précision maximale.</div>';
+    }
+    h+='</div>';
+    // Verdict
+    var verdict='';var vCol='';
+    if(pct(keepable)>=70){verdict='✓ Excellente mana base — '+pct(keepable)+'% de keep, le deck va tourner sereinement.';vCol='#7ec86a';}
+    else if(pct(keepable)>=55){verdict='~ Mana base correcte — '+pct(keepable)+'% de keep, marge d\'amélioration possible.';vCol='#e8c14a';}
+    else if(pct(keepable)>=40){verdict='⚠ Mana base fragile — '+pct(keepable)+'% de keep seulement, attends-toi à mulligan souvent.';vCol='#e88a4a';}
+    else {verdict='✗ Mana base problématique — '+pct(keepable)+'% de keep, à retravailler en priorité.';vCol='#d9645a';}
+    h+='<div style="padding:10px 12px;background:rgba('+(vCol==='#7ec86a'?'126,200,106':vCol==='#e8c14a'?'232,193,74':vCol==='#e88a4a'?'232,138,74':'217,100,90')+',.10);border:1px solid '+vCol+';border-radius:8px;color:'+vCol+';font-size:.84rem;font-weight:600">'+verdict+'</div>';
+    // Conseils
+    var tips=[];
+    if(pct(screwed)>15)tips.push('Trop de mains à 0-1 terrain : ajoute 2-3 terrains ou des cantrips de fixation.');
+    if(pct(flooded)>12)tips.push('Trop de flood : retire 1-2 terrains pour gagner en consistance.');
+    if(pct(keepable)<55&&isCmd&&totalLands<36)tips.push('En Commander avec '+totalLands+' terrains seulement, vise 36-38 pour stabiliser.');
+    if(pct(keepable)<55&&isCmd&&totalLands>40)tips.push('Tu as '+totalLands+' terrains : c\'est beaucoup, le souci vient probablement des cartes ≤3 CMC ('+totalLowCmc+'). Ajoute des cantrips/cheap interactions.');
+    if(tips.length){
+      h+='<div style="margin-top:10px;padding:10px 12px;background:rgba(201,168,76,.05);border-left:3px solid var(--gold);border-radius:6px"><div style="font-size:.74rem;color:var(--gold2);margin-bottom:4px">💡 Conseils</div>';
+      tips.forEach(function(t){h+='<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:3px">• '+t+'</div>';});
+      h+='</div>';
+    }
+    body.innerHTML=h;
+  },40);
+}
 function _atelierRecoAdd(name){
   if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
   // Ouvre la modale de swap : on n'ajoute pas tout de suite, on demande quelle carte couper.
