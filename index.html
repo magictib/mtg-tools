@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-38';
+window.APP_BUILD='2026-06-08-39';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -2027,8 +2027,31 @@ img[draggable="true"][data-card-name]:active{cursor:grabbing}
 .cfoil{text-align:center;font-size:.7rem;color:var(--ac2)}
 .cprice{text-align:right;font-size:.75rem;color:var(--gr2)}
 #deditor{position:relative}
-#deditor-bg{display:none;position:absolute;inset:0;background-size:cover;background-position:center top;opacity:.18;border-radius:inherit;pointer-events:none;z-index:0}
+/* Background commandant : flouté + assombri pour garder l'effet ambiance
+   sans nuire à la lisibilité des graphes/stats du panneau. */
+#deditor-bg{display:none;position:absolute;inset:0;background-size:cover;background-position:center top;opacity:.10;border-radius:inherit;pointer-events:none;z-index:0;filter:blur(2px) saturate(.7)}
+/* Scrim gradient appliqué directement sur le bg (via ::after du conteneur)
+   pour assombrir le bas où sont les graphes. */
+#deditor-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0%,rgba(10,8,5,.6) 70%,rgba(10,8,5,.9) 100%);border-radius:inherit;pointer-events:none}
 #deditor>*:not(#deditor-bg){position:relative;z-index:1}
+/* Panneaux Atelier sur fond image commandant : verre dépoli pour rester lisibles */
+#deck-identity-card,
+#atelier-live{
+  background-color:rgba(14,17,23,.78)!important;
+  backdrop-filter:blur(10px) saturate(1.1);
+  -webkit-backdrop-filter:blur(10px) saturate(1.1);
+}
+/* Conteneurs des stats à l'intérieur d'Analyse Live → fond plus marqué */
+#atelier-live-radar,
+#atelier-live-curve,
+#atelier-live-pips,
+#atelier-live-types,
+#atelier-live-checklist,
+#atelier-live-recos{
+  background:rgba(0,0,0,.18);
+  border-radius:8px;
+  padding:8px 10px;
+}
 /* spécificité égale à la règle ci-dessus + placée après → la liste déroulante du commandant passe au-dessus des champs suivants */
 #deditor>#dcmd-section{z-index:100}
 .dcmd-preview{display:flex;gap:10px;align-items:flex-start;background:var(--s3);border-radius:8px;padding:8px;margin-bottom:8px;border:.5px solid var(--bd2)}
@@ -17730,9 +17753,18 @@ function _atelierSearchSyncVisibility(){
 // ═════════════════════════════════════════════════════════════════════════════
 function _deckIdentityRender(){
   var box=document.getElementById('deck-identity-card');if(!box)return;
-  if(!actDeck||!decks[actDeck]||!dCards||dCards.length<5){box.style.display='none';return;}
+  var bg=document.getElementById('deditor-bg');
+  if(!actDeck||!decks[actDeck]||!dCards||dCards.length<5){
+    box.style.display='none';
+    // Restaure le background commandant en mode ambiance si on l'avait masqué
+    if(bg&&bg.dataset&&bg.dataset.hiddenByIdentity==='1'){bg.style.display='block';bg.dataset.hiddenByIdentity='';}
+    return;
+  }
   if(typeof mlChart==='undefined'){box.style.display='none';return;}
   box.style.display='block';
+  // Carte d'identité affiche déjà l'image commandant à 130px → masque le bg global
+  // pour éviter le double-affichage qui nuit à la lisibilité des graphes.
+  if(bg&&bg.style.display==='block'){bg.style.display='none';bg.dataset.hiddenByIdentity='1';}
   var dk=decks[actDeck];
   var total=dCards.reduce(function(s,c){return s+(c.qty||1);},0);
   // Compute stats (réutilise la même logique que _atelierLiveUpdate)
