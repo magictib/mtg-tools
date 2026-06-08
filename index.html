@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-35';
+window.APP_BUILD='2026-06-08-36';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -4247,7 +4247,16 @@ details > summary::-webkit-details-marker{display:none}
         <button id="atelier-live-toggle" onclick="_atelierLiveToggle()" style="padding:3px 9px;background:transparent;border:.5px solid var(--bd2);border-radius:5px;color:var(--tx3);font-family:inherit;font-size:.72rem;cursor:pointer">▾ Replier</button>
       </div>
       <div id="atelier-live-body">
-        <div id="atelier-live-curve" style="margin-bottom:8px"></div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:8px">
+          <div>
+            <div style="font-size:.7rem;color:var(--tx3);margin-bottom:2px">Profil du deck (cibles 0-100%)</div>
+            <div id="atelier-live-radar" style="height:200px"></div>
+          </div>
+          <div>
+            <div id="atelier-live-curve" style="margin-bottom:6px"></div>
+            <div id="atelier-live-pips"></div>
+          </div>
+        </div>
         <div id="atelier-live-types" style="margin-bottom:8px"></div>
         <div id="atelier-live-checklist" style="margin-bottom:8px"></div>
         <div id="atelier-live-recos"></div>
@@ -14353,6 +14362,43 @@ function _atelierLiveUpdate(){
     var pct=nb?Math.round(pass*100/nb):0;
     var col=pct>=80?'#7ec86a':(pct>=50?'#e8c14a':'#d9645a');
     scoreEl.innerHTML='· <span style="color:'+col+';font-weight:600">'+pass+'/'+nb+' critères OK</span> ('+pct+'%)';
+  }
+  // ─── Radar du profil de deck (rôles vs cibles, 0-1 scale) ───
+  if(typeof mlChart!=='undefined'&&typeof mlChart.radar==='function'){
+    var axes=[],values=[];
+    Object.keys(targets).forEach(function(k){
+      var t=targets[k];
+      var v=(k==='Land')?typeCounts.Land:t.actual;
+      // Normalise sur 1.2× la cible : permet de voir l'excès
+      axes.push(t.lbl);
+      values.push(Math.min(1,v/(t.min*1.2)));
+    });
+    mlChart.radar('#atelier-live-radar',axes,[{name:'Ton deck',values:values,color:mlChart.PAL.accent}],{fmt:function(v){return (v*100).toFixed(0)+'%';}});
+  }
+  // ─── Pip count par couleur (mana symbols) ───
+  if(typeof mlChart!=='undefined'&&typeof mlChart.pips==='function'){
+    var pipCount={W:0,U:0,B:0,R:0,G:0};
+    dCards.forEach(function(c){
+      var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+      if(!meta||!meta.manaCost)return;
+      var qty=c.qty||1;
+      var mc=(meta.manaCost||'').toLowerCase();
+      ['w','u','b','r','g'].forEach(function(col){
+        var re=new RegExp('\\{'+col+'\\}|\\{'+col+'/[wubrgp]\\}|\\{[wubrg]/'+col+'\\}','g');
+        var m=mc.match(re);
+        if(m)pipCount[col.toUpperCase()]+=m.length*qty;
+      });
+    });
+    var pipEl=document.getElementById('atelier-live-pips');
+    if(pipEl){
+      var totPips=Object.values(pipCount).reduce(function(s,v){return s+v;},0);
+      if(totPips>0){
+        pipEl.innerHTML='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:2px">Pip count (sources nécessaires)</div><div id="atelier-live-pips-inner" style="height:90px"></div>';
+        mlChart.pips('#atelier-live-pips-inner',pipCount);
+      }else{
+        pipEl.innerHTML='';
+      }
+    }
   }
 }
 // ───────────────────────────────────────────────────────────────────────────
@@ -37122,16 +37168,57 @@ function renderCollDashboard(){
   var colCss={W:'#c8b870',U:'#4090ff',B:'#9060c0',R:'#ff5040',G:'#30b048',M:'linear-gradient(90deg,#c8b870,#4090ff,#9060c0,#ff5040,#30b048)',C:'#888'};
   var rarNames={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique',other:'Autre'};
   var rarCss={common:'#888',uncommon:'#b0c4de',rare:'#d4a017',mythic:'#e07030',other:'#666'};
+  // CMC distribution (pour histogramme)
+  var cmcDist={};
+  cards.forEach(function(c){
+    var cached=collCache[c.name.toLowerCase()];
+    if(!cached)return;
+    if((cached.typeLine||'').toLowerCase().indexOf('land')>=0)return;
+    var cmc=Math.min(7,Math.floor(cached.cmc||0));
+    cmcDist[cmc]=(cmcDist[cmc]||0)+(c.qty||1);
+  });
+  // Types distribution (pie)
+  var typeDist={};
+  var typeOrder=['Creature','Instant','Sorcery','Enchantment','Artifact','Planeswalker','Land','Battle'];
+  cards.forEach(function(c){
+    var cached=collCache[c.name.toLowerCase()];if(!cached)return;
+    var tl=(cached.typeLine||'').toLowerCase();
+    var t='Other';
+    for(var ti=0;ti<typeOrder.length;ti++){if(tl.indexOf(typeOrder[ti].toLowerCase())>=0){t=typeOrder[ti];break;}}
+    typeDist[t]=(typeDist[t]||0)+(c.qty||1);
+  });
+  // Distribution par prix (bins)
+  var priceBins=[{label:'<1€',count:0,color:'#888'},{label:'1-5€',count:0,color:'#4aa0e8'},{label:'5-20€',count:0,color:'#7ec86a'},{label:'20-50€',count:0,color:'#e8c14a'},{label:'>50€',count:0,color:'#d9645a'}];
+  cards.forEach(function(c){
+    var p=c.price||0;var q=c.qty||1;
+    if(p<1)priceBins[0].count+=q;
+    else if(p<5)priceBins[1].count+=q;
+    else if(p<20)priceBins[2].count+=q;
+    else if(p<50)priceBins[3].count+=q;
+    else priceBins[4].count+=q;
+  });
+
   var html='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
   html+='<div class="lbl" style="margin:0">📊 Dashboard collection</div>';
   html+='<button class="btn btnsm" onclick="toggleCollDashboard()">✕</button>';
   html+='</div>';
-  // KPIs en grille
-  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px">';
-  html+='<div class="stat"><div class="sv">'+totalExemplaires.toLocaleString('fr-FR')+'</div><div class="sl">Cartes (total)</div></div>';
-  html+='<div class="stat"><div class="sv">'+unique.toLocaleString('fr-FR')+'</div><div class="sl">Lignes uniques</div></div>';
-  html+='<div class="stat"><div class="sv" style="color:var(--gold2)">'+totalValue.toLocaleString('fr-FR',{maximumFractionDigits:2})+'€</div><div class="sl">Valeur totale</div></div>';
-  html+='<div class="stat"><div class="sv">'+Object.keys(setDist).length+'</div><div class="sl">Sets représentés</div></div>';
+  // 4 KPI cards mlChart
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">';
+  html+='<div id="coll-kpi-total"></div>';
+  html+='<div id="coll-kpi-uniq"></div>';
+  html+='<div id="coll-kpi-val"></div>';
+  html+='<div id="coll-kpi-sets"></div>';
+  html+='</div>';
+  // Trio graphes : treemap couleurs · pie types · histo CMC
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:14px">';
+  html+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.06em;margin-bottom:6px;font-weight:600;text-transform:uppercase">🎨 Couleurs (treemap)</div><div id="coll-treemap" style="height:180px"></div></div>';
+  html+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.06em;margin-bottom:6px;font-weight:600;text-transform:uppercase">📑 Types (donut)</div><div id="coll-pie" style="height:180px"></div></div>';
+  html+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.06em;margin-bottom:6px;font-weight:600;text-transform:uppercase">📊 Distribution prix</div><div id="coll-pricebin" style="height:180px"></div></div>';
+  html+='</div>';
+  // Histo CMC sur largeur pleine
+  html+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px;margin-bottom:14px">';
+  html+='<div style="font-size:.7rem;color:var(--tx3);letter-spacing:.06em;margin-bottom:6px;font-weight:600;text-transform:uppercase">⚔ Courbe de mana globale (hors terrains)</div>';
+  html+='<div id="coll-cmc" style="height:140px"></div>';
   html+='</div>';
   // Répartition par couleur
   var totalColored=Object.keys(colorDist).reduce(function(s,k){return s+colorDist[k];},0)||1;
@@ -37200,6 +37287,37 @@ function renderCollDashboard(){
     html+='</div>';
   }
   el.innerHTML=html;
+  // Render mlChart visualisations
+  if(typeof mlChart!=='undefined'){
+    setTimeout(function(){
+      try{
+        mlChart.kpi('#coll-kpi-total',{label:'Cartes',value:totalExemplaires.toLocaleString('fr-FR'),unit:'total',icon:'🃏',color:mlChart.PAL.accent});
+        mlChart.kpi('#coll-kpi-uniq',{label:'Uniques',value:unique.toLocaleString('fr-FR'),unit:'lignes',icon:'⊕',color:'#4aa0e8'});
+        mlChart.kpi('#coll-kpi-val',{label:'Valeur',value:totalValue.toFixed(0),unit:'€',icon:'💰',color:'#7ec86a'});
+        mlChart.kpi('#coll-kpi-sets',{label:'Sets',value:Object.keys(setDist).length,unit:'ext.',icon:'📚',color:'#b48cdc'});
+        // Treemap couleurs (utilise PAL.mtg)
+        var tmItems=['W','U','B','R','G','C'].filter(function(k){return colorDist[k]>0;}).map(function(k){
+          return {label:({W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',C:'Incolore'})[k],value:colorDist[k],color:mlChart.PAL.mtg[k]};
+        });
+        if(colorDist.M>0)tmItems.push({label:'Multi',value:colorDist.M,color:'#c8b870'});
+        mlChart.treemap('#coll-treemap',tmItems);
+        // Pie types
+        var pieColors=['#7ec86a','#4aa0e8','#b48cdc','#e8c14a','#888','#c14ad9','#888','#e88a4a'];
+        var pieData=Object.keys(typeDist).filter(function(k){return typeDist[k]>0;}).map(function(k,i){
+          return {label:k,value:typeDist[k],color:pieColors[i%pieColors.length]};
+        });
+        mlChart.pie('#coll-pie',pieData,{donut:true,centerText:unique.toString(),centerSubtitle:'uniques'});
+        // Distribution prix
+        mlChart.bar('#coll-pricebin',priceBins.filter(function(b){return b.count>0;}).map(function(b){return {label:b.label,value:b.count,color:b.color};}));
+        // CMC histogram
+        var cmcBins=[];
+        for(var ci=0;ci<=7;ci++){
+          cmcBins.push({label:ci===7?'7+':String(ci),value:cmcDist[ci]||0,color:mlChart.PAL.accent});
+        }
+        mlChart.bar('#coll-cmc',cmcBins);
+      }catch(e){console.warn('[Coll dashboard charts]',e);}
+    },60);
+  }
 }
 // Debounce du rendu collection : évite de re-rendre toute la collection
 // à chaque frappe dans les filtres (jank sur grosse collection / mobile).
