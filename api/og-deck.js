@@ -125,18 +125,108 @@ module.exports = async function handler(req, res) {
         sorceries: 'Rituels', artifacts: 'Artefacts', enchantments: 'Enchantements',
         lands: 'Terrains', other: 'Autres'
       };
-      bodyHtml = '<article class="deck-public">';
-      bodyHtml += '<header><h1>' + escHtml(name) + '</h1>';
-      bodyHtml += '<p class="meta">' + escHtml(description) + '</p>';
-      if (notes) bodyHtml += '<p class="notes"><em>' + escHtml(notes.slice(0, 400)) + (notes.length > 400 ? '…' : '') + '</em></p>';
-      bodyHtml += '</header>';
+      // Fetch image du commandant via Scryfall (rapide, single card)
+      var cmdImg = '';
       if (commander && commander.name) {
-        bodyHtml += '<section class="commander"><h2>Commandant</h2><p><strong>' + escHtml(commander.name) + '</strong></p></section>';
+        try {
+          var sR = await fetch('https://api.scryfall.com/cards/named?exact=' + encodeURIComponent(commander.name) + '&format=json');
+          if (sR.ok) {
+            var sC = await sR.json();
+            cmdImg = (sC && sC.image_uris && sC.image_uris.normal)
+              || (sC && sC.card_faces && sC.card_faces[0] && sC.card_faces[0].image_uris && sC.card_faces[0].image_uris.normal)
+              || '';
+          }
+        } catch (_) {}
       }
+
+      // Compteurs par type pour la stripe de composition
+      var typeOrder = ['lands', 'creatures', 'instants', 'sorceries', 'enchantments', 'artifacts', 'planeswalkers', 'other'];
+      var typeColors = {
+        lands: '#7ec86a',
+        creatures: '#c8a878',
+        instants: '#7eb3d9',
+        sorceries: '#b48cdc',
+        enchantments: '#e8c14a',
+        artifacts: '#9d9d9d',
+        planeswalkers: '#c14ad9',
+        other: '#666'
+      };
+      var typeCounts = {};
+      typeOrder.forEach(function (k) {
+        typeCounts[k] = (groups[k] || []).reduce(function (s, c) { return s + (c.qty || 1); }, 0);
+      });
+      var totalNonZero = Object.values(typeCounts).reduce(function (s, v) { return s + v; }, 0) || 1;
+      // Score visuel (cercle gauge SVG)
+      var scoreVal = (pw && pw.score != null) ? Math.round(pw.score) : null;
+      var scoreCol = scoreVal == null ? '#7a6856' : (scoreVal >= 80 ? '#7ec86a' : scoreVal >= 60 ? '#e8c14a' : scoreVal >= 40 ? '#e88a4a' : '#d9645a');
+      function scoreSvg() {
+        if (scoreVal == null) return '';
+        var c = 2 * Math.PI * 40; // r=40
+        var dash = c * (scoreVal / 100);
+        return '<svg width="100" height="100" viewBox="0 0 100 100" style="display:block">'
+          + '<circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8"/>'
+          + '<circle cx="50" cy="50" r="40" fill="none" stroke="' + scoreCol + '" stroke-width="8" stroke-dasharray="' + dash + ' ' + (c - dash) + '" stroke-dashoffset="0" transform="rotate(-90 50 50)" stroke-linecap="round"/>'
+          + '<text x="50" y="50" text-anchor="middle" dominant-baseline="central" fill="' + scoreCol + '" font-size="24" font-weight="700" font-family="Georgia,serif">' + scoreVal + '</text>'
+          + '<text x="50" y="68" text-anchor="middle" fill="#7a6856" font-size="9" font-family="Georgia,serif">/100</text>'
+          + '</svg>';
+      }
+
+      bodyHtml = '<article class="deck-public">';
+      // ── HERO carte d'identité du deck ──
+      bodyHtml += '<header class="deck-hero">';
+      bodyHtml += '<div class="hero-bg" style="background:linear-gradient(135deg,rgba(201,168,76,.10),rgba(74,160,232,.05))"></div>';
+      bodyHtml += '<div class="hero-inner">';
+      if (cmdImg) {
+        bodyHtml += '<div class="hero-cmd-img"><img src="' + escHtml(cmdImg) + '" alt="' + escHtml(commander.name) + '" loading="lazy"></div>';
+      }
+      bodyHtml += '<div class="hero-meta">';
+      bodyHtml += '<div class="hero-tag">ManaLAB · Deck partagé</div>';
+      bodyHtml += '<h1>' + escHtml(name) + '</h1>';
+      if (commander && commander.name) {
+        bodyHtml += '<div class="hero-cmd">👑 ' + escHtml(commander.name) + '</div>';
+      }
+      bodyHtml += '<div class="hero-kpis">';
+      bodyHtml += '<div class="hero-kpi"><div class="hk-val">' + total + '</div><div class="hk-lbl">Cartes</div></div>';
+      if (format) bodyHtml += '<div class="hero-kpi"><div class="hk-val">' + escHtml(format.charAt(0).toUpperCase() + format.slice(1)) + '</div><div class="hk-lbl">Format</div></div>';
+      if (ownerName) bodyHtml += '<div class="hero-kpi"><div class="hk-val">' + escHtml(ownerName) + '</div><div class="hk-lbl">Auteur</div></div>';
+      if (likeCount > 0) bodyHtml += '<div class="hero-kpi"><div class="hk-val" style="color:#e07070">❤ ' + likeCount + '</div><div class="hk-lbl">J\'aime</div></div>';
+      if (commentCount > 0) bodyHtml += '<div class="hero-kpi"><div class="hk-val" style="color:#7eb3d9">💬 ' + commentCount + '</div><div class="hk-lbl">Avis</div></div>';
+      bodyHtml += '</div>';
+      bodyHtml += '</div>'; // /hero-meta
+      if (scoreVal != null) {
+        bodyHtml += '<div class="hero-score">' + scoreSvg() + '<div class="hs-lbl">Score ManaLAB</div></div>';
+      }
+      bodyHtml += '</div>'; // /hero-inner
+      bodyHtml += '</header>';
+
+      // ── Composition visuelle (stripe colorée + chips) ──
+      bodyHtml += '<section class="composition">';
+      bodyHtml += '<h2>Composition</h2>';
+      bodyHtml += '<div class="comp-stripe">';
+      typeOrder.forEach(function (k) {
+        if (!typeCounts[k]) return;
+        var pct = (typeCounts[k] / totalNonZero * 100).toFixed(1);
+        bodyHtml += '<div class="comp-seg" style="background:' + typeColors[k] + ';width:' + pct + '%" title="' + escHtml(groupLabels[k]) + ' : ' + typeCounts[k] + '"></div>';
+      });
+      bodyHtml += '</div>';
+      bodyHtml += '<div class="comp-chips">';
+      typeOrder.forEach(function (k) {
+        if (!typeCounts[k]) return;
+        bodyHtml += '<span class="comp-chip"><span class="cc-dot" style="background:' + typeColors[k] + '"></span>' + escHtml(groupLabels[k]) + ' <b>' + typeCounts[k] + '</b></span>';
+      });
+      bodyHtml += '</div>';
+      bodyHtml += '</section>';
+
+      // ── Notes (si présentes) ──
+      if (notes) {
+        bodyHtml += '<section class="notes-section"><h2>Stratégie</h2><p class="notes">' + escHtml(notes.slice(0, 800)) + (notes.length > 800 ? '…' : '') + '</p></section>';
+      }
+
+      // ── Liste des cartes par catégorie ──
       bodyHtml += '<section class="cards"><h2>Liste des cartes (' + total + ')</h2>';
       Object.keys(groups).forEach(function (key) {
         if (!groups[key].length) return;
-        bodyHtml += '<div class="card-group"><h3>' + escHtml(groupLabels[key]) + ' (' + groups[key].length + ')</h3><ul>';
+        bodyHtml += '<div class="card-group"><h3><span class="cg-dot" style="background:' + (typeColors[key] || '#666') + '"></span>' + escHtml(groupLabels[key]) + ' <span class="cg-count">' + groups[key].length + '</span></h3><ul>';
         groups[key].slice(0, 200).forEach(function (c) {
           var qty = c.qty || 1;
           bodyHtml += '<li>' + qty + '× ' + escHtml(c.name) + '</li>';
@@ -164,8 +254,8 @@ module.exports = async function handler(req, res) {
         }
         bodyHtml += '</section>';
       }
-      bodyHtml += '<p class="cta"><a href="' + escHtml(appUrl) + '" rel="canonical">→ Ouvrir ce deck dans ManaLAB pour l\'analyser, l\'éditer ou jouer avec</a></p>';
-      bodyHtml += '<footer><p>Deck partagé via <a href="' + escHtml(origin) + '/">ManaLAB</a>, l\'outil d\'analyse et gestion de decks Magic: The Gathering.</p>';
+      bodyHtml += '<div class="cta"><div style="font-size:.74rem;color:#a09070;margin-bottom:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:600">⚡ Tu veux jouer avec ce deck ?</div><a href="' + escHtml(appUrl) + '" rel="canonical">Ouvrir dans ManaLAB →</a><div style="font-size:.72rem;color:#7a6856;margin-top:10px">Analyse profonde · suggestions de swaps · simulation mana base · partage social</div></div>';
+      bodyHtml += '<footer><p>Deck partagé via <a href="' + escHtml(origin) + '/">ManaLAB</a> — outil gratuit d\'analyse et de gestion de decks Magic: The Gathering.</p>';
       if (sharedAt) bodyHtml += '<p><small>Publié le ' + escHtml(new Date(sharedAt).toLocaleDateString('fr-FR')) + '</small></p>';
       bodyHtml += '</footer></article>';
 
@@ -238,18 +328,46 @@ module.exports = async function handler(req, res) {
     + '<meta name="twitter:image" content="' + escHtml(ogImage) + '">'
     + (jsonLd ? '<script type="application/ld+json">' + JSON.stringify(jsonLd) + '</script>' : '')
     + '<style>'
-    + 'body{font-family:Georgia,serif;background:#0c0a07;color:#e4d5b7;max-width:880px;margin:0 auto;padding:32px 20px;line-height:1.55}'
-    + 'h1{font-family:Georgia,serif;color:#e8c96e;font-size:1.9rem;margin:0 0 .3em;text-shadow:0 0 14px rgba(201,168,76,.3)}'
-    + 'h2{color:#c9a84c;font-size:1.25rem;border-bottom:1px solid rgba(201,168,76,.3);padding-bottom:4px;margin-top:1.6em}'
-    + 'h3{color:#a09070;font-size:1rem;margin-top:1em}'
+    + '*{box-sizing:border-box}'
+    + 'body{font-family:-apple-system,"Segoe UI",system-ui,sans-serif;background:linear-gradient(180deg,#0e1117 0%,#070a0e 100%);color:#e4d5b7;max-width:920px;margin:0 auto;padding:24px 20px;line-height:1.55;min-height:100vh}'
+    + 'h1{font-family:Georgia,serif;color:#e8c96e;font-size:2rem;margin:0 0 .2em;text-shadow:0 0 14px rgba(201,168,76,.3);line-height:1.15;letter-spacing:-0.01em}'
+    + 'h2{color:#c9a84c;font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;border-bottom:1px solid rgba(201,168,76,.3);padding-bottom:6px;margin:2em 0 .8em;font-family:-apple-system,"Segoe UI",sans-serif}'
+    + 'h3{color:#a09070;font-size:.9rem;margin:1em 0 .4em;display:flex;align-items:center;gap:8px;font-family:-apple-system,"Segoe UI",sans-serif;font-weight:600}'
     + 'a{color:#e8c96e;text-decoration:underline}a:hover{color:#fff}'
-    + '.meta{color:#a09070;font-size:.95rem;margin:0 0 1em}'
-    + '.notes{color:#7a6856;font-size:.92rem;border-left:2px solid rgba(201,168,76,.3);padding-left:12px}'
-    + '.commander p{font-size:1.05rem}'
-    + '.card-group{margin:.8em 0 1.2em}'
-    + 'ul{list-style:none;padding-left:0;columns:2;column-gap:24px}'
-    + 'li{font-size:.92rem;padding:2px 0;break-inside:avoid;color:#bcae8e}'
-    + '.cta{text-align:center;padding:18px 14px;margin:24px 0;background:linear-gradient(135deg,rgba(201,168,76,.12),rgba(201,168,76,.03));border:1px solid rgba(201,168,76,.4);border-radius:10px;font-size:1.05rem}'
+    /* HERO — carte d'identité du deck */
+    + '.deck-hero{position:relative;border:1px solid rgba(201,168,76,.32);border-radius:16px;overflow:hidden;margin-bottom:18px;box-shadow:0 8px 32px rgba(0,0,0,.4)}'
+    + '.hero-bg{position:absolute;inset:0;z-index:0}'
+    + '.hero-inner{position:relative;z-index:1;padding:22px 24px;display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center}'
+    + '.hero-cmd-img{flex-shrink:0;width:130px;border-radius:9px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,.6)}'
+    + '.hero-cmd-img img{width:100%;display:block}'
+    + '.hero-meta{min-width:0}'
+    + '.hero-tag{font-size:.62rem;color:#7a6856;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:5px}'
+    + '.hero-cmd{color:#c9a84c;font-size:.96rem;margin:6px 0 14px;font-weight:500}'
+    + '.hero-kpis{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}'
+    + '.hero-kpi{padding:7px 12px;background:rgba(0,0,0,.3);border:.5px solid rgba(201,168,76,.25);border-radius:8px;min-width:0}'
+    + '.hk-val{font-size:1.1rem;color:#e8c96e;font-weight:700;line-height:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px}'
+    + '.hk-lbl{font-size:.6rem;color:#7a6856;letter-spacing:.08em;text-transform:uppercase;margin-top:3px;font-weight:600}'
+    + '.hero-score{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px}'
+    + '.hs-lbl{font-size:.62rem;color:#7a6856;letter-spacing:.1em;text-transform:uppercase;font-weight:600}'
+    /* COMPOSITION stripe */
+    + '.composition{margin-bottom:16px}'
+    + '.comp-stripe{display:flex;height:18px;border-radius:5px;overflow:hidden;background:rgba(0,0,0,.4);margin-bottom:10px;box-shadow:inset 0 0 6px rgba(0,0,0,.4)}'
+    + '.comp-seg{transition:opacity .15s}.comp-seg:hover{opacity:.7}'
+    + '.comp-chips{display:flex;flex-wrap:wrap;gap:6px}'
+    + '.comp-chip{padding:4px 9px;background:rgba(255,255,255,.04);border:.5px solid rgba(201,168,76,.25);border-radius:11px;font-size:.74rem;color:#bcae8e;display:inline-flex;align-items:center;gap:5px}'
+    + '.cc-dot{display:inline-block;width:8px;height:8px;border-radius:50%}'
+    /* CARDS LIST par catégorie */
+    + '.notes-section .notes{color:#9a8a72;font-size:.92rem;border-left:3px solid rgba(201,168,76,.4);padding:8px 12px;background:rgba(255,255,255,.02);border-radius:0 6px 6px 0;font-style:italic}'
+    + '.cards .card-group{margin:.6em 0 1em;background:rgba(255,255,255,.018);border-radius:8px;padding:10px 14px;border:.5px solid rgba(201,168,76,.12)}'
+    + '.cg-dot{display:inline-block;width:9px;height:9px;border-radius:50%}'
+    + '.cg-count{color:#7a6856;font-size:.78rem;margin-left:auto;font-weight:400}'
+    + 'ul{list-style:none;padding-left:0;columns:2;column-gap:24px;margin:.4em 0 0}'
+    + 'li{font-size:.88rem;padding:2px 0;break-inside:avoid;color:#bcae8e}'
+    /* CTA */
+    + '.cta{text-align:center;padding:20px 16px;margin:24px 0;background:linear-gradient(135deg,rgba(201,168,76,.14),rgba(74,160,232,.04));border:1px solid rgba(201,168,76,.45);border-radius:12px;font-size:1.05rem;font-weight:500}'
+    + '.cta a{display:inline-block;background:linear-gradient(180deg,#c9a84c,#7a5a1f);color:#0a0805;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:700;letter-spacing:.02em;transition:transform .15s}'
+    + '.cta a:hover{transform:translateY(-2px);color:#0a0805}'
+    /* ENGAGEMENT */
     + '.engagement{margin-top:1.6em}'
     + '.likes{color:#e07070;font-size:.95rem}'
     + '.comment-count{color:#a09070;font-size:.85rem;margin-bottom:.6em}'
@@ -258,8 +376,17 @@ module.exports = async function handler(req, res) {
     + '.comment cite{display:block;font-size:.78rem;color:#c9a84c;margin-bottom:4px;font-style:normal;font-weight:600}'
     + '.comment cite time{color:#7a6856;font-weight:400}'
     + '.comment p{margin:0;font-size:.88rem;color:#bcae8e;line-height:1.45}'
-    + 'footer{margin-top:2em;padding-top:1em;border-top:.5px solid rgba(201,168,76,.2);color:#7a6856;font-size:.82rem}'
-    + '@media(max-width:600px){body{padding:18px 14px}ul{columns:1}h1{font-size:1.5rem}}'
+    + 'footer{margin-top:2.5em;padding-top:1.2em;border-top:.5px solid rgba(201,168,76,.18);color:#7a6856;font-size:.82rem;text-align:center}'
+    /* RESPONSIVE */
+    + '@media(max-width:700px){'
+    +   '.hero-inner{grid-template-columns:1fr;gap:14px;text-align:center;padding:18px}'
+    +   '.hero-cmd-img{width:120px;margin:0 auto}'
+    +   '.hero-kpis{justify-content:center}'
+    +   '.hero-score{margin:0 auto}'
+    +   'h1{font-size:1.5rem}'
+    +   'ul{columns:1}'
+    +   'body{padding:14px 12px}'
+    + '}'
     + '</style>'
     + '</head><body>'
     + (bodyHtml || ('<h1>' + escHtml(title) + '</h1><p>' + escHtml(description) + '</p><p><a href="' + escHtml(appUrl) + '">→ Ouvrir le deck sur ManaLAB</a></p>'))
