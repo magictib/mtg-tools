@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-42';
+window.APP_BUILD='2026-06-08-43';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -54837,7 +54837,65 @@ function metaRenderMeta(archetypes){
         +'</div>';
     });
   }
-  content.innerHTML='<div class="meta-2cols">'
+  // ── Dashboard visuel en tête (mlChart) ──
+  var dashHtml='';
+  if(typeof mlChart!=='undefined'){
+    // Stats globales
+    var totalArch=archetypes.length;
+    var topArch=archetypes.slice().sort(function(a,b){return (b.pct||0)-(a.pct||0);})[0];
+    var topCard=_metaTopCards.length?_metaTopCards[0]:null;
+    // Total des % par catégorie
+    var catStats={};
+    cats.forEach(function(c){catStats[c]={pct:0,count:0};});
+    archetypes.forEach(function(a){
+      var c=a.cat&&catStats[a.cat]?a.cat:'Other';
+      catStats[c].pct+=(a.pct||0);
+      catStats[c].count++;
+    });
+    // Couleurs WUBRG du méta (pondéré par % archétype)
+    var colDist={W:0,U:0,B:0,R:0,G:0,C:0};
+    archetypes.forEach(function(a){
+      var cols=(a.colors||'').split('').filter(function(c){return colDist[c]!=null;});
+      var w=(a.pct||0.5);
+      if(!cols.length)colDist.C+=w;
+      else cols.forEach(function(c){colDist[c]+=w/cols.length;});
+    });
+    dashHtml+='<div style="margin-bottom:18px">';
+    // KPIs row
+    dashHtml+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px">';
+    dashHtml+='<div id="meta-kpi-arch"></div>';
+    dashHtml+='<div id="meta-kpi-top"></div>';
+    dashHtml+='<div id="meta-kpi-topcard"></div>';
+    dashHtml+='<div id="meta-kpi-period"></div>';
+    dashHtml+='</div>';
+    // 3 graphes en grid
+    dashHtml+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
+    dashHtml+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px">🎭 Catégories (pie)</div><div id="meta-pie-cats" style="height:170px"></div></div>';
+    dashHtml+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px">🎨 Couleurs WUBRG</div><div id="meta-pie-cols" style="height:170px"></div></div>';
+    dashHtml+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px">🏆 Top 10 archétypes</div><div id="meta-bar-top" style="height:'+Math.max(170,Math.min(10,archetypes.length)*22)+'px"></div></div>';
+    dashHtml+='</div>';
+    dashHtml+='</div>';
+    // Render après injection
+    setTimeout(function(){
+      try{
+        mlChart.kpi('#meta-kpi-arch',{label:'Archétypes',value:totalArch,icon:'🎭',color:mlChart.PAL.accent});
+        if(topArch)mlChart.kpi('#meta-kpi-top',{label:'#1 archétype',value:topArch.name.length>16?topArch.name.slice(0,14)+'…':topArch.name,unit:(topArch.pct||0)+'%',icon:'🥇',color:'#7ec86a'});
+        if(topCard)mlChart.kpi('#meta-kpi-topcard',{label:'Carte #1',value:topCard.name.length>16?topCard.name.slice(0,14)+'…':topCard.name,unit:(topCard.pct||0)+'%',icon:'🃏',color:'#4aa0e8'});
+        mlChart.kpi('#meta-kpi-period',{label:'Période',value:(_metaActivePeriod||'—'),icon:'📅',color:'#b48cdc'});
+        // Pie catégories (filtre 0)
+        var pieData=cats.filter(function(c){return catStats[c].pct>0;}).map(function(c){return {label:c,value:Math.round(catStats[c].pct),color:catColors[c]};});
+        if(pieData.length)mlChart.pie('#meta-pie-cats',pieData,{donut:true,centerText:totalArch+'',centerSubtitle:'archétypes'});
+        // Pie couleurs WUBRG
+        var colPalette={W:'#f5e9c5',U:'#88c8f0',B:'#9088a8',R:'#e07070',G:'#90c890',C:'#888'};
+        var colData=Object.keys(colDist).filter(function(k){return colDist[k]>0.5;}).map(function(k){return {label:({W:'Blanc',U:'Bleu',B:'Noir',R:'Rouge',G:'Vert',C:'Incolore'})[k],value:Math.round(colDist[k]),color:colPalette[k]};});
+        if(colData.length)mlChart.pie('#meta-pie-cols',colData,{donut:true,centerText:Math.round(Object.values(colDist).reduce(function(s,v){return s+v;},0))+'%',centerSubtitle:'cumulé'});
+        // Bar top archétypes
+        var top10=archetypes.slice().sort(function(a,b){return (b.pct||0)-(a.pct||0);}).slice(0,10);
+        mlChart.bar('#meta-bar-top',top10.map(function(a){return {label:a.name,value:a.pct||0,color:catColors[a.cat]||mlChart.PAL.accent};}),{horizontal:true,valueFmt:function(v){return v+'%';}});
+      }catch(e){console.warn('[Méta dashboard]',e);}
+    },60);
+  }
+  content.innerHTML=dashHtml+'<div class="meta-2cols">'
     +'<div class="meta-col-arch">'+archHtml+'</div>'
     +'<div class="meta-col-top">'+topHtml+'</div>'
     +'</div>';
