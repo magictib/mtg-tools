@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-40';
+window.APP_BUILD='2026-06-08-41';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -4255,25 +4255,35 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm btnrd" id="delbtn" onclick="deleteDeck()" style="display:none" data-i18n="deck.delete">✕ Supprimer</button>
     </div>
     <!-- Barre de recherche INLINE persistante (visible dès qu'un deck est ouvert) -->
-    <!-- HEADER « Carte d'identité du deck » — vue visuelle synthétique en haut de l'Atelier.
-         Visible dès qu'un deck est ouvert ET qu'il a au moins 5 cartes (sinon trop vide). -->
-    <div id="deck-identity-card" style="display:none;margin:8px 0 14px 0;background:linear-gradient(135deg,rgba(201,168,76,.06),rgba(74,160,232,.03));border:1px solid rgba(201,168,76,.32);border-radius:14px;padding:14px;overflow:hidden;position:relative">
-      <div style="display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr) minmax(0,200px);gap:14px;align-items:start">
-        <!-- Colonne 1 : commandant + nom -->
-        <div id="deck-id-cmd" style="display:flex;flex-direction:column;align-items:center;text-align:center"></div>
-        <!-- Colonne 2 : KPIs + radar -->
+    <!-- HEADER « Hero du deck » style Steam/PSN — bandeau cinématique avec art_crop
+         du commandant en background, gradient overlay, infos en surimpression.
+         Visible dès qu'un deck est ouvert ET qu'il a au moins 5 cartes. -->
+    <div id="deck-identity-card" style="display:none;margin:8px 0 14px 0;border-radius:14px;overflow:hidden;position:relative;box-shadow:0 8px 28px rgba(0,0,0,.5)">
+      <!-- Couche 1 : background art commandant (image art_crop large) -->
+      <div id="deck-id-bg" style="position:absolute;inset:0;background-size:cover;background-position:center 30%;z-index:0"></div>
+      <!-- Couche 2 : gradient overlay (assombrit le bas pour lisibilité du texte) -->
+      <div id="deck-id-overlay" style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,8,5,.55) 0%,rgba(10,8,5,.75) 60%,rgba(10,8,5,.95) 100%),linear-gradient(90deg,rgba(10,8,5,.8) 0%,transparent 40%,transparent 60%,rgba(10,8,5,.5) 100%);z-index:1"></div>
+      <!-- Couche 3 : contenu (titre + KPIs + actions) -->
+      <div id="deck-id-content" style="position:relative;z-index:2;min-height:220px;display:flex;flex-direction:column;justify-content:space-between;padding:18px 22px"></div>
+      <!-- Couche 4 : actions en haut à droite -->
+      <div id="deck-id-actions" style="position:absolute;top:12px;right:14px;z-index:3;display:flex;gap:6px"></div>
+    </div>
+    <!-- Sous-bloc Analyse rapide (radar + curve + pips) — affiché juste sous le hero quand identité visible -->
+    <div id="deck-quickviz" style="display:none;margin:0 0 14px 0;padding:14px;background:rgba(14,17,23,.78);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--bd2);border-radius:12px">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start">
         <div>
-          <div id="deck-id-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px"></div>
-          <div id="deck-id-mana" style="height:64px"></div>
+          <div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:4px;text-align:center">📐 Profil du deck</div>
+          <div id="deck-id-radar" style="height:170px"></div>
         </div>
-        <!-- Colonne 3 : radar -->
         <div>
-          <div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:2px;text-align:center">Profil</div>
-          <div id="deck-id-radar" style="height:180px"></div>
+          <div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:4px">⚔ Courbe de mana</div>
+          <div id="deck-id-mana" style="height:120px"></div>
+        </div>
+        <div>
+          <div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:4px">💧 Pip count</div>
+          <div id="deck-id-pips" style="height:120px"></div>
         </div>
       </div>
-      <!-- Bouton aperçu shareable -->
-      <button onclick="deckPreviewOpen()" title="Génère un aperçu visuel partageable (Reddit/Discord)" style="position:absolute;top:10px;right:10px;padding:5px 10px;background:rgba(0,0,0,.4);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx2);font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s" onmouseover="this.style.borderColor='var(--gold)';this.style.color='var(--gold2)'" onmouseout="this.style.borderColor='var(--bd2)';this.style.color='var(--tx2)'">📸 Aperçu</button>
     </div>
     <div class="atelier-search-row" id="atelier-search-row" style="display:none;margin:6px 0 12px;position:relative">
       <div style="display:flex;gap:8px;align-items:center;padding:9px 11px;background:linear-gradient(180deg,rgba(201,168,76,.08),rgba(201,168,76,.02));border:1px solid var(--gold);border-radius:10px;box-shadow:0 0 0 1px rgba(201,168,76,.12) inset">
@@ -4346,19 +4356,13 @@ details > summary::-webkit-details-marker{display:none}
         <button id="atelier-live-toggle" onclick="_atelierLiveToggle()" style="padding:3px 9px;background:transparent;border:.5px solid var(--bd2);border-radius:5px;color:var(--tx3);font-family:inherit;font-size:.72rem;cursor:pointer">▾ Replier</button>
       </div>
       <div id="atelier-live-body">
-        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:8px">
-          <div>
-            <div style="font-size:.7rem;color:var(--tx3);margin-bottom:2px">Profil du deck (cibles 0-100%)</div>
-            <div id="atelier-live-radar" style="height:200px"></div>
-          </div>
-          <div>
-            <div id="atelier-live-curve" style="margin-bottom:6px"></div>
-            <div id="atelier-live-pips"></div>
-          </div>
-        </div>
         <div id="atelier-live-types" style="margin-bottom:8px"></div>
         <div id="atelier-live-checklist" style="margin-bottom:8px"></div>
         <div id="atelier-live-recos"></div>
+        <!-- Slots conservés pour rétro-compatibilité (radar/curve/pips remplacés par #deck-quickviz au-dessus) -->
+        <div id="atelier-live-radar" style="display:none"></div>
+        <div id="atelier-live-curve" style="display:none"></div>
+        <div id="atelier-live-pips" style="display:none"></div>
       </div>
     </div>
     <div class="lbl" style="margin-bottom:4px" data-i18n="deck.owner">Profil propriétaire</div>
@@ -17779,17 +17783,19 @@ function _atelierSearchSyncVisibility(){
 // ═════════════════════════════════════════════════════════════════════════════
 function _deckIdentityRender(){
   var box=document.getElementById('deck-identity-card');if(!box)return;
+  var quickviz=document.getElementById('deck-quickviz');
   var bg=document.getElementById('deditor-bg');
   if(!actDeck||!decks[actDeck]||!dCards||dCards.length<5){
     box.style.display='none';
-    // Restaure le background commandant en mode ambiance si on l'avait masqué
+    if(quickviz)quickviz.style.display='none';
     if(bg&&bg.dataset&&bg.dataset.hiddenByIdentity==='1'){bg.style.display='block';bg.dataset.hiddenByIdentity='';}
     return;
   }
-  if(typeof mlChart==='undefined'){box.style.display='none';return;}
+  if(typeof mlChart==='undefined'){box.style.display='none';if(quickviz)quickviz.style.display='none';return;}
   box.style.display='block';
-  // Carte d'identité affiche déjà l'image commandant à 130px → masque le bg global
-  // pour éviter le double-affichage qui nuit à la lisibilité des graphes.
+  if(quickviz)quickviz.style.display='block';
+  // Carte d'identité = hero pleine largeur avec image commandant en background.
+  // Plus besoin du #deditor-bg global qui faisait double emploi.
   if(bg&&bg.style.display==='block'){bg.style.display='none';bg.dataset.hiddenByIdentity='1';}
   var dk=decks[actDeck];
   var total=dCards.reduce(function(s,c){return s+(c.qty||1);},0);
@@ -17847,73 +17853,123 @@ function _deckIdentityRender(){
     });
     if(wrN)wr=Math.round(w/wrN*100);
   }catch(e){}
-  // ─── Render colonne 1 : commandant ───
-  var cmdEl=document.getElementById('deck-id-cmd');
-  var imgUrl='';
+  // ─── HERO : background art commandant ───
+  var bgEl=document.getElementById('deck-id-bg');
+  var artImg='',cardImg='';
   if(dk.commander&&dk.commander.name){
     var cmdNl=stripDFC(dk.commander.name).toLowerCase();
-    imgUrl=(typeof dImgCache!=='undefined'&&dImgCache[cmdNl])||(dk.commander.image_uris&&dk.commander.image_uris.normal)||'';
+    artImg=(dk.commander.artImg)||'https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(dk.commander.name)+'&format=image&version=art_crop';
+    cardImg=(typeof dImgCache!=='undefined'&&dImgCache[cmdNl])||(dk.commander.image_uris&&dk.commander.image_uris.normal)||'';
   }
-  var cH='';
-  if(imgUrl){
-    cH+='<img src="'+esc(imgUrl)+'" alt="'+esc((dk.commander&&dk.commander.name)||dk.name||'')+'" style="width:100%;max-width:140px;border-radius:9px;box-shadow:0 4px 14px rgba(0,0,0,.6);margin-bottom:8px">';
+  if(bgEl){
+    bgEl.style.backgroundImage=artImg?'url('+artImg+')':'linear-gradient(135deg,#1a1410,#0a0805)';
   }
-  cH+='<div style="font-family:inherit;font-size:.92rem;color:var(--gold2);font-weight:700;line-height:1.2;overflow:hidden;text-overflow:ellipsis">'+esc(dk.name||'(sans nom)')+'</div>';
-  if(dk.commander&&dk.commander.name)cH+='<div style="font-size:.7rem;color:var(--tx3);margin-top:2px">👑 '+esc(dk.commander.name)+'</div>';
-  if(dk.format)cH+='<div style="font-size:.66rem;color:var(--tx3);margin-top:3px;text-transform:uppercase;letter-spacing:.06em">'+esc(dk.format)+'</div>';
-  if(cmdEl)cmdEl.innerHTML=cH;
-  // ─── Render colonne 2 : KPIs + mana curve ───
-  var kpiEl=document.getElementById('deck-id-kpis');
-  if(kpiEl){
+  // ─── HERO : contenu en surimpression ───
+  var contentEl=document.getElementById('deck-id-content');
+  if(contentEl){
     var tgtCount=isCmd?100:60;
     var ctCol=total===tgtCount?'#7ec86a':total<tgtCount?'#e8c14a':'#d9645a';
-    kpiEl.innerHTML=
-      _miniKpi('Cartes',total+'<span style="font-size:.55em;color:var(--tx3);font-weight:400">/'+tgtCount+'</span>',ctCol)
-      +_miniKpi('Score',scoreP+'%',scoreCol)
-      +_miniKpi('Valeur',totalEur.toFixed(0)+'€',mlChart.PAL.info)
-      +_miniKpi(wr!=null?'Win rate':'Matchs',wr!=null?(wr+'%'):wrN,wr!=null?(wr>=60?'#7ec86a':wr>=40?'#e8c14a':'#d9645a'):'var(--tx3)');
+    var h='';
+    // Haut : tag + score gauge à droite
+    h+='<div style="display:flex;align-items:flex-start;gap:14px">';
+    h+='<div style="flex:1;min-width:0">';
+    h+='<div style="font-size:.62rem;color:var(--gold2);letter-spacing:.14em;text-transform:uppercase;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.8);margin-bottom:6px;display:flex;align-items:center;gap:8px">';
+    h+='<span>⚡ ManaLAB · MON DECK</span>';
+    if(dk.format)h+='<span style="padding:2px 8px;background:rgba(201,168,76,.18);border:.5px solid rgba(201,168,76,.4);border-radius:11px;font-size:.6rem;letter-spacing:.06em">'+esc(dk.format.toUpperCase())+'</span>';
+    h+='</div>';
+    h+='<div style="font-family:\'Goudy Mediaeval\',Georgia,serif;font-size:2rem;color:#fff;font-weight:700;line-height:1.05;text-shadow:0 2px 14px rgba(0,0,0,.9),0 0 22px rgba(201,168,76,.25);margin-bottom:6px;letter-spacing:-0.005em">'+esc(dk.name||'(sans nom)')+'</div>';
+    if(dk.commander&&dk.commander.name){
+      h+='<div style="font-size:.92rem;color:#d4b8ec;text-shadow:0 1px 6px rgba(0,0,0,.8)">👑 '+esc(dk.commander.name)+'</div>';
+    }
+    h+='</div>';
+    // Score gauge SVG (à droite)
+    var sCol=scoreP>=80?'#7ec86a':scoreP>=60?'#e8c14a':scoreP>=40?'#e88a4a':'#d9645a';
+    var cc=2*Math.PI*32;
+    var dash=cc*(scoreP/100);
+    h+='<div style="text-align:center;flex-shrink:0">';
+    h+='<svg width="84" height="84" viewBox="0 0 84 84">'
+      +'<circle cx="42" cy="42" r="32" fill="rgba(0,0,0,.4)" stroke="rgba(255,255,255,.1)" stroke-width="6"/>'
+      +'<circle cx="42" cy="42" r="32" fill="none" stroke="'+sCol+'" stroke-width="6" stroke-dasharray="'+dash+' '+(cc-dash)+'" transform="rotate(-90 42 42)" stroke-linecap="round" style="transition:stroke-dasharray .8s"/>'
+      +'<text x="42" y="42" text-anchor="middle" dominant-baseline="central" fill="'+sCol+'" font-size="20" font-weight="700" font-family="inherit">'+scoreP+'</text>'
+      +'</svg>';
+    h+='<div style="font-size:.6rem;color:var(--tx2);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-top:-2px;text-shadow:0 1px 3px rgba(0,0,0,.8)">Score</div>';
+    h+='</div>';
+    h+='</div>';
+    // Bas : KPIs en pills horizontales
+    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">';
+    h+=_heroPill('🃏',total+'/'+tgtCount,'Cartes',ctCol);
+    h+=_heroPill('💰',totalEur.toFixed(0)+' €','Valeur','#4aa0e8');
+    if(wr!=null)h+=_heroPill('🏆',wr+'%','Win rate',wr>=60?'#7ec86a':wr>=40?'#e8c14a':'#d9645a');
+    else if(wrN>0)h+=_heroPill('🎲',wrN,'Matchs','var(--tx2)');
+    if(typeCounts.Land>0)h+=_heroPill('⛰',typeCounts.Land,'Terrains','#7ec86a');
+    if(typeCounts.Creature>0)h+=_heroPill('👊',typeCounts.Creature,'Créatures','#c8a878');
+    h+='</div>';
+    contentEl.innerHTML=h;
   }
-  // Mini mana curve
+  // ─── HERO : boutons d'action (haut droite) ───
+  var actEl=document.getElementById('deck-id-actions');
+  if(actEl){
+    actEl.innerHTML='<button onclick="deckPreviewOpen()" title="Aperçu shareable PNG" style="padding:6px 12px;background:rgba(0,0,0,.65);border:.5px solid rgba(255,255,255,.18);border-radius:7px;color:#fff;font-family:inherit;font-size:.72rem;cursor:pointer;transition:all .12s;backdrop-filter:blur(8px)" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.color=\'var(--gold2)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,.18)\';this.style.color=\'#fff\'">📸 Aperçu</button>'
+      +'<button onclick="matchStart()" title="Lancer un match avec ce deck" style="padding:6px 12px;background:rgba(0,0,0,.65);border:.5px solid rgba(255,255,255,.18);border-radius:7px;color:#fff;font-family:inherit;font-size:.72rem;cursor:pointer;transition:all .12s;backdrop-filter:blur(8px)" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.color=\'var(--gold2)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,.18)\';this.style.color=\'#fff\'">🎮 Match</button>';
+  }
+  // ─── Sous-bloc : radar + mana curve + pips ───
+  // Mana curve
   var manaEl=document.getElementById('deck-id-mana');
   if(manaEl){
     var maxC=Math.max(1,Math.max.apply(null,curve));
-    var bH='<div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:3px">Courbe de mana</div>';
-    bH+='<div style="display:flex;gap:3px;align-items:flex-end;height:36px">';
+    var bH='<div style="display:flex;gap:3px;align-items:flex-end;height:90px">';
     for(var i=0;i<curve.length;i++){
-      var h=Math.round((curve[i]/maxC)*30);
+      var h2=Math.round((curve[i]/maxC)*72);
       var lbl=(i===7?'7+':i);
-      var col=curve[i]===0?'rgba(255,255,255,.06)':mlChart.PAL.accent;
+      var col2=curve[i]===0?'rgba(255,255,255,.06)':mlChart.PAL.accent;
       bH+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">'
-        +'<div style="font-size:.58rem;color:'+(curve[i]?'var(--gold2)':'transparent')+'">'+(curve[i]||'')+'</div>'
-        +'<div style="width:100%;height:'+(h||2)+'px;background:'+col+';border-radius:2px 2px 0 0"></div>'
-        +'<div style="font-size:.58rem;color:var(--tx3)">'+lbl+'</div>'
+        +'<div style="font-size:.6rem;color:'+(curve[i]?'var(--gold2)':'transparent')+';margin-bottom:2px">'+(curve[i]||'')+'</div>'
+        +'<div style="width:100%;height:'+(h2||2)+'px;background:'+col2+';border-radius:2px 2px 0 0"></div>'
+        +'<div style="font-size:.6rem;color:var(--tx3);margin-top:2px">'+lbl+'</div>'
         +'</div>';
     }
     bH+='</div>';
     manaEl.innerHTML=bH;
   }
-  // ─── Render radar (5 axes critiques) ───
+  // Pip count
+  var pipEl=document.getElementById('deck-id-pips');
+  if(pipEl){
+    var pipCount={W:0,U:0,B:0,R:0,G:0};
+    dCards.forEach(function(c){
+      var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+      if(!meta||!meta.manaCost)return;
+      var qty=c.qty||1;
+      var mc=(meta.manaCost||'').toLowerCase();
+      ['w','u','b','r','g'].forEach(function(col){
+        var re=new RegExp('\\{'+col+'\\}|\\{'+col+'/[wubrgp]\\}|\\{[wubrg]/'+col+'\\}','g');
+        var m=mc.match(re);if(m)pipCount[col.toUpperCase()]+=m.length*qty;
+      });
+    });
+    var totPips=Object.values(pipCount).reduce(function(s,v){return s+v;},0);
+    if(totPips>0){
+      mlChart.pips('#deck-id-pips',pipCount,{height:120});
+    }else{
+      pipEl.innerHTML='<div style="height:120px;display:flex;align-items:center;justify-content:center;color:var(--tx3);font-size:.72rem;font-style:italic">Pas de pips détectés</div>';
+    }
+  }
+  // Radar
   if(isCmd){
     var axesR=['Terrains','Ramp','Removal','Pioche','Wraths'];
-    var valsR=[
-      Math.min(1,typeCounts.Land/40),
-      Math.min(1,hasRamp/12),
-      Math.min(1,hasRemoval/10),
-      Math.min(1,hasDraw/10),
-      Math.min(1,hasWipe/3)
-    ];
+    var valsR=[Math.min(1,typeCounts.Land/40),Math.min(1,hasRamp/12),Math.min(1,hasRemoval/10),Math.min(1,hasDraw/10),Math.min(1,hasWipe/3)];
     mlChart.radar('#deck-id-radar',axesR,[{name:'Ton deck',values:valsR,color:mlChart.PAL.accent}]);
   }else{
     var axesR2=['Terrains','Créatures','Removal','Pioche','Counter'];
-    var valsR2=[
-      Math.min(1,typeCounts.Land/24),
-      Math.min(1,typeCounts.Creature/24),
-      Math.min(1,hasRemoval/8),
-      Math.min(1,hasDraw/6),
-      Math.min(1,hasCounter/4)
-    ];
+    var valsR2=[Math.min(1,typeCounts.Land/24),Math.min(1,typeCounts.Creature/24),Math.min(1,hasRemoval/8),Math.min(1,hasDraw/6),Math.min(1,hasCounter/4)];
     mlChart.radar('#deck-id-radar',axesR2,[{name:'Ton deck',values:valsR2,color:mlChart.PAL.accent}]);
   }
+}
+// Helper pill pour le hero
+function _heroPill(ico,value,label,col){
+  return '<div style="display:inline-flex;align-items:center;gap:7px;padding:6px 11px 6px 9px;background:rgba(0,0,0,.55);border:.5px solid rgba(255,255,255,.12);border-radius:8px;backdrop-filter:blur(8px)">'
+    +'<span style="font-size:1rem;line-height:1">'+ico+'</span>'
+    +'<div style="line-height:1.1"><div style="font-size:.9rem;color:'+col+';font-weight:700">'+value+'</div>'
+    +'<div style="font-size:.56rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:600">'+label+'</div></div>'
+    +'</div>';
 }
 function _miniKpi(label,value,col){
   return '<div style="padding:7px 8px;background:rgba(0,0,0,.18);border:.5px solid var(--bd2);border-radius:7px;text-align:center;min-width:0;overflow:hidden">'
