@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-33';
+window.APP_BUILD='2026-06-08-34';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -10294,6 +10294,12 @@ function renderHome(){
     +'<div class="home-hero-txt"><div class="home-greet">'+greet+', <b>'+esc(myName)+'</b></div>'
     +'<div class="home-sub">'+t('home.sub','Ton QG Magic — collection, decks, parties et achats partagés.')+'</div></div>'
     +'</div>';
+  // ── DASHBOARD — KPI + activity + top decks ──
+  // Visible uniquement si l'utilisateur a au moins 1 deck OU 50 cartes en collection
+  // (sinon trop vide pour être informatif au premier lancement)
+  if(myDeckIds.length>=1 || totalCards>=50){
+    html+='<div id="home-dashboard" style="margin-bottom:22px"></div>';
+  }
   // ── « Que veux-tu faire ? » — 4 grandes cards d'intention ──
   // Remplace l'ancien bloc « Actions rapides » qui était trop fouillis. La 1ère
   // card est prioritaire (analyser/améliorer un deck = usage déclaré 80%).
@@ -10392,6 +10398,8 @@ function renderHome(){
       });
     });
   },300);
+  // Render dashboard (composé après injection du HTML)
+  setTimeout(function(){try{_homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames);}catch(e){console.warn('[Dashboard]',e);}},80);
   // ── Bandeau de progression (niveau / XP / Pétales) ──
   try{html+=_progHomeBanner();}catch(e){}
   // ── Tâches en cours ──
@@ -10597,6 +10605,121 @@ function renderHome(){
   _recordCollValue();
 }
 function _dismissGuide(){_lsSet('mtg_guide_done','1');if(typeof renderHome==='function')renderHome();}
+// ═════════════════════════════════════════════════════════════════════════════
+// DASHBOARD HOME — KPI cards + activity heatmap + top decks récents.
+// Section visuelle au-dessus des cards d'intention pour donner une vue
+// instantanée de l'état du joueur (à la GitHub / Vercel dashboard).
+// ═════════════════════════════════════════════════════════════════════════════
+function _homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames){
+  var mount=document.getElementById('home-dashboard');if(!mount)return;
+  // ─ Stats ─
+  var nDecks=myDeckIds.length;
+  // Activity : utilise mtg_match_log + mtg_progression daily snapshots
+  var dailyMap={};
+  try{
+    // Matches
+    var ml=JSON.parse(localStorage.getItem('mtg_match_log')||'[]');
+    ml.forEach(function(m){
+      var d=new Date(m.ts||Date.now());var k=d.toISOString().slice(0,10);
+      dailyMap[k]=(dailyMap[k]||0)+1;
+    });
+    // Decks créés ou modifiés
+    Object.values(decks||{}).forEach(function(dk){
+      if(!dk.updatedAt)return;
+      var k=new Date(dk.updatedAt).toISOString().slice(0,10);
+      dailyMap[k]=(dailyMap[k]||0)+1;
+    });
+  }catch(e){}
+  var activityDays=Object.keys(dailyMap).length;
+  // Win rate (depuis match log)
+  var nMatch=0,nWin=0,nLoss=0,recentWinRate=[];
+  try{
+    var ml2=JSON.parse(localStorage.getItem('mtg_match_log')||'[]');
+    ml2.forEach(function(m){
+      if(m.result==='win'){nMatch++;nWin++;}
+      else if(m.result==='loss'){nMatch++;nLoss++;}
+    });
+    // Sparkline win rate cumulé sur les 20 derniers matchs
+    var last20=ml2.slice(0,20).reverse();
+    var cumW=0,cumN=0;
+    last20.forEach(function(m){
+      if(m.result==='win'){cumW++;cumN++;}
+      else if(m.result==='loss'){cumN++;}
+      if(cumN)recentWinRate.push(cumW/cumN*100);
+    });
+  }catch(e){}
+  var winRatePct=nMatch?Math.round(nWin/nMatch*100):0;
+  // XP / niveau
+  var lvl=1,xp=0;
+  try{
+    var p=JSON.parse(localStorage.getItem('mtg_progression')||'{}');
+    lvl=p.level||1;xp=p.xp||0;
+  }catch(e){}
+  // ─ Build markup ─
+  var h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px">';
+  h+='<div id="kpi-decks"></div>';
+  h+='<div id="kpi-coll"></div>';
+  h+='<div id="kpi-winrate"></div>';
+  h+='<div id="kpi-level"></div>';
+  h+='</div>';
+  // Activity heatmap (90 jours)
+  if(activityDays>=2){
+    h+='<div style="background:rgba(255,255,255,.02);border:1px solid var(--bd2);border-radius:11px;padding:12px 14px;margin-bottom:14px">';
+    h+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px"><span style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600">📅 Ton activité (90 derniers jours)</span><span style="flex:1"></span><span style="font-size:.7rem;color:var(--gold2)">'+activityDays+' jour'+(activityDays>1?'s':'')+' actif'+(activityDays>1?'s':'')+'</span></div>';
+    h+='<div id="home-activity" style="height:78px"></div>';
+    h+='</div>';
+  }
+  // Top 3 decks
+  if(nDecks>0){
+    var topDecks=myDeckIds.map(function(id){return decks[id];}).sort(function(a,b){return (b.updatedAt||0)-(a.updatedAt||0);}).slice(0,3);
+    h+='<div style="background:rgba(255,255,255,.02);border:1px solid var(--bd2);border-radius:11px;padding:12px 14px;margin-bottom:14px">';
+    h+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px"><span style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600">⚡ Tes derniers decks</span><span style="flex:1"></span><a onclick="goTab(\'build\')" style="font-size:.72rem;color:var(--gold2);cursor:pointer;text-decoration:none">Voir tous →</a></div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">';
+    topDecks.forEach(function(dk){
+      var id=Object.keys(decks).find(function(i){return decks[i]===dk;});
+      var n=(dk.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+      var fmt=dk.format?dk.format.charAt(0).toUpperCase()+dk.format.slice(1):'—';
+      var cmd=dk.commander&&dk.commander.name?dk.commander.name:'';
+      // Win rate de ce deck
+      var dkWin=0,dkN=0;
+      try{
+        var ml3=JSON.parse(localStorage.getItem('mtg_match_log')||'[]');
+        ml3.forEach(function(m){if(m.deckId===id){if(m.result==='win'){dkWin++;dkN++;}else if(m.result==='loss')dkN++;}});
+      }catch(e){}
+      var wr=dkN?Math.round(dkWin/dkN*100):null;
+      var wrCol=wr==null?'var(--tx3)':(wr>=60?'#7ec86a':wr>=40?'#e8c14a':'#d9645a');
+      h+='<div onclick="loadDeck(\''+escJs(id)+'\');goTab(\'build\')" style="cursor:pointer;padding:10px 12px;background:rgba(201,168,76,.04);border:.5px solid var(--bd2);border-radius:8px;transition:all .12s" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.background=\'rgba(201,168,76,.10)\'" onmouseout="this.style.borderColor=\'var(--bd2)\';this.style.background=\'rgba(201,168,76,.04)\'">';
+      h+='<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;min-width:0"><div style="font-size:.86rem;color:var(--gold2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(dk.name||'(sans nom)')+'</div>';
+      h+='<div style="font-size:.7rem;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cmd?'👑 '+esc(cmd):fmt+' · '+n+' cartes')+'</div></div>';
+      if(wr!=null){
+        h+='<div style="text-align:right"><div style="color:'+wrCol+';font-weight:700;font-size:.95rem">'+wr+'%</div><div style="font-size:.62rem;color:var(--tx3)">'+dkN+' match'+(dkN>1?'s':'')+'</div></div>';
+      }else{
+        h+='<div style="font-size:.62rem;color:var(--tx3);font-style:italic">jamais joué</div>';
+      }
+      h+='</div></div>';
+    });
+    h+='</div></div>';
+  }
+  mount.innerHTML=h;
+  // ─ Render charts ─
+  if(typeof mlChart==='undefined')return;
+  mlChart.kpi('#kpi-decks',{label:'Decks',value:nDecks,unit:nDecks>1?'decks':'deck',icon:'♠',color:mlChart.PAL.accent,sub:nDecks>0?'En construction et joués':'Crée ton premier deck'});
+  mlChart.kpi('#kpi-coll',{label:'Collection',value:totalCards.toLocaleString('fr-FR'),unit:'cartes',icon:'🃏',color:'#4aa0e8',sub:collValue>0?collValue.toFixed(0)+' € valeur Cardmarket':'Importe ton CSV'});
+  mlChart.kpi('#kpi-winrate',{
+    label:'Win rate',
+    value:nMatch?winRatePct:'—',
+    unit:nMatch?'%':'',
+    icon:'🏆',
+    color:winRatePct>=60?'#7ec86a':winRatePct>=40?'#e8c14a':'#d9645a',
+    sub:nMatch?(nWin+'V · '+nLoss+'D sur '+nMatch+' match'+(nMatch>1?'s':'')):'Joue ton 1er match',
+    spark:recentWinRate.length>=2?recentWinRate:null
+  });
+  mlChart.kpi('#kpi-level',{label:'Niveau',value:lvl,icon:'✪',color:'#b48cdc',sub:xp+' XP'+(lvl<99?' · plus que '+(lvl*1200-xp)+' pour LvL '+(lvl+1):'')});
+  // Activity heatmap
+  if(activityDays>=2){
+    mlChart.activityHeatmap('#home-activity',dailyMap,{weeks:13});
+  }
+}
 // ── Recommandations de commandants depuis la collection ──
 function _recoCommanders(){
   if(typeof _anaData==='undefined'||!_anaData)return [];
