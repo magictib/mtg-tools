@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-31';
+window.APP_BUILD='2026-06-08-32';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -3685,6 +3685,8 @@ details > summary::-webkit-details-marker{display:none}
       <button class="more-nav-item" onclick="_moreNavGo('tools')" style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--tx);font-family:inherit;font-size:.88rem;padding:8px 12px;cursor:pointer;border-radius:6px">⚙ Outils</button>
       <div style="height:1px;background:rgba(201,168,76,.18);margin:4px 8px"></div>
       <button class="more-nav-item" onclick="draftHelperOpen();_moreNavToggle()" style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--tx);font-family:inherit;font-size:.88rem;padding:8px 12px;cursor:pointer;border-radius:6px">🃏 Draft helper</button>
+      <button class="more-nav-item" onclick="tradeFinderOpen();_moreNavToggle()" style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--tx);font-family:inherit;font-size:.88rem;padding:8px 12px;cursor:pointer;border-radius:6px">🤝 Trade finder</button>
+      <button class="more-nav-item" onclick="tournamentOpen();_moreNavToggle()" style="display:block;width:100%;text-align:left;background:none;border:none;color:var(--tx);font-family:inherit;font-size:.88rem;padding:8px 12px;cursor:pointer;border-radius:6px">🏟 Tournoi Swiss</button>
     </div>
   </div>
   <button class="tab-btn" id="tb-cmdpal" onclick="cmdPalOpen()" title="Palette de commandes (Ctrl+K)" aria-label="Palette de commandes" style="padding-left:10px;padding-right:10px">🔍<span style="font-size:.62rem;margin-left:5px;opacity:.7">Ctrl+K</span></button>
@@ -15052,6 +15054,440 @@ function _draftReset(){
   if(!confirm('Réinitialiser la session de draft ? Le pool sera perdu.'))return;
   _draftState={pool:[],pack:[],pickNum:0,setCode:'',picksHist:[]};
   _draftSave();_draftRender();
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// TRADE FINDER — compare ta collection avec celle d'un ami, propose des
+// échanges équilibrés en valeur Cardmarket. Filtre les cartes en double que
+// l'autre joue dans ses decks (donc ne veut PAS échanger) — heuristique.
+// ═════════════════════════════════════════════════════════════════════════════
+function tradeFinderOpen(){
+  var ov=document.getElementById('trade-find-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='trade-find-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('trade-find-ov');if(o&&o.classList.contains('show'))o.classList.remove('show');}});
+  }
+  var friends=[];
+  (window.PN||[]).forEach(function(n,i){if(i>0)friends.push({i:i,name:n||('Ami '+i)});});
+  if(!friends.length){
+    var ov2=document.getElementById('trade-find-ov');
+    ov2.innerHTML='<div class="ml-modal" style="max-width:520px"><div class="ml-modal-hdr"><div class="ml-modal-title">🤝 Trade finder</div><button class="ml-modal-close" onclick="document.getElementById(\'trade-find-ov\').classList.remove(\'show\')">✕</button></div><div style="padding:18px;color:var(--tx2);font-size:.86rem;line-height:1.5">Pas d\'amis chargés. Pour utiliser le trade finder :<br><br>1. Va dans l\'onglet <b>Collection</b><br>2. Charge la collection d\'au moins un ami via le système d\'amis Firebase<br><br>Le trade finder comparera ta collection avec la sienne pour suggérer des échanges équilibrés.</div></div>';
+    ov2.classList.add('show');return;
+  }
+  ov.innerHTML='<div class="ml-modal" style="max-width:880px;width:96vw;max-height:92vh;display:flex;flex-direction:column">'
+    +'<div class="ml-modal-hdr">'
+    +'<div class="ml-modal-title">🤝 Trade finder</div>'
+    +'<button class="ml-modal-close" onclick="document.getElementById(\'trade-find-ov\').classList.remove(\'show\')">✕</button>'
+    +'</div>'
+    +'<div style="padding:12px 16px;border-bottom:.5px solid var(--bd);display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+    +'<label style="font-size:.82rem;color:var(--tx2)">Comparer avec :</label>'
+    +'<select id="trade-friend" style="padding:7px 10px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.84rem;font-family:inherit">'
+    +friends.map(function(f){return '<option value="'+f.i+'">'+esc(f.name)+'</option>';}).join('')
+    +'</select>'
+    +'<label style="font-size:.74rem;color:var(--tx3);display:flex;align-items:center;gap:5px"><input type="checkbox" id="trade-balance" checked> Suggérer trades équilibrés (±20% valeur)</label>'
+    +'<button class="btn btnp btnsm" onclick="tradeFinderRun()" style="margin-left:auto">🤝 Chercher des trades</button>'
+    +'</div>'
+    +'<div id="trade-body" style="flex:1;overflow-y:auto;padding:12px 16px;min-height:200px"><div style="color:var(--tx3);font-style:italic;text-align:center;padding:30px">Sélectionne un ami puis clique sur « Chercher des trades »</div></div>'
+    +'<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:flex-end"><button class="btn btnsm" onclick="document.getElementById(\'trade-find-ov\').classList.remove(\'show\')">Fermer</button></div>'
+    +'</div>';
+  ov.classList.add('show');
+}
+function tradeFinderRun(){
+  var fIdx=parseInt(document.getElementById('trade-friend').value,10);
+  var balance=document.getElementById('trade-balance').checked;
+  var body=document.getElementById('trade-body');
+  body.innerHTML='<div style="padding:20px;display:flex;align-items:center;gap:10px;color:var(--tx2)"><div style="width:18px;height:18px;border:2px solid rgba(201,168,76,.3);border-top-color:var(--gold);border-radius:50%;animation:ml-spin 1s linear infinite"></div>⏳ Calcul des trades…</div>';
+  setTimeout(function(){
+    try{_tradeFinderCompute(fIdx,balance);}catch(e){
+      body.innerHTML='<div style="padding:14px;color:var(--rd2)">✗ Erreur : '+(e&&e.message||'')+'</div>';
+    }
+  },80);
+}
+function _tradeFinderCompute(fIdx,balance){
+  var body=document.getElementById('trade-body');if(!body)return;
+  // Collections
+  var myColl=(typeof getProfCards==='function')?(getProfCards(0)||[]):[];
+  var hisColl=(typeof getProfCards==='function')?(getProfCards(fIdx)||[]):[];
+  if(!myColl.length||!hisColl.length){
+    body.innerHTML='<div style="padding:14px;color:var(--am)">⚠ Une des collections est vide ou pas encore chargée.</div>';return;
+  }
+  // Mappe par nl
+  function normMap(coll){
+    var m={};
+    coll.forEach(function(c){
+      var nl=(typeof stripDFC==='function'?stripDFC(c.name||''):(c.name||'')).toLowerCase();
+      if(!m[nl])m[nl]={name:c.name,nl:nl,qty:0,price:c.price||(allPriceMap&&allPriceMap[nl])||0};
+      m[nl].qty+=(c.qty||1);
+    });
+    return m;
+  }
+  var mine=normMap(myColl), his=normMap(hisColl);
+  // Usage : cartes utilisées dans MES decks (que je veux PAS échanger)
+  var myUsage={};
+  if(typeof getDeckUsage==='function'){
+    try{
+      var u=getDeckUsage(0);
+      if(u&&u.forEach)u.forEach(function(v,k){myUsage[k]=v.qty||v||0;});
+    }catch(e){}
+  }
+  var hisUsage={};
+  if(typeof getDeckUsage==='function'){
+    try{
+      var uH=getDeckUsage(fIdx);
+      if(uH&&uH.forEach)uH.forEach(function(v,k){hisUsage[k]=v.qty||v||0;});
+    }catch(e){}
+  }
+  // Cartes qu'IL a en libre (qty > usage) que JE veux (présentes dans mes decks "manquantes")
+  // Heuristique simplifiée : « je veux » = présente dans un de mes decks et que je n'en ai pas assez
+  var myDeckNeeds={};
+  try{
+    Object.keys(decks||{}).forEach(function(did){
+      var d=decks[did];if(!d||!d.cards)return;
+      d.cards.forEach(function(c){
+        var nl=(c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):(c.name||'')).toLowerCase());
+        var owned=(mine[nl]||{}).qty||0;
+        var needed=c.qty||1;
+        if(owned<needed){
+          myDeckNeeds[nl]={name:c.name,gap:Math.max(needed-owned,(myDeckNeeds[nl]||{gap:0}).gap)};
+        }
+      });
+    });
+  }catch(e){}
+  // Ce qu'il a en libre
+  var hisFree=Object.values(his).filter(function(c){
+    var used=hisUsage[c.nl]||0;return c.qty-used>0;
+  });
+  // Ce que JE veux (intersect myDeckNeeds avec hisFree)
+  var iWant=[];
+  Object.keys(myDeckNeeds).forEach(function(nl){
+    var hisCard=his[nl];if(!hisCard)return;
+    var freeQty=hisCard.qty-(hisUsage[nl]||0);
+    if(freeQty>0){
+      iWant.push({nl:nl,name:hisCard.name,price:hisCard.price,gap:Math.min(myDeckNeeds[nl].gap,freeQty)});
+    }
+  });
+  iWant.sort(function(a,b){return b.price-a.price;});
+  // Ce qu'IL veut (par symétrie, on ne sait pas — fallback : ses cartes manquantes dans ses decks)
+  var hisDeckNeeds={};
+  try{
+    Object.keys(decks||{}).forEach(function(did){
+      // Filtre decks lui appartenant
+      var d=decks[did];if(!d||!d.cards)return;
+      if(typeof _deckBelongsTo==='function' && !_deckBelongsTo(did,fIdx))return;
+      d.cards.forEach(function(c){
+        var nl=(c.nl||(typeof stripDFC==='function'?stripDFC(c.name||''):(c.name||'')).toLowerCase());
+        var owned=(his[nl]||{}).qty||0;
+        var needed=c.qty||1;
+        if(owned<needed)hisDeckNeeds[nl]={name:c.name,gap:Math.max(needed-owned,(hisDeckNeeds[nl]||{gap:0}).gap)};
+      });
+    });
+  }catch(e){}
+  var myFree=Object.values(mine).filter(function(c){
+    var used=myUsage[c.nl]||0;return c.qty-used>0;
+  });
+  var heWants=[];
+  Object.keys(hisDeckNeeds).forEach(function(nl){
+    var myCard=mine[nl];if(!myCard)return;
+    var freeQty=myCard.qty-(myUsage[nl]||0);
+    if(freeQty>0){
+      heWants.push({nl:nl,name:myCard.name,price:myCard.price,gap:Math.min(hisDeckNeeds[nl].gap,freeQty)});
+    }
+  });
+  heWants.sort(function(a,b){return b.price-a.price;});
+  // Si on n'a pas pu deviner ses besoins, on propose ses doubles dans ses decks
+  if(heWants.length<3){
+    myFree.slice(0,30).forEach(function(c){
+      if(c.price>=0.5)heWants.push({nl:c.nl,name:c.name,price:c.price,gap:1,guess:true});
+    });
+  }
+  var h='';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
+  // Colonne « ce que je veux chez lui »
+  h+='<div><div style="font-size:.84rem;color:#7ec86a;margin-bottom:6px"><b>🟢 Ce que JE veux chez '+esc(PN[fIdx])+'</b><span style="color:var(--tx3);font-weight:400;font-size:.7rem"> (manque dans mes decks)</span></div>';
+  if(!iWant.length)h+='<div style="color:var(--tx3);font-style:italic;font-size:.78rem">Rien à vouloir — soit ta collection est complète, soit ses cartes sont déjà engagées dans ses decks.</div>';
+  else {
+    h+='<div style="display:flex;flex-direction:column;gap:3px">';
+    iWant.slice(0,30).forEach(function(c){
+      h+='<label style="display:flex;align-items:center;gap:7px;padding:5px 8px;background:rgba(126,200,106,.04);border:.5px solid var(--bd2);border-radius:6px;font-size:.76rem;cursor:pointer">';
+      h+='<input type="checkbox" class="trade-want" data-name="'+esc(c.name)+'" data-price="'+c.price+'" data-qty="'+c.gap+'">';
+      h+='<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+' ×'+c.gap+'</span>';
+      h+='<span style="color:#7ec86a;font-weight:600;font-size:.72rem">'+c.price.toFixed(2)+' €</span>';
+      h+='</label>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  // Colonne « ce que je peux donner »
+  h+='<div><div style="font-size:.84rem;color:#4aa0e8;margin-bottom:6px"><b>🔵 Ce que je peux donner</b><span style="color:var(--tx3);font-weight:400;font-size:.7rem"> (mes doubles ou cartes qu\'il pourrait vouloir)</span></div>';
+  if(!heWants.length)h+='<div style="color:var(--tx3);font-style:italic;font-size:.78rem">Pas de matches détectés.</div>';
+  else {
+    h+='<div style="display:flex;flex-direction:column;gap:3px">';
+    heWants.slice(0,30).forEach(function(c){
+      h+='<label style="display:flex;align-items:center;gap:7px;padding:5px 8px;background:rgba(74,160,232,.04);border:.5px solid var(--bd2);border-radius:6px;font-size:.76rem;cursor:pointer">';
+      h+='<input type="checkbox" class="trade-give" data-name="'+esc(c.name)+'" data-price="'+c.price+'" data-qty="'+c.gap+'">';
+      h+='<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+' ×'+c.gap+(c.guess?' <span style="color:var(--am);font-size:.66rem">?</span>':'')+'</span>';
+      h+='<span style="color:#4aa0e8;font-weight:600;font-size:.72rem">'+c.price.toFixed(2)+' €</span>';
+      h+='</label>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  h+='</div>';
+  // Bandeau récap dynamique + bouton équilibrage
+  h+='<div id="trade-summary" style="margin-top:14px;padding:10px 12px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.3);border-radius:8px;font-size:.82rem;color:var(--tx2)">Coche les cartes que tu veux et celles que tu peux donner pour calculer le bilan.</div>';
+  h+='<div style="margin-top:8px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">';
+  h+='<button class="btn btnsm" onclick="_tradeRecalc()">⚖ Calculer le bilan</button>';
+  if(balance)h+='<button class="btn btnp btnsm" onclick="_tradeBalance()">🎯 Équilibrer auto ±20%</button>';
+  h+='</div>';
+  body.innerHTML=h;
+  body.querySelectorAll('input[type="checkbox"]').forEach(function(cb){
+    cb.addEventListener('change',_tradeRecalc);
+  });
+}
+function _tradeRecalc(){
+  var ov=document.getElementById('trade-find-ov');if(!ov)return;
+  var wantTotal=0,giveTotal=0,nW=0,nG=0;
+  ov.querySelectorAll('.trade-want:checked').forEach(function(cb){
+    wantTotal+=parseFloat(cb.getAttribute('data-price'))*parseInt(cb.getAttribute('data-qty')||'1',10);
+    nW++;
+  });
+  ov.querySelectorAll('.trade-give:checked').forEach(function(cb){
+    giveTotal+=parseFloat(cb.getAttribute('data-price'))*parseInt(cb.getAttribute('data-qty')||'1',10);
+    nG++;
+  });
+  var diff=wantTotal-giveTotal;
+  var pct=giveTotal>0?Math.abs(diff)/giveTotal*100:0;
+  var balanced=pct<=20;
+  var s=document.getElementById('trade-summary');if(!s)return;
+  var col=balanced?'#7ec86a':'#e88a4a';
+  s.innerHTML='<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">'
+    +'<div>🟢 Tu veux <b style="color:#7ec86a">'+wantTotal.toFixed(2)+' €</b> ('+nW+' carte'+(nW>1?'s':'')+')</div>'
+    +'<div>🔵 Tu donnes <b style="color:#4aa0e8">'+giveTotal.toFixed(2)+' €</b> ('+nG+' carte'+(nG>1?'s':'')+')</div>'
+    +'<div style="color:'+col+';font-weight:600">'+(balanced?'✓ Équilibré':'⚠ Écart '+pct.toFixed(0)+'%')+' (diff '+(diff>=0?'+':'')+diff.toFixed(2)+' €)</div>'
+    +'</div>';
+}
+function _tradeBalance(){
+  var ov=document.getElementById('trade-find-ov');if(!ov)return;
+  // Algo simple : décocher tout, recocher greedy par valeur jusqu'à atteindre l'équilibre
+  ov.querySelectorAll('input[type="checkbox"]').forEach(function(cb){cb.checked=false;});
+  var wants=Array.from(ov.querySelectorAll('.trade-want')).sort(function(a,b){
+    return parseFloat(b.getAttribute('data-price'))-parseFloat(a.getAttribute('data-price'));
+  });
+  var gives=Array.from(ov.querySelectorAll('.trade-give')).sort(function(a,b){
+    return parseFloat(b.getAttribute('data-price'))-parseFloat(a.getAttribute('data-price'));
+  });
+  if(!wants.length||!gives.length){if(typeof toast==='function')toast('Pas assez de cartes pour équilibrer');return;}
+  // Coche les top wants jusqu'à ~10 € puis matche avec gives
+  var wantTotal=0,giveTotal=0;
+  for(var i=0;i<Math.min(5,wants.length);i++){
+    wants[i].checked=true;
+    wantTotal+=parseFloat(wants[i].getAttribute('data-price'))*parseInt(wants[i].getAttribute('data-qty')||'1',10);
+  }
+  for(var j=0;j<gives.length;j++){
+    if(giveTotal>=wantTotal*0.85)break;
+    gives[j].checked=true;
+    giveTotal+=parseFloat(gives[j].getAttribute('data-price'))*parseInt(gives[j].getAttribute('data-qty')||'1',10);
+  }
+  _tradeRecalc();
+  if(typeof toast==='function')toast('✓ Trade équilibré proposé');
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// TOURNOI SWISS — gère un petit tournoi local (4-8 joueurs, 3-5 rondes).
+// Pairings par algo Swiss (premier round random, suivants par score),
+// standings avec MWP / OMWP / GWP, persistance localStorage.
+// ═════════════════════════════════════════════════════════════════════════════
+var _tournState=null;
+function tournamentOpen(){
+  var ov=document.getElementById('tourn-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='tourn-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('tourn-ov');if(o&&o.classList.contains('show'))o.classList.remove('show');}});
+  }
+  try{_tournState=JSON.parse(localStorage.getItem('mtg_tourn_state')||'null');}catch(e){_tournState=null;}
+  _tournRender();
+  ov.classList.add('show');
+}
+function _tournSave(){try{localStorage.setItem('mtg_tourn_state',JSON.stringify(_tournState));}catch(e){}}
+function _tournRender(){
+  var ov=document.getElementById('tourn-ov');if(!ov)return;
+  if(!_tournState){
+    ov.innerHTML='<div class="ml-modal" style="max-width:560px"><div class="ml-modal-hdr"><div class="ml-modal-title">🏟 Nouveau tournoi Swiss</div><button class="ml-modal-close" onclick="document.getElementById(\'tourn-ov\').classList.remove(\'show\')">✕</button></div>'
+      +'<div style="padding:14px 18px">'
+      +'<label class="pf-lbl">NOM DU TOURNOI</label><input id="t-name" type="text" placeholder="ex: Pizza Friday EDH" value="Tournoi du '+new Date().toLocaleDateString('fr-FR')+'" style="width:100%;box-sizing:border-box;padding:8px 11px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.86rem;margin-bottom:10px">'
+      +'<label class="pf-lbl">JOUEURS (un par ligne)</label><textarea id="t-players" placeholder="Thibaud&#10;Gérébite&#10;Alice&#10;Bob" style="width:100%;box-sizing:border-box;min-height:120px;padding:8px 11px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.86rem;font-family:inherit"></textarea>'
+      +'<label class="pf-lbl" style="margin-top:10px">RONDES</label><input id="t-rounds" type="number" min="2" max="9" value="3" style="width:80px;padding:7px 10px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.86rem">'
+      +'<div style="font-size:.7rem;color:var(--tx3);margin-top:4px;font-style:italic">Convention : ⌈log₂(N)⌉ rondes (4-7 joueurs → 3 rondes, 8-15 → 4 rondes)</div>'
+      +'</div>'
+      +'<div class="ml-modal-foot" style="padding:8px 18px;border-top:.5px solid var(--bd);display:flex;justify-content:flex-end;gap:8px"><button class="btn btnsm" onclick="document.getElementById(\'tourn-ov\').classList.remove(\'show\')">Annuler</button><button class="btn btnp btnsm" onclick="_tournCreate()">🏟 Lancer</button></div>'
+      +'</div>';
+    return;
+  }
+  // Tournoi en cours
+  var st=_tournState;
+  var standings=_tournStandings(st);
+  var allDone=st.rounds.length>0 && st.rounds[st.rounds.length-1].every(function(m){return m.result!=null;});
+  var finished=st.rounds.length>=st.nbRounds && allDone;
+  var h='<div class="ml-modal" style="max-width:920px;width:96vw;max-height:94vh;display:flex;flex-direction:column">';
+  h+='<div class="ml-modal-hdr">';
+  h+='<div class="ml-modal-title">🏟 '+esc(st.name)+'</div>';
+  h+='<button class="ml-modal-close" onclick="document.getElementById(\'tourn-ov\').classList.remove(\'show\')">✕</button>';
+  h+='</div>';
+  // Header
+  h+='<div style="padding:8px 16px;border-bottom:.5px solid var(--bd);display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:.78rem">';
+  h+='<div><b style="color:var(--gold2)">Ronde</b> '+st.rounds.length+'/'+st.nbRounds+'</div>';
+  h+='<div><b style="color:var(--gold2)">'+st.players.length+'</b> joueurs</div>';
+  h+='<span style="flex:1"></span>';
+  if(!finished&&allDone)h+='<button class="btn btnp btnsm" onclick="_tournNextRound()">▶ Ronde suivante</button>';
+  h+='<button class="btn btnsm btnrd" onclick="_tournReset()">↺ Nouveau tournoi</button>';
+  h+='</div>';
+  h+='<div style="flex:1;overflow-y:auto;padding:12px 16px">';
+  // Standings
+  h+='<div style="margin-bottom:14px"><div style="font-size:.84rem;color:var(--gold2);margin-bottom:5px">🏆 Classement</div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:5px;color:var(--tx3);font-weight:400">#</th><th style="text-align:left;padding:5px;color:var(--tx3);font-weight:400">Joueur</th><th style="text-align:center;padding:5px;color:var(--tx3);font-weight:400">Pts</th><th style="text-align:center;padding:5px;color:var(--tx3);font-weight:400">V-D-N</th><th style="text-align:center;padding:5px;color:var(--tx3);font-weight:400">MWP</th><th style="text-align:center;padding:5px;color:var(--tx3);font-weight:400">OMWP</th></tr></thead><tbody>';
+  standings.forEach(function(p,i){
+    var col=i===0?'#f3d76e':(i<=2?'var(--gold2)':'var(--tx)');
+    h+='<tr style="border-bottom:.5px solid var(--bd2)"><td style="padding:5px;color:'+col+';font-weight:700">'+(i+1)+(i===0?' 🏆':'')+'</td>';
+    h+='<td style="padding:5px;color:'+col+'">'+esc(p.name)+'</td>';
+    h+='<td style="padding:5px;text-align:center;color:var(--gold2);font-weight:600">'+p.pts+'</td>';
+    h+='<td style="padding:5px;text-align:center">'+p.W+'-'+p.L+'-'+p.D+'</td>';
+    h+='<td style="padding:5px;text-align:center;color:var(--tx2)">'+(p.MWP*100).toFixed(1)+'%</td>';
+    h+='<td style="padding:5px;text-align:center;color:var(--tx3)">'+(p.OMWP*100).toFixed(1)+'%</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  // Pairings ronde courante
+  if(st.rounds.length){
+    var curR=st.rounds[st.rounds.length-1];
+    h+='<div style="margin-top:14px"><div style="font-size:.84rem;color:var(--gold2);margin-bottom:5px">⚔ Ronde '+st.rounds.length+' — pairings</div>';
+    h+='<div style="display:flex;flex-direction:column;gap:4px">';
+    curR.forEach(function(m,idx){
+      var pA=st.players[m.a];var pB=m.b!=null?st.players[m.b]:null;
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.025);border-radius:7px;font-size:.84rem">';
+      h+='<span style="flex:1">'+esc(pA.name)+' <span style="color:var(--tx3)">vs</span> '+(pB?esc(pB.name):'<i>BYE</i>')+'</span>';
+      if(m.result!=null){
+        var lbl=m.result==='a'?esc(pA.name)+' ✓':(m.result==='b'?esc(pB?pB.name:'?')+' ✓':'Nul');
+        var col=m.result==='draw'?'var(--am)':'#7ec86a';
+        h+='<span style="color:'+col+';font-weight:600">'+lbl+'</span>';
+        h+='<button class="btn btnsm" onclick="_tournSetResult('+idx+',null)" style="padding:2px 6px;font-size:.66rem">↺</button>';
+      }else if(pB){
+        h+='<button class="btn btnsm" onclick="_tournSetResult('+idx+',\'a\')" style="padding:3px 8px;font-size:.7rem">'+esc(pA.name)+' gagne</button>';
+        h+='<button class="btn btnsm" onclick="_tournSetResult('+idx+',\'b\')" style="padding:3px 8px;font-size:.7rem">'+esc(pB.name)+' gagne</button>';
+        h+='<button class="btn btnsm" onclick="_tournSetResult('+idx+',\'draw\')" style="padding:3px 8px;font-size:.7rem">Nul</button>';
+      }else{
+        h+='<span style="color:#7ec86a">+3 pts auto</span>';
+      }
+      h+='</div>';
+    });
+    h+='</div></div>';
+  }
+  if(finished){
+    h+='<div style="margin-top:14px;padding:12px;background:rgba(243,215,110,.08);border:1.5px solid #f3d76e;border-radius:8px;text-align:center;font-size:.92rem;color:#f3d76e"><b>🏆 Tournoi terminé !</b><br>'+esc(standings[0].name)+' remporte le tournoi avec '+standings[0].pts+' points.</div>';
+  }
+  h+='</div>';
+  h+='<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:flex-end"><button class="btn btnsm" onclick="document.getElementById(\'tourn-ov\').classList.remove(\'show\')">Fermer</button></div>';
+  h+='</div>';
+  ov.innerHTML=h;
+}
+function _tournCreate(){
+  var name=document.getElementById('t-name').value.trim()||'Tournoi';
+  var raw=document.getElementById('t-players').value;
+  var players=raw.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  if(players.length<2){if(typeof toastError==='function')toastError('Min 2 joueurs');return;}
+  var nbRounds=parseInt(document.getElementById('t-rounds').value,10)||Math.ceil(Math.log2(players.length));
+  _tournState={
+    name:name,
+    nbRounds:nbRounds,
+    players:players.map(function(p){return {name:p};}),
+    rounds:[],
+    startTs:Date.now()
+  };
+  _tournNextRound();
+}
+function _tournNextRound(){
+  var st=_tournState;if(!st)return;
+  // Standings AVANT calcul nouvelle ronde
+  var stand=_tournStandings(st);
+  // Pairings : ronde 1 = aléatoire, suivantes = par points (Swiss)
+  var pool=stand.map(function(p,i){
+    return {origIdx:st.players.findIndex(function(pp){return pp.name===p.name;}),pts:p.pts};
+  });
+  if(st.rounds.length===0){
+    // Random shuffle
+    for(var i=pool.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=pool[i];pool[i]=pool[j];pool[j]=t;}
+  }
+  // Liste paires déjà jouées
+  var played={};
+  st.rounds.forEach(function(rd){
+    rd.forEach(function(m){
+      if(m.b!=null){var k=Math.min(m.a,m.b)+'-'+Math.max(m.a,m.b);played[k]=1;}
+    });
+  });
+  var pairings=[];var used={};
+  for(var k=0;k<pool.length;k++){
+    if(used[pool[k].origIdx])continue;
+    var pA=pool[k];used[pA.origIdx]=1;
+    var paired=false;
+    for(var l=k+1;l<pool.length;l++){
+      if(used[pool[l].origIdx])continue;
+      var pB=pool[l];
+      var pk=Math.min(pA.origIdx,pB.origIdx)+'-'+Math.max(pA.origIdx,pB.origIdx);
+      if(played[pk])continue;
+      pairings.push({a:pA.origIdx,b:pB.origIdx,result:null});
+      used[pB.origIdx]=1;paired=true;break;
+    }
+    if(!paired)pairings.push({a:pA.origIdx,b:null,result:'bye'});
+  }
+  st.rounds.push(pairings);
+  _tournSave();_tournRender();
+}
+function _tournSetResult(idx,result){
+  var st=_tournState;if(!st||!st.rounds.length)return;
+  var cur=st.rounds[st.rounds.length-1];
+  if(!cur[idx])return;
+  cur[idx].result=result;
+  _tournSave();_tournRender();
+}
+function _tournStandings(st){
+  var standings=st.players.map(function(p,i){
+    return {idx:i,name:p.name,W:0,L:0,D:0,pts:0,opps:[]};
+  });
+  st.rounds.forEach(function(rd){
+    rd.forEach(function(m){
+      if(m.result==null)return;
+      if(m.b==null){standings[m.a].W++;standings[m.a].pts+=3;return;}
+      standings[m.a].opps.push(m.b);
+      standings[m.b].opps.push(m.a);
+      if(m.result==='a'){standings[m.a].W++;standings[m.a].pts+=3;standings[m.b].L++;}
+      else if(m.result==='b'){standings[m.b].W++;standings[m.b].pts+=3;standings[m.a].L++;}
+      else if(m.result==='draw'){standings[m.a].D++;standings[m.a].pts+=1;standings[m.b].D++;standings[m.b].pts+=1;}
+    });
+  });
+  standings.forEach(function(s){
+    var gp=s.W+s.L+s.D;
+    s.MWP=gp?(s.W*3+s.D)/(gp*3):0;
+    if(s.MWP<0.33)s.MWP=0.33;
+    var sumOpp=0,nOpp=0;
+    s.opps.forEach(function(oi){
+      var o=standings[oi];if(!o)return;
+      var ogp=o.W+o.L+o.D;
+      var omp=ogp?(o.W*3+o.D)/(ogp*3):0;
+      if(omp<0.33)omp=0.33;
+      sumOpp+=omp;nOpp++;
+    });
+    s.OMWP=nOpp?sumOpp/nOpp:0;
+  });
+  standings.sort(function(a,b){
+    if(b.pts!==a.pts)return b.pts-a.pts;
+    if(b.OMWP!==a.OMWP)return b.OMWP-a.OMWP;
+    return b.MWP-a.MWP;
+  });
+  return standings;
+}
+function _tournReset(){
+  if(!confirm('Démarrer un nouveau tournoi ? Le tournoi en cours sera perdu.'))return;
+  _tournState=null;_tournSave();_tournRender();
 }
 function _atelierRecoAdd(name){
   if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
