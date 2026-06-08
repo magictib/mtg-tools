@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-49';
+window.APP_BUILD='2026-06-08-50';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -11128,6 +11128,20 @@ function openProgressionDetails(){
 // Section visuelle au-dessus des cards d'intention pour donner une vue
 // instantanée de l'état du joueur (à la GitHub / Vercel dashboard).
 // ═════════════════════════════════════════════════════════════════════════════
+// ───────────────────────────────────────────────────────────────────────────
+// HELPER mlDelta — calcule la variation entre 2 valeurs avec direction, %.
+// Utilisé par tous les dashboards pour afficher « ▲ +12% vs semaine dernière »
+// ───────────────────────────────────────────────────────────────────────────
+function mlDelta(current,previous){
+  if(previous==null||previous===0)return {delta:null,pct:null,dir:'flat',col:'var(--tx3)'};
+  var d=current-previous;
+  var pct=d/previous*100;
+  return {delta:d,pct:pct,dir:d>0?'up':d<0?'down':'flat',col:d>0?'#7ec86a':d<0?'#d9645a':'var(--tx3)',ico:d>0?'▲':d<0?'▼':'—'};
+}
+// Helper : filtre des éléments ayant un timestamp dans [from, to]
+function mlInTimeRange(items,getTs,from,to){
+  return items.filter(function(x){var t=getTs(x);return t>=from&&t<to;});
+}
 function _homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames){
   var mount=document.getElementById('home-dashboard');if(!mount)return;
   // ─ Stats ─
@@ -11221,18 +11235,68 @@ function _homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames){
   mount.innerHTML=h;
   // ─ Render charts ─
   if(typeof mlChart==='undefined')return;
-  mlChart.kpi('#kpi-decks',{label:'Decks',value:nDecks,unit:nDecks>1?'decks':'deck',icon:'♠',color:mlChart.PAL.accent,sub:nDecks>0?'En construction et joués':'Crée ton premier deck'});
-  mlChart.kpi('#kpi-coll',{label:'Collection',value:totalCards.toLocaleString('fr-FR'),unit:'cartes',icon:'🃏',color:'#4aa0e8',sub:collValue>0?collValue.toFixed(0)+' € valeur Cardmarket':'Importe ton CSV'});
+  // ─── DELTAS vs période précédente (7 jours / 14 jours) ───
+  var now=Date.now();
+  var w7=7*86400000, w14=14*86400000;
+  // Decks créés cette semaine vs semaine d'avant
+  var decksThis=0,decksLast=0;
+  Object.values(decks||{}).forEach(function(dk){
+    if(!dk.updatedAt)return;
+    var age=now-dk.updatedAt;
+    if(age<w7)decksThis++;
+    else if(age<w14)decksLast++;
+  });
+  var dDecks=mlDelta(decksThis,decksLast);
+  // Matches cette semaine vs semaine d'avant
+  var winsThis=0,winsLast=0,matchThis=0,matchLast=0;
+  try{
+    JSON.parse(localStorage.getItem('mtg_match_log')||'[]').forEach(function(m){
+      if(!m.ts)return;
+      var age=now-m.ts;
+      var isWin=m.result==='win',isLoss=m.result==='loss';
+      if(age<w7){if(isWin||isLoss)matchThis++;if(isWin)winsThis++;}
+      else if(age<w14){if(isWin||isLoss)matchLast++;if(isWin)winsLast++;}
+    });
+  }catch(e){}
+  var wrThis=matchThis?winsThis/matchThis*100:null;
+  var wrLast=matchLast?winsLast/matchLast*100:null;
+  var dWr=(wrThis!=null&&wrLast!=null)?{delta:wrThis-wrLast,pct:wrThis-wrLast,col:wrThis>=wrLast?'#7ec86a':'#d9645a',ico:wrThis>=wrLast?'▲':'▼'}:null;
+  // XP gagnée 7 derniers jours
+  var xpThis=0;
+  try{
+    JSON.parse(localStorage.getItem('mtg_match_log')||'[]').forEach(function(m){
+      if(m.ts&&(now-m.ts)<w7)xpThis+=30; // 30 xp/match (cf progression)
+    });
+    Object.values(decks||{}).forEach(function(dk){
+      if(dk.updatedAt&&(now-dk.updatedAt)<w7)xpThis+=10;
+    });
+  }catch(e){}
+
+  mlChart.kpi('#kpi-decks',{
+    label:'Decks',value:nDecks,unit:nDecks>1?'decks':'deck',icon:'♠',color:mlChart.PAL.accent,
+    sub:decksThis>0?'<b style="color:'+dDecks.col+'">+'+decksThis+'</b> cette semaine':'Crée ton 1er deck',
+    delta:dDecks.delta!=null?Math.round(dDecks.pct):null,
+    deltaUnit:'%'
+  });
+  mlChart.kpi('#kpi-coll',{
+    label:'Collection',value:totalCards,unit:'cartes',icon:'🃏',color:'#4aa0e8',
+    sub:collValue>0?collValue.toFixed(0)+' € valeur Cardmarket':'Importe ton CSV'
+  });
   mlChart.kpi('#kpi-winrate',{
     label:'Win rate',
-    value:nMatch?winRatePct:'—',
+    value:nMatch?winRatePct:null,
     unit:nMatch?'%':'',
     icon:'🏆',
     color:winRatePct>=60?'#7ec86a':winRatePct>=40?'#e8c14a':'#d9645a',
-    sub:nMatch?(nWin+'V · '+nLoss+'D sur '+nMatch+' match'+(nMatch>1?'s':'')):'Joue ton 1er match',
+    sub:nMatch?(nWin+'V · '+nLoss+'D'+(matchThis>0?' · <b style="color:'+(dWr&&dWr.col||'var(--tx3)')+'">'+matchThis+' cette semaine</b>':'')):'Joue ton 1er match',
+    delta:dWr?Math.round(dWr.delta):null,
+    deltaUnit:'pts',
     spark:recentWinRate.length>=2?recentWinRate:null
   });
-  mlChart.kpi('#kpi-level',{label:'Niveau',value:lvl,icon:'✪',color:'#b48cdc',sub:xp+' XP'+(lvl<99?' · plus que '+(lvl*1200-xp)+' pour LvL '+(lvl+1):'')});
+  mlChart.kpi('#kpi-level',{
+    label:'Niveau',value:lvl,icon:'✪',color:'#b48cdc',
+    sub:xpThis>0?'+<b style="color:#b48cdc">'+xpThis.toLocaleString('fr-FR')+'</b> XP cette semaine':(xp.toLocaleString('fr-FR')+' XP total')
+  });
   // Activity heatmap
   if(activityDays>=2){
     mlChart.activityHeatmap('#home-activity',dailyMap,{weeks:13});
@@ -16820,8 +16884,21 @@ function matchLogOpen(){
   ov.classList.add('show');
   setTimeout(function(){
     if(typeof mlChart==='undefined')return;
-    mlChart.kpi('#mlog-kpi-total',{label:'Matchs',value:nTotal,icon:'🎮',color:mlChart.PAL.accent});
-    mlChart.kpi('#mlog-kpi-wr',{label:'Win rate',value:winRate,unit:'%',icon:'🏆',color:winRate>=60?'#7ec86a':winRate>=40?'#e8c14a':'#d9645a'});
+    // Deltas : 30 derniers jours vs 30 jours d'avant
+    var _now=Date.now();var _w30=30*86400000;
+    var nThis=0,wThis=0,nLast=0,wLast=0;
+    log.forEach(function(m){
+      if(!m.ts)return;var age=_now-m.ts;
+      var isWin=m.result==='win',isLoss=m.result==='loss';
+      if(age<_w30){if(isWin||isLoss)nThis++;if(isWin)wThis++;}
+      else if(age<_w30*2){if(isWin||isLoss)nLast++;if(isWin)wLast++;}
+    });
+    var wrThis30=nThis?wThis/nThis*100:null;
+    var wrLast30=nLast?wLast/nLast*100:null;
+    var wrDelta=(wrThis30!=null&&wrLast30!=null)?Math.round(wrThis30-wrLast30):null;
+    var matchDelta=mlDelta(nThis,nLast);
+    mlChart.kpi('#mlog-kpi-total',{label:'Matchs',value:nTotal,icon:'🎮',color:mlChart.PAL.accent,delta:matchDelta.pct!=null?Math.round(matchDelta.pct):null,sub:nThis>0?'<b>'+nThis+'</b> sur 30j':''});
+    mlChart.kpi('#mlog-kpi-wr',{label:'Win rate',value:winRate,unit:'%',icon:'🏆',color:winRate>=60?'#7ec86a':winRate>=40?'#e8c14a':'#d9645a',delta:wrDelta,deltaUnit:'pts',sub:wrThis30!=null?'30j : <b>'+Math.round(wrThis30)+'%</b>':''});
     mlChart.kpi('#mlog-kpi-record',{label:'Record',value:nWin+'V '+nLoss+'D'+(nDraw?' '+nDraw+'N':''),icon:'📊',color:'#4aa0e8'});
     mlChart.kpi('#mlog-kpi-dur',{label:'Durée moy.',value:avgDur?Math.round(avgDur/60):'—',unit:avgDur?'min':'',icon:'⏱',color:'#b48cdc',sub:nDur?(nDur+' match'+(nDur>1?'s':'')+' avec durée'):''});
     if(wrSeries.length>=3){
