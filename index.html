@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-45';
+window.APP_BUILD='2026-06-08-46';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1855,6 +1855,21 @@ body.match-active #match-ov{display:flex}
 #pg-deck.drop-active::before{content:'⤓ Lâche la carte pour l\'ajouter au deck';position:fixed;top:54px;left:50%;transform:translateX(-50%);background:linear-gradient(180deg,#3a2008,#180d04);color:var(--gold2);padding:9px 18px;border-radius:99px;border:1.5px solid var(--gold);font-family:'Goudy Mediaeval',serif;font-size:.92rem;z-index:1000;box-shadow:0 8px 28px rgba(0,0,0,.65),0 0 22px rgba(201,168,76,.25);pointer-events:none;animation:dropBadgePulse 1.2s ease-in-out infinite}
 @keyframes dropBadgePulse{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.04)}}
 /* Multi-zone : surligne la section sous le pointeur pendant un drag */
+/* ═══════════════════════════════════════════════════════════════════════════
+   ÉDITION AVANCÉE collapsible — repliée par défaut quand le deck est rempli.
+   Permet à l'utilisateur de garder accès à Format/Cmd/raw list/Notes mais
+   sans monopoliser l'espace visuel quand on est en mode « consultation ».
+═══════════════════════════════════════════════════════════════════════════ */
+.deck-edit-adv{border:.5px solid var(--bd2);border-radius:9px;padding:10px 14px 4px;margin:0 0 14px;background:rgba(255,255,255,.015);transition:background .15s}
+.deck-edit-adv[open]{background:rgba(255,255,255,.03);padding-bottom:12px}
+.deck-edit-adv-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:9px;padding:4px 0;font-family:inherit;outline:none;user-select:none}
+.deck-edit-adv-summary::-webkit-details-marker{display:none}
+.deck-edit-adv-summary:hover .deck-edit-adv-title{color:var(--gold2)}
+.deck-edit-adv-caret{color:var(--tx3);font-size:.8rem;transition:transform .2s}
+.deck-edit-adv[open] .deck-edit-adv-caret{transform:rotate(0deg)}
+.deck-edit-adv:not([open]) .deck-edit-adv-caret{transform:rotate(-90deg)}
+.deck-edit-adv-title{font-size:.84rem;color:var(--tx);font-weight:600;letter-spacing:.02em}
+.deck-edit-adv-hint{flex:1;font-size:.7rem;color:var(--tx3);font-style:italic;text-align:right;font-weight:400}
 .dsec-wrap{transition:background .15s,box-shadow .15s;border-radius:8px;padding:2px 4px;margin:0 -4px}
 .dsec-wrap.drop-section-hover{background:rgba(201,168,76,.10);box-shadow:inset 0 0 0 2px var(--gold)}
 .dsec-wrap.drop-section-hover .dsec::before{content:'➕ ';color:var(--gold2)}
@@ -1883,6 +1898,19 @@ body.match-active #match-ov{display:flex}
 .dlist-toc-collapse-all:hover{color:var(--gold2);border-color:var(--gold)}
 @media (max-width:700px){
   #dlist.dlist-multicol{grid-template-columns:1fr;gap:8px}
+}
+/* Mode « single-section multicol » : quand le deck n'a qu'une seule section
+   (tri = section + une seule sec « Deck »), on splitté les lignes en colonnes
+   CSS au sein de cette section unique pour ne pas avoir 1 colonne verticale
+   de 100 lignes. Garde le drag-drop fonctionnel (chaque .ditem reste un block). */
+#dlist.dlist-singlecol-cols .dsec-wrap{margin:0;padding:8px 10px;background:rgba(255,255,255,.025);border:.5px solid var(--bd2);border-radius:10px}
+#dlist.dlist-singlecol-cols .dsec{margin-bottom:8px;font-size:.84rem;padding:5px 8px;background:linear-gradient(180deg,rgba(20,16,12,.96),rgba(20,16,12,.88));border-radius:6px;border-bottom:.5px solid rgba(201,168,76,.18)}
+#dlist.dlist-singlecol-cols .dsec-wrap > div:not(.dsec){column-count:auto;column-width:340px;column-gap:14px}
+#dlist.dlist-singlecol-cols .ditem,
+#dlist.dlist-singlecol-cols .r,
+#dlist.dlist-singlecol-cols .ritem{break-inside:avoid;display:flex;page-break-inside:avoid;padding:3px 5px;font-size:.8rem}
+@media (max-width:700px){
+  #dlist.dlist-singlecol-cols .dsec-wrap > div:not(.dsec){column-count:1!important;column-width:auto}
 }
 /* Curseur subtil pour signaler que les cartes Scryfall internes sont draggables */
 img[draggable="true"][data-card-name]{cursor:grab}
@@ -4368,6 +4396,15 @@ details > summary::-webkit-details-marker{display:none}
         <div id="atelier-live-pips" style="display:none"></div>
       </div>
     </div>
+    <!-- ÉDITION AVANCÉE : Format, Commandant, raw decklist, Notes, boutons.
+         Repliée par défaut quand un deck existe déjà avec ≥ 5 cartes (la liste
+         est déjà rendue plus bas + le hero affiche commandant/format/score). -->
+    <details id="deck-edit-advanced" class="deck-edit-adv" open>
+      <summary class="deck-edit-adv-summary">
+        <span class="deck-edit-adv-caret">▾</span>
+        <span class="deck-edit-adv-title">✎ Édition avancée</span>
+        <span class="deck-edit-adv-hint">Format · Commandant · Coller une liste · Notes</span>
+      </summary>
     <div class="lbl" style="margin-bottom:4px" data-i18n="deck.owner">Profil propriétaire</div>
     <div class="posel" id="prof-grid-deck"></div>
     <div class="lbl" style="margin-bottom:4px;margin-top:6px" data-i18n="deck.format">Format</div>
@@ -4422,6 +4459,7 @@ details > summary::-webkit-details-marker{display:none}
       <span style="flex:1"></span>
       <span style="font-size:.75rem;color:var(--tx3)" id="dcnt"></span>
     </div>
+    </details>
   </div>
   </div><!-- /flex deck+editor -->
 
@@ -14386,6 +14424,14 @@ function _atelierApplyActionBarMode(){
 }
 function _atelierUpdateSubtitle(){
   var sub=document.getElementById('etitle-sub');if(!sub)return;
+  // Édition avancée : open si nouveau deck (vide), closed si rempli (≥ 5 cartes)
+  // L'utilisateur peut toujours basculer manuellement.
+  var advEl=document.getElementById('deck-edit-advanced');
+  if(advEl&&!advEl.dataset.userToggled){
+    var n0=(dCards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+    var shouldClose=actDeck&&decks[actDeck]&&n0>=5;
+    advEl.open=!shouldClose;
+  }
   if(!actDeck||!decks[actDeck]){
     sub.textContent='Crée un deck ou choisis-en un dans la liste à gauche.';
     sub.style.color='var(--tx3)';
@@ -14403,6 +14449,18 @@ function _atelierUpdateSubtitle(){
   // Aussi mettre à jour l'analyse live
   if(typeof _atelierLiveUpdate==='function')_atelierLiveUpdate();
 }
+// Marque le details comme « toggled by user » pour ne pas écraser son choix
+(function(){
+  function bind(){
+    var el=document.getElementById('deck-edit-advanced');if(!el){setTimeout(bind,300);return;}
+    var sum=el.querySelector('summary');if(!sum)return;
+    sum.addEventListener('click',function(){
+      setTimeout(function(){el.dataset.userToggled='1';},10);
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
+  else setTimeout(bind,300);
+})();
 
 // ───────────────────────────────────────────────────────────────────────────
 // ANALYSE LIVE — apparaît dans l'Atelier dès que le deck a 10+ cartes
@@ -20241,19 +20299,30 @@ function _deckSidebarRestore(){
 })();
 function _dlistApplyMultiCol(){
   var dl=document.getElementById('dlist');if(!dl)return;
-  if(dViewMode!=='list'){dl.classList.remove('dlist-multicol');var tc=document.getElementById('dlist-toc');if(tc)tc.remove();return;}
+  if(dViewMode!=='list'){dl.classList.remove('dlist-multicol');dl.classList.remove('dlist-singlecol-cols');var tc=document.getElementById('dlist-toc');if(tc)tc.remove();return;}
   var nCards=(dCards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
   // Préf utilisateur : on désactive le multicol si le user a explicitement choisi
   var prefForced=null;try{prefForced=localStorage.getItem('mtg_dlist_layout');}catch(e){}
   var useMulti=(prefForced==='multi')||(prefForced==null&&nCards>=25);
   if(prefForced==='single')useMulti=false;
-  dl.classList.toggle('dlist-multicol',useMulti);
-  // Construit / met à jour la TOC
-  if(useMulti){
+  // Compte le nombre de sections rendues
+  var sections=dl.querySelectorAll('.dsec-wrap');
+  var nSec=sections.length;
+  // Cas A : ≥ 2 sections → grid auto-fill (sections = cards)
+  // Cas B : 1 seule section → column-count CSS sur la liste interne (split lignes)
+  if(useMulti && nSec>=2){
+    dl.classList.add('dlist-multicol');
+    dl.classList.remove('dlist-singlecol-cols');
     _dlistBuildToc();
     _dlistRestoreCollapseState();
-  }else{
+  }else if(useMulti && nSec===1 && nCards>=25){
+    dl.classList.remove('dlist-multicol');
+    dl.classList.add('dlist-singlecol-cols');
     var tc2=document.getElementById('dlist-toc');if(tc2)tc2.remove();
+  }else{
+    dl.classList.remove('dlist-multicol');
+    dl.classList.remove('dlist-singlecol-cols');
+    var tc3=document.getElementById('dlist-toc');if(tc3)tc3.remove();
   }
 }
 function _dlistBuildToc(){
