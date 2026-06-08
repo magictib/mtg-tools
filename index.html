@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-43';
+window.APP_BUILD='2026-06-08-44';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -8015,14 +8015,82 @@ function friendSearch(q){
 
 function _renderFriendList(){
   var el=document.getElementById('friend-list');if(!el)return;
-  if(!_friends.length){el.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:6px 0;font-style:italic">Aucun ami pour l\'instant — invite tes potes avec le bouton 🔗 ci-dessus.</div>';return;}
-  el.innerHTML=_friends.map(function(f){
-    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid var(--bd)">'
-      +_avatarHtml(_avatarCache[f.uid],f.name,30)
-      +'<div style="flex:1;font-size:.84rem;color:var(--tx)">'+esc(f.name)+'</div>'
-      +'<button onclick="removeFriend(\''+f.uid+'\')" style="padding:3px 8px;border-radius:5px;border:.5px solid rgba(220,80,80,.4);background:transparent;color:var(--rd2);font-size:.7rem;cursor:pointer">Retirer</button>'
+  if(!_friends.length){
+    el.innerHTML='<div style="color:var(--tx3);font-size:.8rem;padding:14px;font-style:italic;text-align:center;border:1px dashed var(--bd2);border-radius:10px;background:rgba(255,255,255,.02)">'
+      +'<div style="font-size:1.8rem;opacity:.4;margin-bottom:6px">👥</div>'
+      +'Aucun ami pour l\'instant.<br>Invite tes potes via le bouton 🔗 ci-dessus pour partager vos collections.'
       +'</div>';
-  }).join('');
+    return;
+  }
+  // Compte les decks publics + activité récente par ami
+  var friendStats={};
+  _friends.forEach(function(f){friendStats[f.uid]={decks:0,lastDeck:0,collectionLoaded:false,collCount:0,collValue:0};});
+  try{
+    Object.values(decks||{}).forEach(function(dk){
+      if(!dk||!dk.ownerUid)return;
+      if(friendStats[dk.ownerUid]){
+        friendStats[dk.ownerUid].decks++;
+        if((dk.updatedAt||0)>friendStats[dk.ownerUid].lastDeck)friendStats[dk.ownerUid].lastDeck=dk.updatedAt||0;
+      }
+    });
+  }catch(e){}
+  // Si on a la collection d'un ami chargée dans _epSlots
+  try{
+    var slots=_epSlots&&_epSlots.deck||[];
+    slots.forEach(function(ep){
+      if(!ep||!ep.uid||!friendStats[ep.uid])return;
+      var cards=ep.cards||[];
+      if(cards.length){
+        friendStats[ep.uid].collectionLoaded=true;
+        friendStats[ep.uid].collCount=cards.reduce(function(s,c){return s+(c.qty||1);},0);
+        friendStats[ep.uid].collValue=cards.reduce(function(s,c){return s+(c.qty||1)*(c.price||0);},0);
+      }
+    });
+  }catch(e){}
+  var h='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">';
+  _friends.forEach(function(f){
+    var st=friendStats[f.uid]||{decks:0,lastDeck:0,collectionLoaded:false,collCount:0,collValue:0};
+    var lastTxt='';
+    if(st.lastDeck){
+      var days=Math.floor((Date.now()-st.lastDeck)/86400000);
+      lastTxt=days===0?'aujourd\'hui':days===1?'hier':days<7?'il y a '+days+'j':days<30?'il y a '+Math.floor(days/7)+'sem':'il y a '+Math.floor(days/30)+'mois';
+    }
+    h+='<div class="friend-card" style="padding:12px;background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(0,0,0,.18));border:1px solid var(--bd2);border-radius:11px;transition:all .15s;position:relative" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.borderColor=\'var(--bd2)\';this.style.transform=\'\'">';
+    // Header : avatar + nom + remove
+    h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">';
+    h+=_avatarHtml(_avatarCache[f.uid],f.name,40);
+    h+='<div style="flex:1;min-width:0">';
+    h+='<div style="font-size:.92rem;color:var(--gold2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name)+'</div>';
+    h+='<div style="font-size:.66rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase">'+(st.collectionLoaded?'Collection synchronisée':'Profil ami')+'</div>';
+    h+='</div>';
+    h+='<button onclick="removeFriend(\''+f.uid+'\')" title="Retirer cet ami" style="background:none;border:none;color:var(--tx3);font-size:1rem;cursor:pointer;padding:2px 6px;border-radius:5px;line-height:1" onmouseover="this.style.color=\'var(--rd2)\';this.style.background=\'rgba(220,80,80,.1)\'" onmouseout="this.style.color=\'var(--tx3)\';this.style.background=\'none\'">✕</button>';
+    h+='</div>';
+    // Mini-KPIs (2 colonnes ou 3 si collection loaded)
+    h+='<div style="display:grid;grid-template-columns:'+(st.collectionLoaded?'1fr 1fr 1fr':'1fr 1fr')+';gap:6px;margin-bottom:10px">';
+    h+='<div style="text-align:center;padding:5px 4px;background:rgba(201,168,76,.04);border:.5px solid var(--bd2);border-radius:6px">'
+      +'<div style="font-size:.92rem;color:var(--gold2);font-weight:700;line-height:1">'+st.decks+'</div>'
+      +'<div style="font-size:.58rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;margin-top:1px">Decks</div></div>';
+    if(st.collectionLoaded){
+      h+='<div style="text-align:center;padding:5px 4px;background:rgba(74,160,232,.06);border:.5px solid var(--bd2);border-radius:6px">'
+        +'<div style="font-size:.86rem;color:#7eb3d9;font-weight:700;line-height:1">'+st.collCount.toLocaleString('fr-FR')+'</div>'
+        +'<div style="font-size:.58rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;margin-top:1px">Cartes</div></div>';
+      h+='<div style="text-align:center;padding:5px 4px;background:rgba(126,200,106,.06);border:.5px solid var(--bd2);border-radius:6px">'
+        +'<div style="font-size:.86rem;color:#7ec86a;font-weight:700;line-height:1">'+st.collValue.toFixed(0)+'€</div>'
+        +'<div style="font-size:.58rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;margin-top:1px">Valeur</div></div>';
+    }else{
+      h+='<div style="text-align:center;padding:5px 4px;background:rgba(255,255,255,.02);border:.5px solid var(--bd2);border-radius:6px;display:flex;align-items:center;justify-content:center">'
+        +'<div style="font-size:.62rem;color:var(--tx3);font-style:italic">Collection non chargée</div></div>';
+    }
+    h+='</div>';
+    // Last activity + actions
+    if(lastTxt){h+='<div style="font-size:.66rem;color:var(--tx3);margin-bottom:8px;text-align:center">📅 Dernier deck modifié '+lastTxt+'</div>';}
+    h+='<div style="display:flex;gap:5px">';
+    if(typeof tradeFinderOpen==='function')h+='<button onclick="tradeFinderOpen()" title="Proposer un échange équilibré" style="flex:1;padding:5px 8px;background:rgba(126,200,106,.08);border:.5px solid #7ec86a;border-radius:6px;color:#a8d97e;font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s" onmouseover="this.style.background=\'rgba(126,200,106,.18)\'" onmouseout="this.style.background=\'rgba(126,200,106,.08)\'">🤝 Trade</button>';
+    h+='</div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  el.innerHTML=h;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
