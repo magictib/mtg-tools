@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-47';
+window.APP_BUILD='2026-06-08-48';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -14066,6 +14066,25 @@ function _toggleDeckFilter(pi){
   _populateDeckListFilter();
   renderDBar();
 }
+// Palette couleur par format (discrète, juste un accent à gauche de chaque deck).
+// Choisies pour évoquer l'identité du format sans être criardes :
+// commander=doré (royal), pauper*=vert (commun), brawl=violet (récent),
+// oathbreaker=cyan (planeswalker), standard=bleu, pioneer=orange, modern=rouge,
+// legacy=pourpre, vintage=argent.
+var _FMT_COLOR={
+  commander:'#c9a84c',     // doré classique EDH
+  paupercmd:'#7ec86a',     // vert commun
+  brawl:'#b48cdc',         // violet/lavande (Brawl moderne)
+  oathbreaker:'#4aa0e8',   // cyan (planeswalkers)
+  standard:'#7eb3d9',      // bleu clair (rotation)
+  pioneer:'#e88a4a',       // orange brûlé
+  modern:'#d9645a',        // rouge moderne
+  legacy:'#9d7eb8',        // pourpre profond
+  pauper:'#7ec86a',        // vert (commun)
+  vintage:'#c8c8c8',       // argent
+  draft:'#e8c14a',         // jaune (sealed/draft)
+  sealed:'#e8c14a'
+};
 function renderDBar(){
   _syncProfsForCtx('deck');
   _populateDeckListFilter();
@@ -14097,13 +14116,16 @@ function renderDBar(){
     orderedPids.forEach(function(id,rank){
       var d=deckSrc[id];if(!d)return;
       var n=d.cards?d.cards.reduce(function(s,c){return s+c.qty;},0):0;
+      // Barre verticale colorée à gauche pour identifier le format au coup d'œil
+      var fmtCol=d.format&&_FMT_COLOR[d.format]?_FMT_COLOR[d.format]:'transparent';
       var fmtBadge=d.format?'<span style="font-size:.62rem;background:var(--s3);border:.5px solid var(--bd2);border-radius:3px;padding:0 4px;color:var(--tx3);margin-left:4px">'+esc(fmtLabel[d.format]||d.format)+'</span>':'';
       var cmdBadge=d.commander?'<span title="'+esc(d.commander.name)+'" style="font-size:.62rem;color:var(--gold2);margin-left:3px">★</span>':'';
       var rankBadge='<span style="font-size:.58rem;color:var(--tx3);margin-right:4px;min-width:12px;display:inline-block">'+(rank+1)+'.</span>';
       var isActive=(pi===0&&id===actDeck)||(pi>0&&id===actDeck&&_adminEditUid===ep.uid);
       var clickFn=pi===0?'loadDeck(\''+id+'\')':isAdminSection?'loadDeckAdmin(\''+ep.uid+'\',\''+id+'\')':'loadFriendDeck(\''+ep.uid+'\',\''+id+'\')';
       var dragAttrs=pi===0?' draggable="true" ondragstart="dkDragStart(event,\''+id+'\',0)" ondragover="dkDragOver(event)" ondragleave="dkDragLeave(event)" ondrop="dkDrop(event,\''+id+'\',0)"':'';
-      html+='<div class="ditem'+(isActive?' active':'')+'"'+dragAttrs+' onclick="'+clickFn+'">'
+      var fmtBarStyle=d.format?'border-left:3px solid '+fmtCol+';padding-left:9px':'';
+      html+='<div class="ditem'+(isActive?' active':'')+'"'+dragAttrs+' onclick="'+clickFn+'" style="'+fmtBarStyle+'" title="Format : '+esc(fmtLabel[d.format]||d.format||'aucun')+'">'
         +'<div class="dn">'+rankBadge+esc(d.name)+fmtBadge+cmdBadge+'</div>'
         +'<div class="di">'+n+' cartes · '+new Date(d.updatedAt).toLocaleDateString('fr-FR')+'</div></div>';
     });
