@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-37';
+window.APP_BUILD='2026-06-08-38';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -4206,6 +4206,26 @@ details > summary::-webkit-details-marker{display:none}
       <button class="btn btnsm btnrd" id="delbtn" onclick="deleteDeck()" style="display:none" data-i18n="deck.delete">✕ Supprimer</button>
     </div>
     <!-- Barre de recherche INLINE persistante (visible dès qu'un deck est ouvert) -->
+    <!-- HEADER « Carte d'identité du deck » — vue visuelle synthétique en haut de l'Atelier.
+         Visible dès qu'un deck est ouvert ET qu'il a au moins 5 cartes (sinon trop vide). -->
+    <div id="deck-identity-card" style="display:none;margin:8px 0 14px 0;background:linear-gradient(135deg,rgba(201,168,76,.06),rgba(74,160,232,.03));border:1px solid rgba(201,168,76,.32);border-radius:14px;padding:14px;overflow:hidden;position:relative">
+      <div style="display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr) minmax(0,200px);gap:14px;align-items:start">
+        <!-- Colonne 1 : commandant + nom -->
+        <div id="deck-id-cmd" style="display:flex;flex-direction:column;align-items:center;text-align:center"></div>
+        <!-- Colonne 2 : KPIs + radar -->
+        <div>
+          <div id="deck-id-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px"></div>
+          <div id="deck-id-mana" style="height:64px"></div>
+        </div>
+        <!-- Colonne 3 : radar -->
+        <div>
+          <div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:2px;text-align:center">Profil</div>
+          <div id="deck-id-radar" style="height:180px"></div>
+        </div>
+      </div>
+      <!-- Bouton aperçu shareable -->
+      <button onclick="deckPreviewOpen()" title="Génère un aperçu visuel partageable (Reddit/Discord)" style="position:absolute;top:10px;right:10px;padding:5px 10px;background:rgba(0,0,0,.4);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx2);font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s" onmouseover="this.style.borderColor='var(--gold)';this.style.color='var(--gold2)'" onmouseout="this.style.borderColor='var(--bd2)';this.style.color='var(--tx2)'">📸 Aperçu</button>
+    </div>
     <div class="atelier-search-row" id="atelier-search-row" style="display:none;margin:6px 0 12px;position:relative">
       <div style="display:flex;gap:8px;align-items:center;padding:9px 11px;background:linear-gradient(180deg,rgba(201,168,76,.08),rgba(201,168,76,.02));border:1px solid var(--gold);border-radius:10px;box-shadow:0 0 0 1px rgba(201,168,76,.12) inset">
         <span style="font-size:1.05rem;color:var(--gold2)" aria-hidden="true">🔍</span>
@@ -14607,6 +14627,7 @@ function _atelierLiveRecosRender(deficits){
   h+='<button class="reco-add-btn" onclick="reverseEdhOpen()" title="Tape une carte fétiche : on te suggère les commandants qui la jouent le plus" style="padding:5px 12px;background:linear-gradient(180deg,rgba(232,193,74,.12),rgba(232,193,74,.04));border:.5px solid #e8c14a;border-radius:7px;color:#f3d76e;font-family:inherit;font-size:.76rem;cursor:pointer">🔮 Reverse-EDH</button>';
   h+='<button class="reco-add-btn" onclick="budgetUpgradeOpen()" title="Fixe un budget, reçois les cartes qui ont le meilleur impact / euro" style="padding:5px 12px;background:linear-gradient(180deg,rgba(232,138,74,.12),rgba(232,138,74,.04));border:.5px solid #e88a4a;border-radius:7px;color:#f3a86e;font-family:inherit;font-size:.76rem;cursor:pointer">💰 Budget upgrade</button>';
   h+='<button class="reco-add-btn" onclick="synergyGraphOpen()" title="Visualise les synergies du deck en graphe — nœuds = cartes, arêtes = co-occurrence de mécaniques" style="padding:5px 12px;background:linear-gradient(180deg,rgba(74,160,232,.12),rgba(74,160,232,.04));border:.5px solid #4aa0e8;border-radius:7px;color:#7eb3d9;font-family:inherit;font-size:.76rem;cursor:pointer">🕸 Graphe synergies</button>';
+  h+='<button class="reco-add-btn" onclick="cmcTypeHeatmapOpen()" title="Matrice CMC × Type pour repérer les trous (genre « aucune créature 2-CMC »)" style="padding:5px 12px;background:linear-gradient(180deg,rgba(217,100,90,.12),rgba(217,100,90,.04));border:.5px solid #d9645a;border-radius:7px;color:#e88876;font-family:inherit;font-size:.76rem;cursor:pointer">🔥 Heatmap CMC×Type</button>';
   h+='<span style="font-size:.66rem;color:var(--tx3);font-style:italic">verdict + alternatives</span>';
   h+='</div>';
   h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.18)!important}</style>';
@@ -16996,11 +17017,18 @@ function matchEnd(result){
     else if(e.key==='-'){e.preventDefault();matchLife('me',-1);}
   });
 })();
-// Wrap renderDeck pour rafraîchir l'analyse live à chaque changement
+// Wrap renderDeck pour rafraîchir l'analyse live + la carte d'identité à chaque changement
 (function(){
   function bind(){
     if(typeof window.renderDeck!=='function')return setTimeout(bind,200);
     if(window.renderDeck.__liveWrapped)return;
+    // Hook supplémentaire : rafraîchit l'identité du deck (header visuel)
+    var origIR=window.renderDeck;
+    window.renderDeck=function(){
+      var r=origIR.apply(this,arguments);
+      try{if(typeof _deckIdentityRender==='function')_deckIdentityRender();}catch(e){}
+      return r;
+    };
     var orig=window.renderDeck;
     window.renderDeck=function(){
       var r=orig.apply(this,arguments);
@@ -17692,6 +17720,393 @@ function _atelierSearchSubmit(){
 function _atelierSearchSyncVisibility(){
   var row=document.getElementById('atelier-search-row');if(!row)return;
   row.style.display=actDeck?'block':'none';
+  // Sync aussi la carte d'identité
+  if(typeof _deckIdentityRender==='function')_deckIdentityRender();
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// CARTE D'IDENTITÉ DU DECK — header visuel en haut de l'Atelier.
+// Affiche commandant + KPIs + radar + mana curve, dès qu'un deck a 5+ cartes.
+// Se rafraîchit à chaque mutation (wrap renderDeck).
+// ═════════════════════════════════════════════════════════════════════════════
+function _deckIdentityRender(){
+  var box=document.getElementById('deck-identity-card');if(!box)return;
+  if(!actDeck||!decks[actDeck]||!dCards||dCards.length<5){box.style.display='none';return;}
+  if(typeof mlChart==='undefined'){box.style.display='none';return;}
+  box.style.display='block';
+  var dk=decks[actDeck];
+  var total=dCards.reduce(function(s,c){return s+(c.qty||1);},0);
+  // Compute stats (réutilise la même logique que _atelierLiveUpdate)
+  var typeCounts={Land:0,Creature:0,Instant:0,Sorcery:0,Enchantment:0,Artifact:0,Planeswalker:0,Battle:0};
+  var curve=[0,0,0,0,0,0,0,0];
+  var hasRamp=0,hasRemoval=0,hasDraw=0,hasCounter=0,hasWipe=0,totalEur=0;
+  dCards.forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    var qty=c.qty||1;
+    if(!meta)return;
+    var tl=(meta.typeLine||'').toLowerCase();
+    var ot=(meta.oracleText||'').toLowerCase();
+    if(tl.indexOf('land')>=0)typeCounts.Land+=qty;
+    else if(tl.indexOf('creature')>=0)typeCounts.Creature+=qty;
+    else if(tl.indexOf('planeswalker')>=0)typeCounts.Planeswalker+=qty;
+    else if(tl.indexOf('battle')>=0)typeCounts.Battle+=qty;
+    else if(tl.indexOf('instant')>=0)typeCounts.Instant+=qty;
+    else if(tl.indexOf('sorcery')>=0)typeCounts.Sorcery+=qty;
+    else if(tl.indexOf('enchantment')>=0)typeCounts.Enchantment+=qty;
+    else if(tl.indexOf('artifact')>=0)typeCounts.Artifact+=qty;
+    if(tl.indexOf('land')<0){
+      var cmc=Math.max(0,Math.min(7,Math.floor(meta.cmc||0)));
+      curve[cmc]+=qty;
+    }
+    var isLand=tl.indexOf('land')>=0;
+    if(!isLand){
+      if(/(search your library for.*land|add \{[wubrg]\}|add one mana)/.test(ot))hasRamp+=qty;
+      if(/(destroy target|exile target.*(creature|permanent))/.test(ot))hasRemoval+=qty;
+      if(/(draw (a|two|three|x|that many) card|investigate|scry [2-9])/.test(ot))hasDraw+=qty;
+      if(/counter target/.test(ot))hasCounter+=qty;
+      if(/(destroy all|exile all)/.test(ot))hasWipe+=qty;
+    }
+    if(meta.priceEur)totalEur+=meta.priceEur*qty;
+    else if(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])totalEur+=allPriceMap[c.nl]*qty;
+  });
+  var fmt=(dk.format||'').toLowerCase();
+  var isCmd=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
+  // Score (% de critères passés — même algo que checklist)
+  var targets=isCmd
+    ? {Land:36,Ramp:8,Removal:8,Draw:8,Wipe:2}
+    : {Land:22,Removal:4,Draw:4,Counter:0};
+  var actuals={Land:typeCounts.Land,Ramp:hasRamp,Removal:hasRemoval,Draw:hasDraw,Counter:hasCounter,Wipe:hasWipe};
+  var pass=0,nb=0;
+  Object.keys(targets).forEach(function(k){nb++;if((actuals[k]||0)>=targets[k])pass++;});
+  var scoreP=nb?Math.round(pass*100/nb):0;
+  var scoreCol=scoreP>=80?'#7ec86a':scoreP>=50?'#e8c14a':'#d9645a';
+  // Win rate
+  var wr=null,wrN=0;
+  try{
+    var ml=JSON.parse(localStorage.getItem('mtg_match_log')||'[]');
+    var w=0;
+    ml.forEach(function(m){
+      if(m.deckId===actDeck){if(m.result==='win'){w++;wrN++;}else if(m.result==='loss')wrN++;}
+    });
+    if(wrN)wr=Math.round(w/wrN*100);
+  }catch(e){}
+  // ─── Render colonne 1 : commandant ───
+  var cmdEl=document.getElementById('deck-id-cmd');
+  var imgUrl='';
+  if(dk.commander&&dk.commander.name){
+    var cmdNl=stripDFC(dk.commander.name).toLowerCase();
+    imgUrl=(typeof dImgCache!=='undefined'&&dImgCache[cmdNl])||(dk.commander.image_uris&&dk.commander.image_uris.normal)||'';
+  }
+  var cH='';
+  if(imgUrl){
+    cH+='<img src="'+esc(imgUrl)+'" alt="'+esc((dk.commander&&dk.commander.name)||dk.name||'')+'" style="width:100%;max-width:140px;border-radius:9px;box-shadow:0 4px 14px rgba(0,0,0,.6);margin-bottom:8px">';
+  }
+  cH+='<div style="font-family:inherit;font-size:.92rem;color:var(--gold2);font-weight:700;line-height:1.2;overflow:hidden;text-overflow:ellipsis">'+esc(dk.name||'(sans nom)')+'</div>';
+  if(dk.commander&&dk.commander.name)cH+='<div style="font-size:.7rem;color:var(--tx3);margin-top:2px">👑 '+esc(dk.commander.name)+'</div>';
+  if(dk.format)cH+='<div style="font-size:.66rem;color:var(--tx3);margin-top:3px;text-transform:uppercase;letter-spacing:.06em">'+esc(dk.format)+'</div>';
+  if(cmdEl)cmdEl.innerHTML=cH;
+  // ─── Render colonne 2 : KPIs + mana curve ───
+  var kpiEl=document.getElementById('deck-id-kpis');
+  if(kpiEl){
+    var tgtCount=isCmd?100:60;
+    var ctCol=total===tgtCount?'#7ec86a':total<tgtCount?'#e8c14a':'#d9645a';
+    kpiEl.innerHTML=
+      _miniKpi('Cartes',total+'<span style="font-size:.55em;color:var(--tx3);font-weight:400">/'+tgtCount+'</span>',ctCol)
+      +_miniKpi('Score',scoreP+'%',scoreCol)
+      +_miniKpi('Valeur',totalEur.toFixed(0)+'€',mlChart.PAL.info)
+      +_miniKpi(wr!=null?'Win rate':'Matchs',wr!=null?(wr+'%'):wrN,wr!=null?(wr>=60?'#7ec86a':wr>=40?'#e8c14a':'#d9645a'):'var(--tx3)');
+  }
+  // Mini mana curve
+  var manaEl=document.getElementById('deck-id-mana');
+  if(manaEl){
+    var maxC=Math.max(1,Math.max.apply(null,curve));
+    var bH='<div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:3px">Courbe de mana</div>';
+    bH+='<div style="display:flex;gap:3px;align-items:flex-end;height:36px">';
+    for(var i=0;i<curve.length;i++){
+      var h=Math.round((curve[i]/maxC)*30);
+      var lbl=(i===7?'7+':i);
+      var col=curve[i]===0?'rgba(255,255,255,.06)':mlChart.PAL.accent;
+      bH+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">'
+        +'<div style="font-size:.58rem;color:'+(curve[i]?'var(--gold2)':'transparent')+'">'+(curve[i]||'')+'</div>'
+        +'<div style="width:100%;height:'+(h||2)+'px;background:'+col+';border-radius:2px 2px 0 0"></div>'
+        +'<div style="font-size:.58rem;color:var(--tx3)">'+lbl+'</div>'
+        +'</div>';
+    }
+    bH+='</div>';
+    manaEl.innerHTML=bH;
+  }
+  // ─── Render radar (5 axes critiques) ───
+  if(isCmd){
+    var axesR=['Terrains','Ramp','Removal','Pioche','Wraths'];
+    var valsR=[
+      Math.min(1,typeCounts.Land/40),
+      Math.min(1,hasRamp/12),
+      Math.min(1,hasRemoval/10),
+      Math.min(1,hasDraw/10),
+      Math.min(1,hasWipe/3)
+    ];
+    mlChart.radar('#deck-id-radar',axesR,[{name:'Ton deck',values:valsR,color:mlChart.PAL.accent}]);
+  }else{
+    var axesR2=['Terrains','Créatures','Removal','Pioche','Counter'];
+    var valsR2=[
+      Math.min(1,typeCounts.Land/24),
+      Math.min(1,typeCounts.Creature/24),
+      Math.min(1,hasRemoval/8),
+      Math.min(1,hasDraw/6),
+      Math.min(1,hasCounter/4)
+    ];
+    mlChart.radar('#deck-id-radar',axesR2,[{name:'Ton deck',values:valsR2,color:mlChart.PAL.accent}]);
+  }
+}
+function _miniKpi(label,value,col){
+  return '<div style="padding:7px 8px;background:rgba(0,0,0,.18);border:.5px solid var(--bd2);border-radius:7px;text-align:center;min-width:0;overflow:hidden">'
+    +'<div style="font-size:1.1rem;color:'+col+';font-weight:700;line-height:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+value+'</div>'
+    +'<div style="font-size:.58rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;margin-top:3px">'+label+'</div>'
+    +'</div>';
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// HEATMAP CMC × TYPE — accessible via bouton dans le panneau Analyse Live.
+// Matrice qui croise coûts (0-7+) et types pour repérer instantanément les
+// trous du deck (ex. « aucune créature 2-CMC », « pas de pioche 1-mana »).
+// ═════════════════════════════════════════════════════════════════════════════
+function cmcTypeHeatmapOpen(){
+  if(!actDeck||!decks[actDeck]||!dCards||!dCards.length){if(typeof toastError==='function')toastError('Ouvre un deck non vide');return;}
+  var ov=document.getElementById('cmc-heat-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='cmc-heat-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('cmc-heat-ov');if(o&&o.classList.contains('show'))o.classList.remove('show');}});
+  }
+  var types=['Creature','Instant','Sorcery','Enchantment','Artifact','Planeswalker','Battle','Land'];
+  var typeLbl=['Créature','Éphémère','Rituel','Enchant.','Artefact','Pwalker','Battle','Terrain'];
+  var cmcLbl=['0','1','2','3','4','5','6','7+'];
+  // Matrix [type][cmc] = count
+  var matrix=types.map(function(){return [0,0,0,0,0,0,0,0];});
+  dCards.forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    if(!meta)return;
+    var qty=c.qty||1;
+    var tl=(meta.typeLine||'').toLowerCase();
+    var ti=-1;
+    for(var i=0;i<types.length;i++){if(tl.indexOf(types[i].toLowerCase())>=0){ti=i;break;}}
+    if(ti<0)return;
+    var cmc=Math.min(7,Math.floor(meta.cmc||0));
+    matrix[ti][cmc]+=qty;
+  });
+  // Filtre les lignes vides
+  var nonEmpty=types.map(function(_,ti){return matrix[ti].some(function(v){return v>0;});});
+  var filteredTypes=[],filteredMatrix=[];
+  types.forEach(function(_,ti){if(nonEmpty[ti]){filteredTypes.push(typeLbl[ti]);filteredMatrix.push(matrix[ti]);}});
+  // Détection des trous notables (pour conseils)
+  var insights=[];
+  var byCMC=cmcLbl.map(function(_,ci){var s=0;matrix.forEach(function(r){s+=r[ci];});return s;});
+  for(var c=1;c<=3;c++){
+    if(matrix[0][c]<2)insights.push('⚠ Peu de créatures à '+c+'-CMC ('+matrix[0][c]+') — peut ralentir ton développement.');
+  }
+  var earlyPlays=matrix[0][1]+matrix[0][2]+matrix[1][1]+matrix[1][2];
+  if(earlyPlays<6)insights.push('⚠ Seulement '+earlyPlays+' actions ≤ 2 CMC : tu risques de "no-play" T1-T2.');
+  if(matrix[1][2]+matrix[1][3]<2)insights.push('💡 Peu d\'instants 2-3 CMC — manque d\'interaction au tempo.');
+  // Render
+  var h='<div class="ml-modal" style="max-width:720px;width:96vw;max-height:92vh;display:flex;flex-direction:column">';
+  h+='<div class="ml-modal-hdr">';
+  h+='<div class="ml-modal-title">🔥 Heatmap CMC × Type</div>';
+  h+='<button class="ml-modal-close" onclick="document.getElementById(\'cmc-heat-ov\').classList.remove(\'show\')">✕</button>';
+  h+='</div>';
+  h+='<div style="padding:12px 16px 0 16px;font-size:.8rem;color:var(--tx2);line-height:1.5">Matrice qui croise les coûts (CMC) et les types. Les cases sombres = peu de cartes, les cases claires/dorées = beaucoup. Repère les <b>trous</b> de ton deck instantanément.</div>';
+  h+='<div style="flex:1;overflow-y:auto;padding:14px 16px">';
+  h+='<div id="cmc-heat-grid" style="height:'+Math.max(160,filteredTypes.length*40)+'px"></div>';
+  if(insights.length){
+    h+='<div style="margin-top:14px;padding:10px 12px;background:rgba(232,193,74,.06);border-left:3px solid #e8c14a;border-radius:6px"><div style="font-size:.74rem;color:#f3d76e;margin-bottom:4px;font-weight:600">💡 Observations</div>';
+    insights.forEach(function(t){h+='<div style="font-size:.76rem;color:var(--tx2);line-height:1.5;margin-bottom:3px">• '+t+'</div>';});
+    h+='</div>';
+  }
+  h+='</div>';
+  h+='<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:flex-end"><button class="btn btnsm" onclick="document.getElementById(\'cmc-heat-ov\').classList.remove(\'show\')">Fermer</button></div>';
+  h+='</div>';
+  ov.innerHTML=h;
+  ov.classList.add('show');
+  setTimeout(function(){
+    if(typeof mlChart!=='undefined'){
+      mlChart.heatmap('#cmc-heat-grid',filteredMatrix,{rowLabels:filteredTypes,colLabels:cmcLbl,colorLow:'#1a1410',colorHigh:mlChart.PAL.accent});
+    }
+  },60);
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// APERÇU SHAREABLE — layout vertical optimisé pour screenshot Reddit/Discord.
+// Format portrait 800×1400, avec commandant en grand, KPIs, radar, top cards,
+// mana curve. Bouton « 📥 Télécharger PNG » via canvas → blob.
+// ═════════════════════════════════════════════════════════════════════════════
+function deckPreviewOpen(){
+  if(!actDeck||!decks[actDeck]||!dCards||!dCards.length){if(typeof toastError==='function')toastError('Ouvre un deck non vide');return;}
+  var ov=document.getElementById('deck-prev-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='deck-prev-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('deck-prev-ov');if(o&&o.classList.contains('show'))o.classList.remove('show');}});
+  }
+  var dk=decks[actDeck];
+  var total=dCards.reduce(function(s,c){return s+(c.qty||1);},0);
+  // Stats (réutilise la logique simple)
+  var typeCounts={Land:0,Creature:0,Instant:0,Sorcery:0,Enchantment:0,Artifact:0,Planeswalker:0};
+  var curve=[0,0,0,0,0,0,0,0];
+  var hasRamp=0,hasRemoval=0,hasDraw=0,hasWipe=0,totalEur=0;
+  var topCards=[];
+  dCards.forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    if(!meta)return;
+    var qty=c.qty||1;
+    var tl=(meta.typeLine||'').toLowerCase();
+    var ot=(meta.oracleText||'').toLowerCase();
+    if(tl.indexOf('land')>=0)typeCounts.Land+=qty;
+    else if(tl.indexOf('creature')>=0)typeCounts.Creature+=qty;
+    else if(tl.indexOf('planeswalker')>=0)typeCounts.Planeswalker+=qty;
+    else if(tl.indexOf('instant')>=0)typeCounts.Instant+=qty;
+    else if(tl.indexOf('sorcery')>=0)typeCounts.Sorcery+=qty;
+    else if(tl.indexOf('enchantment')>=0)typeCounts.Enchantment+=qty;
+    else if(tl.indexOf('artifact')>=0)typeCounts.Artifact+=qty;
+    if(tl.indexOf('land')<0){
+      var cmc=Math.max(0,Math.min(7,Math.floor(meta.cmc||0)));
+      curve[cmc]+=qty;
+    }
+    if(tl.indexOf('land')<0){
+      if(/(search your library for.*land|add \{[wubrg]\}|add one mana)/.test(ot))hasRamp+=qty;
+      if(/(destroy target|exile target.*(creature|permanent))/.test(ot))hasRemoval+=qty;
+      if(/(draw (a|two|three|x|that many) card|investigate)/.test(ot))hasDraw+=qty;
+      if(/(destroy all|exile all)/.test(ot))hasWipe+=qty;
+    }
+    var price=(meta.priceEur)||(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])||0;
+    if(price>0){totalEur+=price*qty;topCards.push({name:c.name,price:price,qty:qty,nl:c.nl});}
+  });
+  topCards.sort(function(a,b){return b.price-a.price;});
+  var fmt=(dk.format||'').toLowerCase();
+  var isCmd=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
+  var targets=isCmd?{Land:36,Ramp:8,Removal:8,Draw:8,Wipe:2}:{Land:22,Removal:4,Draw:4};
+  var actuals={Land:typeCounts.Land,Ramp:hasRamp,Removal:hasRemoval,Draw:hasDraw,Wipe:hasWipe};
+  var pass=0,nb=0;
+  Object.keys(targets).forEach(function(k){nb++;if((actuals[k]||0)>=targets[k])pass++;});
+  var scoreP=nb?Math.round(pass*100/nb):0;
+  var cmdImg='';
+  if(dk.commander&&dk.commander.name){
+    var cmdNl=stripDFC(dk.commander.name).toLowerCase();
+    cmdImg=(typeof dImgCache!=='undefined'&&dImgCache[cmdNl])||(dk.commander.image_uris&&dk.commander.image_uris.normal)||'';
+  }
+  // Render
+  var h='<div class="ml-modal" style="max-width:920px;width:96vw;max-height:94vh;display:flex;flex-direction:column">';
+  h+='<div class="ml-modal-hdr">';
+  h+='<div class="ml-modal-title">📸 Aperçu shareable du deck</div>';
+  h+='<button class="ml-modal-close" onclick="document.getElementById(\'deck-prev-ov\').classList.remove(\'show\')">✕</button>';
+  h+='</div>';
+  h+='<div style="padding:10px 16px 0 16px;font-size:.78rem;color:var(--tx2);line-height:1.5">Layout optimisé pour partage Reddit/Discord/Twitter. Fais un screenshot de la zone ci-dessous ou clique « Télécharger PNG ».</div>';
+  h+='<div style="flex:1;overflow-y:auto;padding:14px 16px">';
+  h+='<div id="deck-prev-card" style="width:100%;max-width:540px;margin:0 auto;background:linear-gradient(180deg,#0a0805 0%,#1a1410 100%);border:2px solid var(--gold);border-radius:14px;padding:18px;color:var(--tx);font-family:inherit;box-shadow:0 8px 28px rgba(0,0,0,.7)">';
+  // Header
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(201,168,76,.3)">';
+  h+='<div style="flex:1"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.12em;text-transform:uppercase">ManaLAB · Carte d\'identité</div><div style="font-size:1.4rem;color:var(--gold2);font-weight:700;line-height:1.1;margin-top:3px">'+esc(dk.name||'(sans nom)')+'</div>';
+  if(dk.commander&&dk.commander.name)h+='<div style="font-size:.82rem;color:var(--tx2);margin-top:2px">👑 '+esc(dk.commander.name)+(dk.format?' · '+esc(dk.format):'')+'</div>';
+  h+='</div>';
+  if(cmdImg)h+='<img src="'+esc(cmdImg)+'" alt="commander" style="width:90px;border-radius:7px;box-shadow:0 4px 14px rgba(0,0,0,.6)">';
+  h+='</div>';
+  // 4 KPI grid
+  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px">';
+  h+=_miniKpi('Cartes',total,'var(--gold2)');
+  h+=_miniKpi('Score',scoreP+'%',scoreP>=80?'#7ec86a':scoreP>=50?'#e8c14a':'#d9645a');
+  h+=_miniKpi('Valeur',totalEur.toFixed(0)+'€','#4aa0e8');
+  h+=_miniKpi('Terrains',typeCounts.Land,'#7ec86a');
+  h+='</div>';
+  // 2 colonnes : radar + mana curve
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+  h+='<div style="background:rgba(255,255,255,.02);border:.5px solid var(--bd2);border-radius:8px;padding:8px"><div style="font-size:.6rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Profil</div><div id="dp-radar" style="height:140px"></div></div>';
+  h+='<div style="background:rgba(255,255,255,.02);border:.5px solid var(--bd2);border-radius:8px;padding:8px"><div style="font-size:.6rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Courbe de mana</div><div id="dp-curve" style="height:140px"></div></div>';
+  h+='</div>';
+  // Top 6 cards
+  if(topCards.length){
+    h+='<div style="margin-bottom:10px"><div style="font-size:.6rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Top 6 cartes (valeur)</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px">';
+    topCards.slice(0,6).forEach(function(c){
+      h+='<div style="padding:5px 7px;background:rgba(201,168,76,.06);border:.5px solid var(--bd2);border-radius:5px;font-size:.7rem">';
+      h+='<div style="color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">'+esc(c.name)+'</div>';
+      h+='<div style="color:var(--gold2);font-size:.65rem;margin-top:1px">'+c.price.toFixed(2)+' €</div>';
+      h+='</div>';
+    });
+    h+='</div></div>';
+  }
+  // Distribution types (mini stripe)
+  var totType=Object.keys(typeCounts).reduce(function(s,k){return s+typeCounts[k];},0)||1;
+  var typeColMap={Land:'#7ec86a',Creature:'#c8a878',Instant:'#7eb3d9',Sorcery:'#b48cdc',Enchantment:'#e8c14a',Artifact:'#9d9d9d',Planeswalker:'#c14ad9'};
+  h+='<div style="margin-bottom:8px"><div style="font-size:.6rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Composition</div>';
+  h+='<div style="display:flex;height:14px;border-radius:4px;overflow:hidden;background:rgba(0,0,0,.4)">';
+  Object.keys(typeCounts).forEach(function(k){
+    var v=typeCounts[k];if(!v)return;
+    var pct=(v/totType*100).toFixed(1);
+    h+='<div style="background:'+typeColMap[k]+';width:'+pct+'%" title="'+k+' : '+v+'"></div>';
+  });
+  h+='</div></div>';
+  // Footer
+  h+='<div style="margin-top:12px;padding-top:8px;border-top:.5px solid rgba(201,168,76,.2);display:flex;justify-content:space-between;align-items:center">';
+  h+='<div style="font-size:.62rem;color:var(--tx3)">Généré par <b style="color:var(--gold2)">ManaLAB</b></div>';
+  h+='<div style="font-size:.62rem;color:var(--tx3)">'+new Date().toLocaleDateString('fr-FR')+'</div>';
+  h+='</div>';
+  h+='</div></div>';
+  h+='<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:flex-end;gap:8px">';
+  h+='<button class="btn btnsm" onclick="document.getElementById(\'deck-prev-ov\').classList.remove(\'show\')">Fermer</button>';
+  h+='<button class="btn btnp btnsm" onclick="_deckPreviewDownload()">📥 Télécharger PNG</button>';
+  h+='</div>';
+  h+='</div>';
+  ov.innerHTML=h;
+  ov.classList.add('show');
+  setTimeout(function(){
+    if(typeof mlChart==='undefined')return;
+    var axesR,valsR;
+    if(isCmd){
+      axesR=['Lands','Ramp','Removal','Pioche','Wraths'];
+      valsR=[Math.min(1,typeCounts.Land/40),Math.min(1,hasRamp/12),Math.min(1,hasRemoval/10),Math.min(1,hasDraw/10),Math.min(1,hasWipe/3)];
+    }else{
+      axesR=['Lands','Créatures','Removal','Pioche','Spells'];
+      valsR=[Math.min(1,typeCounts.Land/24),Math.min(1,typeCounts.Creature/24),Math.min(1,hasRemoval/8),Math.min(1,hasDraw/6),Math.min(1,(typeCounts.Instant+typeCounts.Sorcery)/16)];
+    }
+    mlChart.radar('#dp-radar',axesR,[{name:'Deck',values:valsR,color:mlChart.PAL.accent}]);
+    // Mini courbe mana
+    var maxC=Math.max(1,Math.max.apply(null,curve));
+    var bH='<div style="display:flex;gap:2px;align-items:flex-end;height:90px">';
+    for(var i=0;i<curve.length;i++){
+      var hp=Math.round((curve[i]/maxC)*70);
+      var lbl=(i===7?'7+':i);
+      var col=curve[i]===0?'rgba(255,255,255,.06)':mlChart.PAL.accent;
+      bH+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">'
+        +'<div style="font-size:.58rem;color:'+(curve[i]?'var(--gold2)':'transparent')+';margin-bottom:1px">'+(curve[i]||'')+'</div>'
+        +'<div style="width:100%;height:'+(hp||2)+'px;background:'+col+';border-radius:2px 2px 0 0"></div>'
+        +'<div style="font-size:.58rem;color:var(--tx3);margin-top:2px">'+lbl+'</div>'
+        +'</div>';
+    }
+    bH+='</div>';
+    var cEl=document.getElementById('dp-curve');if(cEl)cEl.innerHTML=bH;
+  },60);
+}
+function _deckPreviewDownload(){
+  // Utilise html2canvas si dispo, sinon fallback : ouvre une nouvelle fenêtre avec instructions
+  var el=document.getElementById('deck-prev-card');if(!el){return;}
+  if(typeof html2canvas!=='undefined'){
+    html2canvas(el,{backgroundColor:null,scale:2}).then(function(canvas){
+      canvas.toBlob(function(blob){
+        var url=URL.createObjectURL(blob);
+        var a=document.createElement('a');a.href=url;a.download='manalab-deck-'+Date.now()+'.png';
+        document.body.appendChild(a);a.click();a.remove();
+        setTimeout(function(){URL.revokeObjectURL(url);},1000);
+        if(typeof toast==='function')toast('✓ PNG téléchargé');
+      });
+    });
+  }else{
+    // Fallback : load html2canvas à la demande
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    s.onload=function(){_deckPreviewDownload();};
+    s.onerror=function(){
+      if(typeof toast==='function')toast('Fais un screenshot manuel — html2canvas indisponible');
+    };
+    document.head.appendChild(s);
+    if(typeof toast==='function')toast('⏳ Chargement du module de capture…');
+  }
 }
 function _qacSubmit(){
   var inp=document.getElementById('qac-input');if(!inp)return;
