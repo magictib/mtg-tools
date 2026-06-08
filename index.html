@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-26';
+window.APP_BUILD='2026-06-08-27';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -8665,6 +8665,26 @@ var _allUsers=null; // cache [{uid,name}]
 
 
 function stripDFC(name){return (name||'').replace(/\s*\/{1,2}\s*.+$/,'').replace(/[\u2018\u2019\u02BC\u02BB\uFF07]/g,"'").replace(/\u00C6/g,'Ae').replace(/\u00E6/g,'ae').trim();}
+// Concat\u00E8ne l'oracle text de TOUTES les faces d'une carte Scryfall pour le scoring.
+// Crucial pour : DFC (Innistrad transform), MDFC (Zendikar Rising lands), modaux,
+// sagas (chaque chapitre). Avant ce helper, seule la face avant \u00E9tait lue \u2192 la 2e
+// face de Search for Azcanta (terrain qui pioche) \u00E9tait invisible au scoring.
+function _fullOracleText(card){
+  if(!card)return '';
+  if(card.oracle_text){
+    // Si la carte a un oracle_text au top niveau, on l'utilise \u2014 mais on concat\u00E8ne
+    // aussi les faces si elles existent (cas rare : split cards).
+    if(card.card_faces&&card.card_faces.length){
+      var faces=card.card_faces.map(function(f){return f.oracle_text||'';}).filter(Boolean).join('\n//\n');
+      return faces||card.oracle_text;
+    }
+    return card.oracle_text;
+  }
+  if(card.card_faces&&card.card_faces.length){
+    return card.card_faces.map(function(f){return f.oracle_text||'';}).filter(Boolean).join('\n//\n');
+  }
+  return '';
+}
 function _normNl(s){return stripDFC(s||'').toLowerCase();}
 // ===== STATE =====
 var srcF='A', dstF='C';
@@ -15642,7 +15662,7 @@ function dRetryNoPrice(){
         allPriceMap[item.nl]=p; // alias sur le nom utilisé par le user
       }
     }
-    if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
+    if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
     return !!(card.prices&&(card.prices.eur||card.prices.usd||card.prices.eur_foil||card.prices.usd_foil));
   }
   function next(){
@@ -15683,7 +15703,7 @@ function fetchMissingPrices(){
   function ingestCard(card){
     var nl=stripDFC(card.name).toLowerCase();
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
     return nl;
   }
   function fuzzyFallback(){
@@ -15697,7 +15717,7 @@ function fetchMissingPrices(){
         var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;
         if(_pa>0)allPriceMap[item.nl]=_pa;
       }
-      if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
+      if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
       return true;
     }
     function tryMultilingual(item,then){
@@ -16923,8 +16943,8 @@ function fetchDeckImages(){
     if(aliasNl&&aliasNl!==nl&&img)dImgCache[aliasNl]=img;
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
     if(aliasNl&&aliasNl!==nl&&!allPriceMap[aliasNl]&&card.prices){var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pa>0)allPriceMap[aliasNl]=_pa;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
-    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
+    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
+    if(aliasNl&&aliasNl!==nl&&!dCardMeta[aliasNl])dCardMeta[aliasNl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
     return nl;
   }
   function fuzzyFallback(){
@@ -18634,7 +18654,7 @@ function fetchCardsMetaBatch(cards,cb){
     }).then(function(r){return r.json();}).then(function(data){
       (data.data||[]).forEach(function(card){
         var nl=stripDFC(card.name||'').toLowerCase();
-        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:(card.oracle_text||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].oracle_text)||''),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
+        if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||''};
         // aliases : si le nl du deck est différent (DFC, accent), associer aussi
         batch.forEach(function(b){
           if(b.nl!==nl){
@@ -42718,9 +42738,25 @@ function anaInferTags(meta){
   }
   // Coût en vie (mana phyrexien) : sort effectivement gratuit en mana
   var freeCast=/you may pay \d+ life rather than pay (this spell's|its) mana cost/.test(oracle)?1:0;
+  // ─── Saga : enchantement avec chapitres I/II/III. 1 coût = 3 effets étalés sur 3 tours.
+  // Compte les chapitres détectés pour booster proportionnellement. Une saga sans détection
+  // de chapitres tombe à 0 (cas rare : carte mal parsée).
+  var saga=0,sagaChapters=0;
+  if(/\bsaga\b/i.test(type)){
+    saga=1;
+    var chap=oracle.match(/\b(i+|iv|v+|vi+)\s*[—–-]\s*/gi);
+    sagaChapters=chap?chap.length:3; // default 3 si pas matché
+  }
+  // ─── DFC / MDFC / Adventure : flag pour valoriser la versatilité (deux options en 1 carte).
+  // Détection robuste via layout Scryfall ou via mots-clés dans le type/oracle.
+  var dfc=0;
+  var _lay=(meta.layout||'').toLowerCase();
+  if(meta.faces>1)dfc=1;
+  else if(['transform','modal_dfc','meld','adventure','flip','split','aftermath'].indexOf(_lay)>=0)dfc=1;
+  else if(/\btransform\b|\bdisturb\b|\bdaybound\b|\badventure\b|\baftermath\b/i.test(oracle))dfc=1;
   // Bornage
   function r(x){return Math.round(x*10)/10;}
-  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant),lifelink_grant:r(lifelink_grant),manarock:manarock,freeCast:freeCast,flying:flying,reach:reach,menace:menace,trample:trample,infect:infect,etb_trigger:etb_trigger};
+  return {draw:r(draw),removal:r(removal),ramp:r(ramp),interaction:r(interaction),wincon:r(wincon),isLand:0,protection:r(protection),wrath:wrath,counter:counter,mill:r(mill),millAmt:Math.round(mill),reanimate:reanimate,untap_creature:r(untap_creature),sac_outlet:r(sac_outlet),deathtouch_grant:r(deathtouch_grant),lifelink_grant:r(lifelink_grant),manarock:manarock,freeCast:freeCast,flying:flying,reach:reach,menace:menace,trample:trample,infect:infect,etb_trigger:etb_trigger,saga:saga,sagaChapters:sagaChapters,dfc:dfc};
 }
 
 /* ----- Helpers ----- */
@@ -43491,10 +43527,8 @@ function anaGrade(score){
 function _anaIngestCard(card,nlHint){
   var nm=card.name||'';if(!nm)return null;
   var nl=stripDFC(nm).toLowerCase();
-  var oracle='';
-  if(card.card_faces&&card.card_faces.length&&!card.oracle_text){
-    oracle=card.card_faces.map(function(f){return f.oracle_text||'';}).join('\n');
-  }else{oracle=card.oracle_text||'';}
+  // Concatène toutes les faces : fix DFC / MDFC / split / saga (face arrière invisible avant).
+  var oracle=_fullOracleText(card);
   var imageUri='';
   if(card.image_uris)imageUri=card.image_uris.normal||card.image_uris.large||card.image_uris.small||'';
   else if(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)imageUri=card.card_faces[0].image_uris.normal||card.card_faces[0].image_uris.large||card.card_faces[0].image_uris.small||'';
@@ -43509,7 +43543,8 @@ function _anaIngestCard(card,nlHint){
   var _pr=card.prices||{};
   var _priceEur=parseFloat(_pr.eur)||parseFloat(_pr.eur_foil)||(parseFloat(_pr.usd)*0.92)||(parseFloat(_pr.usd_foil)*0.92)||0;
   var _loy=card.loyalty||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].loyalty)||null;
-  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc,producedMana:card.produced_mana||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].produced_mana)||[],priceEur:_priceEur,loyalty:_loy};
+  var _facesN=(card.card_faces&&card.card_faces.length)||1;
+  var meta={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:oracle,colors:card.colors||[],colorIdentity:card.color_identity||[],name:nm,imageUri:imageUri,rarity:_rar,keywords:card.keywords||[],power:_realPow,toughness:_realTou,manaCost:_mc,producedMana:card.produced_mana||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].produced_mana)||[],priceEur:_priceEur,loyalty:_loy,faces:_facesN,layout:card.layout||''};
   meta.tags=anaInferTags(meta);
   meta.isLand=meta.tags.isLand||0;
   _anaData[nl]=meta;
@@ -43740,6 +43775,17 @@ function anaCardScore(meta){
   base+=_anaAntiSynergyPenalty(meta,th);
   // Plancher mana rocks : infrastructure toujours utile, jamais en-dessous de ce seuil
   if(t.manarock){var mrFloor=(t.ramp>=2.0)?5.5:4.5;if(base<mrFloor)base=mrFloor;}
+  // Bonus saga : 1 coût = 3 effets étalés sur 3 tours. Excellent value moyenne.
+  // +1.5 par chapitre détecté, plafonné à +6 (4 chapitres+). Encourage l'inclusion
+  // de sagas dans les decks où elles ne sont pas explicitement « rôle » mais offrent
+  // un tempo solide (ex. Elspeth Conquers Death = removal+ramp+recursion en 3 tours).
+  if(t.saga){
+    var sagaBonus=Math.min(6,(t.sagaChapters||3)*1.5);
+    base+=sagaBonus;
+  }
+  // Bonus DFC : versatilité (deux options en une carte). Modeste pour ne pas
+  // sur-évaluer toutes les transform creatures, mais reconnaît la valeur intrinsèque.
+  if(t.dfc&&base>0)base+=0.8;
   // Évasion : vol > atteinte > rien (bonus amplifié en plan combat, défensif sinon)
   if(t.flying)base+=(th.wincon||1)>1.1?1.0:0.4;
   if(t.reach)base+=0.25;
