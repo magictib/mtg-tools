@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-39';
+window.APP_BUILD='2026-06-08-40';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1858,6 +1858,32 @@ body.match-active #match-ov{display:flex}
 .dsec-wrap{transition:background .15s,box-shadow .15s;border-radius:8px;padding:2px 4px;margin:0 -4px}
 .dsec-wrap.drop-section-hover{background:rgba(201,168,76,.10);box-shadow:inset 0 0 0 2px var(--gold)}
 .dsec-wrap.drop-section-hover .dsec::before{content:'➕ ';color:var(--gold2)}
+/* ═══════════════════════════════════════════════════════════════════════════
+   LISTE DECK MULTI-COLONNES — auto-fill 360-420px par colonne pour réduire
+   la longueur verticale et faciliter le scan visuel (style Moxfield/Archidekt).
+   Chaque section devient une « card » indépendante avec son propre fond.
+═══════════════════════════════════════════════════════════════════════════ */
+#dlist.dlist-multicol{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;align-items:start}
+#dlist.dlist-multicol .dsec-wrap{margin:0;padding:10px 12px;background:rgba(255,255,255,.025);border:.5px solid var(--bd2);border-radius:10px;break-inside:avoid}
+#dlist.dlist-multicol .dsec-wrap:hover{border-color:rgba(201,168,76,.4)}
+#dlist.dlist-multicol .dsec{position:sticky;top:0;background:linear-gradient(180deg,rgba(20,16,12,.96),rgba(20,16,12,.88));padding:6px 8px;margin:-10px -12px 6px;border-radius:10px 10px 0 0;border-bottom:.5px solid rgba(201,168,76,.18);cursor:pointer;display:flex;align-items:center;gap:6px;font-size:.84rem;z-index:2;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#dlist.dlist-multicol .dsec::after{content:'▾';margin-left:auto;color:var(--tx3);font-size:.7rem;transition:transform .2s}
+#dlist.dlist-multicol .dsec-wrap.dsec-collapsed .dsec::after{transform:rotate(-90deg)}
+#dlist.dlist-multicol .dsec-wrap.dsec-collapsed > *:not(.dsec){display:none!important}
+/* Compactage des lignes en mode multi-colonnes : un peu plus dense */
+#dlist.dlist-multicol .ditem,
+#dlist.dlist-multicol .r,
+#dlist.dlist-multicol .ritem{padding:3px 5px;font-size:.8rem;min-height:auto}
+/* TOC sticky « Jump to section » en haut de #dlist quand mode multi-col actif */
+.dlist-toc{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,rgba(14,17,23,.96),rgba(14,17,23,.85));backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:.5px solid rgba(201,168,76,.18);padding:7px 10px;margin:0 -4px 8px;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.dlist-toc-lbl{font-size:.6rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-right:4px}
+.dlist-toc-btn{padding:3px 9px;background:rgba(255,255,255,.04);border:.5px solid var(--bd2);border-radius:11px;color:var(--tx2);font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s;white-space:nowrap}
+.dlist-toc-btn:hover{border-color:var(--gold);color:var(--gold2);background:rgba(201,168,76,.10)}
+.dlist-toc-collapse-all{margin-left:auto;font-size:.66rem;color:var(--tx3);cursor:pointer;padding:3px 8px;border-radius:5px;background:none;border:.5px solid var(--bd2);font-family:inherit}
+.dlist-toc-collapse-all:hover{color:var(--gold2);border-color:var(--gold)}
+@media (max-width:700px){
+  #dlist.dlist-multicol{grid-template-columns:1fr;gap:8px}
+}
 /* Curseur subtil pour signaler que les cartes Scryfall internes sont draggables */
 img[draggable="true"][data-card-name]{cursor:grab}
 img[draggable="true"][data-card-name]:active{cursor:grabbing}
@@ -19919,6 +19945,125 @@ function setDView(mode){
   },120);
 }
 function toggleDView(){setDView(dViewMode==='list'?'image':(dViewMode==='image'?'montage':'list'));}
+// ═════════════════════════════════════════════════════════════════════════════
+// LISTE DECK MULTI-COLONNES — active le layout grid + TOC sticky pour réduire
+// la longueur de scroll. Active automatiquement quand le deck a ≥ 25 cartes
+// (sinon liste classique pour les petits decks).
+// ═════════════════════════════════════════════════════════════════════════════
+function _dlistApplyMultiCol(){
+  var dl=document.getElementById('dlist');if(!dl)return;
+  if(dViewMode!=='list'){dl.classList.remove('dlist-multicol');var tc=document.getElementById('dlist-toc');if(tc)tc.remove();return;}
+  var nCards=(dCards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+  // Préf utilisateur : on désactive le multicol si le user a explicitement choisi
+  var prefForced=null;try{prefForced=localStorage.getItem('mtg_dlist_layout');}catch(e){}
+  var useMulti=(prefForced==='multi')||(prefForced==null&&nCards>=25);
+  if(prefForced==='single')useMulti=false;
+  dl.classList.toggle('dlist-multicol',useMulti);
+  // Construit / met à jour la TOC
+  if(useMulti){
+    _dlistBuildToc();
+    _dlistRestoreCollapseState();
+  }else{
+    var tc2=document.getElementById('dlist-toc');if(tc2)tc2.remove();
+  }
+}
+function _dlistBuildToc(){
+  var dl=document.getElementById('dlist');if(!dl)return;
+  var sections=dl.querySelectorAll('.dsec-wrap');if(!sections.length)return;
+  // Cherche un container parent pour insérer la TOC AVANT #dlist
+  var parent=dl.parentNode;if(!parent)return;
+  var toc=document.getElementById('dlist-toc');
+  if(!toc){
+    toc=document.createElement('div');toc.id='dlist-toc';toc.className='dlist-toc';
+    parent.insertBefore(toc,dl);
+  }
+  var h='<span class="dlist-toc-lbl">📂 Sections</span>';
+  sections.forEach(function(secEl,i){
+    var hdr=secEl.querySelector('.dsec');
+    if(!hdr)return;
+    var name=hdr.textContent.replace(/\s*\(\d+\)\s*$/,'').trim();
+    var count=(hdr.textContent.match(/\((\d+)\)/)||[])[1]||'';
+    var secId='dsec-anchor-'+i;
+    secEl.id=secId;
+    h+='<button class="dlist-toc-btn" onclick="_dlistJumpTo(\''+secId+'\')">'+esc(name)+(count?' <b style="color:var(--gold2)">'+count+'</b>':'')+'</button>';
+  });
+  h+='<button class="dlist-toc-collapse-all" onclick="_dlistToggleAll()">▾ Tout replier</button>';
+  toc.innerHTML=h;
+  // Click sur header de section → toggle collapse
+  sections.forEach(function(secEl){
+    var hdr=secEl.querySelector('.dsec');
+    if(!hdr||hdr.dataset.collapseBound==='1')return;
+    hdr.dataset.collapseBound='1';
+    hdr.addEventListener('click',function(e){
+      if(e.target.closest('button,input,select,a'))return;
+      _dlistToggleSection(secEl);
+    });
+  });
+}
+function _dlistJumpTo(id){
+  var el=document.getElementById(id);if(!el)return;
+  // Si la section est repliée, la déplie d'abord
+  el.classList.remove('dsec-collapsed');
+  _dlistSaveCollapseState();
+  el.scrollIntoView({behavior:'smooth',block:'start'});
+  // Highlight
+  el.style.outline='2px solid var(--gold)';
+  setTimeout(function(){el.style.outline='';},1200);
+}
+function _dlistToggleSection(secEl){
+  if(!secEl)return;
+  secEl.classList.toggle('dsec-collapsed');
+  _dlistSaveCollapseState();
+}
+function _dlistToggleAll(){
+  var dl=document.getElementById('dlist');if(!dl)return;
+  var sections=dl.querySelectorAll('.dsec-wrap');
+  // Si majoritairement déplié → on replie tout. Sinon → on déplie tout.
+  var nCollapsed=0;sections.forEach(function(s){if(s.classList.contains('dsec-collapsed'))nCollapsed++;});
+  var collapseAll=nCollapsed<sections.length/2;
+  sections.forEach(function(s){s.classList.toggle('dsec-collapsed',collapseAll);});
+  var btn=document.querySelector('.dlist-toc-collapse-all');
+  if(btn)btn.innerHTML=collapseAll?'▸ Tout déplier':'▾ Tout replier';
+  _dlistSaveCollapseState();
+}
+function _dlistSaveCollapseState(){
+  if(!actDeck)return;
+  var dl=document.getElementById('dlist');if(!dl)return;
+  var collapsed=[];
+  dl.querySelectorAll('.dsec-wrap.dsec-collapsed').forEach(function(s){
+    var hdr=s.querySelector('.dsec');
+    if(hdr)collapsed.push(hdr.textContent.replace(/\s*\(\d+\)\s*$/,'').trim());
+  });
+  try{localStorage.setItem('mtg_dlist_collapsed_'+actDeck,JSON.stringify(collapsed));}catch(e){}
+}
+function _dlistRestoreCollapseState(){
+  if(!actDeck)return;
+  var dl=document.getElementById('dlist');if(!dl)return;
+  var collapsed=[];try{collapsed=JSON.parse(localStorage.getItem('mtg_dlist_collapsed_'+actDeck)||'[]');}catch(e){}
+  if(!collapsed.length)return;
+  dl.querySelectorAll('.dsec-wrap').forEach(function(s){
+    var hdr=s.querySelector('.dsec');
+    if(!hdr)return;
+    var name=hdr.textContent.replace(/\s*\(\d+\)\s*$/,'').trim();
+    if(collapsed.indexOf(name)>=0)s.classList.add('dsec-collapsed');
+  });
+}
+// Wrap renderDeck pour appliquer le multi-col après chaque render
+(function(){
+  function bind(){
+    if(typeof window.renderDeck!=='function')return setTimeout(bind,200);
+    if(window.renderDeck.__multicolWrapped)return;
+    var orig=window.renderDeck;
+    window.renderDeck=function(){
+      var r=orig.apply(this,arguments);
+      try{setTimeout(_dlistApplyMultiCol,30);}catch(e){}
+      return r;
+    };
+    window.renderDeck.__multicolWrapped=true;
+  }
+  if(document.readyState==='complete')setTimeout(bind,300);
+  else window.addEventListener('load',function(){setTimeout(bind,300);});
+})();
 function fetchDeckImages(){
   var names=[];
   dCards.forEach(function(c){if(!dImgCache[c.nl])names.push({nl:c.nl,name:c.name,set:c.set||'',num:c.num||''});});
