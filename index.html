@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-29';
+window.APP_BUILD='2026-06-08-30';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -13771,6 +13771,7 @@ function _atelierLiveRecosRender(deficits){
   h+='<button class="reco-add-btn" onclick="manaBaseAuditOpen()" title="Simule 1000 mains d\'ouverture, donne stats de mana base" style="padding:5px 12px;background:linear-gradient(180deg,rgba(126,200,106,.12),rgba(126,200,106,.04));border:.5px solid #7ec86a;border-radius:7px;color:#a8d97e;font-family:inherit;font-size:.76rem;cursor:pointer">🎲 Audit mana base</button>';
   h+='<button class="reco-add-btn" onclick="reverseEdhOpen()" title="Tape une carte fétiche : on te suggère les commandants qui la jouent le plus" style="padding:5px 12px;background:linear-gradient(180deg,rgba(232,193,74,.12),rgba(232,193,74,.04));border:.5px solid #e8c14a;border-radius:7px;color:#f3d76e;font-family:inherit;font-size:.76rem;cursor:pointer">🔮 Reverse-EDH</button>';
   h+='<button class="reco-add-btn" onclick="budgetUpgradeOpen()" title="Fixe un budget, reçois les cartes qui ont le meilleur impact / euro" style="padding:5px 12px;background:linear-gradient(180deg,rgba(232,138,74,.12),rgba(232,138,74,.04));border:.5px solid #e88a4a;border-radius:7px;color:#f3a86e;font-family:inherit;font-size:.76rem;cursor:pointer">💰 Budget upgrade</button>';
+  h+='<button class="reco-add-btn" onclick="synergyGraphOpen()" title="Visualise les synergies du deck en graphe — nœuds = cartes, arêtes = co-occurrence de mécaniques" style="padding:5px 12px;background:linear-gradient(180deg,rgba(74,160,232,.12),rgba(74,160,232,.04));border:.5px solid #4aa0e8;border-radius:7px;color:#7eb3d9;font-family:inherit;font-size:.76rem;cursor:pointer">🕸 Graphe synergies</button>';
   h+='<span style="font-size:.66rem;color:var(--tx3);font-style:italic">verdict + alternatives</span>';
   h+='</div>';
   h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.18)!important}</style>';
@@ -14541,6 +14542,288 @@ function _budgetAddAll(names){
     }else setTimeout(next,80);
   }
   next();
+}
+// ───────────────────────────────────────────────────────────────────────────
+// GRAPHE DE SYNERGIES — canvas force-directed simple.
+// Nœuds = cartes (taille = qty), arêtes = synergies détectées par mots-clés communs
+// dans l'oracle. Cartes isolées (0 arêtes) = « hors plan ».
+// Couleurs par rôle dominant. Drag des nœuds pour réorganiser, fish-eye au hover.
+// ───────────────────────────────────────────────────────────────────────────
+var _synGraphState=null;
+function synergyGraphOpen(){
+  if(!actDeck||!decks[actDeck]){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
+  var ov=document.getElementById('syn-graph-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='syn-graph-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov){synergyGraphClose();}});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('syn-graph-ov');if(o&&o.classList.contains('show'))synergyGraphClose();}});
+  }
+  ov.innerHTML='<div class="ml-modal" style="max-width:1100px;width:96vw;max-height:94vh;display:flex;flex-direction:column">'
+    +'<div class="ml-modal-hdr">'
+    +'<div class="ml-modal-title">🕸 Graphe de synergies — '+esc(decks[actDeck].name||'(deck)')+'</div>'
+    +'<button class="ml-modal-close" onclick="synergyGraphClose()">✕</button>'
+    +'</div>'
+    +'<div style="padding:8px 14px;font-size:.76rem;color:var(--tx2);line-height:1.5;border-bottom:.5px solid var(--bd)">Chaque <b style="color:#4aa0e8">cercle</b> est une carte (taille = qty). Les <b>arêtes</b> relient les cartes qui partagent des mécaniques (ramp, draw, sacrifice, tribu…). Les cartes <b style="color:#d9645a">orphelines</b> sont hors plan. <span style="color:var(--tx3)">Drag pour déplacer · molette pour zoom</span></div>'
+    +'<div style="position:relative;flex:1;overflow:hidden;background:#0a0805">'
+    +'<canvas id="syn-graph-canvas" style="display:block;cursor:grab;width:100%;height:100%"></canvas>'
+    +'<div id="syn-graph-tooltip" style="position:absolute;display:none;pointer-events:none;background:rgba(0,0,0,.92);border:1px solid var(--gold);border-radius:6px;padding:6px 10px;font-size:.76rem;color:var(--tx);z-index:10;max-width:240px"></div>'
+    +'<div id="syn-graph-legend" style="position:absolute;top:8px;left:8px;background:rgba(0,0,0,.7);padding:6px 10px;border-radius:6px;font-size:.7rem;color:var(--tx2);max-width:240px"></div>'
+    +'<div id="syn-graph-stats" style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,.7);padding:6px 10px;border-radius:6px;font-size:.72rem;color:var(--tx2)"></div>'
+    +'</div>'
+    +'<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    +'<div><label style="font-size:.74rem;color:var(--tx2)"><input type="checkbox" id="syn-graph-orphans-only" onchange="_synGraphFilter()"> Cartes hors plan uniquement</label></div>'
+    +'<button class="btn btnsm" onclick="synergyGraphClose()">Fermer</button>'
+    +'</div></div>';
+  ov.classList.add('show');
+  setTimeout(_synGraphInit,80);
+}
+function synergyGraphClose(){
+  var ov=document.getElementById('syn-graph-ov');if(ov)ov.classList.remove('show');
+  if(_synGraphState&&_synGraphState.rafId)cancelAnimationFrame(_synGraphState.rafId);
+  _synGraphState=null;
+}
+function _synGraphInit(){
+  var canvas=document.getElementById('syn-graph-canvas');if(!canvas)return;
+  var deck=decks[actDeck];if(!deck)return;
+  var ctx=canvas.getContext('2d');
+  // Resize au container parent
+  function resize(){
+    var rect=canvas.parentElement.getBoundingClientRect();
+    canvas.width=rect.width*window.devicePixelRatio;
+    canvas.height=rect.height*window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio,window.devicePixelRatio);
+  }
+  resize();
+  var W=canvas.parentElement.getBoundingClientRect().width;
+  var H=canvas.parentElement.getBoundingClientRect().height;
+  // Build nodes (cartes hors terrains)
+  var nodes=[];
+  var roleColMap={ramp:'#7ec86a',draw:'#7eb3d9',removal:'#d9645a',interaction:'#8a7ed9',wincon:'#c14ad9',counter:'#8a7ed9',wrath:'#e8645a',sac_outlet:'#c8a878',protection:'#e8d97e',manarock:'#c8a878',recursion:'#9d9d9d',creature:'#7ec86a',other:'#666'};
+  (deck.cards||[]).forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    if(!meta)return;
+    var tl=(meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('land')>=0)return;
+    var ot=(meta.oracleText||'').toLowerCase();
+    // Détection « tokens » de synergie
+    var tokens=new Set();
+    if(/(search your library for.*land|add \{[wubrg]\}|add one mana)/.test(ot))tokens.add('ramp');
+    if(/(destroy target|exile target.*(creature|permanent))/.test(ot))tokens.add('removal');
+    if(/(draw (a|two|three|x|that many) card|investigate|scry [2-9])/.test(ot))tokens.add('draw');
+    if(/counter target/.test(ot))tokens.add('counter');
+    if(/(destroy all|exile all)/.test(ot))tokens.add('wipe');
+    if(/(sacrifice (a|an|a creature|a permanent|another))/.test(ot))tokens.add('sacrifice');
+    if(/treasure token/.test(ot))tokens.add('treasure');
+    if(/\+1\/\+1 counter/.test(ot))tokens.add('counters');
+    if(/lifelink|gain (\d+|x) life/.test(ot))tokens.add('lifegain');
+    if(/from (your )?graveyard|return.*to.*hand/.test(ot))tokens.add('graveyard');
+    if(/token/.test(ot)&&tokens.size===0)tokens.add('tokens');
+    if(/whenever .* dies/.test(ot))tokens.add('death-trigger');
+    if(/when this creature enters/.test(ot))tokens.add('etb');
+    if(/flying|menace|trample|haste|deathtouch|lifelink|first strike/.test(ot))tokens.add('combat-kw');
+    // Rôle dominant pour couleur
+    var domRole='other';
+    if(tokens.has('ramp'))domRole='ramp';
+    else if(tokens.has('draw'))domRole='draw';
+    else if(tokens.has('removal'))domRole='removal';
+    else if(tokens.has('counter'))domRole='counter';
+    else if(tokens.has('wipe'))domRole='wrath';
+    else if(tokens.has('sacrifice'))domRole='sac_outlet';
+    else if(tl.indexOf('creature')>=0)domRole='creature';
+    nodes.push({
+      name:c.name,nl:c.nl,qty:c.qty||1,
+      tokens:Array.from(tokens),
+      role:domRole,col:roleColMap[domRole]||'#666',
+      x:Math.random()*W,y:Math.random()*H,vx:0,vy:0,fixed:false
+    });
+  });
+  // Build edges : 2 cartes partagent ≥1 token → arête (poids = #tokens partagés)
+  var edges=[];
+  for(var i=0;i<nodes.length;i++){
+    var a=nodes[i];var aT=new Set(a.tokens);
+    for(var j=i+1;j<nodes.length;j++){
+      var b=nodes[j];var shared=b.tokens.filter(function(t){return aT.has(t);});
+      if(shared.length>=2 || (shared.length>=1 && (a.role===b.role||shared[0]==='death-trigger'))){
+        edges.push({a:i,b:j,w:shared.length,tokens:shared});
+      }
+    }
+  }
+  // Calcul orphelins
+  var degree=nodes.map(function(){return 0;});
+  edges.forEach(function(e){degree[e.a]++;degree[e.b]++;});
+  nodes.forEach(function(n,i){n.degree=degree[i];n.orphan=degree[i]===0;});
+  // Layout force-directed simple
+  _synGraphState={canvas:canvas,ctx:ctx,nodes:nodes,edges:edges,W:W,H:H,zoom:1,offX:0,offY:0,hover:null,drag:null,orphansOnly:false};
+  _synGraphRenderLegend();
+  _synGraphRenderStats();
+  // Boucle simulation
+  var iter=0;
+  function step(){
+    if(!_synGraphState)return;
+    iter++;
+    // Force-directed (Fruchterman-Reingold simplifié)
+    var n=nodes.length;
+    var area=W*H;
+    var k=Math.sqrt(area/Math.max(1,n))*0.65;
+    // Répulsion noeud-noeud
+    for(var i=0;i<n;i++){
+      var a=nodes[i];if(a.fixed)continue;
+      for(var j=0;j<n;j++){
+        if(i===j)continue;
+        var b=nodes[j];
+        var dx=a.x-b.x, dy=a.y-b.y;
+        var d2=dx*dx+dy*dy;if(d2<0.1)d2=0.1;
+        var d=Math.sqrt(d2);
+        var f=k*k/d;
+        a.vx+=dx/d*f*0.04;a.vy+=dy/d*f*0.04;
+      }
+    }
+    // Attraction arêtes
+    edges.forEach(function(e){
+      var a=nodes[e.a],b=nodes[e.b];
+      var dx=b.x-a.x, dy=b.y-a.y;
+      var d=Math.sqrt(dx*dx+dy*dy)||1;
+      var f=d*d/k*0.0015*(e.w);
+      if(!a.fixed){a.vx+=dx/d*f;a.vy+=dy/d*f;}
+      if(!b.fixed){b.vx-=dx/d*f;b.vy-=dy/d*f;}
+    });
+    // Attraction centre
+    nodes.forEach(function(node){
+      if(node.fixed)return;
+      var cx=W/2,cy=H/2;
+      node.vx+=(cx-node.x)*0.003;node.vy+=(cy-node.y)*0.003;
+    });
+    // Update positions
+    var damping=Math.max(0.4,1-iter*0.005);
+    nodes.forEach(function(node){
+      if(node.fixed)return;
+      node.vx*=damping;node.vy*=damping;
+      var spd=Math.sqrt(node.vx*node.vx+node.vy*node.vy);
+      var maxSpd=8;
+      if(spd>maxSpd){node.vx*=maxSpd/spd;node.vy*=maxSpd/spd;}
+      node.x+=node.vx;node.y+=node.vy;
+      node.x=Math.max(15,Math.min(W-15,node.x));node.y=Math.max(15,Math.min(H-15,node.y));
+    });
+    _synGraphDraw();
+    if(iter<200)_synGraphState.rafId=requestAnimationFrame(step);
+  }
+  // Interaction
+  canvas.style.cursor='grab';
+  canvas.addEventListener('mousedown',_synGraphMouseDown);
+  canvas.addEventListener('mousemove',_synGraphMouseMove);
+  window.addEventListener('mouseup',_synGraphMouseUp);
+  canvas.addEventListener('wheel',_synGraphWheel,{passive:false});
+  step();
+}
+function _synGraphDraw(){
+  var s=_synGraphState;if(!s)return;
+  var ctx=s.ctx,nodes=s.nodes,edges=s.edges;
+  var W=s.canvas.parentElement.getBoundingClientRect().width;
+  var H=s.canvas.parentElement.getBoundingClientRect().height;
+  ctx.clearRect(0,0,W,H);
+  // Edges
+  edges.forEach(function(e){
+    var a=nodes[e.a],b=nodes[e.b];
+    if(s.orphansOnly)return;
+    var hi=s.hover&&(s.hover===a||s.hover===b);
+    ctx.strokeStyle=hi?'rgba(201,168,76,.9)':'rgba(180,180,180,'+(0.08+e.w*0.07)+')';
+    ctx.lineWidth=hi?1.5:Math.max(0.5,e.w*0.6);
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+  });
+  // Nodes
+  nodes.forEach(function(n){
+    if(s.orphansOnly&&!n.orphan)return;
+    var r=4+Math.min(8,n.qty*0.8)+(n.orphan?0:n.degree*0.2);
+    var hi=s.hover===n;
+    ctx.fillStyle=n.orphan?'#d9645a':n.col;
+    ctx.strokeStyle=hi?'#fff':(n.orphan?'rgba(217,100,90,.9)':'rgba(0,0,0,.5)');
+    ctx.lineWidth=hi?2:1;
+    ctx.beginPath();ctx.arc(n.x,n.y,hi?r*1.4:r,0,Math.PI*2);ctx.fill();ctx.stroke();
+    if(hi){
+      ctx.fillStyle='#fff';
+      ctx.font='11px sans-serif';
+      ctx.textAlign='center';
+      ctx.fillText(n.name,n.x,n.y-r*1.4-5);
+    }
+  });
+}
+function _synGraphMouseDown(e){
+  var s=_synGraphState;if(!s)return;
+  var rect=s.canvas.getBoundingClientRect();
+  var mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  var hit=null;
+  s.nodes.forEach(function(n){
+    var dx=mx-n.x,dy=my-n.y;
+    if(dx*dx+dy*dy<400){hit=n;}
+  });
+  if(hit){s.drag=hit;hit.fixed=true;s.canvas.style.cursor='grabbing';}
+}
+function _synGraphMouseMove(e){
+  var s=_synGraphState;if(!s)return;
+  var rect=s.canvas.getBoundingClientRect();
+  var mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  if(s.drag){
+    s.drag.x=mx;s.drag.y=my;_synGraphDraw();return;
+  }
+  // Hover detection
+  var hit=null;
+  s.nodes.forEach(function(n){
+    var dx=mx-n.x,dy=my-n.y;
+    if(dx*dx+dy*dy<400){hit=n;}
+  });
+  if(hit!==s.hover){
+    s.hover=hit;_synGraphDraw();
+    var tip=document.getElementById('syn-graph-tooltip');
+    if(hit){
+      tip.style.display='block';
+      tip.style.left=Math.min(mx+12,rect.width-260)+'px';
+      tip.style.top=Math.min(my+12,rect.height-90)+'px';
+      tip.innerHTML='<div style="font-weight:600;color:var(--gold2);margin-bottom:3px">'+esc(hit.name)+' ×'+hit.qty+'</div>'
+        +'<div style="font-size:.7rem;color:var(--tx3);margin-bottom:2px">Rôle : '+hit.role+' · '+hit.degree+' connexion'+(hit.degree>1?'s':'')+'</div>'
+        +(hit.orphan?'<div style="color:#e88a4a">⚠ Orpheline — pas de synergie détectée</div>':'<div style="color:var(--tx2)">'+hit.tokens.join(' · ')+'</div>');
+    }else{tip.style.display='none';}
+  }
+}
+function _synGraphMouseUp(){
+  var s=_synGraphState;if(!s)return;
+  if(s.drag){s.drag.fixed=false;s.drag=null;s.canvas.style.cursor='grab';}
+}
+function _synGraphWheel(e){
+  e.preventDefault();
+}
+function _synGraphFilter(){
+  var s=_synGraphState;if(!s)return;
+  s.orphansOnly=document.getElementById('syn-graph-orphans-only').checked;
+  _synGraphDraw();
+}
+function _synGraphRenderLegend(){
+  var el=document.getElementById('syn-graph-legend');if(!el)return;
+  var legend=[
+    ['#7ec86a','Ramp / Créature'],
+    ['#7eb3d9','Pioche'],
+    ['#d9645a','Removal'],
+    ['#8a7ed9','Contre / Inter'],
+    ['#e8645a','Wrath'],
+    ['#c8a878','Sac / Mana rock'],
+    ['#c14ad9','Win con'],
+    ['#666','Autre']
+  ];
+  var h='<div style="font-weight:600;color:var(--gold2);margin-bottom:4px">Légende</div>';
+  legend.forEach(function(l){
+    h+='<div style="display:flex;align-items:center;gap:5px;margin-bottom:1px"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+l[0]+'"></span><span>'+l[1]+'</span></div>';
+  });
+  el.innerHTML=h;
+}
+function _synGraphRenderStats(){
+  var s=_synGraphState;if(!s)return;
+  var el=document.getElementById('syn-graph-stats');if(!el)return;
+  var orphans=s.nodes.filter(function(n){return n.orphan;}).length;
+  var totConn=s.edges.length;
+  var density=s.nodes.length>1?(totConn/(s.nodes.length*(s.nodes.length-1)/2)*100):0;
+  var h='<b style="color:var(--gold2)">'+s.nodes.length+'</b> cartes · <b>'+totConn+'</b> synergies · <b style="color:#4aa0e8">'+density.toFixed(1)+'%</b> densité';
+  if(orphans>0)h+=' · <b style="color:#d9645a">'+orphans+'</b> orpheline'+(orphans>1?'s':'')+' (hors plan)';
+  el.innerHTML=h;
 }
 function _atelierRecoAdd(name){
   if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
