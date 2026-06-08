@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-41';
+window.APP_BUILD='2026-06-08-42';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -4208,17 +4208,20 @@ details > summary::-webkit-details-marker{display:none}
       <div id="mm-list" style="margin-top:14px"></div>
     </div>
   </div>
-  <div style="display:flex;gap:12px;align-items:start;flex-wrap:wrap;margin-bottom:1rem">
-  <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
+  <div id="deck-flex-wrap" style="display:flex;gap:12px;align-items:start;flex-wrap:wrap;margin-bottom:1rem">
+  <div class="card" id="deck-sidebar" style="flex:0 0 300px;min-width:260px;margin-bottom:0;position:relative;transition:flex-basis .2s,min-width .2s">
     <div class="row" style="margin-bottom:.5rem">
       <div class="lbl" style="margin-bottom:0">Mes decks</div>
-      <button class="btn btnsm btnp" onclick="newDeck()" style="margin-left:auto" data-i18n="deck.new">+ Nouveau deck</button>
+      <button class="btn btnsm" onclick="_deckSidebarToggle()" title="Réduire la sidebar pour gagner de la place" style="margin-left:auto;padding:3px 8px;font-size:.7rem" id="deck-sidebar-toggle">◂ Réduire</button>
+      <button class="btn btnsm btnp" onclick="newDeck()" data-i18n="deck.new" style="padding:3px 9px;font-size:.74rem">+ Nouveau</button>
     </div>
     <div class="deck-prof-chips" id="deck-prof-chips"></div>
     <div class="dprofs" id="dprofs">
       <div style="color:var(--tx3);font-size:.82rem;font-style:italic">Aucun deck sauvegardé</div>
     </div>
   </div>
+  <!-- Handle pour rouvrir la sidebar quand elle est réduite -->
+  <button id="deck-sidebar-handle" onclick="_deckSidebarToggle()" title="Afficher la liste des decks" style="display:none;flex:0 0 28px;background:linear-gradient(180deg,#3a2008,#180d04);border:1px solid var(--gold);border-radius:8px;color:var(--gold2);cursor:pointer;font-size:.9rem;writing-mode:vertical-rl;text-orientation:mixed;padding:14px 2px;align-self:stretch;min-height:200px">▸ Mes decks</button>
 
   <div class="card" id="deditor" style="flex:1;min-width:260px;margin-bottom:0">
     <div id="deditor-bg"></div>
@@ -16619,34 +16622,102 @@ function _atelierRecoSwapOpen(addName){
     ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
     document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('show'))ov.classList.remove('show');});
   }
-  // Pré-sélectionne les "moins efficaces" du deck (heuristique : score le plus bas via dCardMeta + tags ratés).
-  // À défaut de score, on présente toutes les cartes triées par nom.
-  var deck=decks[actDeck];var cards=(deck.cards||[]).slice();
-  // Tri par score si dispo, sinon nom
-  cards.sort(function(a,b){
-    var ma=(typeof dCardMeta!=='undefined')?dCardMeta[a.nl]:null;
-    var mb=(typeof dCardMeta!=='undefined')?dCardMeta[b.nl]:null;
-    var sa=(ma&&ma.cmc!=null)?ma.cmc:0;
-    var sb=(mb&&mb.cmc!=null)?mb.cmc:0;
-    return sa-sb||(a.name||'').localeCompare(b.name||'');
+  var deck=decks[actDeck];
+  var cards=(deck.cards||[]).slice();
+  // ── Détecte le rôle dominant de la carte qu'on ajoute (via _anaData ou heuristique)
+  var addRole=null,addScore=null,addMeta=null;
+  try{
+    var addNl=stripDFC(addName).toLowerCase();
+    addMeta=(typeof _anaData!=='undefined'&&_anaData[addNl])||(typeof dCardMeta!=='undefined'&&dCardMeta[addNl])||null;
+    if(addMeta){
+      try{if(typeof _anaCommanderThemes==='function')_anaCurrentThemes=_anaCommanderThemes(deck);}catch(e){}
+      var addRoles=(typeof anaRoles==='function')?anaRoles(addMeta):{};
+      ['ramp','draw','removal','interaction','wincon','sac_outlet','protection','counter','wrath','recursion'].forEach(function(k){
+        if(addRoles[k]&&!addRole)addRole=k;
+      });
+      try{
+        addScore=anaCardScore(addMeta)*(_anaSynergyWeight?_anaSynergyWeight(addMeta,_anaCurrentThemes||{}):1);
+      }catch(e){}
+    }
+  }catch(e){}
+  // ── Score chaque carte du deck pour le cut-ranking
+  cards.forEach(function(c){
+    c._meta=(typeof _anaData!=='undefined'&&_anaData[c.nl])||(typeof dCardMeta!=='undefined'&&dCardMeta[c.nl])||null;
+    c._roles=c._meta?(typeof anaRoles==='function'?anaRoles(c._meta):{}):{};
+    var bs=0,sw=1;
+    try{if(c._meta){bs=anaCardScore(c._meta);if(typeof _anaSynergyWeight==='function')sw=_anaSynergyWeight(c._meta,_anaCurrentThemes||{});}}catch(e){}
+    c._score=bs*sw;
+    c._cmc=c._meta&&c._meta.cmc!=null?c._meta.cmc:99;
+    c._tl=c._meta?(c._meta.typeLine||'').split(' — ')[0]:'';
+    c._isLand=/land/i.test(c._tl);
+    c._isBasic=/basic land/i.test(c._meta&&c._meta.typeLine||'')||/^(plains|island|swamp|mountain|forest|wastes)$/i.test(c.name||'');
+    c._sameRole=addRole&&c._roles[addRole]?1:0;
   });
-  var h='<div class="ml-modal" style="max-width:680px;width:94vw;max-height:88vh;display:flex;flex-direction:column">';
+  // ── Tri intelligent : cut-priority croissante
+  //   1) Cartes du MÊME rôle que la carte ajoutée mais moins bien notées
+  //      (swap optimal : on garde le rôle, on monte en qualité)
+  //   2) Cartes NON-terrains avec le score le plus bas
+  //   3) Reste trié par score croissant
+  //   4) Terrains de base en dernier (rarement le bon cut)
+  cards.sort(function(a,b){
+    // Terrains basiques en dernier
+    if(a._isBasic!==b._isBasic)return a._isBasic?1:-1;
+    // Si même rôle que la carte ajoutée → prioriser
+    if(a._sameRole!==b._sameRole)return b._sameRole-a._sameRole;
+    // Tri par score croissant (les pires en premier = meilleurs candidats au cut)
+    if(Math.abs(a._score-b._score)>0.1)return a._score-b._score;
+    // Tiebreaker : cmc puis nom
+    if(a._cmc!==b._cmc)return a._cmc-b._cmc;
+    return (a.name||'').localeCompare(b.name||'');
+  });
+  // ── Construit le HTML
+  var h='<div class="ml-modal" style="max-width:720px;width:94vw;max-height:90vh;display:flex;flex-direction:column">';
   h+='<div class="ml-modal-hdr">';
   h+='<div class="ml-modal-title">🔁 Swap : <span style="color:var(--gold2)">+ '+esc(addName)+'</span></div>';
   h+='<button class="ml-modal-close" onclick="document.getElementById(\'reco-swap-ov\').classList.remove(\'show\')">✕</button>';
   h+='</div>';
-  h+='<div style="padding:10px 14px;font-size:.8rem;color:var(--tx2);line-height:1.5">Quelle carte du deck veux-tu retirer pour faire de la place à <b style="color:var(--gold2)">'+esc(addName)+'</b> ?<br><span style="font-size:.72rem;color:var(--tx3);font-style:italic">Astuce : les cartes ≤ 2 CMC ou hors-plan sont souvent les meilleurs candidats au cut.</span></div>';
-  h+='<div style="padding:0 14px 4px"><input id="reco-swap-filter" type="text" placeholder="Filtrer les cartes du deck…" style="width:100%;box-sizing:border-box;padding:7px 10px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.84rem;font-family:inherit" oninput="_atelierRecoSwapFilter(this.value)"></div>';
+  // ── Bandeau de recommandation auto (top suggestion)
+  var topRec=cards.find(function(c){return !c._isBasic;}) || cards[0];
+  if(topRec){
+    var diffScore=addScore!=null?(addScore-(topRec._score||0)):null;
+    var diffTxt=diffScore!=null?(diffScore>=0?'gain estimé +'+diffScore.toFixed(1)+' pts':'perte estimée '+diffScore.toFixed(1)+' pts'):'';
+    var diffCol=diffScore==null?'var(--tx3)':(diffScore>=2?'#7ec86a':diffScore>=0?'#e8c14a':'#d9645a');
+    var why=[];
+    if(topRec._sameRole)why.push('même rôle <b>'+addRole+'</b> mais moins bien noté');
+    else if(topRec._roles&&Object.keys(topRec._roles).filter(function(k){return topRec._roles[k]&&k!=='creature';}).length===0)why.push('aucun rôle utile détecté');
+    if(topRec._score<2)why.push('score contextuel faible ('+topRec._score.toFixed(1)+')');
+    if((topRec._cmc||0)>=5&&topRec._score<5)why.push('coût élevé pour peu d\'impact');
+    if(!why.length)why.push('candidat à coupe le moins impactant du deck');
+    h+='<div style="margin:12px 14px 6px;padding:12px;background:linear-gradient(135deg,rgba(126,200,106,.10),rgba(126,200,106,.02));border:1px solid #7ec86a;border-radius:10px">';
+    h+='<div style="font-size:.66rem;color:#7ec86a;letter-spacing:.1em;text-transform:uppercase;font-weight:700;margin-bottom:5px">🌟 Meilleur swap suggéré</div>';
+    h+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+    h+='<div style="flex:1;min-width:0"><div style="font-size:.9rem;color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">− '+esc(topRec.name)+' <span style="color:var(--tx3);font-size:.7rem;font-weight:400">'+esc(topRec._tl||'?')+' · CMC '+topRec._cmc+'</span></div>';
+    h+='<div style="font-size:.74rem;color:var(--tx2);margin-top:2px">'+why.join(' · ')+'</div>';
+    if(diffScore!=null)h+='<div style="font-size:.72rem;color:'+diffCol+';margin-top:2px;font-weight:600">'+diffTxt+' ('+(topRec._score||0).toFixed(1)+' → '+(addScore||0).toFixed(1)+')</div>';
+    h+='</div>';
+    h+='<button class="btn btnp btnsm" onclick="document.getElementById(\'reco-swap-ov\').classList.remove(\'show\');_atelierRecoSwapApply(\''+escJs(addName)+'\',\''+escJs(topRec.name)+'\','+(topRec.qty||1)+')" style="padding:7px 14px;background:linear-gradient(180deg,#7ec86a,#4a8a3c);color:#0a0805;font-weight:700">✓ Appliquer ce swap</button>';
+    h+='</div></div>';
+  }
+  h+='<div style="padding:6px 14px 4px;font-size:.74rem;color:var(--tx3)">Ou choisis une autre carte :</div>';
+  h+='<div style="padding:0 14px 4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+  h+='<input id="reco-swap-filter" type="text" placeholder="Filtrer les cartes du deck…" style="flex:1;min-width:180px;box-sizing:border-box;padding:7px 10px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.84rem;font-family:inherit" oninput="_atelierRecoSwapFilter(this.value)">';
+  h+='<label style="font-size:.7rem;color:var(--tx3);display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="reco-swap-hidelands" checked onchange="_atelierRecoSwapFilter()"> Masquer terrains basiques</label>';
+  h+='</div>';
   h+='<div id="reco-swap-list" style="flex:1;overflow-y:auto;padding:8px 14px 4px;display:flex;flex-direction:column;gap:3px">';
-  cards.forEach(function(c){
-    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
-    var cmc=(meta&&meta.cmc!=null)?meta.cmc:'?';
-    var tl=meta?(meta.typeLine||'').split(' — ')[0]:'';
-    h+='<button class="reco-swap-row" data-name="'+esc(c.name)+'" onclick="_atelierRecoSwapApply(\''+escJs(addName)+'\',\''+escJs(c.name)+'\','+(c.qty||1)+')" style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.025);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-family:inherit;font-size:.82rem;cursor:pointer;text-align:left;transition:all .12s">';
-    h+='<span style="min-width:30px;color:var(--gold2);font-weight:600;font-size:.78rem">'+cmc+'</span>';
-    h+='<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>';
-    if(tl)h+='<span style="color:var(--tx3);font-size:.7rem">'+esc(tl)+'</span>';
-    h+='<span style="color:var(--tx2);font-size:.74rem">×'+(c.qty||1)+'</span>';
+  cards.forEach(function(c,idx){
+    var meta=c._meta;
+    var cmc=c._cmc===99?'?':c._cmc;
+    var tl=c._tl;
+    var score=c._score||0;
+    var scoreCol=score>=10?'#7ec86a':score>=5?'#e8c14a':score>=2?'#e88a4a':'#d9645a';
+    var sameRoleBdg=c._sameRole?'<span style="padding:1px 6px;background:rgba(74,160,232,.15);border:.5px solid #4aa0e8;border-radius:8px;font-size:.62rem;color:#7eb3d9;margin-right:5px">même rôle</span>':'';
+    var rankBdg=idx===0&&!c._isBasic?'<span style="padding:1px 6px;background:rgba(126,200,106,.15);border:.5px solid #7ec86a;border-radius:8px;font-size:.62rem;color:#7ec86a;margin-right:5px">🌟 top</span>':'';
+    h+='<button class="reco-swap-row" data-name="'+esc(c.name)+'" data-isbasic="'+(c._isBasic?1:0)+'" onclick="document.getElementById(\'reco-swap-ov\').classList.remove(\'show\');_atelierRecoSwapApply(\''+escJs(addName)+'\',\''+escJs(c.name)+'\','+(c.qty||1)+')" style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.025);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-family:inherit;font-size:.82rem;cursor:pointer;text-align:left;transition:all .12s">';
+    h+='<span style="min-width:24px;color:var(--gold2);font-weight:600;font-size:.74rem;text-align:center">'+cmc+'</span>';
+    h+='<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+rankBdg+sameRoleBdg+esc(c.name)+'</span>';
+    if(tl)h+='<span style="color:var(--tx3);font-size:.68rem">'+esc(tl)+'</span>';
+    if(c._meta&&!c._isBasic)h+='<span style="color:'+scoreCol+';font-size:.7rem;font-weight:600;min-width:34px;text-align:right">'+score.toFixed(1)+'</span>';
+    h+='<span style="color:var(--tx2);font-size:.72rem">×'+(c.qty||1)+'</span>';
     h+='</button>';
   });
   h+='</div>';
@@ -16657,13 +16728,20 @@ function _atelierRecoSwapOpen(addName){
   h+='<style>.reco-swap-row:hover{border-color:var(--gold)!important;background:rgba(201,168,76,.10)!important;color:var(--gold2)!important}</style>';
   ov.innerHTML=h;
   ov.classList.add('show');
+  // Init du filter (cache les terrains basiques par défaut)
+  setTimeout(function(){_atelierRecoSwapFilter();},20);
 }
 function _atelierRecoSwapFilter(q){
+  var input=document.getElementById('reco-swap-filter');
+  if(q==null||typeof q!=='string')q=input?input.value:'';
   q=(q||'').toLowerCase().trim();
+  var hideLands=(document.getElementById('reco-swap-hidelands')||{}).checked;
   var rows=document.querySelectorAll('#reco-swap-list .reco-swap-row');
   rows.forEach(function(r){
     var n=(r.getAttribute('data-name')||'').toLowerCase();
-    r.style.display=(!q||n.indexOf(q)>=0)?'flex':'none';
+    var isBasic=r.getAttribute('data-isbasic')==='1';
+    var show=(!q||n.indexOf(q)>=0)&&(!hideLands||!isBasic);
+    r.style.display=show?'flex':'none';
   });
 }
 function _atelierRecoSwapApply(addName,cutName,cutQty){
@@ -20006,6 +20084,42 @@ function toggleDView(){setDView(dViewMode==='list'?'image':(dViewMode==='image'?
 // la longueur de scroll. Active automatiquement quand le deck a ≥ 25 cartes
 // (sinon liste classique pour les petits decks).
 // ═════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
+// SIDEBAR DECKS — toggle réduire/déplier pour donner toute la largeur à l'éditeur.
+// Persisté en localStorage. Auto-réduit quand un deck est ouvert sur écran large.
+// ═════════════════════════════════════════════════════════════════════════════
+function _deckSidebarToggle(){
+  var sb=document.getElementById('deck-sidebar');
+  var hd=document.getElementById('deck-sidebar-handle');
+  var btn=document.getElementById('deck-sidebar-toggle');
+  if(!sb||!hd)return;
+  var hidden=sb.style.display==='none';
+  if(hidden){
+    sb.style.display='block';hd.style.display='none';
+    try{localStorage.setItem('mtg_deck_sidebar','open');}catch(e){}
+    if(btn)btn.textContent='◂ Réduire';
+  }else{
+    sb.style.display='none';hd.style.display='flex';
+    try{localStorage.setItem('mtg_deck_sidebar','collapsed');}catch(e){}
+  }
+}
+function _deckSidebarRestore(){
+  var pref='auto';try{pref=localStorage.getItem('mtg_deck_sidebar')||'auto';}catch(e){}
+  var sb=document.getElementById('deck-sidebar');
+  var hd=document.getElementById('deck-sidebar-handle');
+  if(!sb||!hd)return;
+  // Mode auto : réduit si un deck est actif sur écran large
+  if(pref==='auto'){
+    if(actDeck&&window.innerWidth>=1024){pref='collapsed';}else{pref='open';}
+  }
+  if(pref==='collapsed'){sb.style.display='none';hd.style.display='flex';}
+  else{sb.style.display='block';hd.style.display='none';}
+}
+// Restore au boot + à chaque chargement de deck
+(function(){
+  function init(){_deckSidebarRestore();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else setTimeout(init,400);
+})();
 function _dlistApplyMultiCol(){
   var dl=document.getElementById('dlist');if(!dl)return;
   if(dViewMode!=='list'){dl.classList.remove('dlist-multicol');var tc=document.getElementById('dlist-toc');if(tc)tc.remove();return;}
