@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-55';
+window.APP_BUILD='2026-06-08-56';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -11695,6 +11695,46 @@ function _homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames){
   // ─ Build markup ─
   // Header dashboard avec bouton export
   var h='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600">🏠 Ton dashboard</span><span style="flex:1"></span><button onclick="mlExportPng(\'#home-dashboard\',{filename:\'manalab-dashboard\'})" title="Capturer ce dashboard en PNG pour partage Reddit/Discord" style="padding:4px 10px;background:rgba(255,255,255,.04);border:.5px solid var(--bd2);border-radius:6px;color:var(--tx2);font-family:inherit;font-size:.7rem;cursor:pointer;transition:all .12s" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.color=\'var(--gold2)\'" onmouseout="this.style.borderColor=\'var(--bd2)\';this.style.color=\'var(--tx2)\'">📸 Export PNG</button></div>';
+  // ─── HERO « Cette semaine en chiffres » — storytelling immédiat ───
+  // Calcule rapidement les stats de la semaine pour mettre en avant
+  var _nowH=Date.now(),_w7H=7*86400000;
+  var weekStats={decks:0,matches:0,wins:0,xp:0,achievs:0};
+  Object.values(decks||{}).forEach(function(dk){if(dk.updatedAt&&(_nowH-dk.updatedAt)<_w7H)weekStats.decks++;});
+  try{
+    JSON.parse(localStorage.getItem('mtg_match_log')||'[]').forEach(function(m){
+      if(m.ts&&(_nowH-m.ts)<_w7H){
+        if(m.result==='win'||m.result==='loss'){weekStats.matches++;if(m.result==='win'){weekStats.wins++;weekStats.xp+=30;}}
+      }
+    });
+    weekStats.xp+=weekStats.decks*10;
+  }catch(e){}
+  var weekActive=weekStats.decks+weekStats.matches+weekStats.achievs>0;
+  if(weekActive){
+    var weekWr=weekStats.matches?Math.round(weekStats.wins/weekStats.matches*100):null;
+    var heroMsg='';
+    if(weekStats.wins>=5)heroMsg='🔥 Semaine en feu — '+weekStats.wins+' victoires';
+    else if(weekStats.decks>=3)heroMsg='⚗ Semaine créative — '+weekStats.decks+' decks construits';
+    else if(weekStats.matches>=3)heroMsg='🎮 Bonne semaine d\'entraînement';
+    else heroMsg='✨ Belle semaine sur ManaLAB';
+    h+='<div class="ml-reveal" style="background:linear-gradient(135deg,rgba(201,168,76,.12),rgba(74,160,232,.06),rgba(180,140,220,.06));border:1px solid rgba(201,168,76,.4);border-radius:12px;padding:14px 18px;margin-bottom:14px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center">';
+    h+='<div><div style="font-size:.62rem;color:var(--gold2);letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:4px">⚡ Cette semaine</div>';
+    h+='<div style="font-family:\'Goudy Mediaeval\',Georgia,serif;font-size:1.4rem;color:#fff;line-height:1.1;text-shadow:0 1px 8px rgba(0,0,0,.6)">'+heroMsg+'</div>';
+    // Bandeau micro-stats
+    var bits=[];
+    if(weekStats.decks>0)bits.push('<b style="color:var(--gold2)">+'+weekStats.decks+'</b> deck'+(weekStats.decks>1?'s':''));
+    if(weekStats.matches>0)bits.push('<b style="color:#7ec86a">'+weekStats.matches+'</b> match'+(weekStats.matches>1?'s':''));
+    if(weekWr!=null)bits.push('win rate <b style="color:'+(weekWr>=60?'#7ec86a':weekWr>=40?'#e8c14a':'#d9645a')+'">'+weekWr+'%</b>');
+    if(weekStats.xp>0)bits.push('<b style="color:#b48cdc">+'+weekStats.xp.toLocaleString('fr-FR')+'</b> XP');
+    if(bits.length)h+='<div style="margin-top:6px;font-size:.84rem;color:var(--tx2)">'+bits.join(' · ')+'</div>';
+    h+='</div>';
+    // Big number à droite : nb total d'actions cette semaine
+    var totalActions=weekStats.decks+weekStats.matches;
+    h+='<div style="text-align:center;padding-left:14px;border-left:1px solid rgba(201,168,76,.25)">';
+    h+='<div style="font-family:\'Goudy Mediaeval\',Georgia,serif;font-size:2.6rem;color:var(--gold2);font-weight:700;line-height:1">'+totalActions+'</div>';
+    h+='<div style="font-size:.62rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-top:2px">actions</div>';
+    h+='</div>';
+    h+='</div>';
+  }
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px">';
   h+='<div id="kpi-decks"></div>';
   h+='<div id="kpi-coll"></div>';
@@ -11717,18 +11757,30 @@ function _homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames){
     h+='<div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-top:6px;font-size:.62rem;color:var(--tx3)">Moins <div style="display:flex;gap:2px"><div style="width:10px;height:10px;border-radius:2px;background:rgba(255,255,255,.04)"></div><div style="width:10px;height:10px;border-radius:2px;background:rgba(201,168,76,.25)"></div><div style="width:10px;height:10px;border-radius:2px;background:rgba(201,168,76,.55)"></div><div style="width:10px;height:10px;border-radius:2px;background:rgba(201,168,76,.85)"></div></div> Plus</div>';
     h+='</div>';
   }
-  // Top 3 decks
+  // Top 3 decks ENRICHI : score, prix, win rate, archétype, mini-radar
   if(nDecks>0){
-    var topDecks=myDeckIds.map(function(id){return decks[id];}).sort(function(a,b){return (b.updatedAt||0)-(a.updatedAt||0);}).slice(0,3);
+    var topDecks=myDeckIds.map(function(id){return {id:id,dk:decks[id]};}).sort(function(a,b){return (b.dk.updatedAt||0)-(a.dk.updatedAt||0);}).slice(0,3);
     h+='<div style="background:rgba(255,255,255,.02);border:1px solid var(--bd2);border-radius:11px;padding:12px 14px;margin-bottom:14px">';
     h+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px"><span style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600">⚡ Tes derniers decks</span><span style="flex:1"></span><a onclick="goTab(\'build\')" style="font-size:.72rem;color:var(--gold2);cursor:pointer;text-decoration:none">Voir tous →</a></div>';
-    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">';
-    topDecks.forEach(function(dk){
-      var id=Object.keys(decks).find(function(i){return decks[i]===dk;});
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px">';
+    topDecks.forEach(function(it){
+      var id=it.id, dk=it.dk;
       var n=(dk.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
-      var fmt=dk.format?dk.format.charAt(0).toUpperCase()+dk.format.slice(1):'—';
+      var fmt=dk.format||'';
+      var fmtLabel=fmt?(fmt.charAt(0).toUpperCase()+fmt.slice(1)):'—';
       var cmd=dk.commander&&dk.commander.name?dk.commander.name:'';
-      // Win rate de ce deck
+      // Score persisté
+      var sc=dk.pw&&typeof dk.pw.score==='number'?Math.round(dk.pw.score):null;
+      var scCol=sc==null?'var(--tx3)':(sc>=80?'#7ec86a':sc>=60?'#e8c14a':sc>=40?'#e88a4a':'#d9645a');
+      // Valeur deck (somme prix)
+      var dkVal=0;
+      try{
+        (dk.cards||[]).forEach(function(c){
+          var pp=(c.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])||0;
+          dkVal+=pp*(c.qty||1);
+        });
+      }catch(e){}
+      // Win rate
       var dkWin=0,dkN=0;
       try{
         var ml3=JSON.parse(localStorage.getItem('mtg_match_log')||'[]');
@@ -11736,15 +11788,39 @@ function _homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames){
       }catch(e){}
       var wr=dkN?Math.round(dkWin/dkN*100):null;
       var wrCol=wr==null?'var(--tx3)':(wr>=60?'#7ec86a':wr>=40?'#e8c14a':'#d9645a');
-      h+='<div onclick="loadDeck(\''+escJs(id)+'\');goTab(\'build\')" style="cursor:pointer;padding:10px 12px;background:rgba(201,168,76,.04);border:.5px solid var(--bd2);border-radius:8px;transition:all .12s" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.background=\'rgba(201,168,76,.10)\'" onmouseout="this.style.borderColor=\'var(--bd2)\';this.style.background=\'rgba(201,168,76,.04)\'">';
-      h+='<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;min-width:0"><div style="font-size:.86rem;color:var(--gold2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(dk.name||'(sans nom)')+'</div>';
-      h+='<div style="font-size:.7rem;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cmd?'👑 '+esc(cmd):fmt+' · '+n+' cartes')+'</div></div>';
-      if(wr!=null){
-        h+='<div style="text-align:right"><div style="color:'+wrCol+';font-weight:700;font-size:.95rem">'+wr+'%</div><div style="font-size:.62rem;color:var(--tx3)">'+dkN+' match'+(dkN>1?'s':'')+'</div></div>';
-      }else{
-        h+='<div style="font-size:.62rem;color:var(--tx3);font-style:italic">jamais joué</div>';
+      // Last modified
+      var when='';
+      if(dk.updatedAt){
+        var ago=Math.floor((Date.now()-dk.updatedAt)/86400000);
+        when=ago===0?'aujourd\'hui':ago===1?'hier':ago<7?'il y a '+ago+'j':ago<30?'il y a '+Math.floor(ago/7)+'sem':'il y a '+Math.floor(ago/30)+'mois';
       }
-      h+='</div></div>';
+      // Couleur format
+      var fmtCol=(typeof _FMT_COLOR!=='undefined'&&_FMT_COLOR[fmt])||'var(--bd2)';
+      h+='<div onclick="loadDeck(\''+escJs(id)+'\');goTab(\'build\')" style="cursor:pointer;padding:12px;background:linear-gradient(135deg,rgba(201,168,76,.04),rgba(0,0,0,.18));border:1px solid var(--bd2);border-left:3px solid '+fmtCol+';border-radius:9px;transition:all .15s;position:relative" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 18px rgba(0,0,0,.35)\'" onmouseout="this.style.borderColor=\'var(--bd2)\';this.style.borderLeftColor=\''+fmtCol+'\';this.style.transform=\'\';this.style.boxShadow=\'\'">';
+      // Header : nom + score gauge
+      h+='<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">';
+      h+='<div style="flex:1;min-width:0">';
+      h+='<div style="font-size:.92rem;color:var(--gold2);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(dk.name||'(sans nom)')+'</div>';
+      h+='<div style="font-size:.66rem;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">'+(cmd?'👑 '+esc(cmd):fmtLabel)+'</div>';
+      h+='</div>';
+      // Score gauge SVG mini
+      if(sc!=null){
+        var cc=2*Math.PI*16, dash=cc*(sc/100);
+        h+='<svg width="44" height="44" viewBox="0 0 44 44" style="flex-shrink:0"><circle cx="22" cy="22" r="16" fill="rgba(0,0,0,.3)" stroke="rgba(255,255,255,.08)" stroke-width="4"/><circle cx="22" cy="22" r="16" fill="none" stroke="'+scCol+'" stroke-width="4" stroke-dasharray="'+dash+' '+(cc-dash)+'" transform="rotate(-90 22 22)" stroke-linecap="round"/><text x="22" y="22" text-anchor="middle" dominant-baseline="central" fill="'+scCol+'" font-size="11" font-weight="700">'+sc+'</text></svg>';
+      }
+      h+='</div>';
+      // Footer : 3 stats horizontales
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;font-size:.66rem;text-align:center">';
+      h+='<div style="padding:4px;background:rgba(0,0,0,.18);border-radius:5px"><div style="color:var(--gold2);font-weight:700;font-size:.74rem">'+n+'</div><div style="color:var(--tx3);text-transform:uppercase;letter-spacing:.04em;margin-top:1px">cartes</div></div>';
+      h+='<div style="padding:4px;background:rgba(0,0,0,.18);border-radius:5px"><div style="color:#4aa0e8;font-weight:700;font-size:.74rem">'+(dkVal>0?dkVal.toFixed(0)+'€':'—')+'</div><div style="color:var(--tx3);text-transform:uppercase;letter-spacing:.04em;margin-top:1px">valeur</div></div>';
+      if(wr!=null){
+        h+='<div style="padding:4px;background:rgba(0,0,0,.18);border-radius:5px"><div style="color:'+wrCol+';font-weight:700;font-size:.74rem">'+wr+'%</div><div style="color:var(--tx3);text-transform:uppercase;letter-spacing:.04em;margin-top:1px">'+dkN+' match'+(dkN>1?'s':'')+'</div></div>';
+      }else{
+        h+='<div style="padding:4px;background:rgba(0,0,0,.18);border-radius:5px"><div style="color:var(--tx3);font-weight:700;font-size:.74rem">—</div><div style="color:var(--tx3);text-transform:uppercase;letter-spacing:.04em;margin-top:1px">pas joué</div></div>';
+      }
+      h+='</div>';
+      if(when)h+='<div style="font-size:.6rem;color:var(--tx3);margin-top:6px;text-align:right;font-style:italic">📅 modifié '+when+'</div>';
+      h+='</div>';
     });
     h+='</div></div>';
   }
@@ -18925,7 +19001,25 @@ function _atelierSearchSyncVisibility(){
 // Affiche commandant + KPIs + radar + mana curve, dès qu'un deck a 5+ cartes.
 // Se rafraîchit à chaque mutation (wrap renderDeck).
 // ═════════════════════════════════════════════════════════════════════════════
+// Debounce + render différé : évite de recalculer tout (radar, courbe, pip count,
+// charts mlChart) à chaque dq-inc/dq-dec rapide. 80ms = imperceptible humain mais
+// économise des dizaines de renders lors d'ajouts/retraits successifs.
+var _deckIdentityRenderTO=null;
+var _deckIdentityRenderActive=false;
+function _deckIdentityRenderDebounced(){
+  if(_deckIdentityRenderActive)return; // pas réentrant
+  clearTimeout(_deckIdentityRenderTO);
+  _deckIdentityRenderTO=setTimeout(function(){
+    _deckIdentityRenderActive=true;
+    try{_deckIdentityRenderImpl();}catch(e){console.warn('[deckIdentity]',e);}
+    finally{_deckIdentityRenderActive=false;}
+  },80);
+}
 function _deckIdentityRender(){
+  // Public API : appel direct mais redirigé sur la version debounced
+  _deckIdentityRenderDebounced();
+}
+function _deckIdentityRenderImpl(){
   var box=document.getElementById('deck-identity-card');if(!box)return;
   var quickviz=document.getElementById('deck-quickviz');
   var bg=document.getElementById('deditor-bg');
