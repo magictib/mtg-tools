@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-28';
+window.APP_BUILD='2026-06-08-29';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -13769,6 +13769,8 @@ function _atelierLiveRecosRender(deficits){
   h+='<button class="reco-add-btn" onclick="evalCardOpen()" style="padding:5px 12px;background:linear-gradient(180deg,rgba(201,168,76,.12),rgba(201,168,76,.04));border:.5px solid var(--gold);border-radius:7px;color:var(--gold2);font-family:inherit;font-size:.76rem;cursor:pointer">📊 Évaluer une carte</button>';
   h+='<button class="reco-add-btn" onclick="compareCardsOpen()" title="Compare 2 cartes côte à côte dans le contexte du deck" style="padding:5px 12px;background:linear-gradient(180deg,rgba(180,140,220,.12),rgba(180,140,220,.04));border:.5px solid #b48cdc;border-radius:7px;color:#d4b8ec;font-family:inherit;font-size:.76rem;cursor:pointer">⚖ Comparer 2 cartes</button>';
   h+='<button class="reco-add-btn" onclick="manaBaseAuditOpen()" title="Simule 1000 mains d\'ouverture, donne stats de mana base" style="padding:5px 12px;background:linear-gradient(180deg,rgba(126,200,106,.12),rgba(126,200,106,.04));border:.5px solid #7ec86a;border-radius:7px;color:#a8d97e;font-family:inherit;font-size:.76rem;cursor:pointer">🎲 Audit mana base</button>';
+  h+='<button class="reco-add-btn" onclick="reverseEdhOpen()" title="Tape une carte fétiche : on te suggère les commandants qui la jouent le plus" style="padding:5px 12px;background:linear-gradient(180deg,rgba(232,193,74,.12),rgba(232,193,74,.04));border:.5px solid #e8c14a;border-radius:7px;color:#f3d76e;font-family:inherit;font-size:.76rem;cursor:pointer">🔮 Reverse-EDH</button>';
+  h+='<button class="reco-add-btn" onclick="budgetUpgradeOpen()" title="Fixe un budget, reçois les cartes qui ont le meilleur impact / euro" style="padding:5px 12px;background:linear-gradient(180deg,rgba(232,138,74,.12),rgba(232,138,74,.04));border:.5px solid #e88a4a;border-radius:7px;color:#f3a86e;font-family:inherit;font-size:.76rem;cursor:pointer">💰 Budget upgrade</button>';
   h+='<span style="font-size:.66rem;color:var(--tx3);font-style:italic">verdict + alternatives</span>';
   h+='</div>';
   h+='<style>.reco-add-btn:hover{border-color:var(--gold)!important;color:var(--gold2)!important;background:rgba(201,168,76,.18)!important}</style>';
@@ -14257,6 +14259,288 @@ function _manaBaseAuditRun(deck){
     }
     body.innerHTML=h;
   },40);
+}
+// ───────────────────────────────────────────────────────────────────────────
+// REVERSE-EDH — tape une carte fétiche, on te suggère les commandants qui la jouent.
+// Utilise l'endpoint json.edhrec.com/pages/cards/{slug}.json (sans clé, cache 24h).
+// Affiche les top commandants triés par % d'inclusion + bouton « ouvrir le déclencheur »
+// (relance la modale Évaluation pour étudier la carte dans le contexte du commandant).
+// ───────────────────────────────────────────────────────────────────────────
+function reverseEdhOpen(){
+  var ov=document.getElementById('reverse-edh-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='reverse-edh-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('show'))ov.classList.remove('show');});
+  }
+  ov.innerHTML='<div class="ml-modal" style="max-width:680px;width:96vw;max-height:90vh;display:flex;flex-direction:column">'
+    +'<div class="ml-modal-hdr">'
+    +'<div class="ml-modal-title">🔮 Reverse-EDH — Commandants pour ta carte</div>'
+    +'<button class="ml-modal-close" onclick="document.getElementById(\'reverse-edh-ov\').classList.remove(\'show\')">✕</button>'
+    +'</div>'
+    +'<div style="padding:12px 16px 0 16px;font-size:.82rem;color:var(--tx2);line-height:1.5">Tape une carte que tu veux <b>absolument</b> jouer. Je te dis quels commandants la jouent le plus (data EDHRec).</div>'
+    +'<div style="padding:10px 16px"><input id="rev-edh-input" type="text" data-card-autocomplete autocomplete="off" placeholder="ex: Doubling Season, Smothering Tithe, Necropotence…" onkeydown="if(event.key===\'Enter\'){event.preventDefault();reverseEdhRun();}" style="width:100%;box-sizing:border-box;padding:10px 13px;background:var(--s3);border:1px solid #e8c14a;border-radius:8px;color:var(--tx);font-size:.95rem;font-family:inherit"></div>'
+    +'<div id="rev-edh-body" style="flex:1;overflow-y:auto;padding:0 16px 12px 16px;min-height:140px"></div>'
+    +'<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center">'
+    +'<span style="font-size:.7rem;color:var(--tx3);font-style:italic">Entrée pour chercher</span>'
+    +'<button class="btn btnp btnsm" onclick="reverseEdhRun()">🔮 Trouver les commandants</button>'
+    +'</div></div>';
+  ov.classList.add('show');
+  setTimeout(function(){
+    var i=document.getElementById('rev-edh-input');if(i)i.focus();
+    if(typeof _autoAttachCardInputs==='function')_autoAttachCardInputs();
+  },80);
+}
+function reverseEdhRun(){
+  var inp=document.getElementById('rev-edh-input');if(!inp)return;
+  var name=inp.value.trim();if(!name)return;
+  var body=document.getElementById('rev-edh-body');
+  body.innerHTML='<div style="padding:18px;display:flex;align-items:center;gap:10px;color:var(--tx2)">'
+    +'<div style="width:18px;height:18px;border:2px solid rgba(232,193,74,.3);border-top-color:#e8c14a;border-radius:50%;animation:ml-spin 1s linear infinite"></div>'
+    +'⏳ Recherche des commandants qui jouent <b style="margin-left:4px">'+esc(name)+'</b>…</div>';
+  // Cache 24h par slug
+  var slug=(typeof mlEdhrecSlug==='function')?mlEdhrecSlug(name):name.toLowerCase().replace(/[^a-z0-9-]+/g,'-');
+  var cacheKey='mtg_edhrec_card_'+slug;
+  function _render(data){_reverseEdhRender(name,data);}
+  try{
+    var c=JSON.parse(localStorage.getItem(cacheKey)||'null');
+    if(c&&c.t&&Date.now()-c.t<86400000){_render(c.d);return;}
+  }catch(e){}
+  fetch('https://json.edhrec.com/pages/cards/'+slug+'.json')
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(data){
+      if(data){try{localStorage.setItem(cacheKey,JSON.stringify({t:Date.now(),d:data}));}catch(e){}}
+      _render(data);
+    })
+    .catch(function(){_render(null);});
+}
+function _reverseEdhRender(name,data){
+  var body=document.getElementById('rev-edh-body');if(!body)return;
+  if(!data){
+    body.innerHTML='<div style="padding:18px;color:var(--rd2)">✗ Pas de données EDHRec pour <b>'+esc(name)+'</b> (carte trop récente, peu jouée, ou nom mal orthographié).</div>';
+    return;
+  }
+  var lists=(data.cardlists)||(data.container&&data.container.json_dict&&data.container.json_dict.cardlists)||[];
+  var topCmd=lists.filter(function(l){return l.tag==='topcommanders';})[0];
+  if(!topCmd||!topCmd.cardviews||!topCmd.cardviews.length){
+    body.innerHTML='<div style="padding:18px;color:var(--tx3)">Pas de commandants top pour cette carte sur EDHRec.</div>';
+    return;
+  }
+  var cmds=topCmd.cardviews.slice(0,15);
+  var h='<div style="font-size:.78rem;color:var(--tx2);margin:4px 0 10px 0">🏆 Top commandants qui jouent <b style="color:#f3d76e">'+esc(name)+'</b> (% d\'inclusion dans leurs decks)</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:4px">';
+  cmds.forEach(function(c,i){
+    var nm=c.name||c.cardname||'';
+    if(!nm)return;
+    var nDecks=c.num_decks||0,pot=c.potential_decks||0;
+    var pct=pot?Math.round(100*nDecks/pot):0;
+    var rank=i+1;
+    var rankCol=rank<=3?'#f3d76e':rank<=8?'var(--gold2)':'var(--tx3)';
+    h+='<div style="display:flex;align-items:center;gap:9px;padding:6px 10px;background:rgba(255,255,255,.025);border:.5px solid var(--bd2);border-radius:6px;font-size:.82rem">';
+    h+='<span style="min-width:22px;text-align:right;color:'+rankCol+';font-weight:700;font-size:.78rem">'+rank+'</span>';
+    h+='<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(nm)+'</span>';
+    h+='<span style="color:#f3d76e;font-weight:600;font-size:.78rem">'+pct+'%</span>';
+    h+='<span style="color:var(--tx3);font-size:.7rem">('+nDecks.toLocaleString('fr-FR')+' decks)</span>';
+    h+='<a href="https://edhrec.com/commanders/'+esc(c.sanitized||mlEdhrecSlug(nm))+'" target="_blank" rel="noopener" style="font-size:.66rem;color:#b48cdc;text-decoration:none;border:.5px solid rgba(180,140,220,.4);border-radius:5px;padding:2px 6px">EDHRec ↗</a>';
+    h+='</div>';
+  });
+  h+='</div>';
+  h+='<div style="margin-top:10px;padding:8px 10px;background:rgba(232,193,74,.06);border-left:3px solid #e8c14a;border-radius:5px;font-size:.74rem;color:var(--tx2);line-height:1.5"><b style="color:#f3d76e">💡 Choisir un commandant</b><br>Plus le % est élevé, plus la carte est centrale au plan du commandant. Le top 3 est souvent le « pilier » de l\'archétype.</div>';
+  body.innerHTML=h;
+}
+// ───────────────────────────────────────────────────────────────────────────
+// BUDGET UPGRADE PATH — fixe un budget €, reçois les cartes qui ont le meilleur
+// impact / euro pour combler les déficits du deck. Sélection greedy.
+// Utilise mlSuggestStaples + prix Scryfall + déficits détectés par _atelierLiveUpdate.
+// ───────────────────────────────────────────────────────────────────────────
+function budgetUpgradeOpen(){
+  if(!actDeck||!decks[actDeck]){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
+  var ov=document.getElementById('budget-up-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='budget-up-ov';ov.className='ml-modal-ov';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ov.classList.contains('show'))ov.classList.remove('show');});
+  }
+  ov.innerHTML='<div class="ml-modal" style="max-width:760px;width:96vw;max-height:92vh;display:flex;flex-direction:column">'
+    +'<div class="ml-modal-hdr">'
+    +'<div class="ml-modal-title">💰 Budget upgrade path</div>'
+    +'<button class="ml-modal-close" onclick="document.getElementById(\'budget-up-ov\').classList.remove(\'show\')">✕</button>'
+    +'</div>'
+    +'<div style="padding:12px 16px 0 16px;font-size:.82rem;color:var(--tx2);line-height:1.5">Fixe un budget. Je sélectionne les cartes qui maximisent l\'amélioration de <b style="color:var(--gold2)">'+esc(decks[actDeck].name||'(deck)')+'</b> par euro investi.</div>'
+    +'<div style="padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<label style="font-size:.82rem;color:var(--tx2)">Budget max :</label>'
+    +'<div style="display:flex;gap:5px;flex-wrap:wrap">'
+    +'<button class="bgt-preset btn btnsm" data-bgt="10" onclick="_budgetSetPreset(10)">10 €</button>'
+    +'<button class="bgt-preset btn btnsm" data-bgt="25" onclick="_budgetSetPreset(25)">25 €</button>'
+    +'<button class="bgt-preset btn btnsm btnp" data-bgt="50" onclick="_budgetSetPreset(50)">50 €</button>'
+    +'<button class="bgt-preset btn btnsm" data-bgt="100" onclick="_budgetSetPreset(100)">100 €</button>'
+    +'<button class="bgt-preset btn btnsm" data-bgt="250" onclick="_budgetSetPreset(250)">250 €</button>'
+    +'</div>'
+    +'<input id="bgt-input" type="number" min="1" step="1" value="50" style="width:80px;padding:6px 9px;background:var(--s3);border:.5px solid var(--bd2);border-radius:7px;color:var(--tx);font-size:.82rem;font-family:inherit"> €'
+    +'<button class="btn btnp btnsm" onclick="budgetUpgradeRun()" style="margin-left:auto">💰 Calculer</button>'
+    +'</div>'
+    +'<div id="bgt-body" style="flex:1;overflow-y:auto;padding:8px 16px 12px 16px;min-height:140px"></div>'
+    +'<div class="ml-modal-foot" style="padding:8px 16px;border-top:.5px solid var(--bd);display:flex;justify-content:flex-end">'
+    +'<button class="btn btnsm" onclick="document.getElementById(\'budget-up-ov\').classList.remove(\'show\')">Fermer</button>'
+    +'</div></div>';
+  ov.classList.add('show');
+}
+function _budgetSetPreset(v){
+  var inp=document.getElementById('bgt-input');if(inp)inp.value=v;
+  document.querySelectorAll('.bgt-preset').forEach(function(b){
+    b.classList.toggle('btnp',parseInt(b.getAttribute('data-bgt'),10)===v);
+  });
+}
+function budgetUpgradeRun(){
+  var inp=document.getElementById('bgt-input');
+  var budget=parseFloat(inp&&inp.value||'50');
+  if(!budget||budget<=0){if(typeof toastError==='function')toastError('Budget invalide');return;}
+  var body=document.getElementById('bgt-body');
+  body.innerHTML='<div style="padding:18px;display:flex;align-items:center;gap:10px;color:var(--tx2)">'
+    +'<div style="width:18px;height:18px;border:2px solid rgba(232,138,74,.3);border-top-color:#e88a4a;border-radius:50%;animation:ml-spin 1s linear infinite"></div>'
+    +'⏳ Calcul du meilleur upgrade dans '+budget+' €…</div>';
+  // 1) Identifier les déficits via la logique de _atelierLiveUpdate
+  var dk=decks[actDeck];
+  var fmt=(dk.format||'').toLowerCase();
+  var isCmd=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
+  var colors=dk.colors||dColors||[];
+  // Compte les rôles déjà présents
+  var hits={ramp:0,removal:0,draw:0,counter:0,wipe:0};
+  (dk.cards||[]).forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    if(!meta)return;
+    var qty=c.qty||1;
+    var ot=(meta.oracleText||'').toLowerCase();
+    var tl=(meta.typeLine||'').toLowerCase();
+    if(tl.indexOf('land')>=0)return;
+    if(/(search your library for.*land|add \{[wubrg]\}|add one mana)/.test(ot))hits.ramp+=qty;
+    if(/(destroy target|exile target.*(creature|permanent))/.test(ot))hits.removal+=qty;
+    if(/(draw (a|two|three|x) card|investigate|scry [2-9])/.test(ot))hits.draw+=qty;
+    if(/counter target/.test(ot))hits.counter+=qty;
+    if(/(destroy all|exile all|sacrifice a creature)/.test(ot))hits.wipe+=qty;
+  });
+  var targets=isCmd
+    ? {ramp:10,removal:10,draw:10,counter:3,wipe:3}
+    : {ramp:0,removal:6,draw:6,counter:4,wipe:2};
+  var deficits=[];
+  Object.keys(targets).forEach(function(k){
+    var gap=targets[k]-hits[k];
+    if(gap>0)deficits.push({key:k,gap:gap});
+  });
+  if(!deficits.length){
+    body.innerHTML='<div style="padding:14px;font-size:.84rem;color:#7ec86a">✓ Ton deck est déjà bien équilibré sur les rôles principaux. Pas de déficit critique à combler avec un budget cash.</div>';
+    return;
+  }
+  // 2) Pour chaque déficit, récupère les staples (filtrés couleurs + pas déjà présents)
+  var present={};
+  (dk.cards||[]).forEach(function(c){present[(c.name||'').toLowerCase().trim()]=1;});
+  var candidates=[];
+  deficits.forEach(function(d){
+    var staples=(typeof mlSuggestStaples==='function')?mlSuggestStaples(d.key,colors,15):[];
+    staples.forEach(function(n){
+      if(!present[n.toLowerCase()])candidates.push({name:n,role:d.key,gap:d.gap});
+    });
+  });
+  if(!candidates.length){
+    body.innerHTML='<div style="padding:14px;color:var(--tx3)">Pas de staples connus pour combler les déficits dans tes couleurs.</div>';
+    return;
+  }
+  // 3) Fetch prix Scryfall en batch (cards/collection)
+  var uniq={};candidates.forEach(function(c){uniq[c.name.toLowerCase()]=c.name;});
+  var names=Object.values(uniq).slice(0,75); // limite batch
+  fetch('https://api.scryfall.com/cards/collection',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({identifiers:names.map(function(n){return {name:n};})})
+  }).then(function(r){return r.ok?r.json():null;})
+    .then(function(data){
+      if(!data||!data.data){
+        body.innerHTML='<div style="padding:14px;color:var(--rd2)">✗ Erreur de récupération des prix Scryfall.</div>';
+        return;
+      }
+      var priceMap={};
+      data.data.forEach(function(card){
+        var nm=card.name.toLowerCase();
+        var p=parseFloat((card.prices||{}).eur)||parseFloat((card.prices||{}).eur_foil)||(parseFloat((card.prices||{}).usd)*0.92)||0;
+        if(p>0)priceMap[nm]=p;
+      });
+      // Enrichit chaque candidat avec prix, score impact estimé
+      var roleImpact={ramp:2.0,removal:2.5,draw:3.0,counter:2.5,wipe:3.5,protection:2.0};
+      var enriched=candidates.map(function(c){
+        var p=priceMap[c.name.toLowerCase()]||999;
+        var imp=(roleImpact[c.role]||2.0);
+        // Boost si la carte ferme un gros gap
+        if(c.gap>=3)imp*=1.3;
+        return Object.assign({},c,{price:p,impact:imp,ratio:imp/Math.max(0.5,p)});
+      }).filter(function(c){return c.price<=budget&&c.price<999;});
+      // Tri greedy par ratio impact/euro
+      enriched.sort(function(a,b){return b.ratio-a.ratio;});
+      // Sélection greedy : prend les meilleures dans le budget, sans dépasser
+      var selected=[],totalCost=0,deltaImpact=0;
+      var seenNames={};
+      enriched.forEach(function(c){
+        if(seenNames[c.name.toLowerCase()])return;
+        if(totalCost+c.price<=budget){
+          selected.push(c);seenNames[c.name.toLowerCase()]=1;
+          totalCost+=c.price;deltaImpact+=c.impact;
+        }
+      });
+      _budgetRenderResult(selected,totalCost,budget,deltaImpact,deficits);
+    })
+    .catch(function(){body.innerHTML='<div style="padding:14px;color:var(--rd2)">✗ Erreur réseau Scryfall.</div>';});
+}
+function _budgetRenderResult(selected,totalCost,budget,deltaImpact,deficits){
+  var body=document.getElementById('bgt-body');if(!body)return;
+  if(!selected.length){
+    body.innerHTML='<div style="padding:14px;color:var(--am)">Aucune carte ne tient dans le budget de '+budget+' €. Augmente le budget ou attends que des prix baissent.</div>';
+    return;
+  }
+  var byRole={};
+  selected.forEach(function(c){(byRole[c.role]=byRole[c.role]||[]).push(c);});
+  var roleLbl={ramp:'🌱 Ramp',removal:'🎯 Removal ciblé',draw:'📖 Pioche',counter:'🛡 Contresorts',wipe:'💥 Wraths',protection:'✨ Protection'};
+  var h='';
+  // Bandeau résumé
+  h+='<div style="margin-bottom:12px;padding:11px 13px;background:rgba(232,138,74,.07);border:1px solid #e88a4a;border-radius:8px">';
+  h+='<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">';
+  h+='<div><div style="font-size:1.6rem;color:#f3a86e;font-weight:700;line-height:1">'+totalCost.toFixed(2)+' €</div><div style="font-size:.66rem;color:var(--tx3)">sur '+budget+' € · reste '+(budget-totalCost).toFixed(2)+' €</div></div>';
+  h+='<div><div style="font-size:1.4rem;color:var(--gold2);font-weight:700;line-height:1">'+selected.length+'</div><div style="font-size:.66rem;color:var(--tx3)">cartes sélectionnées</div></div>';
+  h+='<div><div style="font-size:1.4rem;color:#7ec86a;font-weight:700;line-height:1">+'+deltaImpact.toFixed(1)+'</div><div style="font-size:.66rem;color:var(--tx3)">impact score estimé</div></div>';
+  h+='</div></div>';
+  // Par rôle
+  Object.keys(byRole).forEach(function(r){
+    var cards=byRole[r];
+    h+='<div style="margin-bottom:10px;padding:8px 11px;background:rgba(255,255,255,.025);border-radius:7px;border-left:2px solid var(--gold)">';
+    h+='<div style="font-size:.76rem;color:var(--gold2);margin-bottom:5px"><b>'+(roleLbl[r]||r)+'</b> · '+cards.length+' carte'+(cards.length>1?'s':'')+'</div>';
+    cards.forEach(function(c){
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.78rem">';
+      h+='<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>';
+      h+='<span style="color:var(--gold2);font-weight:600">'+c.price.toFixed(2)+' €</span>';
+      h+='<button class="btn btnsm" onclick="_atelierRecoAddDirect(\''+escJs(c.name)+'\')" style="padding:2px 8px;font-size:.7rem">+</button>';
+      h+='</div>';
+    });
+    h+='</div>';
+  });
+  // Bouton « tout ajouter »
+  h+='<div style="margin-top:12px;display:flex;justify-content:center"><button class="btn btnp btnsm" onclick="_budgetAddAll('+JSON.stringify(selected.map(function(c){return c.name;})).replace(/"/g,'&quot;')+')" style="padding:8px 14px">+ Ajouter les '+selected.length+' cartes au deck</button></div>';
+  body.innerHTML=h;
+}
+function _budgetAddAll(names){
+  if(!Array.isArray(names)||!names.length)return;
+  if(!confirm('Ajouter les '+names.length+' cartes sélectionnées au deck ?'))return;
+  var i=0;
+  function next(){
+    if(i>=names.length){
+      if(typeof toast==='function')toast('✓ '+names.length+' cartes ajoutées au deck');
+      var ov=document.getElementById('budget-up-ov');if(ov)ov.classList.remove('show');
+      return;
+    }
+    var n=names[i++];
+    if(typeof bldAddCardByName==='function'){
+      bldAddCardByName(n).then(function(){setTimeout(next,80);}).catch(function(){setTimeout(next,80);});
+    }else setTimeout(next,80);
+  }
+  next();
 }
 function _atelierRecoAdd(name){
   if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
