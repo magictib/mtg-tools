@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-46';
+window.APP_BUILD='2026-06-08-47';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -16992,74 +16992,127 @@ function mlEdhrecRender(deckId){
     _mlEdhrecRenderData(mount,data,deck,cmdName);
   });
 }
+// État local pour le tab actif EDHRec
+var _mlEdhrecActiveTab='topcards';
 function _mlEdhrecRenderData(mount,data,deck,cmdName){
   var lists=mlEdhrecExtractCategoryFlex(data);
-  // Cartes présentes dans le deck (normalisé)
   var owned={};
   (deck.cards||[]).forEach(function(c){owned[_mlEdhrecNorm(c.name)]=1;});
-  // Récupère catégories utiles
   function findByTag(tag){return lists.filter(function(l){return l.tag===tag;})[0];}
   var topcards=findByTag('topcards')||findByTag('top-cards');
   var synergy=findByTag('highsynergycards')||findByTag('high-synergy-cards');
   var newcards=findByTag('newcards')||findByTag('new-cards');
   var gamechangers=findByTag('gamechangers')||findByTag('game-changers');
-  // Métadonnées (numbers)
   var numDecks=(data.container&&data.container.json_dict&&data.container.json_dict.num_decks_avg)||data.num_decks_avg||0;
   var similar=(data.container&&data.container.json_dict&&data.container.json_dict.similar)||data.similar||[];
 
-  var h='<div style="padding:11px 14px 5px 14px">';
-  h+='<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:6px">';
-  h+='<span style="font-size:1.15rem">📊</span>';
-  h+='<span style="font-family:\'Goudy Mediaeval\',serif;color:#d4b8ec;letter-spacing:.06em">TENDANCES COMMUNAUTÉ · EDHRec</span>';
-  if(numDecks)h+='<span style="font-size:.72rem;color:var(--tx3)">· '+numDecks.toLocaleString('fr-FR')+' decks analysés pour '+esc(cmdName)+'</span>';
+  // Construction des tabs avec compteurs
+  var tabs=[
+    {id:'topcards',label:'🎯 Top',list:topcards,info:'taux d\'inclusion'},
+    {id:'highsynergycards',label:'💎 Synergie',list:synergy,info:'rares ailleurs'},
+    {id:'newcards',label:'🆕 Nouveautés',list:newcards,info:'qui montent'},
+    {id:'gamechangers',label:'⚡ Game changers',list:gamechangers,info:'cartes-pivots'}
+  ].filter(function(t){return t.list&&t.list.cardviews&&t.list.cardviews.length;});
+  if(!tabs.length){
+    mount.innerHTML='<div style="padding:14px;color:var(--tx3);font-style:italic">Pas de catégories EDHRec disponibles pour ce commandant.</div>';
+    return;
+  }
+  // S'assure que le tab actif existe encore
+  if(!tabs.find(function(t){return t.id===_mlEdhrecActiveTab;}))_mlEdhrecActiveTab=tabs[0].id;
+
+  // ── HEADER ──
+  var h='<div style="padding:13px 16px 0 16px">';
+  h+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<span style="font-size:1.25rem">📊</span>';
+  h+='<div style="display:flex;flex-direction:column;min-width:0">';
+  h+='<span style="font-family:\'Goudy Mediaeval\',serif;color:#d4b8ec;letter-spacing:.06em;font-size:.92rem">TENDANCES COMMUNAUTÉ · EDHRec</span>';
+  if(numDecks)h+='<span style="font-size:.7rem;color:var(--tx3)">'+numDecks.toLocaleString('fr-FR')+' decks analysés pour <b>'+esc(cmdName)+'</b></span>';
+  h+='</div>';
   h+='<span style="flex:1"></span>';
-  h+='<a href="https://edhrec.com/commanders/'+esc(mlEdhrecSlug(cmdName))+'" target="_blank" rel="noopener" style="font-size:.7rem;color:#b48cdc;text-decoration:none;border:.5px solid rgba(180,140,220,.4);border-radius:6px;padding:3px 8px">Ouvrir sur EDHRec ↗</a>';
+  h+='<a href="https://edhrec.com/commanders/'+esc(mlEdhrecSlug(cmdName))+'" target="_blank" rel="noopener" style="font-size:.72rem;color:#b48cdc;text-decoration:none;border:.5px solid rgba(180,140,220,.4);border-radius:6px;padding:4px 10px">Ouvrir sur EDHRec ↗</a>';
+  h+='</div>';
+  // ── TABS ──
+  h+='<div style="display:flex;gap:5px;flex-wrap:wrap;border-bottom:.5px solid rgba(180,140,220,.2);padding-bottom:0;margin-bottom:0">';
+  tabs.forEach(function(t){
+    var active=t.id===_mlEdhrecActiveTab;
+    var n=t.list.cardviews.length;
+    h+='<button onclick="_mlEdhrecSetTab(\''+t.id+'\')" style="padding:7px 12px;background:'+(active?'linear-gradient(180deg,rgba(180,140,220,.18),rgba(180,140,220,.06))':'transparent')+';border:none;border-bottom:2px solid '+(active?'#b48cdc':'transparent')+';color:'+(active?'#d4b8ec':'var(--tx2)')+';font-family:inherit;font-size:.78rem;cursor:pointer;font-weight:'+(active?'700':'400')+';transition:all .15s" onmouseover="this.style.color=\'#d4b8ec\'" onmouseout="if(!'+active+')this.style.color=\'var(--tx2)\'">'+t.label+' <span style="opacity:.6;font-size:.66rem">'+n+'</span></button>';
+  });
   h+='</div>';
   h+='</div>';
-  h+='<div style="padding:0 14px 12px 14px">';
-  h+=_mlEdhrecRenderSection('🎯 Top cartes (taux d\'inclusion)','topcards',topcards,owned,10);
-  h+=_mlEdhrecRenderSection('💎 Forte synergie (rare ailleurs)','highsynergycards',synergy,owned,8);
-  if(newcards)h+=_mlEdhrecRenderSection('🆕 Nouvelles cartes qui montent','newcards',newcards,owned,6);
-  if(gamechangers)h+=_mlEdhrecRenderSection('⚡ Game changers','gamechangers',gamechangers,owned,6);
-  // Commandants similaires
+  // ── CARDS GRID ──
+  h+='<div style="padding:14px 16px 12px 16px">';
+  h+='<div id="ml-edhrec-tabbody">';
+  var activeTab=tabs.find(function(t){return t.id===_mlEdhrecActiveTab;})||tabs[0];
+  h+=_mlEdhrecRenderCardsGrid(activeTab,owned,cmdName);
+  h+='</div>';
+  // ── COMMANDANTS SIMILAIRES ──
   if(similar&&similar.length){
-    h+='<div style="margin-top:10px;padding-top:8px;border-top:.5px dashed rgba(180,140,220,.25)">';
-    h+='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:5px">🔄 Commandants similaires</div>';
+    h+='<div style="margin-top:14px;padding-top:10px;border-top:.5px dashed rgba(180,140,220,.25)">';
+    h+='<div style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px">🔄 Commandants similaires</div>';
     h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
-    similar.slice(0,8).forEach(function(s){
+    similar.slice(0,10).forEach(function(s){
       var nm=s.name||s.cardname||(typeof s==='string'?s:'');
       if(!nm)return;
-      h+='<span style="padding:3px 8px;background:rgba(180,140,220,.08);border:.5px solid rgba(180,140,220,.3);border-radius:11px;font-size:.7rem;color:#d4b8ec">'+esc(nm)+'</span>';
+      h+='<a href="https://edhrec.com/commanders/'+esc(mlEdhrecSlug(nm))+'" target="_blank" rel="noopener" style="padding:5px 10px;background:rgba(180,140,220,.08);border:.5px solid rgba(180,140,220,.3);border-radius:11px;font-size:.72rem;color:#d4b8ec;text-decoration:none;transition:all .12s" onmouseover="this.style.background=\'rgba(180,140,220,.18)\';this.style.borderColor=\'#b48cdc\'" onmouseout="this.style.background=\'rgba(180,140,220,.08)\';this.style.borderColor=\'rgba(180,140,220,.3)\'">'+esc(nm)+'</a>';
     });
     h+='</div></div>';
   }
   h+='</div>';
   mount.innerHTML=h;
+  // Stocker données pour switch de tab
+  mount._edhData={data:data,deck:deck,cmdName:cmdName,tabs:tabs,owned:owned};
 }
-function _mlEdhrecRenderSection(title,tag,list,owned,limit){
-  if(!list||!list.cardviews||!list.cardviews.length)return '';
-  var cards=list.cardviews.slice(0,limit||10);
-  var h='<div style="margin-top:10px">';
-  h+='<div style="font-size:.72rem;color:var(--tx3);margin-bottom:5px">'+title+'</div>';
-  h+='<div style="display:flex;flex-direction:column;gap:3px">';
-  cards.forEach(function(c){
+function _mlEdhrecSetTab(tabId){
+  var mount=document.getElementById('ana-edhrec-panel');if(!mount||!mount._edhData)return;
+  _mlEdhrecActiveTab=tabId;
+  // Re-render header + body
+  _mlEdhrecRenderData(mount,mount._edhData.data,mount._edhData.deck,mount._edhData.cmdName);
+}
+// Nouveau render en grille : cards avec image Scryfall + métrique + bouton.
+// Layout responsive auto-fill, beaucoup plus visuel que la liste plate précédente.
+function _mlEdhrecRenderCardsGrid(tab,owned,cmdName){
+  var cards=tab.list.cardviews.slice(0,18);
+  var isSynergy=tab.id==='highsynergycards'||tab.id==='gamechangers';
+  var h='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">';
+  cards.forEach(function(c,i){
     var name=mlEdhrecCardName(c);if(!name)return;
     var incl=mlEdhrecCardIncl(c);
     var syn=mlEdhrecCardSyn(c);
     var has=owned[_mlEdhrecNorm(name)];
-    var metric='';
-    if(tag==='highsynergycards'||tag==='gamechangers')metric=' <span style="color:#b48cdc;font-weight:600">syn '+(syn>0?'+':'')+(typeof syn==='number'?syn.toFixed(2):syn)+'</span>';
-    else metric=' <span style="color:var(--gold2);font-weight:600">'+incl+'%</span>';
-    h+='<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:'+(has?'rgba(126,200,106,.06)':'rgba(255,255,255,.02)')+';border-radius:6px;font-size:.76rem">';
-    h+='<span style="flex:1;color:var(--tx)">'+esc(name)+metric+'</span>';
-    if(has){
-      h+='<span style="color:#7ec86a;font-size:.7rem">✓ dans ton deck</span>';
+    var rank=i+1;
+    var img='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version=normal';
+    var metricVal=isSynergy?((syn>0?'+':'')+(typeof syn==='number'?syn.toFixed(2):syn)):(incl+'%');
+    var metricCol=isSynergy?'#b48cdc':'var(--gold2)';
+    h+='<div class="edh-card" style="position:relative;background:'+(has?'linear-gradient(180deg,rgba(126,200,106,.06),rgba(126,200,106,.02))':'rgba(255,255,255,.02)')+';border:1px solid '+(has?'#7ec86a':'var(--bd2)')+';border-radius:9px;overflow:hidden;transition:all .15s;cursor:default" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.borderColor=\''+(has?'#7ec86a':'#b48cdc')+'\'" onmouseout="this.style.transform=\'\';this.style.borderColor=\''+(has?'#7ec86a':'var(--bd2)')+'\'">';
+    // Image card top
+    h+='<div style="position:relative;width:100%;aspect-ratio:5/7;background:linear-gradient(180deg,#1a1410,#0a0805);overflow:hidden">';
+    h+='<img src="'+esc(img)+'" alt="'+esc(name)+'" loading="lazy" style="width:100%;height:100%;object-fit:cover;object-position:top" onerror="this.style.display=\'none\'">';
+    // Badge rank top-left
+    h+='<div style="position:absolute;top:5px;left:5px;background:rgba(0,0,0,.75);color:var(--tx2);font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:4px;backdrop-filter:blur(4px)">#'+rank+'</div>';
+    // Badge metric top-right
+    h+='<div style="position:absolute;top:5px;right:5px;background:rgba(0,0,0,.85);color:'+metricCol+';font-size:.74rem;font-weight:700;padding:3px 7px;border-radius:5px;backdrop-filter:blur(4px);border:.5px solid '+metricCol+'">'+metricVal+'</div>';
+    // Owned badge bottom
+    if(has)h+='<div style="position:absolute;bottom:5px;right:5px;background:rgba(126,200,106,.92);color:#0a0805;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:5px">✓ DANS TON DECK</div>';
+    h+='</div>';
+    // Footer
+    h+='<div style="padding:7px 9px">';
+    h+='<div style="font-size:.74rem;color:'+(has?'#a8d97e':'var(--tx)')+';font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(name)+'">'+esc(name)+'</div>';
+    if(!has){
+      h+='<button onclick="_atelierRecoAddDirect(\''+escJs(name)+'\')" style="margin-top:5px;width:100%;padding:4px 8px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer;font-weight:600;transition:all .12s" onmouseover="this.style.background=\'rgba(180,140,220,.25)\'" onmouseout="this.style.background=\'rgba(180,140,220,.12)\'">+ Ajouter</button>';
     }else{
-      h+='<button onclick="_atelierRecoAddDirect(\''+escJs(name)+'\')" title="Ajouter au deck actif (sans swap)" style="padding:3px 9px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:8px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer">+ Ajouter</button>';
+      h+='<div style="margin-top:5px;font-size:.66rem;color:var(--tx3);text-align:center;font-style:italic">Déjà optimal</div>';
     }
     h+='</div>';
+    h+='</div>';
   });
-  h+='</div></div>';
+  h+='</div>';
+  return h;
+}
+function _mlEdhrecRenderSection(title,tag,list,owned,limit){
+  // Conservé pour rétro-compat — non utilisé après refonte
+  if(!list||!list.cardviews||!list.cardviews.length)return '';
+  return '';
   return h;
 }
 // Hook : déclenche le render EDHRec après anaRender (différé pour ne pas bloquer)
@@ -18089,15 +18142,33 @@ function _deckIdentityRender(){
   });
   var fmt=(dk.format||'').toLowerCase();
   var isCmd=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
-  // Score (% de critères passés — même algo que checklist)
+  // Score : SOURCE UNIQUE = le vrai score d'analyse (_anaState.overall ou deck.pw.score).
+  // Sinon, on calcule un score « critères » de fallback étendu sur 0-100 avec
+  // pondération douce pour éviter les paliers brutaux de 20% (1/5 → 20% c'était trompeur).
   var targets=isCmd
     ? {Land:36,Ramp:8,Removal:8,Draw:8,Wipe:2}
     : {Land:22,Removal:4,Draw:4,Counter:0};
   var actuals={Land:typeCounts.Land,Ramp:hasRamp,Removal:hasRemoval,Draw:hasDraw,Counter:hasCounter,Wipe:hasWipe};
-  var pass=0,nb=0;
-  Object.keys(targets).forEach(function(k){nb++;if((actuals[k]||0)>=targets[k])pass++;});
-  var scoreP=nb?Math.round(pass*100/nb):0;
-  var scoreCol=scoreP>=80?'#7ec86a':scoreP>=50?'#e8c14a':'#d9645a';
+  var scoreP=null,scoreSrc='—';
+  // Priorité 1 : score live de la dernière analyse en cours (même session)
+  if(typeof _anaState!=='undefined'&&_anaState&&typeof _anaState.overall==='number'&&_anaState.deck===dk){
+    scoreP=Math.round(_anaState.overall);scoreSrc='analyse';
+  }
+  // Priorité 2 : score persisté du deck (pw.score)
+  else if(dk.pw&&typeof dk.pw.score==='number'){
+    scoreP=Math.round(dk.pw.score);scoreSrc='analyse';
+  }
+  // Fallback : score critères progressif (somme pondérée plutôt que pass/fail)
+  else {
+    var sum=0;
+    Object.keys(targets).forEach(function(k){
+      var ratio=Math.min(1.2,(actuals[k]||0)/targets[k]); // 0..1.2 (au-delà = cap)
+      sum+=ratio;
+    });
+    scoreP=Math.round(sum/Object.keys(targets).length*100);
+    scoreSrc='estim';
+  }
+  var scoreCol=scoreP>=80?'#7ec86a':scoreP>=60?'#a8d97e':scoreP>=40?'#e8c14a':scoreP>=20?'#e88a4a':'#d9645a';
   // Win rate
   var wr=null,wrN=0;
   try{
@@ -18147,7 +18218,10 @@ function _deckIdentityRender(){
       +'<circle cx="42" cy="42" r="32" fill="none" stroke="'+sCol+'" stroke-width="6" stroke-dasharray="'+dash+' '+(cc-dash)+'" transform="rotate(-90 42 42)" stroke-linecap="round" style="transition:stroke-dasharray .8s"/>'
       +'<text x="42" y="42" text-anchor="middle" dominant-baseline="central" fill="'+sCol+'" font-size="20" font-weight="700" font-family="inherit">'+scoreP+'</text>'
       +'</svg>';
-    h+='<div style="font-size:.6rem;color:var(--tx2);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-top:-2px;text-shadow:0 1px 3px rgba(0,0,0,.8)">Score</div>';
+    h+='<div style="font-size:.6rem;color:var(--tx2);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-top:-2px;text-shadow:0 1px 3px rgba(0,0,0,.8)">Score'+(scoreSrc==='estim'?' <span style="color:var(--tx3);font-weight:400;text-transform:none;letter-spacing:0">(estim)</span>':'')+'</div>';
+    if(scoreSrc==='estim'){
+      h+='<div style="margin-top:3px"><button onclick="event.stopPropagation();analyzeCurrent()" title="Lancer l\'analyse complète pour un score précis" style="background:rgba(0,0,0,.65);border:.5px solid rgba(255,255,255,.18);border-radius:5px;color:#fff;font-family:inherit;font-size:.62rem;cursor:pointer;padding:2px 8px;backdrop-filter:blur(6px)" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.color=\'var(--gold2)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,.18)\';this.style.color=\'#fff\'">♥ Analyser</button></div>';
+    }
     h+='</div>';
     h+='</div>';
     // Bas : KPIs en pills horizontales
@@ -53625,6 +53699,14 @@ async function anaRender(deckId){
   }
 
   _anaState={deck:deck,rows:rows,subScores:subScores,overall:overall,counts:counts,targets:targets,weights:weights,suggestions:suggestions,optResult:optResult,sim:sim,libUser:libUser,fullOpt:fullOpt,cmdUser:cmdUser,swapByCutNl:(typeof _swapByCutNl!=='undefined'?_swapByCutNl:{})};
+  // Persiste le score sur le deck pour cohérence avec hero/quickviz/dashboard.
+  // Évite le décalage (hero affiche 20 critères-OK%, analyse affiche 79/100 réel).
+  try{
+    if(deck&&typeof overall==='number'){
+      deck.pw=Object.assign({},deck.pw||{},{score:overall,grade:grade&&grade.l,ts:Date.now()});
+      if(typeof saveDecks==='function')saveDecks();
+    }
+  }catch(_){}
 
   // === Dashboard synthétique (en tête de page) ===
   // Verdict en 1 coup d'œil : score, archétype, top swaps maison, faiblesses critiques.
