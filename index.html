@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-56';
+window.APP_BUILD='2026-06-08-57';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -15877,7 +15877,7 @@ function _evalCardRenderVerdict(card,meta,nl){
   // Actions principales
   h+='<div style="display:flex;gap:7px;margin:10px 0 4px 0;flex-wrap:wrap">';
   if(!alreadyIn){
-    h+='<button class="btn btnp btnsm" onclick="_atelierRecoAddDirect(\''+escJs(card.name)+'\');document.getElementById(\'eval-card-ov\').classList.remove(\'show\')" style="padding:7px 12px">+ Ajouter au deck</button>';
+    h+='<button class="btn btnp btnsm" onclick="document.getElementById(\'eval-card-ov\').classList.remove(\'show\');_addCardSmart(\''+escJs(card.name)+'\')" style="padding:7px 12px">+ Ajouter au deck</button>';
     h+='<button class="btn btnsm" onclick="document.getElementById(\'eval-card-ov\').classList.remove(\'show\');_atelierRecoSwapOpen(\''+escJs(card.name)+'\')" style="padding:7px 12px">🔁 Faire un swap…</button>';
   }else{
     h+='<span style="padding:6px 10px;background:rgba(126,200,106,.10);border:.5px solid #7ec86a;border-radius:6px;font-size:.78rem;color:#7ec86a">✓ Déjà dans le deck</span>';
@@ -16029,10 +16029,10 @@ function _compareCardsRender(cA,cB){
     actions+='<button class="btn btnp btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_atelierRecoSwapApply(\''+escJs(dA.card.name)+'\',\''+escJs(dB.card.name)+'\','+(dB.inDeck.qty||1)+')" style="padding:7px 12px">🔁 Remplacer '+esc(dB.card.name)+' par '+esc(dA.card.name)+'</button>';
   }
   if(!dA.inDeck&&winner==='A'){
-    actions+='<button class="btn btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_atelierRecoAddDirect(\''+escJs(dA.card.name)+'\')" style="padding:7px 12px">+ Ajouter '+esc(dA.card.name)+'</button>';
+    actions+='<button class="btn btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_addCardSmart(\''+escJs(dA.card.name)+'\')" style="padding:7px 12px">+ Ajouter '+esc(dA.card.name)+'</button>';
   }
   if(!dB.inDeck&&winner==='B'){
-    actions+='<button class="btn btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_atelierRecoAddDirect(\''+escJs(dB.card.name)+'\')" style="padding:7px 12px">+ Ajouter '+esc(dB.card.name)+'</button>';
+    actions+='<button class="btn btnsm" onclick="document.getElementById(\'compare-cards-ov\').classList.remove(\'show\');_addCardSmart(\''+escJs(dB.card.name)+'\')" style="padding:7px 12px">+ Ajouter '+esc(dB.card.name)+'</button>';
   }
   if(actions)h+='<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">'+actions+'</div>';
   body.innerHTML=h;
@@ -16454,7 +16454,7 @@ function _budgetRenderResult(selected,totalCost,budget,deltaImpact,deficits){
       h+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.78rem">';
       h+='<span style="flex:1;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</span>';
       h+='<span style="color:var(--gold2);font-weight:600">'+c.price.toFixed(2)+' €</span>';
-      h+='<button class="btn btnsm" onclick="_atelierRecoAddDirect(\''+escJs(c.name)+'\')" style="padding:2px 8px;font-size:.7rem">+</button>';
+      h+='<button class="btn btnsm" onclick="_addCardSmart(\''+escJs(c.name)+'\')" style="padding:2px 8px;font-size:.7rem">+</button>';
       h+='</div>';
     });
     h+='</div>';
@@ -17636,8 +17636,8 @@ function _atelierRecoAdd(name){
   // Ouvre la modale de swap : on n'ajoute pas tout de suite, on demande quelle carte couper.
   _atelierRecoSwapOpen(name);
 }
-// Variante directe (utilisée par le panel EDHRec où le contexte est l'ajout) :
-// ajoute sans demande de swap.
+// Variante directe (utilisée par les flux en masse comme Budget upgrade) :
+// ajoute sans demande de swap, pas de popup.
 function _atelierRecoAddDirect(name){
   if(!actDeck){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
   if(typeof bldAddCardByName==='function'){
@@ -17649,6 +17649,86 @@ function _atelierRecoAddDirect(name){
       }
     });
   }
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// _addCardSmart — popup de choix universelle avant chaque « + Ajouter »
+// déclenchée par un user-click. Demande : ajout direct OU swap intelligent.
+// Utilisée par EDHRec, Évaluateur, Comparateur, Reverse-EDH, suggestions, etc.
+// La préférence peut être mémorisée pour la session (« ne plus me demander »).
+// ═════════════════════════════════════════════════════════════════════════════
+var _addCardSmartPref=null; // null | 'direct' | 'swap' | 'auto-swap'
+function _addCardSmart(name,opts){
+  opts=opts||{};
+  if(!actDeck||!decks[actDeck]){
+    if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;
+  }
+  // Si la carte est DÉJÀ dans le deck → ajoute direct (incrément qty), pas de popup
+  var already=(decks[actDeck].cards||[]).find(function(c){return (c.name||'').toLowerCase().trim()===name.toLowerCase().trim();});
+  if(already){
+    return _atelierRecoAddDirect(name);
+  }
+  // Si l'utilisateur a sauvegardé sa préférence pour la session → applique direct
+  if(_addCardSmartPref==='direct'){return _atelierRecoAddDirect(name);}
+  if(_addCardSmartPref==='swap'){return _atelierRecoSwapOpen(name);}
+  if(_addCardSmartPref==='auto-swap'){return _addCardAutoSwap(name);}
+  // Sinon → popup de choix
+  var ov=document.getElementById('add-smart-ov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='add-smart-ov';ov.className='ml-modal-ov center';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('show');});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('add-smart-ov');if(o&&o.classList.contains('show'))o.classList.remove('show');}});
+  }
+  var h='<div class="ml-modal" style="max-width:540px;width:94vw">';
+  h+='<div class="ml-modal-hdr"><div class="ml-modal-title">➕ Ajouter au deck</div><button class="ml-modal-close" onclick="document.getElementById(\'add-smart-ov\').classList.remove(\'show\')">✕</button></div>';
+  h+='<div style="padding:14px 18px 8px;font-size:.86rem;color:var(--tx);line-height:1.5">Tu veux ajouter <b style="color:var(--gold2)">'+esc(name)+'</b> à <b>'+esc(decks[actDeck].name||'(deck)')+'</b>. Comment veux-tu procéder ?</div>';
+  h+='<div style="padding:8px 18px;display:flex;flex-direction:column;gap:8px">';
+  // Option 1 : Ajout direct (sans swap)
+  h+='<button onclick="_addCardSmartChoose(\'direct\',\''+escJs(name)+'\')" style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:linear-gradient(135deg,rgba(126,200,106,.08),rgba(126,200,106,.02));border:1px solid #7ec86a;border-radius:9px;color:var(--tx);font-family:inherit;text-align:left;cursor:pointer;transition:all .12s" onmouseover="this.style.background=\'linear-gradient(135deg,rgba(126,200,106,.18),rgba(126,200,106,.06))\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.background=\'linear-gradient(135deg,rgba(126,200,106,.08),rgba(126,200,106,.02))\';this.style.transform=\'\'"><span style="font-size:1.4rem;line-height:1">➕</span><div><div style="color:#7ec86a;font-weight:700;font-size:.92rem">Ajouter directement</div><div style="font-size:.76rem;color:var(--tx2);margin-top:3px">Ajoute la carte sans rien retirer. Le deck dépassera peut-être sa cible.</div></div></button>';
+  // Option 2 : Swap intelligent automatique
+  h+='<button onclick="_addCardSmartChoose(\'auto-swap\',\''+escJs(name)+'\')" style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:linear-gradient(135deg,rgba(180,140,220,.10),rgba(180,140,220,.02));border:1px solid #b48cdc;border-radius:9px;color:var(--tx);font-family:inherit;text-align:left;cursor:pointer;transition:all .12s" onmouseover="this.style.background=\'linear-gradient(135deg,rgba(180,140,220,.20),rgba(180,140,220,.06))\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.background=\'linear-gradient(135deg,rgba(180,140,220,.10),rgba(180,140,220,.02))\';this.style.transform=\'\'"><span style="font-size:1.4rem;line-height:1">✨</span><div><div style="color:#d4b8ec;font-weight:700;font-size:.92rem">Swap recommandé (auto)</div><div style="font-size:.76rem;color:var(--tx2);margin-top:3px">L\'IA choisit la meilleure carte à couper (même rôle, score le plus faible). En 1 clic.</div></div></button>';
+  // Option 3 : Swap manuel
+  h+='<button onclick="_addCardSmartChoose(\'swap\',\''+escJs(name)+'\')" style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(201,168,76,.02));border:1px solid var(--gold);border-radius:9px;color:var(--tx);font-family:inherit;text-align:left;cursor:pointer;transition:all .12s" onmouseover="this.style.background=\'linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.06))\';this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.background=\'linear-gradient(135deg,rgba(201,168,76,.08),rgba(201,168,76,.02))\';this.style.transform=\'\'"><span style="font-size:1.4rem;line-height:1">🔁</span><div><div style="color:var(--gold2);font-weight:700;font-size:.92rem">Choisir manuellement quelle carte couper</div><div style="font-size:.76rem;color:var(--tx2);margin-top:3px">Ouvre la liste de toutes les cartes avec scores et recommandations triées.</div></div></button>';
+  h+='</div>';
+  h+='<div class="ml-modal-foot" style="padding:8px 18px 12px;border-top:.5px solid var(--bd);display:flex;align-items:center;justify-content:space-between;gap:10px"><label style="font-size:.7rem;color:var(--tx3);display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="add-smart-remember"> Mémoriser mon choix pour la session</label><button class="btn btnsm" onclick="document.getElementById(\'add-smart-ov\').classList.remove(\'show\')">Annuler</button></div>';
+  h+='</div>';
+  ov.innerHTML=h;
+  ov.classList.add('show');
+}
+function _addCardSmartChoose(mode,name){
+  var remember=(document.getElementById('add-smart-remember')||{}).checked;
+  if(remember)_addCardSmartPref=mode;
+  document.getElementById('add-smart-ov').classList.remove('show');
+  if(mode==='direct')_atelierRecoAddDirect(name);
+  else if(mode==='auto-swap')_addCardAutoSwap(name);
+  else _atelierRecoSwapOpen(name);
+}
+// Swap auto : applique directement la 1re recommandation de _atelierRecoSwapOpen
+// sans afficher la modale. Réutilise la logique de scoring existante.
+function _addCardAutoSwap(addName){
+  if(!actDeck||!decks[actDeck])return;
+  var deck=decks[actDeck];
+  var cards=(deck.cards||[]).slice();
+  // Score chaque carte (même algo que _atelierRecoSwapOpen)
+  try{if(typeof _anaCommanderThemes==='function')_anaCurrentThemes=_anaCommanderThemes(deck);}catch(e){}
+  cards.forEach(function(c){
+    c._meta=(typeof _anaData!=='undefined'&&_anaData[c.nl])||(typeof dCardMeta!=='undefined'&&dCardMeta[c.nl])||null;
+    var bs=0,sw=1;
+    try{if(c._meta){bs=anaCardScore(c._meta);if(typeof _anaSynergyWeight==='function')sw=_anaSynergyWeight(c._meta,_anaCurrentThemes||{});}}catch(e){}
+    c._score=bs*sw;
+    c._isBasic=/basic land/i.test((c._meta&&c._meta.typeLine)||'')||/^(plains|island|swamp|mountain|forest|wastes)$/i.test(c.name||'');
+  });
+  // Tri : non-basics par score croissant
+  cards.sort(function(a,b){
+    if(a._isBasic!==b._isBasic)return a._isBasic?1:-1;
+    return (a._score||0)-(b._score||0);
+  });
+  var topCut=cards.find(function(c){return !c._isBasic;})||cards[0];
+  if(!topCut){
+    // Pas de candidat → ajout direct
+    return _atelierRecoAddDirect(addName);
+  }
+  _atelierRecoSwapApply(addName,topCut.name,topCut.qty||1);
 }
 // Modale de swap : carte suggérée ↔ carte du deck à couper.
 function _atelierRecoSwapOpen(addName){
@@ -18011,7 +18091,7 @@ function _mlEdhrecRenderCardsGrid(tab,owned,cmdName){
     h+='<div style="padding:7px 9px">';
     h+='<div style="font-size:.74rem;color:'+(has?'#a8d97e':'var(--tx)')+';font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(name)+'">'+esc(name)+'</div>';
     if(!has){
-      h+='<button onclick="_atelierRecoAddDirect(\''+escJs(name)+'\')" style="margin-top:5px;width:100%;padding:4px 8px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer;font-weight:600;transition:all .12s" onmouseover="this.style.background=\'rgba(180,140,220,.25)\'" onmouseout="this.style.background=\'rgba(180,140,220,.12)\'">+ Ajouter</button>';
+      h+='<button onclick="_addCardSmart(\''+escJs(name)+'\')" style="margin-top:5px;width:100%;padding:4px 8px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer;font-weight:600;transition:all .12s" onmouseover="this.style.background=\'rgba(180,140,220,.25)\'" onmouseout="this.style.background=\'rgba(180,140,220,.12)\'">+ Ajouter</button>';
     }else{
       h+='<div style="margin-top:5px;font-size:.66rem;color:var(--tx3);text-align:center;font-style:italic">Déjà optimal</div>';
     }
