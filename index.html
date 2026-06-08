@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-66';
+window.APP_BUILD='2026-06-08-67';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -216,6 +216,8 @@ if('serviceWorker' in navigator && !window.electronAPI){
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="dns-prefetch" href="https://fonts.cdnfonts.com">
 <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com">
+<link rel="dns-prefetch" href="https://json.edhrec.com">
+<link rel="dns-prefetch" href="https://plausible.io">
 <!-- Polices critiques (first paint) : Goudy Mediaeval + Crimson Pro chargées en bloquant -->
 <link href="https://fonts.cdnfonts.com/css/goudy-mediaeval" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -224,6 +226,19 @@ if('serviceWorker' in navigator && !window.electronAPI){
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:ital,wght@0,300;0,400;0,600;1,300&family=Cinzel+Decorative:wght@400;700&family=IM+Fell+English:ital@0;1&display=swap"></noscript>
 <!-- Mana font (icônes WUBRG) : critique pour les chips colorées -->
 <link href="https://cdn.jsdelivr.net/npm/mana-font@latest/css/mana.css" rel="stylesheet">
+<!-- Plausible Analytics (privacy-friendly, RGPD, pas de cookies) — production uniquement -->
+<script defer data-domain="valebro-bhce.vercel.app" src="https://plausible.io/js/script.tagged-events.js"></script>
+<script>
+// Wrapper mlTrack pour les goals custom. No-op si Plausible indisponible (dev local).
+window.mlTrack=function(event,props){
+  try{
+    if(typeof window.plausible==='function'){
+      if(props)window.plausible(event,{props:props});
+      else window.plausible(event);
+    }
+  }catch(_){}
+};
+</script>
 <!-- Sentry (error tracking) — chargé conditionnellement si window.SENTRY_DSN est défini -->
 <script>
 (function(){
@@ -270,8 +285,10 @@ if('serviceWorker' in navigator && !window.electronAPI){
 })();
 </script>
 <!-- Modules ManaLAB extraits (build 66+) — chargés avant les scripts inline qui en dépendent -->
+<script src="js/mlhelpers.js"></script>
 <script src="js/mlchart.js"></script>
 <script src="js/mlinsights.js"></script>
+<script src="js/mlonboarding.js" defer></script>
 <!-- Firebase compat (expose firebase.* global) -->
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
@@ -9093,35 +9110,7 @@ function _fullOracleText(card){
   return '';
 }
 function _normNl(s){return stripDFC(s||'').toLowerCase();}
-// ═════════════════════════════════════════════════════════════════════════════
-// HELPERS TECHNIQUES (build 63+)
-// ═════════════════════════════════════════════════════════════════════════════
-// Logger conditionnel : mlLog('warn','message') → console.warn en prod si
-// console.* dispo. Par défaut, info/log sont muets en prod, warn/error toujours.
-// Pour activer le debug verbose : localStorage.setItem('manalab.debug','1')
-window.mlLog=function(level,msg){
-  try{
-    var debug=false;
-    try{debug=localStorage.getItem('manalab.debug')==='1';}catch(_){}
-    if(level==='warn'||level==='error'){console[level].apply(console,arguments);return;}
-    if(debug)(console[level]||console.log).apply(console,arguments);
-  }catch(_){}
-};
-// Helpers localStorage avec préfixe « manalab. » pour les NOUVELLES clés.
-// Les anciennes clés (mtg_*) sont conservées telles quelles pour ne pas
-// invalider l'état des utilisateurs existants.
-window.mlGet=function(key,fallback){
-  try{var v=localStorage.getItem('manalab.'+key);return v==null?fallback:v;}catch(_){return fallback;}
-};
-window.mlSet=function(key,value){
-  try{localStorage.setItem('manalab.'+key,String(value));}catch(_){}
-};
-window.mlGetJSON=function(key,fallback){
-  try{var v=localStorage.getItem('manalab.'+key);return v?JSON.parse(v):(fallback||null);}catch(_){return fallback||null;}
-};
-window.mlSetJSON=function(key,value){
-  try{localStorage.setItem('manalab.'+key,JSON.stringify(value));}catch(_){}
-};
+// MLHELPERS : voir js/mlhelpers.js (extrait au build 67)
 // ═════════════════════════════════════════════════════════════════════════════
 // MLCHART — toolkit de dataviz unifié (SVG-based, zéro dépendance).
 // Vision « lab scientifique » : palette data-viz moderne, primitives composables.
@@ -10212,138 +10201,7 @@ function _homeTasksHtml(){
   h+='</div></details>';
   return h;
 }
-// ═════════════════════════════════════════════════════════════════════════════
-// ONBOARDING — tutoriel 3 étapes au 1er visit pour les nouveaux utilisateurs.
-// Apparaît uniquement si : collection vide ET aucun deck créé ET pas déjà vu.
-// Skippable, mais montre la voie : importer → créer → analyser.
-// ═════════════════════════════════════════════════════════════════════════════
-function mlOnboardingShouldShow(){
-  try{
-    if(localStorage.getItem('manalab.onboarding_done')==='1')return false;
-    // Nb decks de l'utilisateur (profil 0)
-    var nDecks=0;try{nDecks=Object.keys(decks||{}).filter(function(id){return _deckBelongsTo?_deckBelongsTo(decks[id],0):true;}).length;}catch(e){}
-    // Nb cartes en collection
-    var nCards=0;try{var coll=getProfCards(0)||[];nCards=coll.reduce(function(s,c){return s+(c.qty||1);},0);}catch(e){}
-    return nDecks===0 && nCards===0;
-  }catch(e){return false;}
-}
-function mlOnboardingOpen(forceStep){
-  var step=forceStep||1;
-  var ov=document.getElementById('ml-onboarding-ov');
-  if(!ov){
-    ov=document.createElement('div');ov.id='ml-onboarding-ov';ov.className='ml-modal-ov center';
-    document.body.appendChild(ov);
-    ov.addEventListener('click',function(e){if(e.target===ov&&confirm('Quitter le tutoriel ? Tu pourras le revoir dans le menu.'))mlOnboardingDismiss();});
-    document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.getElementById('ml-onboarding-ov');if(o&&o.classList.contains('show'))mlOnboardingDismiss();}});
-  }
-  mlOnboardingRender(step);
-  ov.classList.add('show');
-}
-function mlOnboardingRender(step){
-  var ov=document.getElementById('ml-onboarding-ov');if(!ov)return;
-  var steps=[
-    {
-      n:1,ico:'🃏',title:'Importe ta collection',
-      desc:'Pour analyser tes decks avec précision, ManaLAB a besoin de connaître les cartes que tu possèdes.',
-      actions:[
-        {label:'📋 Coller une liste (rapide)',action:'mlOnboardingDismiss();goTab(\'coll\');setTimeout(function(){if(typeof collBulkAddOpen===\'function\')collBulkAddOpen();},300)',primary:true},
-        {label:'⬆ Importer un CSV Moxfield/Archidekt',action:'mlOnboardingDismiss();goTab(\'coll\');setTimeout(function(){var i=document.getElementById(\'coll-import-fin\');if(i)i.click();},300)'},
-        {label:'⏭ Plus tard',action:'mlOnboardingNext()',ghost:true}
-      ],
-      tip:'💡 Tu peux exporter ta collection depuis Moxfield/Archidekt en CSV et la coller ici en 10 secondes.'
-    },
-    {
-      n:2,ico:'⚗',title:'Crée ton premier deck',
-      desc:'Construis un deck à partir d\'une liste, d\'un lien Moxfield, ou laisse l\'IA te suggérer un deck complet selon ta collection.',
-      actions:[
-        {label:'⚗ Deck Parfait (IA + collection)',action:'mlOnboardingDismiss();if(typeof mlPerfectDeckOpen===\'function\')mlPerfectDeckOpen()',primary:true},
-        {label:'📋 Coller une decklist',action:'mlOnboardingDismiss();goTab(\'build\');setTimeout(function(){if(typeof newDeck===\'function\')newDeck();},300)'},
-        {label:'⏭ Plus tard',action:'mlOnboardingNext()',ghost:true}
-      ],
-      tip:'💡 Tu peux aussi commencer par coller un lien Moxfield d\'un deck que tu admires pour l\'analyser.'
-    },
-    {
-      n:3,ico:'📊',title:'Lance l\'analyse',
-      desc:'Le moteur ManaLAB note ton deck sur 100, détecte ses thèmes, propose des swaps pour l\'améliorer et le compare au méta EDHRec.',
-      actions:[
-        {label:'📊 Analyser un deck',action:'mlOnboardingDismiss();goTab(\'analyse\')',primary:true},
-        {label:'🔬 Analyser un deck temporaire (URL/liste)',action:'mlOnboardingDismiss();if(typeof anaTempDeckOpen===\'function\')anaTempDeckOpen()'},
-        {label:'✓ J\'ai compris, fermer',action:'mlOnboardingComplete()',ghost:true}
-      ],
-      tip:'💡 Score 80+ = excellent · Score 60-80 = solide · Score < 60 = améliorable. Les swaps sont triés du plus impactant au moins.'
-    }
-  ];
-  var s=steps[step-1]||steps[0];
-  var h='<div class="ml-modal ml-reveal" style="max-width:580px;width:96vw">'
-    +'<div class="ml-modal-hdr" style="border-bottom:1px solid #4aa0e8">'
-    +'<div style="display:flex;align-items:center;gap:12px;flex:1">'
-    +'<div style="font-size:1.8rem;line-height:1">'+s.ico+'</div>'
-    +'<div>'
-    +'<div style="font-size:.62rem;color:#7eb3d9;letter-spacing:.14em;text-transform:uppercase;font-weight:700">Étape '+s.n+'/3 · Bienvenue dans ManaLAB</div>'
-    +'<div class="ml-modal-title" style="color:#fff;font-size:1.3rem">'+esc(s.title)+'</div>'
-    +'</div></div>'
-    +'<button class="ml-modal-close" onclick="mlOnboardingDismiss()" title="Passer le tutoriel">✕</button>'
-    +'</div>'
-    +'<div style="padding:18px 22px">'
-    // Progress bar
-    +'<div style="display:flex;gap:6px;margin-bottom:18px">'
-    +'<div style="flex:1;height:4px;border-radius:2px;background:'+(s.n>=1?'#4aa0e8':'rgba(255,255,255,.1)')+';transition:background .3s"></div>'
-    +'<div style="flex:1;height:4px;border-radius:2px;background:'+(s.n>=2?'#4aa0e8':'rgba(255,255,255,.1)')+';transition:background .3s"></div>'
-    +'<div style="flex:1;height:4px;border-radius:2px;background:'+(s.n>=3?'#4aa0e8':'rgba(255,255,255,.1)')+';transition:background .3s"></div>'
-    +'</div>'
-    +'<div style="font-size:.92rem;color:var(--tx);line-height:1.6;margin-bottom:18px">'+esc(s.desc)+'</div>'
-    // Actions
-    +'<div style="display:flex;flex-direction:column;gap:8px">'
-    +s.actions.map(function(a){
-      var col=a.primary?'#4aa0e8':(a.ghost?'transparent':'rgba(255,255,255,.04)');
-      var border=a.primary?'#4aa0e8':(a.ghost?'transparent':'var(--bd2)');
-      var fg=a.primary?'#fff':(a.ghost?'var(--tx3)':'var(--tx)');
-      var weight=a.primary?'700':'500';
-      return '<button onclick="'+a.action+'" style="padding:'+(a.primary?'12px 18px':'10px 16px')+';background:'+col+';border:1px solid '+border+';border-radius:8px;color:'+fg+';font-family:inherit;font-size:.88rem;font-weight:'+weight+';cursor:pointer;text-align:left;transition:all .15s" onmouseover="if(\''+(a.primary?'1':'0')+'\'===\'1\'){this.style.background=\'#3068a0\'}else if(\''+(a.ghost?'1':'0')+'\'===\'0\'){this.style.background=\'rgba(255,255,255,.08)\'}" onmouseout="this.style.background=\''+col+'\'">'+esc(a.label)+'</button>';
-    }).join('')
-    +'</div>'
-    +'<div style="margin-top:14px;padding:10px 12px;background:rgba(74,160,232,.06);border-left:3px solid #4aa0e8;border-radius:6px;font-size:.76rem;color:var(--tx2);line-height:1.5">'+s.tip+'</div>'
-    +'</div>'
-    +'<div class="ml-modal-foot" style="padding:10px 18px;border-top:.5px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:10px">'
-    +(s.n>1?'<button class="btn btnsm" onclick="mlOnboardingOpen('+(s.n-1)+')" style="padding:6px 12px">← Précédent</button>':'<span></span>')
-    +'<div style="display:flex;gap:8px">'
-    +(s.n<3?'<button class="btn btnsm" onclick="mlOnboardingNext()" style="padding:6px 12px">Suivant →</button>':'')
-    +'<button class="btn btnsm" onclick="mlOnboardingDismiss()" style="padding:6px 12px;color:var(--tx3)">Passer</button>'
-    +'</div></div></div>';
-  ov.innerHTML=h;
-}
-function mlOnboardingNext(){
-  var ov=document.getElementById('ml-onboarding-ov');
-  // Détecte l'étape courante via le badge
-  var badge=ov&&ov.querySelector('[style*="letter-spacing:.14em"]');
-  var match=badge&&badge.textContent.match(/Étape (\d+)/);
-  var cur=match?parseInt(match[1],10):1;
-  if(cur>=3){mlOnboardingComplete();return;}
-  mlOnboardingOpen(cur+1);
-}
-function mlOnboardingDismiss(){
-  var ov=document.getElementById('ml-onboarding-ov');if(ov)ov.classList.remove('show');
-  // Ne pas marquer comme « done » → si l'utilisateur skip, le tuto réapparaîtra
-  // au prochain load tant qu'il n'aura pas créé un deck ou importé une collection.
-}
-function mlOnboardingComplete(){
-  try{localStorage.setItem('manalab.onboarding_done','1');}catch(e){}
-  var ov=document.getElementById('ml-onboarding-ov');if(ov)ov.classList.remove('show');
-  if(typeof toast==='function')toast('✓ Bienvenue ! Tu peux relancer le tutoriel depuis la home.');
-}
-// Auto-trigger : 1.5s après le boot si conditions remplies
-(function(){
-  function maybeStart(){
-    if(typeof renderHome==='function')renderHome.__onboardingChecked=renderHome.__onboardingChecked||false;
-    if(renderHome.__onboardingChecked)return;
-    renderHome.__onboardingChecked=true;
-    setTimeout(function(){
-      try{if(mlOnboardingShouldShow())mlOnboardingOpen(1);}catch(e){}
-    },1500);
-  }
-  if(document.readyState==='complete')maybeStart();
-  else window.addEventListener('load',maybeStart);
-})();
+// MLONBOARDING : voir js/mlonboarding.js (extrait au build 67)
 function renderHome(){
   var host=document.getElementById('home-body');if(!host)return;
   var myName=(typeof PN!=='undefined'&&PN[0])||'Joueur';
@@ -10834,20 +10692,7 @@ function openProgressionDetails(){
 // Section visuelle au-dessus des cards d'intention pour donner une vue
 // instantanée de l'état du joueur (à la GitHub / Vercel dashboard).
 // ═════════════════════════════════════════════════════════════════════════════
-// ───────────────────────────────────────────────────────────────────────────
-// HELPER mlDelta — calcule la variation entre 2 valeurs avec direction, %.
-// Utilisé par tous les dashboards pour afficher « ▲ +12% vs semaine dernière »
-// ───────────────────────────────────────────────────────────────────────────
-function mlDelta(current,previous){
-  if(previous==null||previous===0)return {delta:null,pct:null,dir:'flat',col:'var(--tx3)'};
-  var d=current-previous;
-  var pct=d/previous*100;
-  return {delta:d,pct:pct,dir:d>0?'up':d<0?'down':'flat',col:d>0?'#7ec86a':d<0?'#d9645a':'var(--tx3)',ico:d>0?'▲':d<0?'▼':'—'};
-}
-// Helper : filtre des éléments ayant un timestamp dans [from, to]
-function mlInTimeRange(items,getTs,from,to){
-  return items.filter(function(x){var t=getTs(x);return t>=from&&t<to;});
-}
+// (mlDelta + mlInTimeRange : voir js/mlhelpers.js)
 // ───────────────────────────────────────────────────────────────────────────
 // mlKpiDrillModal — modal détail générique appelée au click sur un KPI.
 // Affiche : titre, valeur, sub, contenu HTML libre (passé en argument).
@@ -17697,6 +17542,7 @@ function matchEnd(result){
   if(!_matchState)return;
   _matchState.result=result;
   matchLog('end','Résultat : '+result);
+  if(typeof mlTrack==='function')mlTrack('Match Ended',{result:result});
   // Sauvegarde via _quickMatchSave si dispo, sinon fallback localStorage
   var payload={
     deckId:_matchState.deckId,
@@ -18369,16 +18215,17 @@ function _focusKeyHandler(ev){
     }catch(e){}
   }
   function applyAll(){
-    // Save deck → achievement + son discret
-    wrap('saveDecks', null, function(){try{mlCheckAchievementsOnDeckSave();mlPlaySound('pop');}catch(e){}});
-    // Coller une liste → achievement + son cha-ching (gros import)
-    wrap('_deckPasteApply', null, function(){try{mlCheckAchievementsOnPaste();mlPlaySound('cha-ching');mlVibrateDrop();}catch(e){}});
+    // Save deck → achievement + son discret + analytics
+    wrap('saveDecks', null, function(){try{mlCheckAchievementsOnDeckSave();mlPlaySound('pop');mlTrack&&mlTrack('Deck Saved');}catch(e){}});
+    // Coller une liste → achievement + son cha-ching (gros import) + analytics
+    wrap('_deckPasteApply', null, function(){try{mlCheckAchievementsOnPaste();mlPlaySound('cha-ching');mlVibrateDrop();mlTrack&&mlTrack('Deck Pasted');}catch(e){}});
     // Analyse de deck → achievement (premier passage + scores 80/90 lus depuis le DOM)
     wrap('anaRender', null, function(deckId){try{
       mlCheckAchievementsOnAnalysis();
+      mlTrack&&mlTrack('Deck Analyzed');
       setTimeout(function(){try{
         var el=document.querySelector('#ana-score-num b');
-        if(el){var s=parseInt((el.textContent||'').trim(),10);if(!isNaN(s))mlCheckAchievementsOnScore(s);}
+        if(el){var s=parseInt((el.textContent||'').trim(),10);if(!isNaN(s)){mlCheckAchievementsOnScore(s);mlTrack&&mlTrack('Score Calculated',{score_range:s>=80?'80+':s>=60?'60-80':s>=40?'40-60':'<40'});}}
       }catch(e){}},1500);
     }catch(e){}});
     // Swap accepté (flag 'change') → achievement + son
