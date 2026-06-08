@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-44';
+window.APP_BUILD='2026-06-08-45';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -17005,6 +17005,56 @@ function _mlEdhrecRenderSection(title,tag,list,owned,limit){
   return h;
 }
 // Hook : déclenche le render EDHRec après anaRender (différé pour ne pas bloquer)
+// Header KPIs visuels en tête de l'analyse (Coach Expert)
+function _anaInjectKpiHeader(deckId){
+  var deck=decks&&decks[deckId];if(!deck)return;
+  var res=document.getElementById('ana-results');if(!res)return;
+  // Évite double-injection
+  if(res.querySelector('#ana-kpi-header'))return;
+  var total=(deck.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+  // Score depuis le DOM si déjà rendu, sinon depuis deck.pw
+  var scoreNum=null;
+  var scEl=res.querySelector('#ana-score-num b');
+  if(scEl){var s=parseInt((scEl.textContent||'').trim(),10);if(!isNaN(s))scoreNum=s;}
+  if(scoreNum==null&&deck.pw&&deck.pw.score!=null)scoreNum=Math.round(deck.pw.score);
+  var scoreCol=scoreNum==null?'var(--tx3)':(scoreNum>=80?'#7ec86a':scoreNum>=60?'#e8c14a':scoreNum>=40?'#e88a4a':'#d9645a');
+  // Valeur deck
+  var valEur=0;
+  (deck.cards||[]).forEach(function(c){
+    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+    var p=(meta&&meta.priceEur)||(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])||(c.price||0);
+    if(p)valEur+=p*(c.qty||1);
+  });
+  // Format target
+  var fmt=(deck.format||'').toLowerCase();
+  var tgt=(fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker')?100:60;
+  // Win rate de ce deck
+  var wr=null,wrN=0;
+  try{
+    var ml=JSON.parse(localStorage.getItem('mtg_match_log')||'[]');
+    var w=0;
+    ml.forEach(function(m){if(m.deckId===deckId){if(m.result==='win'){w++;wrN++;}else if(m.result==='loss')wrN++;}});
+    if(wrN)wr=Math.round(w/wrN*100);
+  }catch(e){}
+  // Insertion en tête
+  var kpi=document.createElement('div');kpi.id='ana-kpi-header';
+  kpi.style.cssText='margin:0 0 14px;padding:0';
+  kpi.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">'
+    +'<div id="ana-kpih-1"></div>'
+    +'<div id="ana-kpih-2"></div>'
+    +'<div id="ana-kpih-3"></div>'
+    +'<div id="ana-kpih-4"></div>'
+    +'</div>';
+  res.insertBefore(kpi,res.firstChild);
+  setTimeout(function(){
+    if(typeof mlChart==='undefined')return;
+    mlChart.kpi('#ana-kpih-1',{label:'Score',value:scoreNum!=null?scoreNum:'—',unit:scoreNum!=null?'/100':'',icon:'🏅',color:scoreCol,sub:scoreNum!=null?(scoreNum>=80?'Excellent':scoreNum>=60?'Solide':scoreNum>=40?'Améliorable':'À retravailler'):''});
+    var ctCol=total===tgt?'#7ec86a':total<tgt?'#e8c14a':'#d9645a';
+    mlChart.kpi('#ana-kpih-2',{label:'Cartes',value:total,unit:'/'+tgt,icon:'🃏',color:ctCol});
+    mlChart.kpi('#ana-kpih-3',{label:'Valeur',value:valEur.toFixed(0),unit:'€',icon:'💰',color:'#4aa0e8'});
+    mlChart.kpi('#ana-kpih-4',{label:wr!=null?'Win rate':'Matchs',value:wr!=null?wr:wrN,unit:wr!=null?'%':'',icon:'🏆',color:wr!=null?(wr>=60?'#7ec86a':wr>=40?'#e8c14a':'#d9645a'):'var(--tx3)',sub:wrN>0?(wrN+' match'+(wrN>1?'s':'')+' joué'+(wrN>1?'s':'')):'Aucun match log'});
+  },80);
+}
 (function(){
   function bind(){
     if(typeof window.anaRender!=='function')return setTimeout(bind,200);
@@ -17012,7 +17062,8 @@ function _mlEdhrecRenderSection(title,tag,list,owned,limit){
     var orig=window.anaRender;
     window.anaRender=function(deckId){
       var r=orig.apply(this,arguments);
-      // Render différé pour ne pas bloquer le render principal
+      // KPI header (immédiat) + EDHRec (différé)
+      setTimeout(function(){try{_anaInjectKpiHeader(deckId);}catch(e){}},100);
       setTimeout(function(){try{mlEdhrecRender(deckId);}catch(e){}},600);
       return r;
     };
@@ -58797,13 +58848,85 @@ function _cmpRender(){
   var totB=Object.values(idxB).reduce(function(s,c){return s+c.qty;},0);
   var commonQty=common.reduce(function(s,c){return s+c.qty;},0);
   var sim=totA+totB?Math.round(2*commonQty/(totA+totB)*100):0;
+  // Helper : calcule rôles + curve pour un deck (pour les graphes mlChart)
+  function _cmpDeckStats(deck){
+    var typeC={Land:0,Creature:0,Instant:0,Sorcery:0,Enchantment:0,Artifact:0,Planeswalker:0};
+    var curve=[0,0,0,0,0,0,0,0];
+    var hasRamp=0,hasRemoval=0,hasDraw=0,hasWipe=0,hasCounter=0;
+    (deck.cards||[]).forEach(function(c){
+      var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
+      if(!meta){
+        // fallback léger : si on n'a pas la meta, on tente _anaData
+        meta=(typeof _anaData!=='undefined')?_anaData[c.nl]:null;
+      }
+      var qty=c.qty||1;
+      if(!meta)return;
+      var tl=(meta.typeLine||'').toLowerCase();
+      var ot=(meta.oracleText||'').toLowerCase();
+      if(tl.indexOf('land')>=0)typeC.Land+=qty;
+      else if(tl.indexOf('creature')>=0)typeC.Creature+=qty;
+      else if(tl.indexOf('planeswalker')>=0)typeC.Planeswalker+=qty;
+      else if(tl.indexOf('instant')>=0)typeC.Instant+=qty;
+      else if(tl.indexOf('sorcery')>=0)typeC.Sorcery+=qty;
+      else if(tl.indexOf('enchantment')>=0)typeC.Enchantment+=qty;
+      else if(tl.indexOf('artifact')>=0)typeC.Artifact+=qty;
+      if(tl.indexOf('land')<0){
+        var cmc=Math.max(0,Math.min(7,Math.floor(meta.cmc||0)));
+        curve[cmc]+=qty;
+        if(/(search your library for.*land|add \{[wubrg]\}|add one mana)/.test(ot))hasRamp+=qty;
+        if(/(destroy target|exile target.*(creature|permanent))/.test(ot))hasRemoval+=qty;
+        if(/(draw (a|two|three|x|that many) card|investigate|scry [2-9])/.test(ot))hasDraw+=qty;
+        if(/counter target/.test(ot))hasCounter+=qty;
+        if(/(destroy all|exile all)/.test(ot))hasWipe+=qty;
+      }
+    });
+    var fmt=(deck.format||'').toLowerCase();
+    var isCmd=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
+    return {typeC:typeC,curve:curve,ramp:hasRamp,removal:hasRemoval,draw:hasDraw,wipe:hasWipe,counter:hasCounter,isCmd:isCmd};
+  }
+  var stA=_cmpDeckStats(a), stB=_cmpDeckStats(b);
   var html='';
-  // Score similarité
-  html+='<div style="background:rgba(201,168,76,.06);border:.5px solid rgba(201,168,76,.3);border-radius:10px;padding:14px 18px;margin-bottom:16px;text-align:center">';
-  html+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:4px">SIMILARITÉ</div>';
-  html+='<div style="font-family:var(--ff-head);font-size:2.4rem;color:'+(sim>=80?'#78c890':sim>=50?'var(--ac2)':'var(--tx)')+';line-height:1">'+sim+'%</div>';
-  html+='<div style="font-size:.78rem;color:var(--tx3);margin-top:4px">'+commonQty+' cartes communes sur '+Math.max(totA,totB)+'</div>';
+  // ── Bandeau similarité avec gauge SVG circulaire ──
+  var simCol=sim>=80?'#7ec86a':sim>=50?'#e8c14a':sim>=25?'#e88a4a':'#d9645a';
+  var simC=2*Math.PI*38, simDash=simC*(sim/100);
+  html+='<div style="display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center;background:linear-gradient(135deg,rgba(201,168,76,.06),rgba(74,160,232,.03));border:1px solid rgba(201,168,76,.3);border-radius:11px;padding:14px 20px;margin-bottom:16px">';
+  html+='<div style="text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.1em;text-transform:uppercase;font-weight:700;margin-bottom:4px">Deck A</div><div style="font-size:1rem;color:var(--gold2);font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(a.name||'A')+'</div><div style="font-size:.72rem;color:var(--tx3);margin-top:2px">'+totA+' cartes</div></div>';
+  html+='<div style="text-align:center"><svg width="92" height="92" viewBox="0 0 92 92"><circle cx="46" cy="46" r="38" fill="rgba(0,0,0,.3)" stroke="rgba(255,255,255,.08)" stroke-width="6"/><circle cx="46" cy="46" r="38" fill="none" stroke="'+simCol+'" stroke-width="6" stroke-dasharray="'+simDash+' '+(simC-simDash)+'" transform="rotate(-90 46 46)" stroke-linecap="round"/><text x="46" y="46" text-anchor="middle" dominant-baseline="central" fill="'+simCol+'" font-size="20" font-weight="700">'+sim+'%</text></svg><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.1em;text-transform:uppercase;font-weight:600;margin-top:-2px">Similarité</div><div style="font-size:.66rem;color:var(--tx3);margin-top:2px">'+commonQty+' communes</div></div>';
+  html+='<div style="text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.1em;text-transform:uppercase;font-weight:700;margin-bottom:4px">Deck B</div><div style="font-size:1rem;color:var(--gold2);font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(b.name||'B')+'</div><div style="font-size:.72rem;color:var(--tx3);margin-top:2px">'+totB+' cartes</div></div>';
   html+='</div>';
+  // ── Graphes superposés : radar + mana curve ──
+  if(typeof mlChart!=='undefined'){
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:16px">';
+    html+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px">📐 Profil comparé (radar)</div><div id="cmp-radar" style="height:200px"></div></div>';
+    html+='<div style="background:rgba(255,255,255,.025);border:1px solid var(--bd2);border-radius:11px;padding:10px 12px"><div style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px">⚔ Courbe de mana A vs B</div><div id="cmp-curve" style="height:200px"></div></div>';
+    html+='</div>';
+    // Render différé
+    setTimeout(function(){
+      try{
+        var aXs,aVs,bVs;
+        if(stA.isCmd||stB.isCmd){
+          aXs=['Terrains','Ramp','Removal','Pioche','Wraths'];
+          aVs=[Math.min(1,stA.typeC.Land/40),Math.min(1,stA.ramp/12),Math.min(1,stA.removal/10),Math.min(1,stA.draw/10),Math.min(1,stA.wipe/3)];
+          bVs=[Math.min(1,stB.typeC.Land/40),Math.min(1,stB.ramp/12),Math.min(1,stB.removal/10),Math.min(1,stB.draw/10),Math.min(1,stB.wipe/3)];
+        }else{
+          aXs=['Terrains','Créatures','Removal','Pioche','Counter'];
+          aVs=[Math.min(1,stA.typeC.Land/24),Math.min(1,stA.typeC.Creature/24),Math.min(1,stA.removal/8),Math.min(1,stA.draw/6),Math.min(1,stA.counter/4)];
+          bVs=[Math.min(1,stB.typeC.Land/24),Math.min(1,stB.typeC.Creature/24),Math.min(1,stB.removal/8),Math.min(1,stB.draw/6),Math.min(1,stB.counter/4)];
+        }
+        mlChart.radar('#cmp-radar',aXs,[
+          {name:a.name||'A',values:aVs,color:'#c9a84c'},
+          {name:b.name||'B',values:bVs,color:'#4aa0e8'}
+        ]);
+        // Curve comparée : line chart 2 séries
+        var sA=stA.curve.map(function(v,i){return {x:i,y:v};});
+        var sB=stB.curve.map(function(v,i){return {x:i,y:v};});
+        mlChart.line('#cmp-curve',[
+          {name:a.name||'A',values:sA,color:'#c9a84c',area:true},
+          {name:b.name||'B',values:sB,color:'#4aa0e8',area:true}
+        ],{xLabels:['0','1','2','3','4','5','6','7+'],yFmt:function(v){return v.toFixed(0);}});
+      }catch(e){console.warn('[Cmp graphes]',e);}
+    },60);
+  }
   // Grille 3 colonnes
   html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
   html+=_cmpColumn('Uniquement dans '+esc(a.name||'A'),onlyA,'#e07070','rgba(220,80,80,.06)');
