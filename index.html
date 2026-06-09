@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-73';
+window.APP_BUILD='2026-06-09-74';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -22791,6 +22791,9 @@ function dlTxt(content,filename){
 var _purchaseLists={};
 var _activePurListId=(function(){try{return localStorage.getItem('mtg_pur_active')||null;}catch(e){return null;}})();
 var _sharedListsLoaded=false; // devient true au premier snapshot reçu
+// Compteur d'échecs de save par listId (réinitialisé à chaque succès).
+// Sert à rate-limiter les toasts d'erreur et à monter le ton après 3 refus.
+var _purSaveFails={};
 var _purDragCardId=null;
 var _purFriendIdx=1;
 var _purSearchMode='card';
@@ -22958,33 +22961,33 @@ function savePurchaseList(id){
   }
   var ref=db.collection('shared_lists').doc(id);
   try{fsSaveStart();}catch(_){}
-  function _onOk(){try{fsSaveEnd(true);}catch(_){}if(_purchaseLists[id])delete _purchaseLists[id]._pendingWrite;}
+  function _onOk(){try{fsSaveEnd(true);}catch(_){}if(_purchaseLists[id])delete _purchaseLists[id]._pendingWrite;if(_purSaveFails&&_purSaveFails[id])delete _purSaveFails[id];}
   function _onErr(e){
     console.warn('savePurchaseList', e, {listId:id, userId:userId, localMembers:live.members, createdBy:live.createdBy, pendingAge:live._pendingWrite?Date.now()-live._pendingWrite:null});
     try{fsSaveEnd(false);}catch(_){}
     if(e&&e.code==='permission-denied'){
-      // Détection : liste fraîchement créée localement (pendingWrite < 8s) ?
-      // - Oui  → l'erreur vient d'un soucis d'auth/token, PAS d'une liste
-      //         fantôme. On garde le cache, on demande de re-tenter ou de
-      //         se reconnecter. Toucher au cache détruirait une liste légitime.
-      // - Non  → c'est probablement une liste héritée d'un autre compte
-      //         (ancien uid) ou dont l'accès a été retiré (kick membre).
-      //         La rule Firestore exige `request.auth.uid in resource.data.members`
-      //         côté SERVEUR. On nettoie le cache pour éviter une boucle de retries.
-      var isFreshCreate=live._pendingWrite&&(Date.now()-live._pendingWrite)<8000;
-      if(isFreshCreate){
+      // PAS de self-heal automatique : supprimer la liste du cache local quand
+      // l'utilisateur a en réalité un état UI valide (cartes affichées, deck
+      // assigné, etc.) détruit son travail en cours. Une write refusée ≠ liste
+      // inaccessible : ça peut être un token momentanément périmé, une
+      // race condition entre 2 onglets, ou une rule Firestore plus stricte
+      // qu'attendu. On compte les échecs successifs et on ne suggère le rechargement
+      // qu'après 3 refus consécutifs (rate-limité, max 1 toast par 6s).
+      _purSaveFails=_purSaveFails||{};
+      var rec=_purSaveFails[id]||(_purSaveFails[id]={count:0,last:0});
+      rec.count++;
+      var now=Date.now();
+      var shouldToast=(now-rec.last)>6000;
+      rec.last=now;
+      if(!shouldToast)return;
+      if(rec.count>=3){
         if(typeof toastError==='function'){
-          toastError('Sauvegarde refusée par le serveur — vérifie que tu es connecté(e), puis ré-essaie. Si ça persiste, reconnecte-toi.');
+          toastError('La sauvegarde de cette liste échoue à répétition ('+rec.count+'×). Recharge la page (F5) — si l\'erreur persiste, reconnecte-toi.');
         }
-        return;
-      }
-      // Liste fantôme — self-heal
-      delete _purchaseLists[id];
-      if(_activePurListId===id)_activePurListId=null;
-      _purPersistActiveListId();
-      try{renderPurListSel();renderPurchaseMgr();}catch(_){}
-      if(typeof toastError==='function'){
-        toastError('Liste inaccessible (créée sous un autre compte ?). Liste retirée du cache local — recharge la page si elle réapparaît.');
+      }else{
+        if(typeof toastError==='function'){
+          toastError('Sauvegarde refusée par le serveur — vérifie ta connexion, puis ré-essaie.');
+        }
       }
       return;
     }
