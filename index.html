@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-08-67';
+window.APP_BUILD='2026-06-09-68';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -288,6 +288,8 @@ window.mlTrack=function(event,props){
 <script src="js/mlhelpers.js"></script>
 <script src="js/mlchart.js"></script>
 <script src="js/mlinsights.js"></script>
+<script src="js/mledhrec.js"></script>
+<script src="js/mlmatch.js" defer></script>
 <script src="js/mlonboarding.js" defer></script>
 <!-- Firebase compat (expose firebase.* global) -->
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
@@ -1510,6 +1512,25 @@ html[data-theme="lab"] .home-intent-primary{box-shadow:0 4px 14px rgba(74,160,23
 html[data-theme="lab"] #ml-xp-pill{background:linear-gradient(180deg,rgba(74,160,232,.12),rgba(74,160,232,.04));border-color:#4aa0e8;color:#7eb3d9}
 /* Hero plus neutre */
 html[data-theme="lab"] body{background:linear-gradient(180deg,#0e1117 0%,#070a0e 100%)!important}
+/* ─── PERFORMANCE (build 68+) ─────────────────────────────────────────────
+   content-visibility: auto sur les sections lourdes pour économiser le
+   layout/paint quand hors viewport. Navigateurs supportés : Chromium 85+
+   et Firefox 125+ (graceful degradation pour Safari/anciens).
+   contain-intrinsic-size : réserve l'espace pour éviter les jumps de scroll. */
+.dsec-wrap,
+.ana-img-grid,
+.ana-card-group,
+.cs-grid,
+#atelier-live,
+#deck-quickviz,
+#home-activity,
+.meta-2cols,
+#deck-flex-wrap > .card{
+  content-visibility:auto;
+  contain-intrinsic-size:auto 400px;
+}
+/* Les modales restent toujours rendues — pas d'optimisation conditionnelle */
+.ml-modal,.ml-modal-ov{content-visibility:visible}
 /* ─── ACCESSIBILITÉ (build 63+) ─────────────────────────────────────────
    Focus visible cohérent + contraste WCAG AA + skip-link. */
 :focus-visible{outline:2px solid #4aa0e8!important;outline-offset:2px;border-radius:4px}
@@ -17107,220 +17128,7 @@ function _atelierRecoSwapApply(addName,cutName,cutQty){
     });
   }
 }
-// ═════════════════════════════════════════════════════════════════════════════
-// EDHREC INVERSE — tendances communauté pour le commandant du deck.
-// API publique JSON ouverte (pas de clé) : https://json.edhrec.com/pages/commanders/{slug}.json
-// Données : top cartes (% inclusion), high-synergy, gamechangers, new cards, similar commanders.
-// Cache localStorage 24h pour ne pas marteler l'API.
-// ═════════════════════════════════════════════════════════════════════════════
-function mlEdhrecSlug(name){
-  if(!name)return '';
-  return String(name).toLowerCase()
-    .replace(/['"`]/g,'')
-    .replace(/[,.()]/g,'')
-    .replace(/[\s/—–-]+/g,'-')
-    .replace(/[^a-z0-9-]/g,'')
-    .replace(/-+/g,'-').replace(/^-|-$/g,'');
-}
-function mlEdhrecCacheKey(slug){return 'mtg_edhrec_'+slug;}
-function mlEdhrecFetch(commanderName){
-  var slug=mlEdhrecSlug(commanderName);
-  if(!slug)return Promise.resolve(null);
-  // Cache 24h
-  try{
-    var c=JSON.parse(localStorage.getItem(mlEdhrecCacheKey(slug))||'null');
-    if(c&&c.t&&Date.now()-c.t<86400000)return Promise.resolve(c.d);
-  }catch(e){}
-  var url='https://json.edhrec.com/pages/commanders/'+slug+'.json';
-  return fetch(url).then(function(r){
-    if(!r.ok)return null;
-    return r.json();
-  }).then(function(d){
-    if(d){try{localStorage.setItem(mlEdhrecCacheKey(slug),JSON.stringify({t:Date.now(),d:d}));}catch(e){}}
-    return d;
-  }).catch(function(){return null;});
-}
-function _mlEdhrecNorm(n){return (n||'').toLowerCase().trim().replace(/[''`]/g,"'").replace(/\s+/g,' ');}
-function mlEdhrecExtractCategory(data,tag){
-  if(!data||!data.container||!data.container.json_dict)return null;
-  // Nouvelle structure : cardlists au niveau container.json_dict
-  var lists=(data.container.json_dict.cardlists)||[];
-  for(var i=0;i<lists.length;i++){
-    if(lists[i].tag===tag)return lists[i];
-  }
-  return null;
-}
-function mlEdhrecExtractCategoryFlex(data){
-  // Helper qui retourne toutes les catégories disponibles à la racine
-  if(!data)return [];
-  var lists=(data.cardlists)||(data.container&&data.container.json_dict&&data.container.json_dict.cardlists)||[];
-  return lists;
-}
-function mlEdhrecCardName(c){return c.name||c.cardname||(c.card&&c.card.name)||'';}
-function mlEdhrecCardSyn(c){return c.synergy!=null?c.synergy:(c.synergy_score!=null?c.synergy_score:0);}
-function mlEdhrecCardIncl(c){
-  // Inclusion : soit % direct, soit num_decks / potential_decks
-  if(c.inclusion!=null&&c.inclusion<=1.01)return Math.round(c.inclusion*100);
-  if(c.num_decks&&c.potential_decks)return Math.round(100*c.num_decks/c.potential_decks);
-  if(c.inclusion!=null)return Math.round(c.inclusion);
-  return 0;
-}
-// Rend le panneau EDHRec dans un container donné
-function mlEdhrecRender(deckId){
-  var mount=document.getElementById('ana-edhrec-panel');
-  if(!mount){
-    // Crée le mount juste après le bandeau de score si possible, sinon en tête de #ana-results
-    mount=document.createElement('div');
-    mount.id='ana-edhrec-panel';
-    mount.style.cssText='margin:14px 0;padding:0;border-radius:10px;background:linear-gradient(180deg,rgba(140,90,180,.06),rgba(140,90,180,.01));border:1px solid rgba(180,140,220,.32);overflow:hidden';
-    var res=document.getElementById('ana-results');
-    if(res){
-      // Insère en première position
-      if(res.firstChild)res.insertBefore(mount,res.firstChild);
-      else res.appendChild(mount);
-    }
-  }
-  var deck=decks[deckId];
-  if(!deck||!deck.commander||!deck.commander.name){
-    mount.style.display='none';return;
-  }
-  mount.style.display='block';
-  var cmdName=deck.commander.name;
-  // Loader pendant fetch
-  mount.innerHTML='<div style="padding:12px 14px;display:flex;align-items:center;gap:10px">'
-    +'<div class="ml-spinner-gold" style="width:18px;height:18px;border:2px solid rgba(180,140,220,.3);border-top-color:#b48cdc;border-radius:50%;animation:ml-spin 1s linear infinite"></div>'
-    +'<span style="font-size:.82rem;color:var(--tx2)">📊 Chargement des tendances EDHRec pour <b>'+esc(cmdName)+'</b>…</span></div>';
-  mlEdhrecFetch(cmdName).then(function(data){
-    if(!data){
-      mount.innerHTML='<div style="padding:10px 14px;font-size:.78rem;color:var(--tx3)">📊 EDHRec : pas de données pour <b>'+esc(cmdName)+'</b> (commandant trop récent ou peu joué). <span style="font-size:.7rem">Slug essayé : '+esc(mlEdhrecSlug(cmdName))+'</span></div>';
-      return;
-    }
-    _mlEdhrecRenderData(mount,data,deck,cmdName);
-  });
-}
-// État local pour le tab actif EDHRec
-var _mlEdhrecActiveTab='topcards';
-function _mlEdhrecRenderData(mount,data,deck,cmdName){
-  var lists=mlEdhrecExtractCategoryFlex(data);
-  var owned={};
-  (deck.cards||[]).forEach(function(c){owned[_mlEdhrecNorm(c.name)]=1;});
-  function findByTag(tag){return lists.filter(function(l){return l.tag===tag;})[0];}
-  var topcards=findByTag('topcards')||findByTag('top-cards');
-  var synergy=findByTag('highsynergycards')||findByTag('high-synergy-cards');
-  var newcards=findByTag('newcards')||findByTag('new-cards');
-  var gamechangers=findByTag('gamechangers')||findByTag('game-changers');
-  var numDecks=(data.container&&data.container.json_dict&&data.container.json_dict.num_decks_avg)||data.num_decks_avg||0;
-  var similar=(data.container&&data.container.json_dict&&data.container.json_dict.similar)||data.similar||[];
-
-  // Construction des tabs avec compteurs
-  var tabs=[
-    {id:'topcards',label:'🎯 Top',list:topcards,info:'taux d\'inclusion'},
-    {id:'highsynergycards',label:'💎 Synergie',list:synergy,info:'rares ailleurs'},
-    {id:'newcards',label:'🆕 Nouveautés',list:newcards,info:'qui montent'},
-    {id:'gamechangers',label:'⚡ Game changers',list:gamechangers,info:'cartes-pivots'}
-  ].filter(function(t){return t.list&&t.list.cardviews&&t.list.cardviews.length;});
-  if(!tabs.length){
-    mount.innerHTML='<div style="padding:14px;color:var(--tx3);font-style:italic">Pas de catégories EDHRec disponibles pour ce commandant.</div>';
-    return;
-  }
-  // S'assure que le tab actif existe encore
-  if(!tabs.find(function(t){return t.id===_mlEdhrecActiveTab;}))_mlEdhrecActiveTab=tabs[0].id;
-
-  // ── HEADER ──
-  var h='<div style="padding:13px 16px 0 16px">';
-  h+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">';
-  h+='<span style="font-size:1.25rem">📊</span>';
-  h+='<div style="display:flex;flex-direction:column;min-width:0">';
-  h+='<span style="font-family:\'Goudy Mediaeval\',serif;color:#d4b8ec;letter-spacing:.06em;font-size:.92rem">TENDANCES COMMUNAUTÉ · EDHRec</span>';
-  if(numDecks)h+='<span style="font-size:.7rem;color:var(--tx3)">'+numDecks.toLocaleString('fr-FR')+' decks analysés pour <b>'+esc(cmdName)+'</b></span>';
-  h+='</div>';
-  h+='<span style="flex:1"></span>';
-  h+='<a href="https://edhrec.com/commanders/'+esc(mlEdhrecSlug(cmdName))+'" target="_blank" rel="noopener" style="font-size:.72rem;color:#b48cdc;text-decoration:none;border:.5px solid rgba(180,140,220,.4);border-radius:6px;padding:4px 10px">Ouvrir sur EDHRec ↗</a>';
-  h+='</div>';
-  // ── TABS ──
-  h+='<div style="display:flex;gap:5px;flex-wrap:wrap;border-bottom:.5px solid rgba(180,140,220,.2);padding-bottom:0;margin-bottom:0">';
-  tabs.forEach(function(t){
-    var active=t.id===_mlEdhrecActiveTab;
-    var n=t.list.cardviews.length;
-    h+='<button onclick="_mlEdhrecSetTab(\''+t.id+'\')" style="padding:7px 12px;background:'+(active?'linear-gradient(180deg,rgba(180,140,220,.18),rgba(180,140,220,.06))':'transparent')+';border:none;border-bottom:2px solid '+(active?'#b48cdc':'transparent')+';color:'+(active?'#d4b8ec':'var(--tx2)')+';font-family:inherit;font-size:.78rem;cursor:pointer;font-weight:'+(active?'700':'400')+';transition:all .15s" onmouseover="this.style.color=\'#d4b8ec\'" onmouseout="if(!'+active+')this.style.color=\'var(--tx2)\'">'+t.label+' <span style="opacity:.6;font-size:.66rem">'+n+'</span></button>';
-  });
-  h+='</div>';
-  h+='</div>';
-  // ── CARDS GRID ──
-  h+='<div style="padding:14px 16px 12px 16px">';
-  h+='<div id="ml-edhrec-tabbody">';
-  var activeTab=tabs.find(function(t){return t.id===_mlEdhrecActiveTab;})||tabs[0];
-  h+=_mlEdhrecRenderCardsGrid(activeTab,owned,cmdName);
-  h+='</div>';
-  // ── COMMANDANTS SIMILAIRES ──
-  if(similar&&similar.length){
-    h+='<div style="margin-top:14px;padding-top:10px;border-top:.5px dashed rgba(180,140,220,.25)">';
-    h+='<div style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px">🔄 Commandants similaires</div>';
-    h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
-    similar.slice(0,10).forEach(function(s){
-      var nm=s.name||s.cardname||(typeof s==='string'?s:'');
-      if(!nm)return;
-      h+='<a href="https://edhrec.com/commanders/'+esc(mlEdhrecSlug(nm))+'" target="_blank" rel="noopener" style="padding:5px 10px;background:rgba(180,140,220,.08);border:.5px solid rgba(180,140,220,.3);border-radius:11px;font-size:.72rem;color:#d4b8ec;text-decoration:none;transition:all .12s" onmouseover="this.style.background=\'rgba(180,140,220,.18)\';this.style.borderColor=\'#b48cdc\'" onmouseout="this.style.background=\'rgba(180,140,220,.08)\';this.style.borderColor=\'rgba(180,140,220,.3)\'">'+esc(nm)+'</a>';
-    });
-    h+='</div></div>';
-  }
-  h+='</div>';
-  mount.innerHTML=h;
-  // Stocker données pour switch de tab
-  mount._edhData={data:data,deck:deck,cmdName:cmdName,tabs:tabs,owned:owned};
-}
-function _mlEdhrecSetTab(tabId){
-  var mount=document.getElementById('ana-edhrec-panel');if(!mount||!mount._edhData)return;
-  _mlEdhrecActiveTab=tabId;
-  // Re-render header + body
-  _mlEdhrecRenderData(mount,mount._edhData.data,mount._edhData.deck,mount._edhData.cmdName);
-}
-// Nouveau render en grille : cards avec image Scryfall + métrique + bouton.
-// Layout responsive auto-fill, beaucoup plus visuel que la liste plate précédente.
-function _mlEdhrecRenderCardsGrid(tab,owned,cmdName){
-  var cards=tab.list.cardviews.slice(0,18);
-  var isSynergy=tab.id==='highsynergycards'||tab.id==='gamechangers';
-  var h='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">';
-  cards.forEach(function(c,i){
-    var name=mlEdhrecCardName(c);if(!name)return;
-    var incl=mlEdhrecCardIncl(c);
-    var syn=mlEdhrecCardSyn(c);
-    var has=owned[_mlEdhrecNorm(name)];
-    var rank=i+1;
-    var img='https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)+'&format=image&version=normal';
-    var metricVal=isSynergy?((syn>0?'+':'')+(typeof syn==='number'?syn.toFixed(2):syn)):(incl+'%');
-    var metricCol=isSynergy?'#b48cdc':'var(--gold2)';
-    h+='<div class="edh-card" style="position:relative;background:'+(has?'linear-gradient(180deg,rgba(126,200,106,.06),rgba(126,200,106,.02))':'rgba(255,255,255,.02)')+';border:1px solid '+(has?'#7ec86a':'var(--bd2)')+';border-radius:9px;overflow:hidden;transition:all .15s;cursor:default" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.borderColor=\''+(has?'#7ec86a':'#b48cdc')+'\'" onmouseout="this.style.transform=\'\';this.style.borderColor=\''+(has?'#7ec86a':'var(--bd2)')+'\'">';
-    // Image card top
-    h+='<div style="position:relative;width:100%;aspect-ratio:5/7;background:linear-gradient(180deg,#1a1410,#0a0805);overflow:hidden">';
-    h+='<img src="'+esc(img)+'" alt="'+esc(name)+'" loading="lazy" style="width:100%;height:100%;object-fit:cover;object-position:top" onerror="this.style.display=\'none\'">';
-    // Badge rank top-left
-    h+='<div style="position:absolute;top:5px;left:5px;background:rgba(0,0,0,.75);color:var(--tx2);font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:4px;backdrop-filter:blur(4px)">#'+rank+'</div>';
-    // Badge metric top-right
-    h+='<div style="position:absolute;top:5px;right:5px;background:rgba(0,0,0,.85);color:'+metricCol+';font-size:.74rem;font-weight:700;padding:3px 7px;border-radius:5px;backdrop-filter:blur(4px);border:.5px solid '+metricCol+'">'+metricVal+'</div>';
-    // Owned badge bottom
-    if(has)h+='<div style="position:absolute;bottom:5px;right:5px;background:rgba(126,200,106,.92);color:#0a0805;font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:5px">✓ DANS TON DECK</div>';
-    h+='</div>';
-    // Footer
-    h+='<div style="padding:7px 9px">';
-    h+='<div style="font-size:.74rem;color:'+(has?'#a8d97e':'var(--tx)')+';font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(name)+'">'+esc(name)+'</div>';
-    if(!has){
-      h+='<button onclick="_addCardSmart(\''+escJs(name)+'\')" style="margin-top:5px;width:100%;padding:4px 8px;background:rgba(180,140,220,.12);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#d4b8ec;font-family:inherit;font-size:.7rem;cursor:pointer;font-weight:600;transition:all .12s" onmouseover="this.style.background=\'rgba(180,140,220,.25)\'" onmouseout="this.style.background=\'rgba(180,140,220,.12)\'">+ Ajouter</button>';
-    }else{
-      h+='<div style="margin-top:5px;font-size:.66rem;color:var(--tx3);text-align:center;font-style:italic">Déjà optimal</div>';
-    }
-    h+='</div>';
-    h+='</div>';
-  });
-  h+='</div>';
-  return h;
-}
-function _mlEdhrecRenderSection(title,tag,list,owned,limit){
-  // Conservé pour rétro-compat — non utilisé après refonte
-  if(!list||!list.cardviews||!list.cardviews.length)return '';
-  return '';
-  return h;
-}
+// MLEDHREC : voir js/mledhrec.js (extrait au build 68)
 // Hook : déclenche le render EDHRec après anaRender (différé pour ne pas bloquer)
 // Header KPIs visuels en tête de l'analyse (Coach Expert)
 function _anaInjectKpiHeader(deckId){
@@ -17394,197 +17202,7 @@ function _anaInjectKpiHeader(deckId){
 // Différencié vs Lotus/Lifetap : pas un life counter pur, mais un compagnon qui
 // connaît TON deck (mulligan-helper, sideboard guide, log auto enrichi).
 // ═════════════════════════════════════════════════════════════════════════════
-var _matchState=null;          // {deckId, lifeMe, lifeOpp, startTs, events:[]}
-var _matchWakeLock=null;       // Screen wake lock (s'il existe)
-function matchStart(deckId){
-  if(!deckId)deckId=actDeck;
-  if(!deckId||!decks[deckId]){if(typeof toastError==='function')toastError('Ouvre un deck d\'abord');return;}
-  var deck=decks[deckId];
-  var fmt=(deck.format||'').toLowerCase();
-  // Vie de départ selon format (Commander = 40, sinon 20)
-  var startLife=(fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker')?40:20;
-  _matchState={
-    deckId:deckId,
-    deckName:deck.name||'(deck sans nom)',
-    lifeMe:startLife,lifeOpp:startLife,
-    startLife:startLife,
-    startTs:Date.now(),
-    events:[],
-    sideboardSeen:false
-  };
-  // UI
-  document.body.classList.add('match-active');
-  matchUpdateUI();
-  document.getElementById('match-title').textContent='🎮 '+(deck.name||'Match');
-  document.getElementById('match-p-name-me').textContent='Moi ('+(deck.name||'mon deck').slice(0,28)+')';
-  // Wake lock (Chrome/Edge/Safari récents)
-  try{
-    if('wakeLock' in navigator){
-      navigator.wakeLock.request('screen').then(function(wl){_matchWakeLock=wl;}).catch(function(){});
-    }
-  }catch(e){}
-  // Son / vibration
-  try{mlPlaySound&&mlPlaySound('whoosh');mlVibratePulse&&mlVibratePulse();}catch(e){}
-  // Coup d'envoi auto
-  matchLog('start','Vie de départ : '+startLife+' ('+ (fmt||'libre')+')');
-}
-function matchExit(){
-  if(!_matchState)return;
-  // Si une partie en cours sans résultat → demande confirmation
-  if(_matchState.events.length>0 && !_matchState.result){
-    var ok=confirm('Quitter sans enregistrer le résultat ? Le log sera perdu.');
-    if(!ok)return;
-  }
-  matchTeardown();
-}
-function matchTeardown(){
-  document.body.classList.remove('match-active');
-  try{if(_matchWakeLock&&_matchWakeLock.release)_matchWakeLock.release();}catch(e){}
-  _matchWakeLock=null;_matchState=null;
-}
-function matchLife(who,delta){
-  if(!_matchState)return;
-  if(who==='me')_matchState.lifeMe+=delta;
-  else _matchState.lifeOpp+=delta;
-  matchUpdateUI();
-  matchLog('life',(who==='me'?'Moi':'Adversaire')+' '+(delta>0?'+':'')+delta+' → '+(who==='me'?_matchState.lifeMe:_matchState.lifeOpp));
-  try{mlPlaySound&&mlPlaySound(delta>0?'pop':'click');mlVibratePulse&&mlVibratePulse();}catch(e){}
-  // Alertes utiles
-  if(who==='me'&&_matchState.lifeMe<=0){matchLog('danger','💀 Tu es à 0 vie !');}
-  if(who==='opp'&&_matchState.lifeOpp<=0){matchLog('danger','🏆 Adversaire à 0 vie !');}
-}
-function matchUpdateUI(){
-  if(!_matchState)return;
-  var me=document.getElementById('match-life-me');if(me)me.textContent=_matchState.lifeMe;
-  var op=document.getElementById('match-life-opp');if(op)op.textContent=_matchState.lifeOpp;
-}
-function matchLog(type,msg){
-  if(!_matchState)return;
-  _matchState.events.push({t:Date.now()-_matchState.startTs,type:type,msg:msg});
-}
-function matchToss(){
-  var r=Math.random()<0.5?'Pile':'Face';
-  if(typeof toast==='function')toast('🪙 '+r);
-  matchLog('toss','Pile/face : '+r);
-  try{mlPlaySound&&mlPlaySound('whoosh');mlVibratePulse&&mlVibratePulse();}catch(e){}
-}
-function matchRoll(){
-  var r=1+Math.floor(Math.random()*20);
-  if(typeof toast==='function')toast('🎲 D20 : '+r);
-  matchLog('roll','D20 : '+r);
-  try{mlPlaySound&&mlPlaySound(r===20?'cha-ching':(r===1?'error':'pop'));mlVibratePulse&&mlVibratePulse();}catch(e){}
-}
-function matchMulligan(){
-  if(!_matchState)return;
-  // Heuristique simple : recommande ≥2 lands et au moins 1 carte CMC ≤ 3 pour Commander
-  var deck=decks[_matchState.deckId];if(!deck){if(typeof toast==='function')toast('Pas de deck actif');return;}
-  var fmt=(deck.format||'').toLowerCase();
-  var isCmd=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
-  var handSize=isCmd?7:7;
-  // Compte lands et CMC dans le deck
-  var landRatio=0,lowCmcRatio=0,totC=0;
-  (deck.cards||[]).forEach(function(c){
-    var meta=(typeof dCardMeta!=='undefined')?dCardMeta[c.nl]:null;
-    if(!meta)return;
-    var qty=c.qty||1;totC+=qty;
-    var tl=(meta.typeLine||'').toLowerCase();
-    if(tl.indexOf('land')>=0)landRatio+=qty;
-    if((meta.cmc||0)<=3 && tl.indexOf('land')<0)lowCmcRatio+=qty;
-  });
-  if(!totC){if(typeof toast==='function')toast('Données du deck pas encore chargées');return;}
-  var pLand=landRatio/totC, pLow=lowCmcRatio/totC;
-  // Espérance dans une main de 7
-  var expLand=Math.round(pLand*handSize*10)/10;
-  var expLow=Math.round(pLow*handSize*10)/10;
-  var advice='';
-  if(pLand<0.30||pLand>0.50)advice='⚠ Ratio terrains atypique ('+(pLand*100).toFixed(0)+'%) — vise 33-42% en Commander.';
-  else advice='✓ Ratio terrains OK ('+(pLand*100).toFixed(0)+'%).';
-  var msg='Pour ton deck : tu peux espérer en main de '+handSize+' ~ '+expLand+' terrains et ~ '+expLow+' cartes ≤3 CMC.\n\n'
-    +'Règle simple :\n• Garde si ≥ 2 terrains ET ≥ 1 carte ≤ 3 CMC\n• Mulligan si 0-1 terrain OU 7 cartes chères\n\n'+advice;
-  alert('🃏 Mulligan helper\n\n'+msg);
-  matchLog('mulligan','Mulligan helper consulté (lands '+(pLand*100).toFixed(0)+'%, lowCMC '+(pLow*100).toFixed(0)+'%)');
-}
-function matchSideboard(){
-  if(!_matchState)return;
-  var deck=decks[_matchState.deckId];if(!deck){if(typeof toast==='function')toast('Pas de deck');return;}
-  // Section sideboard du deck
-  var sb=(deck.cards||[]).filter(function(c){return /side/i.test(c.sec||'')||/sideboard/i.test(c.sec||'');});
-  if(!sb.length){
-    alert('🎯 Sideboard\n\nCe deck n\'a pas de sideboard renseigné.\n\nAjoute des cartes avec la section "Sideboard" dans l\'Atelier pour les voir ici pendant la partie.');
-    matchLog('sideboard','Pas de sideboard');
-    return;
-  }
-  var lines=sb.map(function(c){return '• '+(c.qty||1)+'× '+c.name;}).join('\n');
-  alert('🎯 Sideboard ('+sb.length+' carte'+(sb.length>1?'s':'')+')\n\n'+lines+'\n\nChoisis tes swaps pour le jeu 2.');
-  _matchState.sideboardSeen=true;
-  matchLog('sideboard','Sideboard consulté ('+sb.length+' cartes)');
-}
-function matchOpenMenu(){
-  if(!_matchState)return;
-  var dur=Math.round((Date.now()-_matchState.startTs)/1000);
-  var mins=Math.floor(dur/60),secs=dur%60;
-  var lines=[
-    '⏱ Durée : '+mins+'m '+secs+'s',
-    '❤ Toi : '+_matchState.lifeMe+' / '+_matchState.startLife,
-    '🩸 Adv : '+_matchState.lifeOpp+' / '+_matchState.startLife,
-    '📋 Événements logués : '+_matchState.events.length,
-    '',
-    'Tape OK pour réinitialiser les vies au niveau de départ.',
-    'Annule pour ignorer.'
-  ];
-  if(confirm(lines.join('\n'))){
-    _matchState.lifeMe=_matchState.startLife;_matchState.lifeOpp=_matchState.startLife;
-    matchUpdateUI();
-    matchLog('reset','Reset des vies');
-  }
-}
-function matchEnd(result){
-  if(!_matchState)return;
-  _matchState.result=result;
-  matchLog('end','Résultat : '+result);
-  if(typeof mlTrack==='function')mlTrack('Match Ended',{result:result});
-  // Sauvegarde via _quickMatchSave si dispo, sinon fallback localStorage
-  var payload={
-    deckId:_matchState.deckId,
-    deckName:_matchState.deckName,
-    result:result,
-    lifeMe:_matchState.lifeMe,
-    lifeOpp:_matchState.lifeOpp,
-    durationSec:Math.round((Date.now()-_matchState.startTs)/1000),
-    events:_matchState.events,
-    ts:Date.now()
-  };
-  try{
-    if(typeof _quickMatchSave==='function'){
-      _quickMatchSave(payload);
-    }else{
-      var k='mtg_match_log';
-      var arr=[];try{arr=JSON.parse(localStorage.getItem(k)||'[]');}catch(e){}
-      arr.unshift(payload);arr=arr.slice(0,200);
-      try{localStorage.setItem(k,JSON.stringify(arr));}catch(e){}
-    }
-  }catch(e){}
-  try{
-    mlPlaySound&&mlPlaySound(result==='win'?'cha-ching':'error');
-    mlVibrateAchievement&&result==='win'&&mlVibrateAchievement();
-    mlCheckAchievementsOnMatch&&mlCheckAchievementsOnMatch(result);
-  }catch(e){}
-  if(typeof toast==='function')toast(result==='win'?'🏆 Victoire enregistrée':'💀 Défaite enregistrée');
-  matchTeardown();
-}
-// Esc pour quitter (avec confirmation si log)
-(function(){
-  document.addEventListener('keydown',function(e){
-    if(e.key==='Escape'&&_matchState){e.preventDefault();matchExit();}
-    // Raccourcis vies (uniquement quand pas d'input focusé)
-    if(!_matchState)return;
-    if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName))return;
-    if(e.key==='ArrowUp'){e.preventDefault();matchLife('me',1);}
-    else if(e.key==='ArrowDown'){e.preventDefault();matchLife('me',-1);}
-    else if(e.key==='+'||e.key==='='){e.preventDefault();matchLife('me',1);}
-    else if(e.key==='-'){e.preventDefault();matchLife('me',-1);}
-  });
-})();
+// MLMATCH : voir js/mlmatch.js (extrait au build 68)
 // Wrap renderDeck pour rafraîchir l'analyse live + la carte d'identité à chaque changement
 (function(){
   function bind(){
