@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-69';
+window.APP_BUILD='2026-06-09-70';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -23190,8 +23190,17 @@ function _purParseCardmarketEmail(text){
   var lines=String(text||'').split('\n').map(function(l){return l.replace(/\r$/,'');});
   var orders=[];
   var cur=null;
-  // Regex carte : "1x Nom (Set) - ... 2,00 EUR"  (le set peut contenir : et -)
-  var cardRe=/^\s*(\d+)x\s+(.+?)\s+\(([^)]+)\)\s*-.*?(\d+[.,]\d+)\s*EUR\s*$/;
+  // Regex carte (build 70) : "1x Nom (Set) [tout sauf chiffres] 2,00 EUR".
+  // Cardmarket tronque parfois les lignes longues à ~80 caractères, ce qui
+  // cause deux cas de défaillance que l'ancienne regex ne gérait pas :
+  //   (a) `… (Set)... 1,50 EUR`           → pas de tiret entre `)` et le prix
+  //   (b) `… (Set name truncated… 1,50 EUR` → la `)` fermante elle-même est
+  //       coupée par la troncature
+  // → Le set peut maintenant se terminer SOIT par `)` SOIT par `...`. Le
+  //   suffixe est `[^0-9]*` pour tolérer toute combinaison de `-`, espaces,
+  //   condition, langue, etc. La condition (NM/EX/…) est extraite par une
+  //   regex séparée plus bas.
+  var cardRe=/^\s*(\d+)x\s+(.+?)\s+\((.+?)(?:\)|\.\.\.)[^0-9]*(\d+[.,]\d+)\s*EUR\s*$/;
   lines.forEach(function(raw){
     var line=raw.trim();
     if(!line)return;
