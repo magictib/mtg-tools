@@ -383,7 +383,7 @@ window.mlChart=(function(){
       +(opts.icon?'<div style="position:absolute;top:8px;right:10px;font-size:1.2rem;opacity:.4">'+opts.icon+'</div>':'')
       +'<div style="font-size:.66rem;color:'+PAL.textDim+';letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:4px">'+_esc(opts.label||'')+'</div>'
       +'<div style="font-size:1.7rem;color:'+col+';font-weight:700;line-height:1.1">'+_esc(opts.value||'')+(opts.unit?'<span style="font-size:.7em;opacity:.7;margin-left:3px">'+opts.unit+'</span>':'')+'</div>'
-      +(opts.sub?'<div style="font-size:.7rem;color:'+PAL.textDim+';margin-top:3px">'+_esc(opts.sub)+'</div>':'')
+      +(opts.sub?'<div style="font-size:.7rem;color:'+PAL.textDim+';margin-top:3px">'+opts.sub+'</div>':'')
       +(opts.trend!=null?'<div style="position:absolute;bottom:8px;right:10px;font-size:.7rem;color:'+(opts.trend>0?PAL.success:opts.trend<0?PAL.danger:PAL.textDim)+';font-weight:600">'+(opts.trend>0?'▲':opts.trend<0?'▼':'—')+' '+Math.abs(opts.trend).toFixed(opts.trend%1?1:0)+(opts.trendUnit||'%')+'</div>':'')
       +(opts.spark?'<div id="ml-kpi-spark-'+Date.now()+Math.random().toString(36).slice(2,6)+'" style="position:absolute;bottom:0;left:0;right:0;height:24px;opacity:.5"></div>':'')
       +'</div>';
@@ -593,7 +593,7 @@ window.mlChart=(function(){
       +(opts.icon?'<div class="ml-kpi-ico" style="position:absolute;top:8px;right:10px;font-size:1.2rem;opacity:.4;transition:opacity .2s">'+opts.icon+'</div>':'')
       +'<div style="font-size:.66rem;color:'+PAL.textDim+';letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:4px">'+_esc(opts.label||'')+'</div>'
       +'<div class="ml-kpi-val" id="'+uid+'" style="font-size:1.7rem;color:'+col+';font-weight:700;line-height:1.1">'+(hasNumValue?'0':_esc(opts.value||''))+(opts.unit?'<span style="font-size:.7em;opacity:.7;margin-left:3px">'+opts.unit+'</span>':'')+'</div>'
-      +(opts.sub?'<div style="font-size:.7rem;color:'+PAL.textDim+';margin-top:3px;'+(deltaHtml?'padding-right:55px':'')+'">'+_esc(opts.sub)+'</div>':'')
+      +(opts.sub?'<div style="font-size:.7rem;color:'+PAL.textDim+';margin-top:3px;'+(deltaHtml?'padding-right:55px':'')+'">'+opts.sub+'</div>':'')
       +deltaHtml
       +(opts.spark?'<div id="'+uid+'-spark" style="position:absolute;bottom:0;left:0;right:0;height:'+sparkH+'px;opacity:.55"></div>':'')
       +'</div>';
