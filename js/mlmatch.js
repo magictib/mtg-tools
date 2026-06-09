@@ -60,17 +60,49 @@ function matchLife(who,delta){
   if(!_matchState)return;
   if(who==='me')_matchState.lifeMe+=delta;
   else _matchState.lifeOpp+=delta;
-  matchUpdateUI();
+  matchUpdateUI(who,delta);
   matchLog('life',(who==='me'?'Moi':'Adversaire')+' '+(delta>0?'+':'')+delta+' → '+(who==='me'?_matchState.lifeMe:_matchState.lifeOpp));
   try{mlPlaySound&&mlPlaySound(delta>0?'pop':'click');mlVibratePulse&&mlVibratePulse();}catch(e){}
   // Alertes utiles
   if(who==='me'&&_matchState.lifeMe<=0){matchLog('danger','💀 Tu es à 0 vie !');}
   if(who==='opp'&&_matchState.lifeOpp<=0){matchLog('danger','🏆 Adversaire à 0 vie !');}
 }
-function matchUpdateUI(){
+// Build 83 : animation pulse + floating delta éphémère sur le changement de vie
+function _matchFloatingDelta(host,delta){
+  if(!host)return;
+  var f=document.createElement('div');
+  var col=delta>0?'#7ec86a':'#e8847b';
+  f.textContent=(delta>0?'+':'')+delta;
+  f.style.cssText='position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--ff-mono,monospace);font-size:1.6rem;font-weight:700;color:'+col+';text-shadow:0 2px 12px rgba(0,0,0,.7),0 0 18px '+col+';pointer-events:none;z-index:50;animation:_matchDeltaFloat 1.1s cubic-bezier(.2,.7,.4,1) forwards';
+  if(getComputedStyle(host).position==='static')host.style.position='relative';
+  host.appendChild(f);
+  setTimeout(function(){f.remove();},1150);
+}
+if(!document.getElementById('_match-anim-css')){
+  var _s=document.createElement('style');_s.id='_match-anim-css';
+  _s.textContent='@keyframes _matchDeltaFloat{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}30%{transform:translate(-50%,-65%) scale(1)}100%{opacity:0;transform:translate(-50%,-180%) scale(.9)}}'
+    +'@keyframes _matchLifePulse{0%{transform:scale(1)}30%{transform:scale(1.18);text-shadow:0 0 24px currentColor}100%{transform:scale(1)}}'
+    +'.match-life-display.pulse-up{animation:_matchLifePulse .45s ease-out;color:#7ec86a}'
+    +'.match-life-display.pulse-down{animation:_matchLifePulse .45s ease-out;color:#e8847b}';
+  document.head.appendChild(_s);
+}
+function matchUpdateUI(who,delta){
   if(!_matchState)return;
   var me=document.getElementById('match-life-me');if(me)me.textContent=_matchState.lifeMe;
   var op=document.getElementById('match-life-opp');if(op)op.textContent=_matchState.lifeOpp;
+  // Animation pulse + floating delta sur l'élément concerné (build 83)
+  if(who&&typeof delta==='number'){
+    var el=who==='me'?me:op;
+    if(el){
+      el.classList.remove('pulse-up','pulse-down');
+      void el.offsetWidth; // reflow trick pour relancer l'animation
+      el.classList.add(delta>0?'pulse-up':'pulse-down');
+      setTimeout(function(){el.classList.remove('pulse-up','pulse-down');},500);
+      // Floating delta dans le parent .match-life-card
+      var card=el.closest('.match-life-card')||el.parentElement;
+      _matchFloatingDelta(card,delta);
+    }
+  }
 }
 function matchLog(type,msg){
   if(!_matchState)return;
