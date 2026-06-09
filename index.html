@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-79';
+window.APP_BUILD='2026-06-09-80';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -470,9 +470,11 @@ h1 span{color:var(--tx2)!important}
 /* CSS des 5 thèmes legacy (futuriste/horreur/clair/sepia/steampunk + médiéval
    default) supprimé au build 75. Seul le thème « lab » est désormais
    supporté — voir la section LAB plus bas. ~190 lignes (≈18 KB) retirées. */
-body{font-family:var(--ff-body);background-color:var(--bg);color:var(--tx);min-height:100vh;overflow-x:clip}
-body::before{content:'';position:fixed;top:-40%;left:-20%;width:80vw;height:80vw;background:radial-gradient(circle,var(--glow1),transparent 70%);pointer-events:none;z-index:1}
-body::after{content:'';position:fixed;bottom:-30%;right:-10%;width:60vw;height:60vw;background:radial-gradient(circle,var(--glow2),transparent 70%);pointer-events:none;z-index:1}
+body{font-family:var(--ff-body);background:var(--bg);color:var(--tx);min-height:100vh;overflow-x:clip}
+/* Build 80 : radial-gradients body::before/::after retirés — leur résidu
+   donnait un effet « mur de pierre » à fort grossissement sur certains
+   écrans, en plus du brun ambiant déjà neutralisé. Fond strictement plat. */
+body::before,body::after{content:none!important}
 .wrap{max-width:700px;margin:0 auto;padding:1.5rem 1rem 4rem;position:relative;z-index:2}
 header{text-align:center;padding:1rem 0 .75rem;position:relative}
 h1{font-family:var(--ff-head);font-size:clamp(1.4rem,5vw,2rem);font-weight:700;letter-spacing:.14em;color:var(--gold2);text-shadow:var(--h1-shadow);margin-top:4px}
@@ -10939,7 +10941,120 @@ function _homeDashboardRender(myDeckIds,coll,totalCards,collValue,myGames){
     });
     h+='</div></div>';
   }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NOUVEAUX WIDGETS DASHBOARD (build 80) — refonte "real dashboard"
+  //   1. Deck le plus FORT (par score, distinct des derniers)
+  //   2. Évolution de la collection (snapshot mensuel rétroactif depuis Firestore)
+  //   3. Top 5 cartes les plus chères de ma collection
+  //   4. Répartition des formats de mes decks (donut)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ─── 1. DECK LE PLUS FORT ────────────────────────────────────────────────
+  if(nDecks>0){
+    var bestDeck=null,bestSc=-1;
+    myDeckIds.forEach(function(id){
+      var dk=decks[id];if(!dk||!dk.pw||typeof dk.pw.score!=='number')return;
+      if(dk.pw.score>bestSc){bestSc=dk.pw.score;bestDeck={id:id,dk:dk,score:Math.round(dk.pw.score)};}
+    });
+    if(bestDeck){
+      var bd=bestDeck.dk,bs=bestDeck.score;
+      var bsCol=bs>=80?'#7ec86a':bs>=60?'#e8c14a':bs>=40?'#e88a4a':'#d9645a';
+      var bdN=(bd.cards||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+      var bdFmt=bd.format?(bd.format.charAt(0).toUpperCase()+bd.format.slice(1)):'—';
+      var bdCmd=bd.commander&&bd.commander.name?bd.commander.name:'';
+      var bdVal=0;try{(bd.cards||[]).forEach(function(c){var pp=(c.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])||0;bdVal+=pp*(c.qty||1);});}catch(_){}
+      h+='<div style="background:linear-gradient(135deg,rgba(126,200,106,.10),rgba(126,200,106,.02));border:1px solid rgba(126,200,106,.32);border-radius:11px;padding:14px 16px;margin-bottom:14px;cursor:pointer;transition:all .15s" onclick="loadDeck(\''+escJs(bestDeck.id)+'\');goTab(\'build\')" onmouseover="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 6px 22px rgba(126,200,106,.18)\'" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+      h+='<div style="display:flex;align-items:center;gap:14px">';
+      // Score gauge
+      var ccBig=2*Math.PI*30, dashBig=ccBig*(bs/100);
+      h+='<svg width="74" height="74" viewBox="0 0 74 74" style="flex-shrink:0"><circle cx="37" cy="37" r="30" fill="rgba(0,0,0,.35)" stroke="rgba(255,255,255,.08)" stroke-width="5"/><circle cx="37" cy="37" r="30" fill="none" stroke="'+bsCol+'" stroke-width="5" stroke-dasharray="'+dashBig+' '+(ccBig-dashBig)+'" transform="rotate(-90 37 37)" stroke-linecap="round"/><text x="37" y="37" text-anchor="middle" dominant-baseline="central" fill="'+bsCol+'" font-size="20" font-weight="700">'+bs+'</text></svg>';
+      h+='<div style="flex:1;min-width:0">';
+      h+='<div style="font-size:.62rem;color:#7ec86a;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:4px">🏆 Ton deck le plus fort</div>';
+      h+='<div style="font-size:1.15rem;color:#fff;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-0.01em">'+esc(bd.name||'(sans nom)')+'</div>';
+      h+='<div style="font-size:.78rem;color:var(--tx2);margin-top:3px">'+(bdCmd?'👑 '+esc(bdCmd)+' · ':'')+bdFmt+' · '+bdN+' cartes'+(bdVal>0?' · '+bdVal.toFixed(0)+'€':'')+'</div>';
+      h+='</div>';
+      h+='</div></div>';
+    }
+  }
+  // ─── 2. ÉVOLUTION DE LA COLLECTION ──────────────────────────────────────
+  // Snapshot léger : on stocke {ts:[count]} dans localStorage (1 entrée/jour max).
+  if(totalCards>0){
+    try{
+      var snapKey='mtg_coll_snapshots';
+      var snaps=[];try{snaps=JSON.parse(localStorage.getItem(snapKey)||'[]');}catch(_){snaps=[];}
+      var today=new Date().toISOString().slice(0,10);
+      var lastSnap=snaps[snaps.length-1];
+      if(!lastSnap||lastSnap.d!==today){
+        snaps.push({d:today,n:totalCards,v:Math.round(collValue)});
+        if(snaps.length>365)snaps=snaps.slice(-365);
+        try{localStorage.setItem(snapKey,JSON.stringify(snaps));}catch(_){}
+      }
+      if(snaps.length>=2){
+        var first=snaps[0],last=snaps[snaps.length-1];
+        var diff=last.n-first.n;
+        var diffStr=(diff>0?'+':'')+diff;
+        var diffCol=diff>0?'#7ec86a':diff<0?'#d9645a':'var(--tx3)';
+        var spanDays=Math.round((new Date(last.d)-new Date(first.d))/86400000)||1;
+        h+='<div style="background:rgba(255,255,255,.02);border:1px solid var(--bd2);border-radius:11px;padding:12px 14px;margin-bottom:14px">';
+        h+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px"><span style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600">📈 Évolution collection</span><span style="flex:1"></span><span style="font-size:.72rem;color:'+diffCol+';font-weight:700">'+diffStr+' cartes sur '+spanDays+'j</span></div>';
+        h+='<div id="home-coll-evol" style="height:120px"></div></div>';
+      }
+    }catch(_){}
+  }
+  // ─── 3. TOP 5 CARTES LES PLUS CHÈRES ────────────────────────────────────
+  if(coll.length>0){
+    var topCards=coll.map(function(c){
+      var p=(c.price)||(typeof allPriceMap!=='undefined'&&allPriceMap[c.nl])||0;
+      return {name:c.name||c.nl,price:p,qty:c.qty||1,value:p*(c.qty||1)};
+    }).filter(function(c){return c.price>0;}).sort(function(a,b){return b.value-a.value;}).slice(0,5);
+    if(topCards.length){
+      h+='<div style="background:rgba(255,255,255,.02);border:1px solid var(--bd2);border-radius:11px;padding:12px 14px;margin-bottom:14px">';
+      h+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px"><span style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600">💎 Tes cartes les plus précieuses</span><span style="flex:1"></span><span style="font-size:.7rem;color:var(--tx3)">Top 5 par valeur</span></div>';
+      topCards.forEach(function(c,i){
+        var bar=Math.round((c.value/topCards[0].value)*100);
+        h+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px;position:relative;padding:6px 9px;background:rgba(74,160,232,.04);border-radius:6px">';
+        h+='<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(74,160,232,.10) 0%,rgba(74,160,232,.10) '+bar+'%,transparent '+bar+'%);border-radius:6px;pointer-events:none"></div>';
+        h+='<span style="font-size:.7rem;color:var(--tx3);min-width:18px;font-family:var(--ff-mono,monospace)">#'+(i+1)+'</span>';
+        h+='<span style="flex:1;font-size:.84rem;color:var(--tx);font-weight:600;position:relative;z-index:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+(c.qty>1?' <span style="color:var(--tx3);font-weight:400;font-size:.74rem">×'+c.qty+'</span>':'')+'</span>';
+        h+='<span style="font-size:.84rem;color:#4aa0e8;font-weight:700;position:relative;z-index:1;font-family:var(--ff-mono,monospace)">'+c.value.toFixed(2)+'€</span>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+  }
+  // ─── 4. RÉPARTITION FORMATS DES DECKS ───────────────────────────────────
+  if(nDecks>=3){
+    var fmtCount={};
+    myDeckIds.forEach(function(id){
+      var f=(decks[id].format||'autre').toLowerCase();
+      fmtCount[f]=(fmtCount[f]||0)+1;
+    });
+    var fmtArr=Object.keys(fmtCount).map(function(k){return {label:k.charAt(0).toUpperCase()+k.slice(1),value:fmtCount[k]};}).sort(function(a,b){return b.value-a.value;});
+    if(fmtArr.length>1){
+      h+='<div style="background:rgba(255,255,255,.02);border:1px solid var(--bd2);border-radius:11px;padding:12px 14px;margin-bottom:14px">';
+      h+='<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px"><span style="font-size:.7rem;color:var(--tx3);letter-spacing:.08em;text-transform:uppercase;font-weight:600">🎴 Tes formats préférés</span><span style="flex:1"></span><span style="font-size:.7rem;color:var(--tx3)">'+nDecks+' decks au total</span></div>';
+      h+='<div id="home-fmt-bar" style="height:120px"></div></div>';
+      window._homeFmtArr=fmtArr;
+    }
+  }
   mount.innerHTML=h;
+  // ─── Rendus des charts des nouveaux widgets ─────────────────────────────
+  try{
+    // Evol collection : line chart
+    var snaps2=[];try{snaps2=JSON.parse(localStorage.getItem('mtg_coll_snapshots')||'[]');}catch(_){snaps2=[];}
+    if(snaps2.length>=2&&document.getElementById('home-coll-evol')){
+      mlChart.line('#home-coll-evol',[{
+        name:'Cartes',
+        values:snaps2.map(function(s,i){return {x:i,y:s.n};}),
+        color:'#4aa0e8',
+        area:true
+      }],{xLabels:snaps2.map(function(s){return s.d.slice(5);})});
+    }
+    // Formats : bar chart horizontal
+    if(window._homeFmtArr&&document.getElementById('home-fmt-bar')){
+      mlChart.bar('#home-fmt-bar',window._homeFmtArr,{horizontal:true,max:Math.max.apply(null,window._homeFmtArr.map(function(x){return x.value;}))});
+      delete window._homeFmtArr;
+    }
+  }catch(_){}
   // ─ Render charts ─
   if(typeof mlChart==='undefined')return;
   // ─── DELTAS vs période précédente (7 jours / 14 jours) ───
@@ -54798,10 +54913,15 @@ function metaRenderMeta(archetypes){
       catStats[c].pct+=(a.pct||0);
       catStats[c].count++;
     });
-    // Couleurs WUBRG du méta (pondéré par % archétype)
+    // Couleurs WUBRG du méta (pondéré par % archétype).
+    // Build 80 fix : a.colors peut être une string ("WU") OU un array (["W","U"])
+    // selon la source de données (mtgtop8 vs custom). On normalise.
     var colDist={W:0,U:0,B:0,R:0,G:0,C:0};
     archetypes.forEach(function(a){
-      var cols=(a.colors||'').split('').filter(function(c){return colDist[c]!=null;});
+      var raw=a.colors;
+      var cols=[];
+      if(Array.isArray(raw))cols=raw.filter(function(c){return colDist[c]!=null;});
+      else if(typeof raw==='string')cols=raw.split('').filter(function(c){return colDist[c]!=null;});
       var w=(a.pct||0.5);
       if(!cols.length)colDist.C+=w;
       else cols.forEach(function(c){colDist[c]+=w/cols.length;});
