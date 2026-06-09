@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-75';
+window.APP_BUILD='2026-06-09-76';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -14488,23 +14488,9 @@ function _atelierLiveUpdate(){
       if(/(destroy all|exile all|each (creature|opponent).*sacrifice|wrath of god)/.test(ot))hasWipe+=qty;
     }
   });
-  var maxCurve=Math.max(1,Math.max.apply(null,curve));
-
-  // ─── Render mana curve ───
-  var curveHtml='<div style="font-size:.7rem;color:var(--tx3);margin-bottom:4px">Courbe de mana (sans terrains)</div>';
-  curveHtml+='<div style="display:flex;gap:3px;align-items:flex-end;height:48px">';
-  for(var i=0;i<curve.length;i++){
-    var h=Math.round((curve[i]/maxCurve)*40);
-    var lbl=(i===7?'7+':i);
-    var col=curve[i]===0?'rgba(255,255,255,.08)':'linear-gradient(180deg,var(--gold),#7a5a1f)';
-    curveHtml+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:0">'
-      +'<div style="font-size:.62rem;color:var(--tx2);margin-bottom:1px">'+(curve[i]||'')+'</div>'
-      +'<div style="width:100%;height:'+(h||2)+'px;background:'+col+';border-radius:2px 2px 0 0"></div>'
-      +'<div style="font-size:.62rem;color:var(--tx3);margin-top:2px">'+lbl+'</div>'
-      +'</div>';
-  }
-  curveHtml+='</div>';
-  var curveEl=document.getElementById('atelier-live-curve');if(curveEl)curveEl.innerHTML=curveHtml;
+  // Build 76 : bloc atelier-live-curve retiré — le mount #atelier-live-curve est
+  // display:none (slot conservé pour rétro-compat). La courbe visible est dans
+  // #deck-quickviz (→ #deck-id-mana), désormais rendue via mlChart.bar.
 
   // ─── Render distribution types ───
   var typeLbls={Land:'⛰',Creature:'👊',Instant:'⚡',Sorcery:'🌀',Enchantment:'✨',Artifact:'⚙',Planeswalker:'👑',Battle:'⚔'};
@@ -17894,23 +17880,14 @@ function _deckIdentityRenderImpl(){
       +'<button onclick="matchStart()" title="Lancer un match avec ce deck" style="padding:6px 12px;background:rgba(0,0,0,.65);border:.5px solid rgba(255,255,255,.18);border-radius:7px;color:#fff;font-family:inherit;font-size:.72rem;cursor:pointer;transition:all .12s;backdrop-filter:blur(8px)" onmouseover="this.style.borderColor=\'var(--gold)\';this.style.color=\'var(--gold2)\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,.18)\';this.style.color=\'#fff\'">🎮 Match</button>';
   }
   // ─── Sous-bloc : radar + mana curve + pips ───
-  // Mana curve
+  // Mana curve (build 76 : mlChart.bar pour uniformité visuelle avec les autres
+  // graphes du dashboard — tooltip, animation reveal, palette unifiée).
   var manaEl=document.getElementById('deck-id-mana');
   if(manaEl){
-    var maxC=Math.max(1,Math.max.apply(null,curve));
-    var bH='<div style="display:flex;gap:3px;align-items:flex-end;height:90px">';
-    for(var i=0;i<curve.length;i++){
-      var h2=Math.round((curve[i]/maxC)*72);
-      var lbl=(i===7?'7+':i);
-      var col2=curve[i]===0?'rgba(255,255,255,.06)':mlChart.PAL.accent;
-      bH+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">'
-        +'<div style="font-size:.6rem;color:'+(curve[i]?'var(--gold2)':'transparent')+';margin-bottom:2px">'+(curve[i]||'')+'</div>'
-        +'<div style="width:100%;height:'+(h2||2)+'px;background:'+col2+';border-radius:2px 2px 0 0"></div>'
-        +'<div style="font-size:.6rem;color:var(--tx3);margin-top:2px">'+lbl+'</div>'
-        +'</div>';
-    }
-    bH+='</div>';
-    manaEl.innerHTML=bH;
+    manaEl.style.height='90px';manaEl.innerHTML='';
+    mlChart.bar(manaEl,curve.map(function(v,i){
+      return {label:(i===7?'7+':String(i)),value:v,color:v===0?'rgba(255,255,255,.06)':mlChart.PAL.accent};
+    }));
   }
   // Pip count
   var pipEl=document.getElementById('deck-id-pips');
@@ -18162,20 +18139,14 @@ function deckPreviewOpen(){
     }
     mlChart.radar('#dp-radar',axesR,[{name:'Deck',values:valsR,color:mlChart.PAL.accent}]);
     // Mini courbe mana
-    var maxC=Math.max(1,Math.max.apply(null,curve));
-    var bH='<div style="display:flex;gap:2px;align-items:flex-end;height:90px">';
-    for(var i=0;i<curve.length;i++){
-      var hp=Math.round((curve[i]/maxC)*70);
-      var lbl=(i===7?'7+':i);
-      var col=curve[i]===0?'rgba(255,255,255,.06)':mlChart.PAL.accent;
-      bH+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">'
-        +'<div style="font-size:.58rem;color:'+(curve[i]?'var(--gold2)':'transparent')+';margin-bottom:1px">'+(curve[i]||'')+'</div>'
-        +'<div style="width:100%;height:'+(hp||2)+'px;background:'+col+';border-radius:2px 2px 0 0"></div>'
-        +'<div style="font-size:.58rem;color:var(--tx3);margin-top:2px">'+lbl+'</div>'
-        +'</div>';
+    // build 76 : mlChart.bar pour uniformité avec les autres courbes du dashboard.
+    var cEl=document.getElementById('dp-curve');
+    if(cEl){
+      cEl.innerHTML='';
+      mlChart.bar(cEl,curve.map(function(v,i){
+        return {label:(i===7?'7+':String(i)),value:v,color:v===0?'rgba(255,255,255,.06)':mlChart.PAL.accent};
+      }));
     }
-    bH+='</div>';
-    var cEl=document.getElementById('dp-curve');if(cEl)cEl.innerHTML=bH;
   },60);
 }
 function _deckPreviewDownload(){
@@ -51431,12 +51402,16 @@ async function anaRender(deckId){
   var maxBucket=Math.max.apply(null,manaCurve)||1;
   var nonLandTot=manaCurve.reduce(function(s,n){return s+n;},0);
   var avgCmc=0;if(nonLandTot){manaCurve.forEach(function(n,i){avgCmc+=n*(i===7?7.5:i);});avgCmc=avgCmc/nonLandTot;}
-  var _curveHtml='<div class="card"><div class="lbl">Courbe de mana (sorts)</div><div class="ana-curve-bar">';
-  manaCurve.forEach(function(n,i){
-    var h=(n/maxBucket)*70;
-    _curveHtml+='<div class="ana-curve-col"><div class="ana-curve-val">'+(n||'')+'</div><div class="ana-curve-fill" style="height:'+(h<2?2:h)+'px"></div><div class="ana-curve-lbl">'+(i===7?'7+':i)+'</div></div>';
-  });
-  _curveHtml+='</div><div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div></div>';
+  // build 76 : conteneur dédié pour mlChart.bar (remplace l'inline custom).
+  var _curveId='ana-curve-'+Date.now().toString(36);
+  var _curveHtml='<div class="card"><div class="lbl">Courbe de mana (sorts)</div><div id="'+_curveId+'" style="height:140px"></div><div style="font-size:10px;color:var(--tx3);margin-top:6px;font-style:italic">CMC moyen (hors terrains) : '+avgCmc.toFixed(2)+'</div></div>';
+  setTimeout(function(){
+    if(typeof mlChart==='undefined')return;
+    var host=document.getElementById(_curveId);if(!host)return;
+    mlChart.bar(host,manaCurve.map(function(n,i){
+      return {label:(i===7?'7+':String(i)),value:n,color:n===0?'rgba(255,255,255,.06)':mlChart.PAL.accent};
+    }));
+  },40);
   // === Heatmap par tour de jeu : quel rôle est jouable à chaque tour ===
   var _turnHmHtml=(function(){
     var roles=['ramp','draw','removal','interaction','wincon'];
