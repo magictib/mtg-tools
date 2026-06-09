@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-71';
+window.APP_BUILD='2026-06-09-72';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -22950,12 +22950,36 @@ function savePurchaseList(id){
   if(!localCopy.members)localCopy.members=[userId];
   if(localCopy.members.indexOf(userId)<0)localCopy.members.push(userId);
   if(!localCopy.createdBy)localCopy.createdBy=userId;
+  // GARDE-FOU AUTH : un userId vide/invalid → la règle Firestore va refuser.
+  // On stoppe net avec un message clair plutôt que d'envoyer une requête perdue.
+  if(typeof userId!=='string'||userId.length<6){
+    if(typeof toastError==='function')toastError('Session expirée — reconnecte-toi avant de sauvegarder.');
+    return;
+  }
   var ref=db.collection('shared_lists').doc(id);
   try{fsSaveStart();}catch(_){}
   function _onOk(){try{fsSaveEnd(true);}catch(_){}if(_purchaseLists[id])delete _purchaseLists[id]._pendingWrite;}
   function _onErr(e){
-    console.warn('savePurchaseList',e);
+    console.warn('savePurchaseList', e, {listId:id, userId:userId, localMembers:live.members, createdBy:live.createdBy});
     try{fsSaveEnd(false);}catch(_){}
+    // Message dédié pour le cas le plus fréquent : permission denied.
+    // C'est typiquement une liste héritée d'un autre compte (ancien uid Firebase)
+    // qui traîne dans le cache _purchaseLists. La règle Firestore exige
+    // `request.auth.uid in resource.data.members` côté SERVEUR — si le doc
+    // existant a un uid différent dans members, l'update est refusé.
+    if(e&&e.code==='permission-denied'){
+      // Self-heal : on retire l'entrée du cache local pour éviter les retries
+      // en boucle. Si le doc existait vraiment côté serveur, le snapshot
+      // listener la repushera dans _purchaseLists au prochain tick.
+      delete _purchaseLists[id];
+      if(_activePurListId===id)_activePurListId=null;
+      _purPersistActiveListId();
+      try{renderPurListSel();renderPurchaseMgr();}catch(_){}
+      if(typeof toastError==='function'){
+        toastError('Liste inaccessible (créée sous un autre compte ?). Liste retirée du cache local — recharge la page si elle réapparaît.');
+      }
+      return;
+    }
     if(typeof toastError==='function')toastError('Sauvegarde liste échouée : '+(e&&e.message||e));
   }
   // Transaction : fusionne avec l'état serveur pour ne JAMAIS écraser
@@ -22964,6 +22988,10 @@ function savePurchaseList(id){
     return t.get(ref).then(function(doc){
       var merged=doc.exists?_purMergeListData(doc.data(),localCopy):Object.assign({deletedCards:{}},localCopy);
       merged.updatedAt=firebase.firestore.FieldValue.serverTimestamp();
+      // Triple-check juste avant d'écrire : on doit être dans members ET createdBy.
+      if(!Array.isArray(merged.members))merged.members=[userId];
+      if(merged.members.indexOf(userId)<0)merged.members.push(userId);
+      if(!merged.createdBy)merged.createdBy=userId;
       t.set(ref,merged);
     });
   }).then(_onOk).catch(function(e){
