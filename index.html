@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-68';
+window.APP_BUILD='2026-06-09-69';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -1470,7 +1470,15 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
    MLCHART — animations d'entrée + skeleton shimmer.
 ═══════════════════════════════════════════════════════════════════════════ */
 .ml-reveal{opacity:0;transform:translateY(14px);transition:opacity .6s cubic-bezier(.2,.7,.4,1),transform .6s cubic-bezier(.2,.7,.4,1)}
-.ml-revealed{opacity:1;transform:translateY(0)}
+.ml-revealed,
+.ml-revealed .ml-reveal{opacity:1;transform:translateY(0)}
+/* Fallback (build 69) : si l'IntersectionObserver n'a pas observé un .ml-reveal
+   (élément ajouté via innerHTML sans passer par observeReveal — ex. dashboard
+   home, hero box semaine), un timer le révèle après 1.2s pour éviter qu'il
+   reste invisible. */
+@keyframes ml-reveal-fallback{to{opacity:1;transform:translateY(0)}}
+.ml-reveal{animation:ml-reveal-fallback 0s 1.2s forwards}
+.ml-revealed{animation:none}
 @keyframes ml-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 @keyframes ml-fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes ml-scaleIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
@@ -22586,38 +22594,95 @@ function generateAchat(){
   _achatRecap={dn:dn,borrow:borrowLines,buy:Object.values(stillNeeded).filter(function(r){return r.need>0;})};
   renderAchatRecap();
 }
+// Récapitulatif d'achat (build 69) : modale dédiée au lieu de panneau inline.
+// Pourquoi : la liste était empilée AU-DESSUS du deck list, gênant la lecture.
+// La modale permet d'éditer qty / supprimer / ajouter / choisir version d'art
+// puis télécharger un .txt formaté (sans les 2 espaces parasites en tête).
 function renderAchatRecap(){
-  var panel=document.getElementById('achat-recap');if(!panel||!_achatRecap)return;
+  if(!_achatRecap)return;
+  // Cache l'ancien panneau inline (si encore présent) pour éviter le doublon
+  var oldPanel=document.getElementById('achat-recap');if(oldPanel)oldPanel.style.display='none';
   var d=_achatRecap;
   var hasBorrow=Object.keys(d.borrow).length>0;
   var hasBuy=d.buy.length>0;
-  if(!hasBorrow&&!hasBuy){panel.style.display='none';toastWarning(PN[dOwner]+' possède déjà toutes les cartes !');return;}
-  var html='<div style="font-size:.8rem;font-weight:600;margin-bottom:8px;color:var(--tx2)">Récapitulatif — clic pour retirer</div>';
+  if(!hasBorrow&&!hasBuy){achatModalClose();toastWarning(PN[dOwner]+' possède déjà toutes les cartes !');return;}
+  // Création / réutilisation de l'overlay
+  var ov=document.getElementById('achat-recap-modal');
+  if(!ov){
+    ov=document.createElement('div');ov.id='achat-recap-modal';ov.className='ml-modal-ov center';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){if(e.target===ov)achatModalClose();});
+  }
+  var html='<div class="ml-modal" style="max-width:680px">';
+  html+='<div class="ml-modal-header" style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span style="font-family:\'Goudy Mediaeval\',serif;color:var(--gold2);font-size:1.05rem;flex:1">🛒 Liste d\'achat — '+esc(d.dn)+'</span><button onclick="achatModalClose()" title="Fermer" style="background:none;border:none;color:var(--tx3);font-size:1.1rem;cursor:pointer">✕</button></div>';
+  // ─ Sections emprunt ─
   Object.keys(d.borrow).forEach(function(fi){
     var items=d.borrow[fi];if(!items||!items.length)return;
-    html+='<div style="margin-bottom:8px"><div style="font-size:.72rem;color:var(--am);margin-bottom:3px">🤝 Emprunter à '+esc(PN[parseInt(fi)])+' :</div>';
+    html+='<div style="margin-bottom:12px"><div style="font-size:.72rem;color:var(--am);letter-spacing:.06em;text-transform:uppercase;font-weight:600;margin-bottom:5px">🤝 Emprunter à '+esc(PN[parseInt(fi)])+'</div>';
     items.forEach(function(c,i){
-      html+='<div class="bld-row" onclick="recapRemoveBorrow('+fi+','+i+')" title="Cliquer pour retirer">'
-        +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+c.qty+'</span>'
+      html+='<div class="bld-row" style="display:flex;align-items:center;gap:8px;padding:5px 4px">'
+        +'<input type="number" min="1" value="'+c.qty+'" onchange="achatEditBorrowQty('+fi+','+i+',this.value)" style="width:48px;background:rgba(0,0,0,.3);border:1px solid var(--bd2);border-radius:4px;color:var(--gold2);font-family:inherit;font-size:.8rem;padding:3px 5px;text-align:center">'
         +'<span style="flex:1">'+esc(c.name)+'</span>'
-        +'<span style="color:var(--rd2);font-size:.7rem;opacity:.7">✕</span></div>';
+        +'<button onclick="achatPickArt(\''+escJs(c.name)+'\')" title="Choisir une version / un art" style="background:none;border:1px solid var(--bd2);color:var(--tx3);font-size:.78rem;cursor:pointer;padding:2px 7px;border-radius:4px">🎨</button>'
+        +'<button onclick="recapRemoveBorrow('+fi+','+i+')" title="Retirer" style="background:none;border:none;color:var(--rd2);font-size:1rem;cursor:pointer;padding:0 4px">✕</button></div>';
     });
     html+='</div>';
   });
+  // ─ Section achat ─
   if(hasBuy){
-    html+='<div style="font-size:.72rem;color:var(--gr2);margin-bottom:3px">🛒 À acheter :</div>';
+    html+='<div style="margin-bottom:12px"><div style="font-size:.72rem;color:var(--gr2);letter-spacing:.06em;text-transform:uppercase;font-weight:600;margin-bottom:5px">🛒 À acheter ('+d.buy.length+')</div>';
     d.buy.forEach(function(r,i){
-      html+='<div class="bld-row" onclick="recapRemoveBuy('+i+')" title="Cliquer pour retirer">'
-        +'<span style="font-family:\'Goudy Mediaeval\',serif;font-size:10px;color:var(--gold2);min-width:18px">'+r.need+'</span>'
+      html+='<div class="bld-row" style="display:flex;align-items:center;gap:8px;padding:5px 4px">'
+        +'<input type="number" min="1" value="'+r.need+'" onchange="achatEditBuyQty('+i+',this.value)" style="width:48px;background:rgba(0,0,0,.3);border:1px solid var(--bd2);border-radius:4px;color:var(--gold2);font-family:inherit;font-size:.8rem;padding:3px 5px;text-align:center">'
         +'<span style="flex:1">'+esc(r.name)+'</span>'
-        +'<span style="color:var(--rd2);font-size:.7rem;opacity:.7">✕</span></div>';
+        +'<button onclick="achatPickArt(\''+escJs(r.name)+'\')" title="Choisir une version / un art" style="background:none;border:1px solid var(--bd2);color:var(--tx3);font-size:.78rem;cursor:pointer;padding:2px 7px;border-radius:4px">🎨</button>'
+        +'<button onclick="recapRemoveBuy('+i+')" title="Retirer" style="background:none;border:none;color:var(--rd2);font-size:1rem;cursor:pointer;padding:0 4px">✕</button></div>';
     });
+    html+='</div>';
   }
-  html+='<div style="display:flex;gap:6px;margin-top:10px">'
-    +'<button class="btn btnsm btnp" onclick="exportAchat()">⬇ Exporter</button>'
-    +'<button class="btn btnsm btnrd" onclick="document.getElementById(\'achat-recap\').style.display=\'none\'">Annuler</button>'
+  // ─ Ajout manuel ─
+  html+='<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bd2)"><div style="font-size:.72rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:600;margin-bottom:6px">＋ Ajouter une carte</div>';
+  html+='<div style="display:flex;gap:6px"><input id="achat-add-name" type="text" placeholder="Nom (anglais Scryfall)…" style="flex:1;background:rgba(0,0,0,.3);border:1px solid var(--bd2);border-radius:5px;color:var(--tx);font-family:inherit;font-size:.85rem;padding:5px 8px" onkeydown="if(event.key===\'Enter\')achatAddCard()">'
+    +'<input id="achat-add-qty" type="number" min="1" value="1" style="width:54px;background:rgba(0,0,0,.3);border:1px solid var(--bd2);border-radius:5px;color:var(--gold2);font-family:inherit;font-size:.85rem;padding:5px;text-align:center">'
+    +'<button class="btn btnsm btnp" onclick="achatAddCard()">＋</button></div></div>';
+  // ─ Footer actions ─
+  html+='<div class="ml-modal-actions" style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">'
+    +'<button class="btn btnsm" onclick="achatModalClose()">Fermer</button>'
+    +'<button class="btn btnsm btnp" onclick="exportAchat()">⬇ Télécharger .txt</button>'
     +'</div>';
-  panel.innerHTML=html;panel.style.display='block';
+  html+='</div>';
+  ov.innerHTML=html;
+  ov.classList.add('show');
+}
+function achatModalClose(){var ov=document.getElementById('achat-recap-modal');if(ov)ov.classList.remove('show');}
+function achatEditBorrowQty(fi,i,v){
+  if(!_achatRecap)return;var n=parseInt(v,10);if(!n||n<1){recapRemoveBorrow(fi,i);return;}
+  _achatRecap.borrow[fi][i].qty=n;renderAchatRecap();
+}
+function achatEditBuyQty(i,v){
+  if(!_achatRecap)return;var n=parseInt(v,10);if(!n||n<1){recapRemoveBuy(i);return;}
+  _achatRecap.buy[i].need=n;renderAchatRecap();
+}
+function achatAddCard(){
+  if(!_achatRecap)return;
+  var nameEl=document.getElementById('achat-add-name'),qtyEl=document.getElementById('achat-add-qty');
+  if(!nameEl)return;
+  var name=(nameEl.value||'').trim();
+  var qty=parseInt(qtyEl&&qtyEl.value||'1',10)||1;
+  if(!name){toastError('Saisis un nom de carte');return;}
+  var nl=name.toLowerCase();
+  // Si déjà dans la liste buy, on additionne ; sinon ajout
+  var existing=_achatRecap.buy.find(function(r){return (r.nl||r.name.toLowerCase())===nl;});
+  if(existing){existing.need=(existing.need||0)+qty;}
+  else{_achatRecap.buy.push({name:name,nl:nl,need:qty});}
+  nameEl.value='';if(qtyEl)qtyEl.value='1';
+  renderAchatRecap();
+}
+function achatPickArt(cardName){
+  // Ouvre la page Scryfall des prints de la carte dans un nouvel onglet
+  // (sélection visuelle externe, sans alourdir la modale). Le nom est gardé tel quel.
+  var url='https://scryfall.com/search?q='+encodeURIComponent('!"'+cardName+'"')+'&unique=prints';
+  window.open(url,'_blank','noopener');
 }
 function recapRemoveBorrow(fi,i){
   if(!_achatRecap)return;
@@ -22637,15 +22702,16 @@ function exportAchat(){
   Object.keys(d.borrow).forEach(function(fi){
     var items=d.borrow[fi];if(!items||!items.length)return;
     lines.push('=== Emprunter à '+PN[parseInt(fi)]+' ===');
-    items.forEach(function(c){lines.push('  '+c.qty+'x '+c.name);});
+    items.forEach(function(c){lines.push(c.qty+'x '+c.name);});
     lines.push('');
   });
   if(d.buy.length){
     lines.push('=== À acheter ('+d.buy.length+' cartes) ===');
-    d.buy.forEach(function(r){lines.push('  '+r.need+'x '+r.name);});
+    d.buy.forEach(function(r){lines.push(r.need+'x '+r.name);});
     lines.push('');
   }
   dlTxt(lines.join('\n'),'achat_'+d.dn.replace(/\s+/g,'_')+'.txt');
+  toast('✓ Liste téléchargée');
 }
 function addToCustomByIdx(i){
   var c=dCards[i];if(!c)return;
