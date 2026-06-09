@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-81';
+window.APP_BUILD='2026-06-09-82';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -9400,6 +9400,8 @@ function _goTabImpl(id, fromHistory) {
     }catch(e){}
   }
   _currentTab=id;
+  // Build 82 : déclenche le tour contextuel sur la 1ère visite de cette page
+  try{if(typeof _mlMaybeRunPageTour==='function')_mlMaybeRunPageTour(id);}catch(_){}
 }
 // Bouton retour / avant du navigateur
 window.addEventListener('popstate',function(e){
@@ -10114,6 +10116,110 @@ function _homeTasksHtml(){
   return h;
 }
 // MLONBOARDING : voir js/mlonboarding.js (extrait au build 67)
+// ═════════════════════════════════════════════════════════════════════════════
+// PAGE TOUR — hints contextuels sur la 1ère visite de chaque page (build 82+)
+// API : mlPageTour(pageId, [{sel, title, text}]) — affiche une bulle pointant
+// vers chaque sélecteur en séquence. Une fois fini, persiste un flag par page
+// dans localStorage. Skippable, accessible ré-affichage via debug ?tour=all
+// ═════════════════════════════════════════════════════════════════════════════
+function _mlPageTourKey(pageId){return 'mtg_page_tour_'+pageId;}
+function mlPageTourHasSeen(pageId){
+  try{return localStorage.getItem(_mlPageTourKey(pageId))==='1';}catch(_){return false;}
+}
+function mlPageTourMarkSeen(pageId){
+  try{localStorage.setItem(_mlPageTourKey(pageId),'1');}catch(_){}
+}
+function mlPageTour(pageId,hints,opts){
+  opts=opts||{};
+  if(mlPageTourHasSeen(pageId)&&!opts.force)return;
+  if(!Array.isArray(hints)||!hints.length)return;
+  // Construit l'overlay + la première bulle
+  var idx=0;
+  function dismiss(){
+    var ov=document.getElementById('ml-tour-ov');if(ov)ov.remove();
+    var bb=document.getElementById('ml-tour-bubble');if(bb)bb.remove();
+    var hl=document.getElementById('ml-tour-hl');if(hl)hl.remove();
+    mlPageTourMarkSeen(pageId);
+    document.removeEventListener('keydown',keyHandler);
+  }
+  function keyHandler(e){if(e.key==='Escape')dismiss();else if(e.key==='Enter')next();}
+  function next(){
+    idx++;
+    if(idx>=hints.length){dismiss();return;}
+    show();
+  }
+  function show(){
+    var hint=hints[idx];
+    var target=document.querySelector(hint.sel);
+    // Élément introuvable → on saute
+    if(!target){next();return;}
+    target.scrollIntoView({behavior:'smooth',block:'center'});
+    var r=target.getBoundingClientRect();
+    // Highlight (box autour de l'élément)
+    var hl=document.getElementById('ml-tour-hl');
+    if(!hl){hl=document.createElement('div');hl.id='ml-tour-hl';document.body.appendChild(hl);}
+    hl.style.cssText='position:fixed;z-index:99998;border:2px solid #4aa0e8;border-radius:8px;pointer-events:none;box-shadow:0 0 0 4px rgba(74,160,232,.22),0 0 20px rgba(74,160,232,.45);transition:all .3s cubic-bezier(.2,.7,.4,1);top:'+(r.top-6)+'px;left:'+(r.left-6)+'px;width:'+(r.width+12)+'px;height:'+(r.height+12)+'px';
+    // Bulle
+    var bb=document.getElementById('ml-tour-bubble');
+    if(!bb){bb=document.createElement('div');bb.id='ml-tour-bubble';document.body.appendChild(bb);}
+    var below=r.top<window.innerHeight/2;
+    var bbTop=below?(r.bottom+18):(r.top-160);
+    var bbLeft=Math.max(10,Math.min(window.innerWidth-280,r.left+r.width/2-130));
+    bb.style.cssText='position:fixed;z-index:99999;width:260px;background:linear-gradient(180deg,#1a1f2a,#13171f);border:1.5px solid #4aa0e8;border-radius:11px;padding:14px 16px;box-shadow:0 12px 38px rgba(0,0,0,.78),0 0 28px rgba(74,160,232,.22);color:var(--tx);font-family:var(--ff-body);animation:ml-tour-pop .25s cubic-bezier(.34,1.56,.64,1);top:'+bbTop+'px;left:'+bbLeft+'px';
+    bb.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px"><span style="font-size:.62rem;color:#6cb4ef;letter-spacing:.1em;text-transform:uppercase;font-weight:700">Étape '+(idx+1)+'/'+hints.length+'</span><span style="flex:1"></span><button onclick="(function(){var h=document.getElementById(\'ml-tour-hl\');if(h)h.remove();var b=document.getElementById(\'ml-tour-bubble\');if(b)b.remove();try{localStorage.setItem(\''+_mlPageTourKey(pageId)+'\',\'1\')}catch(_){}})()" title="Fermer" style="background:none;border:none;color:var(--tx3);font-size:1rem;cursor:pointer;line-height:1">✕</button></div>'
+      +'<div style="font-family:var(--ff-head);font-size:1rem;color:#fff;font-weight:700;margin-bottom:5px;letter-spacing:-0.01em">'+esc(hint.title||'')+'</div>'
+      +'<div style="font-size:.82rem;color:var(--tx2);line-height:1.5;margin-bottom:11px">'+(hint.text||'')+'</div>'
+      +'<div style="display:flex;gap:6px;justify-content:flex-end">'
+      +(idx<hints.length-1?'<button onclick="(function(){var b=document.getElementById(\'ml-tour-bubble\');if(b)b.dataset.next=\'1\'})();void(document.getElementById(\'ml-tour-bubble\')&&document.getElementById(\'ml-tour-bubble\').dispatchEvent(new Event(\'next\')))" style="background:#4aa0e8;border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600">Suivant →</button>':'<button onclick="(function(){var h=document.getElementById(\'ml-tour-hl\');if(h)h.remove();var b=document.getElementById(\'ml-tour-bubble\');if(b)b.remove();try{localStorage.setItem(\''+_mlPageTourKey(pageId)+'\',\'1\')}catch(_){}})()" style="background:#4aa0e8;border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600">✓ Terminé</button>')
+      +'</div>';
+    // Wire next button properly (via event listener — JS-clean)
+    bb.addEventListener('next',next);
+    var btn=bb.querySelector('button[onclick*="next"]');
+    if(btn){btn.onclick=function(){next();};}
+  }
+  // Force keyframe (au cas où)
+  if(!document.getElementById('ml-tour-css')){
+    var s=document.createElement('style');s.id='ml-tour-css';
+    s.textContent='@keyframes ml-tour-pop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}';
+    document.head.appendChild(s);
+  }
+  document.addEventListener('keydown',keyHandler);
+  show();
+}
+// Définitions des tours par page — utilisées par goTab() ou les pages elles-mêmes
+window._MLTOURS={
+  home:[
+    {sel:'#home-dashboard',title:'Ton tableau de bord',text:'9 widgets : KPIs cette semaine, activité, decks, cartes précieuses, win rates… <b style="color:#6cb4ef">Tout ce qui compte d\'un coup d\'œil</b>.'},
+    {sel:'.home-intent-grid',title:'4 chemins d\'action',text:'Selon ton intention du moment : analyser, créer, gérer ta collection, ou compléter via Cardmarket. Click direct.'}
+  ],
+  coll:[
+    {sel:'.collection-header,#coll-toolbar,header',title:'Importe tes cartes',text:'CSV, scan caméra, coller une liste — choisis le mode le plus rapide pour toi. ManaLAB synchronise dans Firebase.'},
+  ],
+  build:[
+    {sel:'.atelier-action-bar,#atelier-hdr,header',title:'L\'Atelier',text:'Ajoute des cartes par nom ou drag&drop depuis Scryfall. La sidebar live affiche immédiatement courbe, types et score.'},
+  ],
+  meta:[
+    {sel:'.ar-tabs,.dm,header',title:'Méta · Tournois',text:'Données MTGTop8 en direct. Bascule format et période. <b style="color:#6cb4ef">Click sur un archétype</b> pour ouvrir la deck list.'}
+  ],
+  lists:[
+    {sel:'#purchase-mgr .card,header',title:'Listes d\'achat partagées',text:'Invite tes amis pour répartir une commande Cardmarket. Chacun voit qui achète quoi en temps réel.'}
+  ]
+};
+function _mlMaybeRunPageTour(pageId){
+  if(!window._MLTOURS||!window._MLTOURS[pageId])return;
+  // Petit délai pour que la page soit rendue avant de pointer un sélecteur
+  setTimeout(function(){
+    try{mlPageTour(pageId,window._MLTOURS[pageId]);}catch(_){}
+  },600);
+}
+function mlPageTourResetAll(){
+  try{
+    Object.keys(window._MLTOURS||{}).forEach(function(k){
+      localStorage.removeItem(_mlPageTourKey(k));
+    });
+    if(typeof toastSuccess==='function')toastSuccess('🎓 Tours réinitialisés — ils réapparaîtront en navigant');
+  }catch(_){}
+}
 function renderHome(){
   var host=document.getElementById('home-body');if(!host)return;
   var myName=(typeof PN!=='undefined'&&PN[0])||'Joueur';
@@ -43329,7 +43435,8 @@ function _cmdPalBuild(){
   items.push({key:'act:commreco',ico:'📊',lbl:'Recos communauté (par commandant)',cat:'Action',act:function(){if(typeof openCommReco==='function')openCommReco();}});
   items.push({key:'act:snotifs',ico:'🔔',lbl:'Notifications sociales',cat:'Action',act:function(){if(typeof openSocialNotifs==='function')openSocialNotifs();}});
   items.push({key:'act:propro',ico:'❖',lbl:'ManaLAB Pro — débloquer',cat:'Action',act:function(){if(typeof openProUpgrade==='function')openProUpgrade();}});
-  items.push({key:'act:onboard',ico:'👋',lbl:'Refaire le tour guidé',cat:'Action',act:function(){if(typeof startOnboarding==='function')startOnboarding(true);}});
+  items.push({key:'act:onboard',ico:'👋',lbl:'Refaire le tour guidé (boot)',cat:'Action',act:function(){if(typeof startOnboarding==='function')startOnboarding(true);}});
+  items.push({key:'act:pagetours',ico:'🎓',lbl:'Réinitialiser les hints par page',cat:'Action',act:function(){if(typeof mlPageTourResetAll==='function')mlPageTourResetAll();}});
   items.push({key:'act:push',ico:'🔔',lbl:'Notifications push (activer/désactiver)',cat:'Action',act:function(){if(typeof pushTogglePrompt==='function')pushTogglePrompt();}});
   if(typeof _userRole!=='undefined'&&_userRole==='admin')items.push({key:'act:modqueue',ico:'🛡',lbl:'File de modération (admin)',cat:'Admin',act:function(){if(typeof openModerationQueue==='function')openModerationQueue();}});
   items.push({key:'act:cmpdecks',ico:'⚖',lbl:'Comparer 2 decks',cat:'Action',act:function(){if(typeof openDeckCompare==='function')openDeckCompare();}});
@@ -54352,7 +54459,11 @@ function metaFetchMeta(fmt,metaId){
     })
     .catch(function(e){
       if(loading)loading.style.display='none';
-      if(err){err.style.display='block';err.textContent='Impossible de charger le méta ('+e.message+'). Vérifiez votre connexion.';}
+      // Build 82 : état d'erreur plus actionnable — message clair + bouton ré-essayer
+      if(err){
+        err.style.display='block';
+        err.innerHTML='<div style="display:flex;align-items:center;gap:12px"><span style="font-size:1.6rem">⚠</span><div style="flex:1"><div style="color:var(--rd2);font-weight:600;margin-bottom:3px">Impossible de charger le méta</div><div style="font-size:.74rem;color:var(--tx3);font-style:italic">'+esc(e.message||'erreur réseau')+'</div></div><button class="btn btnsm btnp" onclick="metaFetchMeta(_metaFmt)">🔄 Ré-essayer</button></div>';
+      }
     });
 }
 // ===== PROPOSER UN DECK =====
@@ -54971,13 +55082,17 @@ function metaParseTopCards(html){
 function metaRenderMeta(archetypes){
   var content=document.getElementById('meta-content');if(!content)return;
   if(!archetypes.length){
+    // Build 82 : empty state friendly + debug en details collapsé
     var dbgLen=_metaLastHtml?_metaLastHtml.length:0;
     var dbgArchN=((_metaLastHtml||'').match(/href=["']?[^"'>\s]*archetype[^"'>\s]*/gi)||[]).length;
     var dbgSnip=_metaLastHtml?_metaLastHtml.substring(0,300).replace(/</g,'&lt;'):'';
     console.log('[Méta] 0 archétype — HTML:',dbgLen,'chars, hrefs archetype:',dbgArchN);
-    content.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.82rem;padding:1rem 0">Aucun archétype trouvé pour ce format.'
-      +'<br><span style="font-size:.7rem;opacity:.7">HTML reçu: '+dbgLen+' chars · hrefs "archetype" trouvés: '+dbgArchN+'</span>'
-      +(dbgLen>0?'<details style="margin-top:6px"><summary style="cursor:pointer;font-size:.7rem;color:var(--ac)">Afficher les 300 premiers caractères</summary><pre style="font-size:.6rem;white-space:pre-wrap;word-break:break-all;color:var(--tx3);margin-top:4px;max-height:160px;overflow:auto">'+dbgSnip+'</pre></details>':'')
+    content.innerHTML='<div style="text-align:center;padding:2.5rem 1rem;background:rgba(255,255,255,.02);border:1px dashed var(--bd2);border-radius:12px">'
+      +'<div style="font-size:2.4rem;margin-bottom:8px;opacity:.5">📊</div>'
+      +'<div style="font-family:var(--ff-head);font-size:1.1rem;color:var(--tx);margin-bottom:6px">Aucune donnée disponible pour ce format</div>'
+      +'<div style="font-size:.82rem;color:var(--tx2);max-width:420px;margin:0 auto 14px;line-height:1.55">Les données proviennent de MTGTop8 et peuvent prendre quelques secondes à arriver. Choisis une autre période ou un autre format en attendant.</div>'
+      +'<button class="btn btnp btnsm" onclick="metaFetchMeta(_metaFmt)">🔄 Re-essayer</button>'
+      +(dbgLen>0?'<details style="margin-top:18px;text-align:left;max-width:560px;margin-left:auto;margin-right:auto"><summary style="cursor:pointer;font-size:.7rem;color:var(--tx3)">🔍 Détails techniques</summary><div style="font-size:.7rem;opacity:.7;color:var(--tx3);margin-top:6px">HTML reçu : '+dbgLen+' chars · hrefs « archetype » : '+dbgArchN+'</div><pre style="font-size:.6rem;white-space:pre-wrap;word-break:break-all;color:var(--tx3);margin-top:4px;max-height:160px;overflow:auto;background:rgba(0,0,0,.3);padding:6px;border-radius:4px">'+dbgSnip+'</pre></details>':'')
       +'</div>';
     return;
   }
