@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-09-72';
+window.APP_BUILD='2026-06-09-73';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -22960,17 +22960,25 @@ function savePurchaseList(id){
   try{fsSaveStart();}catch(_){}
   function _onOk(){try{fsSaveEnd(true);}catch(_){}if(_purchaseLists[id])delete _purchaseLists[id]._pendingWrite;}
   function _onErr(e){
-    console.warn('savePurchaseList', e, {listId:id, userId:userId, localMembers:live.members, createdBy:live.createdBy});
+    console.warn('savePurchaseList', e, {listId:id, userId:userId, localMembers:live.members, createdBy:live.createdBy, pendingAge:live._pendingWrite?Date.now()-live._pendingWrite:null});
     try{fsSaveEnd(false);}catch(_){}
-    // Message dédié pour le cas le plus fréquent : permission denied.
-    // C'est typiquement une liste héritée d'un autre compte (ancien uid Firebase)
-    // qui traîne dans le cache _purchaseLists. La règle Firestore exige
-    // `request.auth.uid in resource.data.members` côté SERVEUR — si le doc
-    // existant a un uid différent dans members, l'update est refusé.
     if(e&&e.code==='permission-denied'){
-      // Self-heal : on retire l'entrée du cache local pour éviter les retries
-      // en boucle. Si le doc existait vraiment côté serveur, le snapshot
-      // listener la repushera dans _purchaseLists au prochain tick.
+      // Détection : liste fraîchement créée localement (pendingWrite < 8s) ?
+      // - Oui  → l'erreur vient d'un soucis d'auth/token, PAS d'une liste
+      //         fantôme. On garde le cache, on demande de re-tenter ou de
+      //         se reconnecter. Toucher au cache détruirait une liste légitime.
+      // - Non  → c'est probablement une liste héritée d'un autre compte
+      //         (ancien uid) ou dont l'accès a été retiré (kick membre).
+      //         La rule Firestore exige `request.auth.uid in resource.data.members`
+      //         côté SERVEUR. On nettoie le cache pour éviter une boucle de retries.
+      var isFreshCreate=live._pendingWrite&&(Date.now()-live._pendingWrite)<8000;
+      if(isFreshCreate){
+        if(typeof toastError==='function'){
+          toastError('Sauvegarde refusée par le serveur — vérifie que tu es connecté(e), puis ré-essaie. Si ça persiste, reconnecte-toi.');
+        }
+        return;
+      }
+      // Liste fantôme — self-heal
       delete _purchaseLists[id];
       if(_activePurListId===id)_activePurListId=null;
       _purPersistActiveListId();
