@@ -154,8 +154,25 @@ service cloud.firestore {
     // ============================================================
     // Listes d'achat partagées (Cardmarket)
     // ============================================================
+    //
+    // Bug corrigé : `read` combiné (get + list) refusait `t.get(ref)` dans
+    // les transactions Firestore lorsque le doc n'existait pas encore
+    // (cas du CREATE path : la transaction lit avant d'écrire). Pour un
+    // doc inexistant, `resource == null` et l'évaluation
+    // `request.auth.uid in resource.data.members` lève une erreur → règle
+    // refusée → CREATE bloqué bien que la rule create soit correcte.
+    //
+    // Fix : `get` autorise désormais explicitement le resource null
+    // (doc non encore existant) ; `list`, `update`, `delete` restent
+    // strictement réservés aux membres.
     match /shared_lists/{listId} {
-      allow read, update, delete: if isAuthed() &&
+      allow get: if isAuthed() && (
+        resource == null ||
+        request.auth.uid in resource.data.members
+      );
+      allow list: if isAuthed() &&
+        request.auth.uid in resource.data.members;
+      allow update, delete: if isAuthed() &&
         request.auth.uid in resource.data.members;
       allow create: if isAuthed() &&
         request.auth.uid in request.resource.data.members &&
