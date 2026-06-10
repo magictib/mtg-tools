@@ -1708,7 +1708,470 @@ window.mlAnaPro = (function(){
     };
   }
 
-  // ─── 17. RAPPORT GLOBAL ────────────────────────────────────────────────
+  // ═════════════════════════════════════════════════════════════════════
+  // BATCH 20-AXES PRO (build 94) — niveau coach professionnel
+  // ═════════════════════════════════════════════════════════════════════
+
+  // ─── 17. CASTABILITY TURN-BY-TURN (proba Karsten) ──────────────────────
+  // Calcule la probabilité de pouvoir lancer une carte critique à son CMC.
+  // Approximation : pour cmc=N et X pips colorés, on a besoin de N lands
+  // ET X sources colorées dans la main par tour N (avec scry/draws extra).
+  function _probAtLeast(n,k){
+    // P(au moins k succès sur n tirages depuis le deck) — approximation
+    // grossière. Utilise la cumulative binomiale avec p = succès / deck.
+    return Math.min(1,Math.max(0,1-Math.pow(1-k/n,7)));
+  }
+  function castabilityByCMC(rows,deck,manaReport){
+    if(!manaReport||!manaReport.sources)return null;
+    var sources=manaReport.sources;var nLands=manaReport.nLands||0;
+    var deckSize=0;rows.forEach(function(r){deckSize+=r.qty||1;});
+    if(deckSize<60)return {checked:false};
+    // Pour chaque carte non-land, calcule sa proba d'être castable à son CMC
+    var byTurn={1:[],2:[],3:[],4:[],5:[],6:[],7:[]};
+    var rates={1:0,2:0,3:0,4:0,5:0,6:0,7:0};var counts={1:0,2:0,3:0,4:0,5:0,6:0,7:0};
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();
+      if(/land/.test(tl))return;
+      var cmc=Math.max(1,Math.min(7,Math.floor(m.cmc||0)||1));
+      var mc=(m.manaCost||'').toLowerCase();
+      var pips={W:0,U:0,B:0,R:0,G:0};
+      ['w','u','b','r','g'].forEach(function(c){
+        var mm=mc.match(new RegExp('\\{'+c+'\\}','g'))||[];
+        pips[c.toUpperCase()]=mm.length;
+      });
+      // Proba pouvoir lancer = proba avoir N lands × proba avoir sources colorées
+      // Lands : cibles Karsten approximatives. Pour 60 cards : ~24 lands. EDH ~37.
+      var landTarget=Math.ceil(cmc*deckSize/100*0.55);
+      var pHaveLands=Math.min(1,nLands/landTarget);
+      var pColors=1;
+      ['W','U','B','R','G'].forEach(function(c){
+        if(pips[c]<=0)return;
+        var need=pips[c]===1?13:pips[c]===2?19:pips[c]===3?22:24;
+        var have=sources[c]||0;
+        var p=Math.min(1,have/need);
+        pColors*=p;
+      });
+      var castProb=Math.round(pHaveLands*pColors*100);
+      byTurn[cmc].push({name:r.card&&r.card.name||r.name,cmc:cmc,prob:castProb});
+      rates[cmc]+=castProb*(r.qty||1);counts[cmc]+=r.qty||1;
+    });
+    var avgByTurn={};
+    Object.keys(rates).forEach(function(t){
+      avgByTurn[t]=counts[t]?Math.round(rates[t]/counts[t]):null;
+    });
+    // Cartes problématiques : prob < 60% à leur CMC
+    var problems=[];
+    Object.keys(byTurn).forEach(function(t){
+      byTurn[t].filter(function(c){return c.prob<60;}).slice(0,3).forEach(function(c){problems.push(c);});
+    });
+    problems.sort(function(a,b){return a.prob-b.prob;});
+    return {
+      checked:true,
+      avgByTurn:avgByTurn,
+      problems:problems.slice(0,8),
+      verdict:problems.length===0?'✓ Toutes les cartes sont castables à leur CMC':problems.length+' carte(s) avec castabilité douteuse'
+    };
+  }
+
+  // ─── 18. CARD ADVANTAGE NET (cantrip vs engine) ────────────────────────
+  function cardAdvantageNet(rows){
+    var cantrips=0,twoForOne=0,engines=0,wheels=0,recurringDraw=0;
+    var totalDrawCards=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var ot=(m.oracleText||'').toLowerCase();var nl=_nlOf(r.card&&r.card.name||r.name);
+      var qty=r.qty||1;var cmc=m.cmc||0;
+      // Cantrips (draw 1 + replaces itself ≈ net 0)
+      if((/^|\n/).test(ot)&&/draw (a|one) card/.test(ot)&&cmc<=2&&!/whenever/.test(ot)){
+        cantrips+=qty;totalDrawCards+=qty;return;
+      }
+      // 2-for-1 : draw 2+ cards on cast
+      if(/draw (two|three|x|that many) cards?/.test(ot)&&!/whenever|at the beginning/.test(ot)){
+        twoForOne+=qty;totalDrawCards+=qty;return;
+      }
+      // Wheels (each player draws + discard)
+      if(/each player.*draws.* cards?|wheel of fortune/.test(ot)){
+        wheels+=qty;totalDrawCards+=qty;return;
+      }
+      // Engines : repeated draw (whenever / at the beginning of)
+      if(/whenever .* (deals damage|enters the battlefield|attacks|dies).*draw a card|at the beginning of .* draw a card|at the beginning of .* upkeep.*draw/.test(ot)){
+        engines+=qty;totalDrawCards+=qty;return;
+      }
+      // Recurring draw (Sylvan Library, Necropotence, Phyrexian Arena)
+      var staples=['phyrexian arena','sylvan library','necropotence','rhystic study','mystic remora','esper sentinel','consecrated sphinx','bolas\'s citadel','smothering tithe'];
+      if(staples.indexOf(nl)>=0){
+        recurringDraw+=qty;engines+=qty;totalDrawCards+=qty;return;
+      }
+    });
+    // Score CA : engines + wheels comptent +3, 2-for-1 compte +1.5, cantrips +0.5
+    var caScore=engines*3+wheels*2+twoForOne*1.5+cantrips*0.5;
+    return {
+      cantrips:cantrips,twoForOne:twoForOne,engines:engines,wheels:wheels,recurringDraw:recurringDraw,
+      totalDrawCards:totalDrawCards,
+      caScore:Math.round(caScore),
+      verdict:caScore>=30?'✓ Card advantage solide':caScore>=18?'~ Card advantage moyen':'⚠ Manque d\'engines de draw — cantrips trop dominants'
+    };
+  }
+
+  // ─── 19. CURVE-OUT PROBABILITY (sim 5k mains) ──────────────────────────
+  function curveOutProbability(rows){
+    var library=[];
+    rows.forEach(function(r){
+      var qty=r.qty||1;var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();
+      var cmc=Math.max(0,Math.floor(m.cmc||0));
+      var isLand=/land/.test(tl);
+      for(var i=0;i<qty;i++){library.push({isLand:isLand,cmc:cmc});}
+    });
+    if(library.length<60)return {checked:false};
+    var sims=5000;var perfect=0,decent=0;
+    for(var sim=0;sim<sims;sim++){
+      var shuf=_seededShuffle(library,sim+7919);
+      var hand=shuf.slice(0,7);
+      var deck=shuf.slice(7);
+      // Compte les drops disponibles pour T1/T2/T3
+      var availableByCmc={1:0,2:0,3:0};
+      var landCount=0;
+      hand.forEach(function(c){
+        if(c.isLand)landCount++;
+        else if(c.cmc>=1&&c.cmc<=3)availableByCmc[c.cmc]++;
+      });
+      // Simule T1 → tu draws 1 carte
+      for(var t=1;t<=3;t++){
+        if(t>=2){
+          // Draw step
+          var d=deck.shift();
+          if(d){
+            if(d.isLand)landCount++;
+            else if(d.cmc>=1&&d.cmc<=3)availableByCmc[d.cmc]++;
+          }
+        }
+      }
+      var perfectCurve=(landCount>=3&&availableByCmc[1]>=1&&availableByCmc[2]>=1&&availableByCmc[3]>=1);
+      var decentCurve=(landCount>=2&&(availableByCmc[1]+availableByCmc[2]+availableByCmc[3]>=2));
+      if(perfectCurve)perfect++;
+      if(decentCurve)decent++;
+    }
+    return {
+      checked:true,
+      perfectPct:Math.round(perfect/sims*100),
+      decentPct:Math.round(decent/sims*100),
+      verdict:perfect/sims>=0.30?'✓ Courbes de jeu fluides':perfect/sims>=0.15?'~ Curve-out occasionnel':'⚠ Courbe lente — manque de 1/2/3-drops'
+    };
+  }
+
+  // ─── 20. STACK INTERACTION % ───────────────────────────────────────────
+  function stackInteraction(rows){
+    var totalSpells=0,instantSpeed=0,sorcerySpeed=0,flashCreatures=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var qty=r.qty||1;
+      if(/land/.test(tl))return;
+      totalSpells+=qty;
+      if(/instant/.test(tl))instantSpeed+=qty;
+      else if(/sorcery/.test(tl))sorcerySpeed+=qty;
+      else if(/creature/.test(tl)&&/flash/.test(ot)){flashCreatures+=qty;instantSpeed+=qty;}
+    });
+    var pct=totalSpells?Math.round(instantSpeed/totalSpells*100):0;
+    return {
+      totalSpells:totalSpells,instantSpeed:instantSpeed,sorcerySpeed:sorcerySpeed,flashCreatures:flashCreatures,
+      instantPct:pct,
+      verdict:pct>=35?'✓ Forte présence stack (jeu réactif)':pct>=20?'~ Présence stack correcte':'⚠ Deck purement proactif (vulnérable au combo adverse)'
+    };
+  }
+
+  // ─── 21. VELOCITY (cartes vues par tour) ───────────────────────────────
+  function velocity(rows){
+    var cantripCount=0,scryCount=0,tutorCount=0,drawX=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var ot=(m.oracleText||'').toLowerCase();var qty=r.qty||1;
+      if(/draw (a|one) card/.test(ot)&&(m.cmc||0)<=2)cantripCount+=qty;
+      if(/scry [1-9]/.test(ot))scryCount+=qty;
+      if(/search your library for a/.test(ot))tutorCount+=qty;
+      if(/draw (two|three) cards?/.test(ot))drawX+=qty;
+    });
+    // Vélocité estimée : par tour, en moyenne, combien de cartes en plus tu vois ?
+    var perTurnExtra=(cantripCount*0.7+scryCount*0.4+tutorCount*0.9+drawX*1.2)/10;
+    var totalSeen=1+perTurnExtra; // 1 = draw step normal
+    return {
+      cantrips:cantripCount,scry:scryCount,tutors:tutorCount,drawX:drawX,
+      velocity:totalSeen.toFixed(1),
+      verdict:totalSeen>=2.0?'✓ Velocity élevée (digging puissant)':totalSeen>=1.4?'~ Velocity correcte':'⚠ Velocity faible — manque de cantrips/scry'
+    };
+  }
+
+  // ─── 22. INEVITABILITY (cartes qui transforment durée en victoire) ────
+  var INEVITABILITY_CARDS = [
+    'aetherflux reservoir','approach of the second sun','mortal combat','helix pinnacle',
+    'mayael\'s aria','maze\'s end','felidar sovereign','test of endurance',
+    'triskaidekaphobia','near-death experience','simic ascendancy','revel in riches',
+    'coalition victory','barren glory','epic struggle','azor\'s elocutors',
+    'hellkite tyrant','mechtitan core','laboratory maniac','jace, wielder of mysteries',
+    'thassa\'s oracle','blightsteel colossus','marit lage','vraska\'s contempt',
+    'dragon\'s approach','jaya\'s greeting'
+  ];
+  function inevitability(rows){
+    var found=[];var set=_cardSet(rows);
+    INEVITABILITY_CARDS.forEach(function(n){if(set[n])found.push(n);});
+    return {
+      cards:found,count:found.length,
+      verdict:found.length>=2?'✓ Multiples inevitabilities détectées':found.length===1?'~ 1 inevitability ('+found[0]+')':'⚠ Aucune inevitability — pas de plan « gagner si la partie traîne »'
+    };
+  }
+
+  // ─── 23. RECOVERY TIME POST-WRATH (sim) ────────────────────────────────
+  function recoveryTimePostWrath(rows){
+    var creaturesByCmc={1:0,2:0,3:0,4:0,5:0,6:0,7:0};var recurEffects=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var qty=r.qty||1;
+      if(/creature/.test(tl)){
+        var cmc=Math.max(1,Math.min(7,Math.floor(m.cmc||0)||1));
+        creaturesByCmc[cmc]+=qty;
+      }
+      if(/return target creature.*from your graveyard|return.*creature.*battlefield/.test(ot))recurEffects+=qty;
+    });
+    // Estime tours pour rebuild : T1 si 1-drop dispo, T2 si 2-drop, etc.
+    var earliestRebuild=7;
+    for(var c=1;c<=7;c++){if(creaturesByCmc[c]>=3){earliestRebuild=c;break;}}
+    // Recurring effects accélèrent
+    if(recurEffects>=3&&earliestRebuild>2)earliestRebuild--;
+    return {
+      creaturesByCmc:creaturesByCmc,recurEffects:recurEffects,
+      earliestRebuild:earliestRebuild,
+      verdict:earliestRebuild<=2?'✓ Recovery rapide (≤T2)':earliestRebuild<=4?'~ Recovery moyenne (T3-T4)':'⚠ Recovery lente (T5+) — vulnérable aux wraths'
+    };
+  }
+
+  // ─── 24. TEMPO LOSS (cartes « do nothing » au tour joué) ──────────────
+  var TEMPO_LOSS_CARDS = [
+    'necropotence','sylvan library','phyrexian arena','bolas\'s citadel',
+    'aetherflux reservoir','rhystic study','mystic remora','smothering tithe',
+    'guardian project','beast whisperer','underworld breach','dramatic reversal'
+  ];
+  function tempoLoss(rows){
+    var found=[];var set=_cardSet(rows);
+    TEMPO_LOSS_CARDS.forEach(function(n){if(set[n])found.push(n);});
+    return {
+      cards:found,count:found.length,
+      verdict:found.length<=3?'✓ Tempo OK':found.length<=6?'~ Plusieurs cartes setup — accepte le tempo loss':'⚠ Trop de cartes setup — risque de perdre l\'initiative'
+    };
+  }
+
+  // ─── 25. MUST-ANSWER THREATS ───────────────────────────────────────────
+  var MUST_ANSWER = [
+    'yawgmoth, thran physician','smothering tithe','underworld breach','rhystic study',
+    'mystic remora','esper sentinel','sythis, harvest\'s hand','tergrid, god of fright',
+    'krenko, mob boss','yuriko, the tiger\'s shadow','najeela, the blade-blossom',
+    'kinnan, bonder prodigy','urza, lord high artificer','god-eternal kefnet',
+    'consecrated sphinx','aetherflux reservoir','bolas\'s citadel','necropotence',
+    'sheoldred, the apocalypse','blood moon','back to basics','winter orb','static orb',
+    'thalia, guardian of thraben','collector ouphe','null rod','stony silence',
+    'rest in peace','leyline of the void','grafdigger\'s cage'
+  ];
+  function mustAnswerThreats(rows){
+    var found=[];var set=_cardSet(rows);
+    MUST_ANSWER.forEach(function(n){if(set[n])found.push(n);});
+    return {
+      cards:found,count:found.length,
+      verdict:found.length>=3?'✓ Plusieurs menaces qui exigent réponse':found.length>=1?'~ 1-2 must-answer threats':'⚠ Aucune menace qui force la réponse — adversaires peuvent t\'ignorer'
+    };
+  }
+
+  // ─── 26. ANTI-META POSITIONING (vs top cards du méta) ──────────────────
+  function antiMetaPositioning(rows,deck){
+    // Cartes du méta génériques top toutes formats EDH
+    var topMetaThreats=['dockside extortionist','rhystic study','mystic remora','smothering tithe',
+      'urza, lord high artificer','tergrid, god of fright','yuriko, the tiger\'s shadow'];
+    var coverage=0;var totalRemovalCanHit=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var ot=(m.oracleText||'').toLowerCase();
+      if(/destroy target creature|exile target creature|destroy target permanent|exile target permanent|destroy target nonland permanent|counter target spell/.test(ot))totalRemovalCanHit+=r.qty||1;
+    });
+    coverage=Math.min(100,Math.round(totalRemovalCanHit*5));
+    return {
+      removalCanHit:totalRemovalCanHit,coverage:coverage,
+      verdict:totalRemovalCanHit>=8?'✓ Capable de gérer les menaces classiques du méta':totalRemovalCanHit>=5?'~ Couverture méta correcte':'⚠ Faible coverage — vulnérable aux engines adverses'
+    };
+  }
+
+  // ─── 27. SYNERGY ORPHANS (cartes sans interaction interne) ─────────────
+  function synergyOrphans(rows,deck){
+    // Approche simplifiée : extrait les keywords/types/themes du deck, puis pour
+    // chaque carte vérifie qu'elle partage au moins 1 token avec ≥5 autres cartes
+    var globalKws={};
+    rows.forEach(function(r){
+      var m=r.meta||{};var ot=(m.oracleText||'').toLowerCase();var tl=(m.typeLine||'').toLowerCase();
+      var kws=[];
+      // Extract types
+      ['creature','artifact','enchantment','sorcery','instant','planeswalker','land'].forEach(function(t){
+        if(tl.indexOf(t)>=0)kws.push(t);
+      });
+      // Extract simple keywords
+      ['proliferate','+1/+1','treasure','token','sacrifice','blink','flicker','equipment',
+        'aura','draw','counter','damage','life','graveyard','library'].forEach(function(k){
+        if(ot.indexOf(k)>=0)kws.push(k);
+      });
+      kws.forEach(function(k){globalKws[k]=(globalKws[k]||0)+1;});
+      r._kws=kws;
+    });
+    var orphans=[];
+    rows.forEach(function(r){
+      if(!r._kws)return;
+      // Check if any keyword is shared with ≥5 other cards
+      var hasOverlap=r._kws.some(function(k){return globalKws[k]>=5;});
+      if(!hasOverlap){orphans.push(r.card&&r.card.name||r.name);}
+    });
+    return {
+      orphans:orphans.slice(0,8),count:orphans.length,
+      verdict:orphans.length===0?'✓ Aucune carte orpheline détectée':orphans.length<=3?'~ Quelques cartes orphelines à reconsidérer':'⚠ Beaucoup de cartes orphelines — manque de synergie interne'
+    };
+  }
+
+  // ─── 28. MANA PRODUCTION CURVE ─────────────────────────────────────────
+  function manaProductionCurve(rows){
+    // Estimation : pour chaque tour T, mana disponible = lands_played + ramp_actif
+    var lands=0,ramp1=0,ramp2=0,ramp3=0,rampHigher=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var qty=r.qty||1;var cmc=m.cmc||0;
+      if(/land/.test(tl)){lands+=qty;return;}
+      var isRamp=/add (one|two|three) mana|search your library for a.* land|\{t\}.*add.*\{[wubrgc]\}/.test(ot);
+      if(!isRamp)return;
+      if(cmc<=1)ramp1+=qty;
+      else if(cmc===2)ramp2+=qty;
+      else if(cmc===3)ramp3+=qty;
+      else rampHigher+=qty;
+    });
+    var production={1:1,2:2,3:3,4:4,5:5,6:6,7:7};
+    if(ramp1>=4)production[2]=3;
+    if(ramp2>=4)production[3]=4;
+    if(ramp1>=4&&ramp2>=4)production[3]=5;
+    if(ramp3>=3)production[4]=6;
+    return {
+      lands:lands,ramp1:ramp1,ramp2:ramp2,ramp3:ramp3,
+      productionByTurn:production,
+      verdict:production[4]>=5?'✓ Production de mana explosive':production[4]>=4?'~ Production correcte':'⚠ Production lente — manque de ramp early'
+    };
+  }
+
+  // ─── 29. COMBAT MATH (créatures vs blockeurs typiques) ────────────────
+  function combatMath(rows,deck){
+    var atkPow=0,atkN=0,defPow=0,defN=0;
+    var fmt=(deck&&deck.format||'').toLowerCase();
+    var avgBlocker=fmt==='commander'||fmt==='paupercmd'||fmt==='oathbreaker'?3:fmt==='modern'?3:fmt==='pauper'?2:3;
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();
+      if(!/creature/.test(tl))return;
+      var p=parseInt(m.power||'0',10)||0;
+      var t=parseInt(m.toughness||'0',10)||0;
+      var qty=r.qty||1;
+      atkPow+=p*qty;atkN+=qty;defPow+=t*qty;defN+=qty;
+    });
+    var avgAtk=atkN?(atkPow/atkN).toFixed(1):0;
+    var avgDef=defN?(defPow/defN).toFixed(1):0;
+    return {
+      avgAttackerPower:avgAtk,avgDefenderToughness:avgDef,
+      typicalBlocker:avgBlocker,
+      verdict:avgAtk>=avgBlocker?'✓ Tes attaquants passent (avg '+avgAtk+' vs blockeur '+avgBlocker+')':'⚠ Tes attaquants trop faibles (avg '+avgAtk+' vs blockeur '+avgBlocker+')'
+    };
+  }
+
+  // ─── 30. THREATS KILLABLE SCOPE (universal vs conditional) ─────────────
+  function threatsKillableScope(rows){
+    var universal=0,creatureOnly=0,nonlandOnly=0,conditional=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var ot=(m.oracleText||'').toLowerCase();var qty=r.qty||1;
+      // Universal (destroy/exile target nonland permanent or target permanent)
+      if(/destroy target nonland permanent|exile target nonland permanent|destroy target permanent|beast within|generous gift/.test(ot)){
+        universal+=qty;return;
+      }
+      // Non-land specific (artifact OR enchant OR creature OR PW)
+      if(/destroy target (artifact|enchantment|creature|planeswalker)|exile target/.test(ot)){
+        if(/creature.*only/.test(ot)||/destroy target creature(\s|$|\.|,)/.test(ot))creatureOnly+=qty;
+        else nonlandOnly+=qty;
+        return;
+      }
+      // Conditional (e.g. "if it's red", "with toughness 3 or less")
+      if(/if it's|with .* or less|with .* or greater/.test(ot)){
+        conditional+=qty;return;
+      }
+    });
+    return {
+      universal:universal,creatureOnly:creatureOnly,nonlandOnly:nonlandOnly,conditional:conditional,
+      universalPct:universal+creatureOnly+nonlandOnly?Math.round(universal/(universal+creatureOnly+nonlandOnly)*100):0,
+      verdict:universal>=3?'✓ Removal flexible et universel':universal>=1?'~ Quelques removals universels':'⚠ Removal trop conditionnel'
+    };
+  }
+
+  // ─── 31. EDHREC INCLUSION % (créativité vs respect du méta) ────────────
+  function edhrecInclusion(rows,deck){
+    // Approximation : utilise les staples connus comme proxy
+    // Pour vraie analyse il faudrait EDHrec API par commandant
+    var staples=0,uniqueCards=0;
+    var commonStaples=['sol ring','arcane signet','command tower','swords to plowshares',
+      'path to exile','cyclonic rift','rhystic study','mystic remora','smothering tithe',
+      'beast within','generous gift','counterspell','demonic tutor','vampiric tutor'];
+    rows.forEach(function(r){
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      if(commonStaples.indexOf(nl)>=0)staples++;
+      uniqueCards++;
+    });
+    var stapleDensity=uniqueCards?Math.round(staples/uniqueCards*100):0;
+    return {
+      stapleCount:staples,uniqueCards:uniqueCards,density:stapleDensity,
+      verdict:stapleDensity>=20?'~ Deck très staple-driven (peu de créativité)':stapleDensity>=10?'✓ Bon équilibre staples / créativité':'~ Très créatif (peu de staples)'
+    };
+  }
+
+  // ─── 32. COACH NARRATIF ────────────────────────────────────────────────
+  function coachNarrative(report){
+    if(!report)return '';
+    var parts=[];
+    // Identité du deck
+    var arch=report.curve&&report.curve.archetype||'midrange';
+    var primary=report.winCons&&report.winCons.primary?report.winCons.primary.label:'plan flou';
+    parts.push('Ton deck est un <b>'+arch+'</b> qui gagne via <b>'+primary+'</b>.');
+    // Force principale
+    if(report.robustness&&report.robustness.score>=70){
+      parts.push('<b>Force :</b> deck robuste (score '+report.robustness.score+'/100), résistant face aux contre-mesures.');
+    }
+    if(report.bracket){
+      parts.push('Niveau compétitif : <b>Bracket '+report.bracket.bracket+' ('+report.bracket.label+')</b>.');
+    }
+    // Faiblesse principale
+    if(report.redundancy&&report.redundancy.sev!=='good'){
+      parts.push('<b>Faiblesse :</b> '+report.redundancy.msg);
+    }
+    if(report.threats&&report.threats.dryTurns.length){
+      parts.push('Attention aux <b>tours vides</b> : T'+report.threats.dryTurns.join(', T')+' — pas de jouable.');
+    }
+    // Inevitability
+    if(report.inevitability&&report.inevitability.count){
+      parts.push('Plan late-game : <b>'+report.inevitability.cards.join(' / ')+'</b>.');
+    }
+    // Coach top
+    if(report.coach&&report.coach.length){
+      parts.push('Si tu fais une seule chose : <b>'+report.coach[0].title+'</b>.');
+    }
+    return parts.join(' ');
+  }
+
+  // ─── 33. COMPARE 2 REPORTS (before / after) ───────────────────────────
+  function compareReports(prev,current){
+    if(!prev||!current)return null;
+    var diffs=[];
+    function _diff(label,p,c,positive){
+      if(p==null||c==null)return;
+      var delta=c-p;if(delta===0)return;
+      diffs.push({label:label,prev:p,current:c,delta:delta,positive:positive?delta>0:delta<0});
+    }
+    if(prev.bracket&&current.bracket)_diff('Bracket',prev.bracket.bracket,current.bracket.bracket,false);
+    if(prev.robustness&&current.robustness)_diff('Robustesse',prev.robustness.score,current.robustness.score,true);
+    if(prev.mulligan&&current.mulligan)_diff('Keepable %',prev.mulligan.keepablePct,current.mulligan.keepablePct,true);
+    if(prev.redundancy&&current.redundancy)_diff('Plans viables',prev.redundancy.count,current.redundancy.count,true);
+    return {diffs:diffs};
+  }
+
+  // ─── 34. RAPPORT GLOBAL ────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
     var winCons=detectWinCons(rows,deck);
@@ -1728,6 +2191,22 @@ window.mlAnaPro = (function(){
     var curve=curveSmoothness(rows,deck,winCons);
     var removalCov=removalCoverage(rows);
     var landUpg=landUpgrades(rows,deck,mana);
+    // Build 94 : batch 20-axes pro
+    var castability=castabilityByCMC(rows,deck,mana);
+    var cardAdv=cardAdvantageNet(rows);
+    var curveOut=curveOutProbability(rows);
+    var stack=stackInteraction(rows);
+    var vel=velocity(rows);
+    var inev=inevitability(rows);
+    var recovery=recoveryTimePostWrath(rows);
+    var tempo=tempoLoss(rows);
+    var mustAns=mustAnswerThreats(rows);
+    var antiMeta=antiMetaPositioning(rows,deck);
+    var orphans=synergyOrphans(rows,deck);
+    var manaProd=manaProductionCurve(rows);
+    var combat=combatMath(rows,deck);
+    var killScope=threatsKillableScope(rows);
+    var edhrec=edhrecInclusion(rows,deck);
     var report={
       winCons:winCons,
       redundancy:redundancy,
@@ -1745,8 +2224,25 @@ window.mlAnaPro = (function(){
       curve:curve,
       removalCoverage:removalCov,
       landUpgrades:landUpg,
+      castability:castability,
+      cardAdvantage:cardAdv,
+      curveOut:curveOut,
+      stackInteraction:stack,
+      velocity:vel,
+      inevitability:inev,
+      recovery:recovery,
+      tempoLoss:tempo,
+      mustAnswerThreats:mustAns,
+      antiMeta:antiMeta,
+      synergyOrphans:orphans,
+      manaProduction:manaProd,
+      combatMath:combat,
+      threatsKillableScope:killScope,
+      edhrecInclusion:edhrec,
       timestamp:Date.now()
     };
+    // Build 94 : narrative est calculée APRÈS car elle synthétise tout
+    report.narrative=coachNarrative(report);
     // Coach mode : top 5 fixes prioritaires
     report.coach=coachTopFixes(report);
     return report;
@@ -2208,6 +2704,126 @@ window.mlAnaPro = (function(){
       });
       h+='</div>';
     }
+    // ─ Coach narratif (build 94) ─
+    if(report.narrative){
+      h+='<div class="anapro-card" style="background:linear-gradient(135deg,rgba(126,200,106,.08),rgba(126,200,106,.02));border-color:rgba(126,200,106,.42)">';
+      h+='<div class="anapro-cat" style="color:#9ddf8c">📝 Synthèse coach (1 paragraphe)</div>';
+      h+='<div style="font-size:.96rem;color:var(--tx);line-height:1.7">'+report.narrative+'</div>';
+      h+='</div>';
+    }
+    // ─ Pro Insights grille (build 94) — 15 axes pro condensés ─
+    h+='<div class="anapro-card">';
+    h+='<div class="anapro-cat">🎓 Pro Insights — analyse niveau coach</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">';
+    var insights=[];
+    // Castability
+    if(report.castability&&report.castability.checked){
+      var probs=report.castability.problems;
+      insights.push({title:'🎯 Castability',value:probs.length?probs.length+' problèmes':'OK',
+        col:probs.length===0?'#9ddf8c':probs.length<=3?'#f0c84a':'#e8847b',
+        sub:probs.length?probs.slice(0,2).map(function(p){return _esc(p.name)+' '+p.prob+'%';}).join(' · '):'Toutes castables'});
+    }
+    // Card advantage
+    if(report.cardAdvantage){
+      var ca=report.cardAdvantage;
+      insights.push({title:'📚 Card advantage',value:ca.caScore+' pts',
+        col:ca.caScore>=30?'#9ddf8c':ca.caScore>=18?'#f0c84a':'#e8847b',
+        sub:ca.engines+' engines · '+ca.cantrips+' cantrips · '+ca.twoForOne+' 2-for-1'});
+    }
+    // Curve out
+    if(report.curveOut&&report.curveOut.checked){
+      var co=report.curveOut;
+      insights.push({title:'📈 Curve-out parfait',value:co.perfectPct+'%',
+        col:co.perfectPct>=30?'#9ddf8c':co.perfectPct>=15?'#f0c84a':'#e8847b',
+        sub:'Decent : '+co.decentPct+'% · sim 5k mains'});
+    }
+    // Stack
+    if(report.stackInteraction){
+      var si=report.stackInteraction;
+      insights.push({title:'⚡ Stack interaction',value:si.instantPct+'%',
+        col:si.instantPct>=35?'#9ddf8c':si.instantPct>=20?'#f0c84a':'#e8847b',
+        sub:si.instantSpeed+' instant · '+si.sorcerySpeed+' sorcery'});
+    }
+    // Velocity
+    if(report.velocity){
+      var v=report.velocity;
+      insights.push({title:'🚀 Velocity',value:v.velocity+'/tour',
+        col:parseFloat(v.velocity)>=2?'#9ddf8c':parseFloat(v.velocity)>=1.4?'#f0c84a':'#e8847b',
+        sub:v.cantrips+' cantrips · '+v.scry+' scry · '+v.tutors+' tutors'});
+    }
+    // Inevitability
+    if(report.inevitability){
+      insights.push({title:'⏳ Inevitability',value:report.inevitability.count?report.inevitability.count+' cartes':'❌',
+        col:report.inevitability.count>=2?'#9ddf8c':report.inevitability.count>=1?'#f0c84a':'#e8847b',
+        sub:report.inevitability.cards.slice(0,2).join(' / ')||'aucune'});
+    }
+    // Recovery
+    if(report.recovery){
+      insights.push({title:'🔄 Recovery T post-wrath',value:'T'+report.recovery.earliestRebuild,
+        col:report.recovery.earliestRebuild<=2?'#9ddf8c':report.recovery.earliestRebuild<=4?'#f0c84a':'#e8847b',
+        sub:report.recovery.recurEffects+' effets de recursion'});
+    }
+    // Tempo loss
+    if(report.tempoLoss){
+      insights.push({title:'⏱ Tempo loss',value:report.tempoLoss.count+' setup',
+        col:report.tempoLoss.count<=3?'#9ddf8c':report.tempoLoss.count<=6?'#f0c84a':'#e8847b',
+        sub:report.tempoLoss.cards.slice(0,2).join(' · ')||'aucune'});
+    }
+    // Must-answer
+    if(report.mustAnswerThreats){
+      var ma=report.mustAnswerThreats;
+      insights.push({title:'⚠ Must-answer threats',value:ma.count,
+        col:ma.count>=3?'#9ddf8c':ma.count>=1?'#f0c84a':'#e8847b',
+        sub:ma.cards.slice(0,2).join(' · ')||'aucune'});
+    }
+    // Anti-meta
+    if(report.antiMeta){
+      insights.push({title:'🛡 Anti-meta coverage',value:report.antiMeta.coverage+'%',
+        col:report.antiMeta.coverage>=60?'#9ddf8c':report.antiMeta.coverage>=35?'#f0c84a':'#e8847b',
+        sub:report.antiMeta.removalCanHit+' removal universels'});
+    }
+    // Orphans
+    if(report.synergyOrphans){
+      insights.push({title:'👻 Synergy orphans',value:report.synergyOrphans.count,
+        col:report.synergyOrphans.count===0?'#9ddf8c':report.synergyOrphans.count<=3?'#f0c84a':'#e8847b',
+        sub:report.synergyOrphans.orphans.slice(0,2).join(' · ')||'aucune'});
+    }
+    // Mana production
+    if(report.manaProduction){
+      var mp=report.manaProduction;
+      insights.push({title:'⚡ Mana T4 max',value:mp.productionByTurn[4]+' mana',
+        col:mp.productionByTurn[4]>=5?'#9ddf8c':mp.productionByTurn[4]>=4?'#f0c84a':'#e8847b',
+        sub:mp.ramp1+' ramp 1-CMC · '+mp.ramp2+' ramp 2-CMC'});
+    }
+    // Combat
+    if(report.combatMath&&report.combatMath.avgAttackerPower){
+      var cm=report.combatMath;
+      insights.push({title:'⚔ Combat math',value:cm.avgAttackerPower+' avg',
+        col:parseFloat(cm.avgAttackerPower)>=cm.typicalBlocker?'#9ddf8c':'#f0c84a',
+        sub:'vs blockeur '+cm.typicalBlocker+' (format '+(report.bracket?'Cmd':'?')+')'});
+    }
+    // Threats killable scope
+    if(report.threatsKillableScope){
+      var tk=report.threatsKillableScope;
+      insights.push({title:'🎯 Removal universel',value:tk.universalPct+'%',
+        col:tk.universalPct>=30?'#9ddf8c':tk.universalPct>=15?'#f0c84a':'#e8847b',
+        sub:tk.universal+' universal · '+tk.creatureOnly+' creature-only'});
+    }
+    // EDHrec inclusion
+    if(report.edhrecInclusion){
+      var er=report.edhrecInclusion;
+      insights.push({title:'🌐 Densité staples',value:er.density+'%',
+        col:er.density<=15?'#9ddf8c':er.density<=25?'#f0c84a':'#e8847b',
+        sub:er.stapleCount+'/'+er.uniqueCards+' staples'});
+    }
+    insights.forEach(function(ins){
+      h+='<div style="padding:10px 13px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.22);border-left:3px solid '+ins.col+';border-radius:8px">';
+      h+='<div style="font-size:.66rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700;margin-bottom:4px">'+_esc(ins.title)+'</div>';
+      h+='<div style="font-size:1.15rem;font-weight:700;color:'+ins.col+';font-family:var(--ff-mono,monospace);margin-bottom:2px">'+_esc(ins.value)+'</div>';
+      h+='<div style="font-size:.7rem;color:var(--tx3);line-height:1.35">'+_esc(ins.sub)+'</div>';
+      h+='</div>';
+    });
+    h+='</div></div>';
     // ─ Removal coverage matrix (build 92) ─
     if(report.removalCoverage){
       var rc=report.removalCoverage;
@@ -2253,6 +2869,23 @@ window.mlAnaPro = (function(){
     curveSmoothness:curveSmoothness,
     removalCoverage:removalCoverage,
     landUpgrades:landUpgrades,
+    castabilityByCMC:castabilityByCMC,
+    cardAdvantageNet:cardAdvantageNet,
+    curveOutProbability:curveOutProbability,
+    stackInteraction:stackInteraction,
+    velocity:velocity,
+    inevitability:inevitability,
+    recoveryTimePostWrath:recoveryTimePostWrath,
+    tempoLoss:tempoLoss,
+    mustAnswerThreats:mustAnswerThreats,
+    antiMetaPositioning:antiMetaPositioning,
+    synergyOrphans:synergyOrphans,
+    manaProductionCurve:manaProductionCurve,
+    combatMath:combatMath,
+    threatsKillableScope:threatsKillableScope,
+    edhrecInclusion:edhrecInclusion,
+    coachNarrative:coachNarrative,
+    compareReports:compareReports,
     coachTopFixes:coachTopFixes,
     analyzeCached:analyzeCached,
     analyze:analyze,
