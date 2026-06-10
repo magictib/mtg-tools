@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-10-87';
+window.APP_BUILD='2026-06-10-88';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -289,6 +289,7 @@ window.mlTrack=function(event,props){
 <script src="js/mledhrec.js"></script>
 <script src="js/mlmatch.js" defer></script>
 <script src="js/mlonboarding.js" defer></script>
+<script src="js/mlanapro.js"></script>
 <!-- Firebase compat (expose firebase.* global) -->
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
@@ -3152,6 +3153,14 @@ details > summary::-webkit-details-marker{display:none}
 .ml-trophy .t-bar > div{height:100%;background:var(--gold2);border-radius:3px}
 .ml-trophy .t-prog{font-size:.66rem;color:var(--tx3);margin-top:2px}
 /* ===== COMPOSANTS UNIFIÉS : états vides, chargement, skeleton ===== */
+/* ─── BUILD 87 : Analyse Pro (mlAnaPro) — cartes diagnostic complet ──── */
+.anapro-card{background:linear-gradient(180deg,#1f2638,#161c28);border:1px solid rgba(74,160,232,.28);border-radius:11px;padding:13px 16px;box-shadow:0 3px 14px rgba(0,0,0,.35)}
+.anapro-cat{font-family:var(--ff-head);font-size:.66rem;color:#7ec0f0;letter-spacing:.12em;text-transform:uppercase;font-weight:700;margin-bottom:8px}
+.anapro-tag{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(74,160,232,.10);border:.5px solid rgba(74,160,232,.32);border-radius:99px;font-size:.74rem;color:var(--tx2)}
+.anapro-tag b{color:#7ec0f0;font-family:var(--ff-mono,monospace)}
+.anapro-launch-btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:13px 18px;background:linear-gradient(135deg,#4aa0e8,#3a86d0);border:1px solid #5ab0f0;color:#fff;font-family:var(--ff-head);font-size:.92rem;font-weight:700;letter-spacing:.02em;border-radius:11px;cursor:pointer;transition:all .15s;box-shadow:0 4px 16px rgba(74,160,232,.28),0 0 22px rgba(74,160,232,.18)}
+.anapro-launch-btn:hover{transform:translateY(-2px);box-shadow:0 6px 22px rgba(74,160,232,.42),0 0 28px rgba(74,160,232,.28)}
+.anapro-launch-btn:active{transform:translateY(0)}
 /* Build 85 : empty states avec plus de présence — bordure cyan dashed + glow ambient */
 .ml-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:48px 24px;text-align:center;background:linear-gradient(180deg,rgba(74,160,232,.04),transparent);border:1.5px dashed rgba(74,160,232,.28);border-radius:14px;position:relative;overflow:hidden}
 .ml-empty::before{content:'';position:absolute;top:-30%;left:50%;transform:translateX(-50%);width:140%;height:80%;background:radial-gradient(ellipse,rgba(74,160,232,.06),transparent 65%);pointer-events:none}
@@ -4797,6 +4806,13 @@ details > summary::-webkit-details-marker{display:none}
     </div>
     <div style="margin-top:10px;padding-top:10px;border-top:.5px solid var(--bd)">
       <button class="btn btnsm" onclick="anaTempDeckOpen()" title="Analyser un deck via URL Moxfield ou liste collée, sans le sauvegarder" style="width:100%;padding:9px;background:linear-gradient(180deg,rgba(74,160,232,.12),rgba(74,160,232,.03));border:1px solid #4aa0e8;color:#7eb3d9;font-weight:600">🔬 Analyser un deck temporaire (URL ou liste) — sans sauvegarder</button>
+    </div>
+    <!-- Build 87 : Analyse Pro — diagnostic complet (win cons, manabase, bracket, combos, anti-synergies) -->
+    <div style="margin-top:10px;padding-top:10px;border-top:.5px solid var(--bd)">
+      <button class="anapro-launch-btn" onclick="anaRunPro()" title="Lance un diagnostic complet : plans de victoire, manabase par couleur, bracket EDH, combos détectés, anti-synergies">
+        <span style="font-size:1.2rem">🔬</span> Analyse Pro — Diagnostic complet
+      </button>
+      <div id="anapro-report" style="margin-top:12px"></div>
     </div>
     <div id="ana-dashboard-wrap" style="display:none;margin-top:10px;padding:10px;background:rgba(0,0,0,.25);border-radius:8px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -44113,6 +44129,48 @@ function anaClearCache(){
   var st=document.getElementById('ana-status');if(st)st.textContent='Cache vidé.';
   document.getElementById('ana-results').style.display='none';
   var _anaCS=document.getElementById('ana-card-search-sec');if(_anaCS)_anaCS.style.display='none';
+}
+
+// Build 87 : Analyse Pro — lance le diagnostic mlAnaPro sur le deck actuel
+function anaRunPro(){
+  var target=document.getElementById('anapro-report');
+  if(!target)return;
+  if(typeof mlAnaPro==='undefined'){
+    target.innerHTML='<div style="color:var(--rd2);font-size:.82rem;padding:10px">Module mlAnaPro non chargé. Recharge la page.</div>';
+    return;
+  }
+  // Récupère le deck depuis _anaState (analyse en cours) ou le selecteur
+  var sel=document.getElementById('ana-deck-sel');
+  var deckId=sel&&sel.value;
+  if(!deckId||!decks[deckId]){
+    target.innerHTML='<div style="color:var(--am);font-size:.86rem;padding:14px;background:rgba(240,200,74,.08);border:.5px solid rgba(240,200,74,.4);border-radius:8px">⚠ Sélectionne d\'abord un deck dans la liste ci-dessus, puis clique sur ⚡ Analyser.</div>';
+    return;
+  }
+  var deck=decks[deckId];
+  // Si _anaState à jour, on utilise ses rows enrichis
+  var rows=null;
+  if(_anaState&&_anaState.deck===deck&&Array.isArray(_anaState.rows)){
+    rows=_anaState.rows;
+  }else{
+    // Fallback : construit des rows minimaux depuis dCardMeta
+    rows=(deck.cards||[]).map(function(c){
+      var nl=c.nl||(c.name||'').toLowerCase();
+      var meta=(typeof dCardMeta!=='undefined')?dCardMeta[nl]:null;
+      return {card:c,name:c.name,nl:nl,qty:c.qty||1,meta:meta||{}};
+    });
+  }
+  target.innerHTML='<div style="padding:18px;text-align:center;color:var(--tx3);font-style:italic">🔬 Calcul du diagnostic…</div>';
+  // Async pour ne pas bloquer le rendu
+  setTimeout(function(){
+    try{
+      var report=mlAnaPro.analyze(deck,rows);
+      target.innerHTML=mlAnaPro.render(report);
+      try{if(typeof mlTrack==='function')mlTrack('Ana Pro Run',{format:deck.format||'?'});}catch(_){}
+    }catch(e){
+      console.warn('[anaRunPro]',e);
+      target.innerHTML='<div style="color:var(--rd2);font-size:.82rem;padding:10px">Erreur lors du calcul du diagnostic : '+esc(e.message||'inconnue')+'</div>';
+    }
+  },80);
 }
 
 function anaInit(){
