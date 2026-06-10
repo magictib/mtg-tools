@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-10-91';
+window.APP_BUILD='2026-06-10-92';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -44163,7 +44163,11 @@ function anaRunPro(){
   // Async pour ne pas bloquer le rendu
   setTimeout(function(){
     try{
-      var report=mlAnaPro.analyze(deck,rows);
+      // Build 92 : utilise le cache localStorage (TTL 1h)
+      var fn=mlAnaPro.analyzeCached||mlAnaPro.analyze;
+      var report=fn(deck,rows);
+      window._lastAnaProReport=report;
+      window._lastAnaProDeck=deck;
       target.innerHTML=mlAnaPro.render(report);
       try{if(typeof mlTrack==='function')mlTrack('Ana Pro Run',{format:deck.format||'?'});}catch(_){}
     }catch(e){
@@ -44171,6 +44175,34 @@ function anaRunPro(){
       target.innerHTML='<div style="color:var(--rd2);font-size:.82rem;padding:10px">Erreur lors du calcul du diagnostic : '+esc(e.message||'inconnue')+'</div>';
     }
   },80);
+}
+// Build 92 : Export PDF du rapport Analyse Pro via html2canvas (déjà chargé)
+function anaProExportPdf(){
+  var node=document.getElementById('anapro-report');
+  if(!node){toastError&&toastError('Lance d\'abord l\'analyse');return;}
+  if(typeof html2canvas==='undefined'){
+    // Lazy-load html2canvas si pas dispo
+    if(typeof toast==='function')toast('⏳ Chargement du module de capture…');
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    s.onload=function(){anaProExportPdf();};
+    document.head.appendChild(s);
+    return;
+  }
+  var deckName=(window._lastAnaProDeck&&window._lastAnaProDeck.name)||'deck';
+  html2canvas(node,{backgroundColor:'#0d1218',scale:2,useCORS:true,logging:false}).then(function(canvas){
+    canvas.toBlob(function(blob){
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');a.href=url;
+      a.download='analyse-pro-'+deckName.replace(/\s+/g,'_').toLowerCase()+'-'+new Date().toISOString().slice(0,10)+'.png';
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(function(){URL.revokeObjectURL(url);},1500);
+      if(typeof toast==='function')toast('✓ Rapport exporté');
+    });
+  }).catch(function(e){
+    console.warn('[anaProExportPdf]',e);
+    if(typeof toastError==='function')toastError('Export échoué : '+(e.message||'erreur'));
+  });
 }
 
 function anaInit(){

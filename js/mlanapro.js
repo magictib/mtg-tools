@@ -1150,7 +1150,315 @@ window.mlAnaPro = (function(){
     return {byRole:byRole};
   }
 
-  // ─── 11. RAPPORT GLOBAL ────────────────────────────────────────────────
+  // ─── 11. REDONDANCE WINCONS (build 92) ─────────────────────────────────
+  // Un deck pro a plusieurs plans : si le Plan A est démantelé (counter,
+  // exile du wincon), un Plan B doit prendre le relais. Compte les plans
+  // « viables » (score ≥ 35) — détecte les decks mono-plan fragiles.
+  function winconRedundancy(winConsReport){
+    var plans=winConsReport&&winConsReport.plans||[];
+    var viable=plans.filter(function(p){return p.score>=35;});
+    var redundancy={count:viable.length,plans:viable.map(function(p){return p.kind;})};
+    if(viable.length===0){
+      redundancy.sev='high';redundancy.label='Mono-plan / sans plan';
+      redundancy.msg='Aucun plan de victoire viable. Le deck est vulnérable à n\'importe quelle perturbation.';
+    }else if(viable.length===1){
+      redundancy.sev='high';redundancy.label='Mono-plan';
+      redundancy.msg='Un seul plan de victoire détecté ('+viable[0].label+'). Si on l\'enraye, tu n\'as pas de plan B.';
+    }else if(viable.length===2){
+      redundancy.sev='med';redundancy.label='Bi-plan';
+      redundancy.msg='Deux plans détectés ('+viable.map(function(p){return p.label;}).join(' + ')+'). Bonne base, mais un 3e plan donnerait de la résilience.';
+    }else{
+      redundancy.sev='good';redundancy.label='Multi-plan';
+      redundancy.msg=viable.length+' plans détectés — deck résilient face aux contre-mesures.';
+    }
+    return redundancy;
+  }
+
+  // ─── 12. MULLIGAN PROBABILITY (build 92) ───────────────────────────────
+  // Simule 10 000 mains de départ et calcule le % de mains keepables selon
+  // critères classiques : 2-5 lands + au moins 1 jouable T1-T3.
+  // Déterministe (PRNG seedé) pour reproductibilité.
+  function _seededShuffle(arr,seed){
+    var a=arr.slice();
+    // Mulberry32 PRNG
+    var s=seed>>>0;
+    function rnd(){s|=0;s=s+0x6D2B79F5|0;var t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296;}
+    for(var i=a.length-1;i>0;i--){var j=Math.floor(rnd()*(i+1));var tmp=a[i];a[i]=a[j];a[j]=tmp;}
+    return a;
+  }
+  function mulliganProbability(rows,deck){
+    // Construit la pioche
+    var library=[];
+    rows.forEach(function(r){
+      var qty=r.qty||1;
+      var m=r.meta||{};
+      var tl=(m.typeLine||'').toLowerCase();
+      var ot=(m.oracleText||'').toLowerCase();
+      var cmc=typeof m.cmc==='number'?m.cmc:0;
+      var role=_detectCardRole(m);
+      var isLand=/land/.test(tl);
+      var isRamp=role==='ramp'&&cmc<=2;
+      var isEarlyAction=(/creature|instant|sorcery/.test(tl))&&cmc<=3;
+      for(var i=0;i<qty;i++){
+        library.push({isLand:isLand,isRamp:isRamp,isEarlyAction:isEarlyAction,cmc:cmc});
+      }
+    });
+    if(library.length<7)return {checked:false};
+    var keepableCount=0,handsTested=10000;
+    var avgLands=0,avgRamp=0,avgAction=0,manaFloodCount=0,manaScrewCount=0;
+    for(var sim=0;sim<handsTested;sim++){
+      var shuf=_seededShuffle(library,sim+1);
+      var hand=shuf.slice(0,7);
+      var lands=0,ramp=0,action=0;
+      hand.forEach(function(c){
+        if(c.isLand)lands++;
+        if(c.isRamp)ramp++;
+        if(c.isEarlyAction)action++;
+      });
+      avgLands+=lands;avgRamp+=ramp;avgAction+=action;
+      if(lands<=1)manaScrewCount++;
+      if(lands>=6)manaFloodCount++;
+      var keepable=(lands>=2&&lands<=5)&&(ramp>=1||action>=1);
+      if(keepable)keepableCount++;
+    }
+    return {
+      checked:true,
+      keepablePct:Math.round(keepableCount/handsTested*100),
+      avgLands:(avgLands/handsTested).toFixed(2),
+      avgRamp:(avgRamp/handsTested).toFixed(2),
+      avgAction:(avgAction/handsTested).toFixed(2),
+      manaScrewPct:Math.round(manaScrewCount/handsTested*100),
+      manaFloodPct:Math.round(manaFloodCount/handsTested*100),
+      verdict:keepableCount/handsTested>=0.85?'✓ Mains d\'ouverture solides':keepableCount/handsTested>=0.70?'~ Mulligan occasionnel':'⚠ Mulligan fréquent — courbe à revoir'
+    };
+  }
+
+  // ─── 13. THREAT DENSITY PAR TOUR (build 92) ────────────────────────────
+  // Pour chaque tour 1-7, liste les cartes jouables (cmc ≤ tour) classées
+  // en threat / engine / setup. Identifie les tours « vides » (rien à faire).
+  function threatDensityByTurn(rows){
+    var buckets={1:[],2:[],3:[],4:[],5:[],6:[],7:[]};
+    var counts={1:{threat:0,engine:0,setup:0},2:{threat:0,engine:0,setup:0},
+                3:{threat:0,engine:0,setup:0},4:{threat:0,engine:0,setup:0},
+                5:{threat:0,engine:0,setup:0},6:{threat:0,engine:0,setup:0},
+                7:{threat:0,engine:0,setup:0}};
+    rows.forEach(function(r){
+      var m=r.meta||{};
+      var tl=(m.typeLine||'').toLowerCase();
+      var ot=(m.oracleText||'').toLowerCase();
+      var cmc=typeof m.cmc==='number'?m.cmc:0;
+      if(/land/.test(tl))return; // lands gérés ailleurs
+      var qty=r.qty||1;
+      var kind='setup';
+      // Threat = creature 2+ power OR planeswalker OR direct damage OR finisher
+      if(/creature/.test(tl)){
+        var p=parseInt(m.power||'0',10)||0;
+        if(p>=2||cmc>=4)kind='threat';
+      }
+      if(/planeswalker/.test(tl))kind='threat';
+      if(/deals? \d+ damage to (any target|target player|target opponent)/.test(ot))kind='threat';
+      // Engine = repeated value : "whenever you draw", "at the beginning of", "each upkeep"
+      if(/whenever you draw|at the beginning of (each|your) (upkeep|end step|draw step)|at the beginning of (each|your) main phase|each turn/.test(ot))kind='engine';
+      if(/draw (a|two) cards?/.test(ot)&&!/discard/.test(ot))kind='engine';
+      // Setup par défaut (ramp / removal / tutor / interaction)
+      // Bucket le tour minimum où la carte peut être jouée
+      var turn=Math.max(1,Math.min(7,cmc||1));
+      for(var t=turn;t<=7;t++){
+        // Ne compte chaque carte qu'une fois par tour (à son tour minimum)
+        if(t===turn){buckets[t].push({name:r.card&&r.card.name||r.name,kind:kind,cmc:cmc,qty:qty});}
+      }
+      counts[turn][kind]+=qty;
+    });
+    // Identifie les tours « secs » (< 3 cartes totales jouables ce tour)
+    var dryTurns=[];
+    [1,2,3,4,5,6,7].forEach(function(t){
+      var total=counts[t].threat+counts[t].engine+counts[t].setup;
+      if(total<3)dryTurns.push(t);
+    });
+    return {counts:counts,buckets:buckets,dryTurns:dryTurns,verdict:dryTurns.length===0?'✓ Couverture continue T1→T7':dryTurns.length<=2?'~ '+dryTurns.length+' tour(s) faible(s) (T'+dryTurns.join(', T')+')':'⚠ '+dryTurns.length+' tours vides — courbe trouée'};
+  }
+
+  // ─── 14. LISSAGE DE COURBE (build 92) ──────────────────────────────────
+  // Compare la distribution CMC actuelle à la courbe idéale par archétype.
+  // Identifie gaps (pas assez de 2-drops) et humps (trop de 4-drops).
+  var IDEAL_CURVE = {
+    // Archétype : {cmc: targetCount sur ~60 non-lands en EDH}
+    'aggro':       {0:0,1:8,2:14,3:12,4:8,5:5,6:3,7:0},
+    'midrange':    {0:0,1:5,2:10,3:12,4:10,5:7,6:5,7:3},
+    'control':     {0:0,1:4,2:10,3:9,4:8,5:8,6:6,7:5},
+    'combo':       {0:0,1:6,2:12,3:10,4:8,5:6,6:4,7:2},
+    'ramp':        {0:0,1:4,2:8,3:8,4:8,5:7,6:7,7:5},
+    'voltron':     {0:0,1:6,2:10,3:10,4:8,5:6,6:4,7:2},
+    'default':     {0:0,1:5,2:11,3:11,4:9,5:6,6:5,7:3}
+  };
+  function curveSmoothness(rows,deck,winConsReport){
+    var actual={0:0,1:0,2:0,3:0,4:0,5:0,6:0,7:0};
+    rows.forEach(function(r){
+      var m=r.meta||{};
+      var tl=(m.typeLine||'').toLowerCase();
+      if(/land/.test(tl))return;
+      var cmc=typeof m.cmc==='number'?Math.min(7,Math.max(0,Math.floor(m.cmc))):0;
+      actual[cmc]=(actual[cmc]||0)+(r.qty||1);
+    });
+    // Archétype : à partir du plan primaire
+    var arch='default';
+    if(winConsReport&&winConsReport.primary){
+      var pk=winConsReport.primary.kind;
+      if(pk==='combat')arch='aggro';
+      else if(pk==='voltron')arch='voltron';
+      else if(pk==='control')arch='control';
+      else if(pk==='alt-win'||pk==='combo')arch='combo';
+      else if(pk==='tokens'||pk==='drain')arch='midrange';
+      else if(pk==='mill')arch='control';
+    }
+    var ideal=IDEAL_CURVE[arch]||IDEAL_CURVE['default'];
+    var gaps=[],humps=[];
+    Object.keys(ideal).forEach(function(k){
+      var c=parseInt(k,10);
+      var diff=actual[c]-ideal[k];
+      if(diff<=-3)gaps.push({cmc:c,have:actual[c],want:ideal[k]});
+      else if(diff>=4)humps.push({cmc:c,have:actual[c],want:ideal[k]});
+    });
+    return {actual:actual,ideal:ideal,archetype:arch,gaps:gaps,humps:humps,
+      verdict:gaps.length===0&&humps.length<=1?'✓ Courbe équilibrée pour ce plan':'⚠ '+(gaps.length+humps.length)+' anomalie(s) vs idéal '+arch};
+  }
+
+  // ─── 15. REMOVAL COVERAGE MATRIX (build 92) ────────────────────────────
+  // Évalue ce que tes removals peuvent toucher : creature / artifact /
+  // enchant / planeswalker / land / graveyard. Détecte angles morts.
+  function removalCoverage(rows){
+    var coverage={
+      creature:{count:0,cards:[]},
+      artifact:{count:0,cards:[]},
+      enchantment:{count:0,cards:[]},
+      planeswalker:{count:0,cards:[]},
+      land:{count:0,cards:[]},
+      graveyard:{count:0,cards:[]},
+      counter:{count:0,cards:[]},
+      bounce:{count:0,cards:[]}
+    };
+    rows.forEach(function(r){
+      var m=r.meta||{};
+      var ot=(m.oracleText||'').toLowerCase();
+      var name=r.card&&r.card.name||r.name;
+      // Removal cible créature
+      if(/destroy target creature|exile target creature|target creature.*-x\/-x|return target creature/.test(ot)){
+        coverage.creature.count++;coverage.creature.cards.push(name);
+      }
+      // Artifact
+      if(/destroy target artifact|exile target artifact|destroy target (artifact|enchantment)/.test(ot)){
+        coverage.artifact.count++;coverage.artifact.cards.push(name);
+      }
+      // Enchantment
+      if(/destroy target enchantment|exile target enchantment|destroy target (artifact|enchantment)|destroy target nonland permanent/.test(ot)){
+        coverage.enchantment.count++;coverage.enchantment.cards.push(name);
+      }
+      // Planeswalker
+      if(/destroy target planeswalker|exile target planeswalker|destroy target nonland permanent|deals \d+ damage to any target/.test(ot)){
+        coverage.planeswalker.count++;coverage.planeswalker.cards.push(name);
+      }
+      // Land destruction
+      if(/destroy target land|exile target land|destroy all lands|target land.* doesn't untap/.test(ot)){
+        coverage.land.count++;coverage.land.cards.push(name);
+      }
+      // Graveyard hate
+      if(/exile target.*graveyard|exile.*graveyards|all cards in.*graveyard.*exile|each player.*graveyard.*exile/.test(ot)){
+        coverage.graveyard.count++;coverage.graveyard.cards.push(name);
+      }
+      // Counter
+      if(/counter target spell|counter target (creature|noncreature)/.test(ot)){
+        coverage.counter.count++;coverage.counter.cards.push(name);
+      }
+      // Bounce (return to hand)
+      if(/return target.* to (its owner's|owner's) hand|return target nonland permanent/.test(ot)){
+        coverage.bounce.count++;coverage.bounce.cards.push(name);
+      }
+    });
+    var blindSpots=[];
+    Object.keys(coverage).forEach(function(k){
+      var min={creature:5,artifact:2,enchantment:2,planeswalker:2,land:0,graveyard:1,counter:0,bounce:0}[k]||0;
+      if(coverage[k].count<min)blindSpots.push({type:k,have:coverage[k].count,need:min});
+    });
+    return {
+      coverage:coverage,
+      blindSpots:blindSpots,
+      verdict:blindSpots.length===0?'✓ Pas d\'angle mort détecté':blindSpots.length+' angle(s) mort(s) — couverture incomplète'
+    };
+  }
+
+  // ─── 16. COACH MODE — TOP 5 FIXES PRIORISÉS (build 92) ─────────────────
+  // Synthèse actionnable : sur la base de toutes les analyses, sort les 5
+  // changements les plus prioritaires. Évite la surcharge cognitive du rapport
+  // complet et donne une vraie roadmap d'optimisation.
+  function coachTopFixes(report){
+    var fixes=[];
+    // Priorité 1 : légalité (cartes bannies = critique)
+    if(report.legality&&report.legality.issues.length){
+      report.legality.issues.filter(function(i){return i.sev==='high';}).slice(0,3).forEach(function(i){
+        fixes.push({sev:'critical',category:'Légalité',title:'Retirer '+i.card,reason:i.msg,impact:50});
+      });
+    }
+    // Priorité 2 : mono-plan
+    if(report.winCons&&report.winCons.plans.length===0){
+      fixes.push({sev:'critical',category:'Plan A',title:'Définir un plan de victoire',reason:'Aucun plan ne dépasse le seuil — le deck n\'a pas d\'objectif clair',impact:60});
+    }else if(report.winCons&&report.winCons.plans.filter(function(p){return p.score>=35;}).length===1){
+      fixes.push({sev:'high',category:'Redondance',title:'Ajouter un Plan B',reason:'Un seul plan viable — si le main plan est démantelé, plus de win',impact:35});
+    }
+    // Priorité 3 : manabase déséquilibrée
+    if(report.manabase&&report.manabase.deficits.length){
+      var worst=report.manabase.deficits.slice().sort(function(a,b){return b.deficit-a.deficit;})[0];
+      if(worst&&worst.deficit>=3){
+        fixes.push({sev:'high',category:'Manabase',title:'Ajouter '+worst.deficit+' sources '+worst.color,
+          reason:'Manque '+worst.deficit+' sources de '+worst.color+' selon Karsten (cible '+worst.need+')',impact:40});
+      }
+    }
+    // Priorité 4 : anti-synergies high severity
+    if(report.antiSynergies&&report.antiSynergies.issues.length){
+      report.antiSynergies.issues.filter(function(i){return i.sev==='high';}).slice(0,2).forEach(function(i){
+        fixes.push({sev:'high',category:'Synergie',title:i.msg.split('→')[0].trim(),reason:i.msg,impact:30});
+      });
+    }
+    // Priorité 5 : robustesse faible
+    if(report.robustness&&report.robustness.score<45){
+      var worstAxis=null,worstScore=100;
+      ['wrathRecovery','comboInteraction','staxBreaker'].forEach(function(k){
+        if(report.robustness[k]&&report.robustness[k].score<worstScore){worstScore=report.robustness[k].score;worstAxis=k;}
+      });
+      var axisLbl={wrathRecovery:'recovery wrath (récursion + threats cheap)',comboInteraction:'interaction instant-speed (counters + flash removal)',staxBreaker:'casseurs de stax (mass removal + protection)'};
+      fixes.push({sev:'med',category:'Robustesse',title:'Renforcer '+(axisLbl[worstAxis]||worstAxis),reason:'Score '+worstScore+'/100 — deck fragile sur cet axe',impact:25});
+    }
+    // Priorité 6 : angles morts removal
+    if(report.removalCoverage&&report.removalCoverage.blindSpots.length){
+      report.removalCoverage.blindSpots.slice(0,2).forEach(function(b){
+        var lbl={creature:'créatures',artifact:'artefacts',enchantment:'enchantements',planeswalker:'planeswalkers',graveyard:'cimetière (hate)'}[b.type]||b.type;
+        fixes.push({sev:'med',category:'Removal',title:'Ajouter du removal anti-'+lbl,reason:'Seulement '+b.have+' carte(s) pour gérer cette catégorie (cible '+b.need+')',impact:22});
+      });
+    }
+    // Priorité 7 : meilleurs swaps efficiency
+    if(report.efficiency&&report.efficiency.byRole){
+      Object.keys(report.efficiency.byRole).forEach(function(role){
+        var data=report.efficiency.byRole[role];
+        if(data.overcost&&data.overcost.length){
+          var topSwap=data.overcost.filter(function(c){return c.suggestedSwap;}).slice(0,1)[0];
+          if(topSwap){
+            var gain=topSwap.suggestedSwap.impact-topSwap.impact;
+            fixes.push({sev:'low',category:'Efficience',
+              title:topSwap.name+' → '+topSwap.suggestedSwap.name.replace(/\b./g,function(c){return c.toUpperCase();}),
+              reason:'Gain impact +'+gain.toFixed(0)+' · cmc '+topSwap.cmc+' → '+topSwap.suggestedSwap.cmc,impact:Math.max(10,gain/2)});
+          }
+        }
+      });
+    }
+    // Trie par sévérité puis impact, garde top 5
+    var sevOrder={critical:0,high:1,med:2,low:3};
+    fixes.sort(function(a,b){
+      var s=sevOrder[a.sev]-sevOrder[b.sev];if(s!==0)return s;
+      return b.impact-a.impact;
+    });
+    return fixes.slice(0,5);
+  }
+
+  // ─── 17. RAPPORT GLOBAL ────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
     var winCons=detectWinCons(rows,deck);
@@ -1163,8 +1471,15 @@ window.mlAnaPro = (function(){
     var legality=legalityCheck(rows,deck);
     var swaps=suggestSwaps(rows,deck);
     var efficiency=manaEfficiency(rows,deck);
-    return {
+    // Build 92 : 5 nouveaux axes
+    var redundancy=winconRedundancy(winCons);
+    var mulligan=mulliganProbability(rows,deck);
+    var threats=threatDensityByTurn(rows);
+    var curve=curveSmoothness(rows,deck,winCons);
+    var removalCov=removalCoverage(rows);
+    var report={
       winCons:winCons,
+      redundancy:redundancy,
       manabase:mana,
       bracket:bracket,
       combos:combos,
@@ -1174,8 +1489,55 @@ window.mlAnaPro = (function(){
       legality:legality,
       swaps:swaps,
       efficiency:efficiency,
+      mulligan:mulligan,
+      threats:threats,
+      curve:curve,
+      removalCoverage:removalCov,
       timestamp:Date.now()
     };
+    // Coach mode : top 5 fixes prioritaires
+    report.coach=coachTopFixes(report);
+    return report;
+  }
+
+  // ─── 18. CACHE PAR DECK (build 92) ─────────────────────────────────────
+  // Évite de recalculer si rien n'a changé. Hash basé sur la liste de cartes
+  // + format + commandant. Persistant en localStorage.
+  function _deckHash(deck,rows){
+    var parts=[];
+    parts.push(deck.format||'?');
+    parts.push((deck.commander&&deck.commander.name)||'?');
+    rows.forEach(function(r){
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      parts.push(nl+':'+(r.qty||1));
+    });
+    parts.sort();
+    // Hash simple (FNV-1a)
+    var s=parts.join('|');
+    var h=2166136261;
+    for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}
+    return (h>>>0).toString(36);
+  }
+  function analyzeCached(deck,rows){
+    if(!deck||!Array.isArray(rows))return null;
+    var hash=_deckHash(deck,rows);
+    var cacheKey='mlapro_cache_'+(deck.id||hash);
+    try{
+      var raw=localStorage.getItem(cacheKey);
+      if(raw){
+        var cached=JSON.parse(raw);
+        if(cached.hash===hash&&Date.now()-cached.timestamp<3600000){
+          return cached.report;
+        }
+      }
+    }catch(_){}
+    var report=analyze(deck,rows);
+    if(report){
+      try{
+        localStorage.setItem(cacheKey,JSON.stringify({hash:hash,timestamp:Date.now(),report:report}));
+      }catch(_){}
+    }
+    return report;
   }
 
   // ─── 7. RENDU HTML ─────────────────────────────────────────────────────
@@ -1187,10 +1549,43 @@ window.mlAnaPro = (function(){
     // ─ Header global ─
     h+='<div style="background:linear-gradient(135deg,rgba(74,160,232,.14),rgba(74,160,232,.03));border:1px solid rgba(74,160,232,.42);border-radius:12px;padding:14px 18px">';
     h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
-    h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · Diagnostic complet</span>';
+    h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · 15 axes</span>';
+    h+='<span style="flex:1"></span>';
+    h+='<button onclick="if(typeof anaProExportPdf===\'function\')anaProExportPdf()" style="font-size:.72rem;padding:4px 10px;background:rgba(74,160,232,.14);border:.5px solid rgba(74,160,232,.4);border-radius:6px;color:#7ec0f0;cursor:pointer;font-family:inherit" title="Exporter le rapport en PDF">📄 PDF</button>';
     h+='</div>';
-    h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.5">Détection déterministe : win conditions, manabase WUBRG, bracket EDH, combos infinis, anti-synergies. Aucun LLM, résultats reproductibles.</div>';
+    h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.5">Diagnostic complet déterministe : plan A + Plan B / manabase / bracket / combos / anti-synergies / mulligan probability / threat density / lissage courbe / removal coverage. Aucun LLM, résultats reproductibles, cache localStorage.</div>';
     h+='</div>';
+    // ─ COACH MODE — top 5 fixes en tête (build 92) ─
+    if(report.coach&&report.coach.length){
+      h+='<div class="anapro-card" style="border:1.5px solid rgba(74,160,232,.55);background:linear-gradient(135deg,rgba(74,160,232,.10),rgba(74,160,232,.02))">';
+      h+='<div class="anapro-cat" style="color:#7ec0f0;font-size:.72rem">🎯 Coach mode — Top '+report.coach.length+' priorités</div>';
+      h+='<div style="font-size:.78rem;color:var(--tx2);margin-bottom:10px;line-height:1.5">Si tu ne fais qu\'<b>une chose</b> aujourd\'hui : commence par #1. Si tu fais cinq choses : suis l\'ordre. Chaque fix est priorisé par sévérité + impact attendu.</div>';
+      report.coach.forEach(function(fix,i){
+        var col={critical:'#e8847b',high:'#f09060',med:'#f0c84a',low:'#9ddf8c'}[fix.sev]||'#7ec0f0';
+        var bg={critical:'rgba(232,132,123,.06)',high:'rgba(240,144,96,.06)',med:'rgba(240,200,74,.06)',low:'rgba(126,200,106,.06)'}[fix.sev]||'rgba(74,160,232,.06)';
+        h+='<div style="display:flex;align-items:flex-start;gap:11px;padding:10px 13px;background:'+bg+';border-left:4px solid '+col+';border-radius:0 8px 8px 0;margin-bottom:6px">';
+        h+='<div style="font-size:1.2rem;font-weight:700;color:'+col+';font-family:var(--ff-mono,monospace);line-height:1.2;min-width:24px">#'+(i+1)+'</div>';
+        h+='<div style="flex:1;min-width:0">';
+        h+='<div style="font-size:.66rem;color:'+col+';letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-bottom:3px">'+_esc(fix.category)+'</div>';
+        h+='<div style="font-size:.92rem;color:#fff;font-weight:700;margin-bottom:2px">'+_esc(fix.title)+'</div>';
+        h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.45">'+_esc(fix.reason)+'</div>';
+        h+='</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+    // ─ Redondance wincons (build 92) ─
+    if(report.redundancy){
+      var rdCol=report.redundancy.sev==='good'?'#9ddf8c':report.redundancy.sev==='med'?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🔁 Redondance des plans de victoire</div>';
+      h+='<div style="display:flex;align-items:center;gap:14px">';
+      h+='<div style="font-size:2.2rem;font-weight:700;color:'+rdCol+';font-family:var(--ff-mono,monospace);text-shadow:0 0 12px '+rdCol+'66">'+report.redundancy.count+'</div>';
+      h+='<div style="flex:1"><div style="color:'+rdCol+';font-weight:700;font-size:1rem">'+_esc(report.redundancy.label)+'</div>';
+      h+='<div style="font-size:.82rem;color:var(--tx2);line-height:1.5">'+_esc(report.redundancy.msg)+'</div>';
+      h+='</div></div>';
+      h+='</div>';
+    }
     // ─ 1. WinCons ─
     h+='<div class="anapro-card">';
     h+='<div class="anapro-cat">🎯 Plans de victoire</div>';
@@ -1443,6 +1838,114 @@ window.mlAnaPro = (function(){
         h+='</div>';
       }
     }
+    // ─ Mulligan probability (build 92) ─
+    if(report.mulligan&&report.mulligan.checked){
+      var mp=report.mulligan;
+      var mpCol=mp.keepablePct>=85?'#9ddf8c':mp.keepablePct>=70?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🃏 Probabilité de mulligan (sim 10 000 mains)</div>';
+      h+='<div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">';
+      h+='<div style="font-size:2.2rem;font-weight:700;color:'+mpCol+';font-family:var(--ff-mono,monospace);text-shadow:0 0 12px '+mpCol+'66;line-height:1">'+mp.keepablePct+'<span style="font-size:.9rem;opacity:.7">%</span></div>';
+      h+='<div style="flex:1"><div style="color:'+mpCol+';font-weight:700;font-size:.94rem">'+_esc(mp.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-top:2px">Mains keepables : 2-5 lands + 1+ jouable T1-T3</div></div>';
+      h+='</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:7px">';
+      [['Lands moyens',mp.avgLands],['Ramp moyen',mp.avgRamp],['Action T1-T3',mp.avgAction],
+       ['Mana screw',mp.manaScrewPct+'%'],['Mana flood',mp.manaFloodPct+'%']].forEach(function(t){
+        h+='<div style="padding:7px 9px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px">';
+        h+='<div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:600">'+_esc(t[0])+'</div>';
+        h+='<div style="font-size:.92rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:1px">'+_esc(t[1])+'</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+      h+='</div>';
+    }
+    // ─ Threat density par tour (build 92) ─
+    if(report.threats){
+      var th=report.threats;
+      var thCol=th.dryTurns.length===0?'#9ddf8c':th.dryTurns.length<=2?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">⏰ Threat density par tour 1-7</div>';
+      h+='<div style="color:'+thCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(th.verdict)+'</div>';
+      // Mini bar chart par tour
+      h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px">';
+      [1,2,3,4,5,6,7].forEach(function(t){
+        var c=th.counts[t];
+        var total=c.threat+c.engine+c.setup;
+        var isDry=th.dryTurns.indexOf(t)>=0;
+        var bg=isDry?'rgba(232,132,123,.10)':'rgba(74,160,232,.06)';
+        var bd=isDry?'rgba(232,132,123,.42)':'rgba(74,160,232,.30)';
+        h+='<div style="padding:9px 6px;background:'+bg+';border:.5px solid '+bd+';border-radius:8px;text-align:center">';
+        h+='<div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">T'+t+'</div>';
+        h+='<div style="font-size:1rem;font-weight:700;color:'+(isDry?'#e8847b':'#fff')+';font-family:var(--ff-mono,monospace);margin:3px 0">'+total+'</div>';
+        h+='<div style="font-size:.6rem;color:var(--tx3);line-height:1.3">';
+        if(c.threat)h+='⚔'+c.threat+' ';
+        if(c.engine)h+='⚙'+c.engine+' ';
+        if(c.setup)h+='🔧'+c.setup;
+        h+='</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+      h+='<div style="font-size:.66rem;color:var(--tx3);margin-top:6px;font-style:italic">⚔ threat · ⚙ engine · 🔧 setup. Tours rouges = moins de 3 cartes jouables.</div>';
+      h+='</div>';
+    }
+    // ─ Lissage de courbe (build 92) ─
+    if(report.curve){
+      var cv=report.curve;
+      var cvCol=cv.gaps.length===0&&cv.humps.length<=1?'#9ddf8c':'#f0c84a';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">📈 Lissage de courbe (archétype: '+_esc(cv.archetype)+')</div>';
+      h+='<div style="color:'+cvCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(cv.verdict)+'</div>';
+      // Comparaison actual vs idéal en bars
+      h+='<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-bottom:8px">';
+      [0,1,2,3,4,5,6,7].forEach(function(c){
+        var ha=cv.actual[c]||0,hi=cv.ideal[c]||0;
+        var dif=ha-hi;
+        var col=Math.abs(dif)<=2?'#9ddf8c':Math.abs(dif)<=4?'#f0c84a':'#e8847b';
+        h+='<div style="text-align:center">';
+        h+='<div style="font-size:.62rem;color:var(--tx3);font-weight:700;margin-bottom:2px">'+(c===7?'7+':c)+'</div>';
+        h+='<div style="display:flex;flex-direction:column;align-items:center;gap:1px">';
+        // Actual
+        var hHeight=Math.max(2,ha*4);
+        h+='<div style="width:100%;height:'+hHeight+'px;background:'+col+';border-radius:3px 3px 0 0" title="Tu as '+ha+'"></div>';
+        h+='<div style="font-size:.66rem;color:#fff;font-family:var(--ff-mono,monospace);font-weight:700">'+ha+'</div>';
+        h+='<div style="font-size:.6rem;color:var(--tx3)">/'+hi+'</div>';
+        h+='</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+      if(cv.gaps.length){
+        h+='<div style="font-size:.78rem;color:#e8847b;margin-top:6px">⚠ Gaps détectés : '+cv.gaps.map(function(g){return 'CMC '+g.cmc+' ('+g.have+'/'+g.want+')';}).join(' · ')+'</div>';
+      }
+      if(cv.humps.length){
+        h+='<div style="font-size:.78rem;color:#f0c84a;margin-top:4px">⚠ Surcharges : '+cv.humps.map(function(g){return 'CMC '+g.cmc+' ('+g.have+'/'+g.want+')';}).join(' · ')+'</div>';
+      }
+      h+='</div>';
+    }
+    // ─ Removal coverage matrix (build 92) ─
+    if(report.removalCoverage){
+      var rc=report.removalCoverage;
+      var rcCol=rc.blindSpots.length===0?'#9ddf8c':rc.blindSpots.length<=2?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🎯 Couverture removal — angles morts</div>';
+      h+='<div style="color:'+rcCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(rc.verdict)+'</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:7px">';
+      var typeLabels={creature:'🐉 Créatures',artifact:'⚙ Artefacts',enchantment:'🌿 Enchant.',planeswalker:'👑 PW',
+        land:'🏔 Lands',graveyard:'⚰ Cimetière',counter:'✋ Counters',bounce:'↩ Bounce'};
+      var typeTargets={creature:5,artifact:2,enchantment:2,planeswalker:2,land:0,graveyard:1,counter:0,bounce:0};
+      Object.keys(rc.coverage).forEach(function(k){
+        var v=rc.coverage[k].count;var target=typeTargets[k]||0;
+        var isBlind=v<target;
+        var col=isBlind?'#e8847b':v>=target+2?'#9ddf8c':'#f0c84a';
+        h+='<div style="padding:8px 10px;background:rgba(74,160,232,.04);border:.5px solid '+col+';border-radius:8px;text-align:center">';
+        h+='<div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">'+_esc(typeLabels[k]||k)+'</div>';
+        h+='<div style="font-size:1.15rem;font-weight:700;color:'+col+';font-family:var(--ff-mono,monospace);margin-top:2px">'+v+'</div>';
+        if(target)h+='<div style="font-size:.6rem;color:var(--tx3)">cible '+target+'+</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+      h+='</div>';
+    }
     h+='</div>';
     return h;
   }
@@ -1458,6 +1961,13 @@ window.mlAnaPro = (function(){
     legalityCheck:legalityCheck,
     suggestSwaps:suggestSwaps,
     manaEfficiency:manaEfficiency,
+    winconRedundancy:winconRedundancy,
+    mulliganProbability:mulliganProbability,
+    threatDensityByTurn:threatDensityByTurn,
+    curveSmoothness:curveSmoothness,
+    removalCoverage:removalCoverage,
+    coachTopFixes:coachTopFixes,
+    analyzeCached:analyzeCached,
     analyze:analyze,
     render:render,
     COMBOS:COMBOS,
