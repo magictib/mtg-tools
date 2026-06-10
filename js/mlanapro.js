@@ -216,6 +216,122 @@ window.mlAnaPro = (function(){
     'narset, parter of veils','teferi, time raveler','smothering tithe'
   ];
 
+  // ─── TIERS DE PUISSANCE PAR RÔLE (build 90) ────────────────────────────
+  // Échelle : S=staple incontournable / A=très fort / B=bon / C=correct.
+  // Source : consensus EDHrec + cEDH community + meta competitif.
+  // Format : { roleName: { 'card-name-lower': tierScore } }
+  // tierScore : S=100 / A=85 / B=70 / C=55. Tout ce qui n'est pas dans la
+  // liste = 50 (médiane neutre). Permet de remplacer un C par un S avec
+  // un Δ visible.
+  var TIER_S=100,TIER_A=85,TIER_B=70,TIER_C=55,TIER_BASE=50;
+  var CARD_TIERS = {
+    ramp:{
+      'sol ring':TIER_S,'mana crypt':TIER_S,'mana vault':TIER_S,'jeweled lotus':TIER_S,
+      'arcane signet':TIER_S,'mox diamond':TIER_S,'chrome mox':TIER_S,
+      'dockside extortionist':TIER_S,'mox opal':TIER_S,'mana drain':TIER_S,
+      'fellwar stone':TIER_A,'thought vessel':TIER_A,'mind stone':TIER_A,
+      'nature\'s lore':TIER_A,'three visits':TIER_A,'farseek':TIER_A,
+      'rampant growth':TIER_A,'cultivate':TIER_A,'kodama\'s reach':TIER_A,
+      'sakura-tribe elder':TIER_A,'birds of paradise':TIER_A,'noble hierarch':TIER_A,
+      'llanowar elves':TIER_A,'elvish mystic':TIER_A,'fyndhorn elves':TIER_A,
+      'arbor elf':TIER_A,'deathrite shaman':TIER_S,'orcish lumberjack':TIER_A,
+      'talisman of progress':TIER_A,'talisman of dominance':TIER_A,
+      'talisman of resilience':TIER_A,'talisman of curiosity':TIER_A,
+      'talisman of indulgence':TIER_A,'talisman of impulse':TIER_A,
+      'talisman of hierarchy':TIER_A,'talisman of conviction':TIER_A,
+      'talisman of creativity':TIER_A,'talisman of unity':TIER_A,
+      'commander\'s sphere':TIER_B,'mind stone':TIER_A,'wayfarer\'s bauble':TIER_B,
+      'cultivate':TIER_A,'explore':TIER_B,'search for tomorrow':TIER_B,
+      'nature\'s lore':TIER_A,'three visits':TIER_A,
+      'mox amber':TIER_A,'lotus petal':TIER_A,'simian spirit guide':TIER_A
+    },
+    draw:{
+      'rhystic study':TIER_S,'mystic remora':TIER_S,'sylvan library':TIER_S,
+      'esper sentinel':TIER_S,'smothering tithe':TIER_S,
+      'necropotence':TIER_S,'consecrated sphinx':TIER_S,'phyrexian arena':TIER_A,
+      'bident of thassa':TIER_B,'beast whisperer':TIER_B,'guardian project':TIER_A,
+      'harmonize':TIER_A,'concentrate':TIER_B,'fact or fiction':TIER_A,
+      'brainstorm':TIER_S,'ponder':TIER_S,'preordain':TIER_S,
+      'sign in blood':TIER_A,'night\'s whisper':TIER_A,'read the bones':TIER_B,
+      'tezzeret\'s gambit':TIER_A,'painful truths':TIER_A,'ambition\'s cost':TIER_C,
+      'kindred discovery':TIER_A,'reconnaissance mission':TIER_B,
+      'kor cartographer':TIER_C,'wheel of fortune':TIER_S,
+      'tymna the weaver':TIER_S,'thrasios, triton hero':TIER_S,
+      'tireless tracker':TIER_A,'glint-horn buccaneer':TIER_A
+    },
+    removal:{
+      'swords to plowshares':TIER_S,'path to exile':TIER_S,'generous gift':TIER_S,
+      'beast within':TIER_S,'chaos warp':TIER_A,'krosan grip':TIER_A,
+      'cyclonic rift':TIER_S,'assassin\'s trophy':TIER_S,'anguished unmaking':TIER_A,
+      'utter end':TIER_A,'mortify':TIER_A,'despark':TIER_A,
+      'pongify':TIER_A,'rapid hybridization':TIER_A,'reality shift':TIER_A,
+      'go for the throat':TIER_A,'doom blade':TIER_B,'feed the swarm':TIER_B,
+      'nature\'s claim':TIER_A,'force of vigor':TIER_S,'return to nature':TIER_C,
+      'naturalize':TIER_C,'disenchant':TIER_C,
+      'lightning bolt':TIER_S,'lightning strike':TIER_B,'galvanic blast':TIER_B,
+      'snap':TIER_A,'unsubstantiate':TIER_B,'cyclonic rift':TIER_S
+    },
+    interaction:{
+      'force of will':TIER_S,'force of negation':TIER_S,'mana drain':TIER_S,
+      'mental misstep':TIER_S,'flusterstorm':TIER_S,'pact of negation':TIER_S,
+      'counterspell':TIER_S,'mana leak':TIER_B,'negate':TIER_B,
+      'fierce guardianship':TIER_S,'deflecting swat':TIER_S,
+      'arcane denial':TIER_B,'an offer you can\'t refuse':TIER_A,
+      'swan song':TIER_A,'dovin\'s veto':TIER_A,'render silent':TIER_C,
+      'mindbreak trap':TIER_A,'spell pierce':TIER_B
+    },
+    wipe:{
+      'wrath of god':TIER_S,'damnation':TIER_S,'supreme verdict':TIER_S,
+      'farewell':TIER_S,'austere command':TIER_A,'cleansing nova':TIER_B,
+      'toxic deluge':TIER_S,'blasphemous act':TIER_S,'wash away':TIER_C,
+      'shatter the sky':TIER_A,'ritual of soot':TIER_B,'damn':TIER_A,
+      'fumigate':TIER_B,'dusk legion duelist':TIER_C,'kindred dominance':TIER_B,
+      'living death':TIER_S,'cyclonic rift':TIER_S,'crux of fate':TIER_B,
+      'in garruk\'s wake':TIER_C
+    },
+    tutor:{
+      'demonic tutor':TIER_S,'vampiric tutor':TIER_S,'imperial seal':TIER_S,
+      'grim tutor':TIER_S,'enlightened tutor':TIER_S,'mystical tutor':TIER_S,
+      'worldly tutor':TIER_S,'idyllic tutor':TIER_A,'sterling grove':TIER_B,
+      'green sun\'s zenith':TIER_S,'eladamri\'s call':TIER_A,
+      'survival of the fittest':TIER_S,'sylvan tutor':TIER_A,
+      'shared summons':TIER_A,'finale of devastation':TIER_A,
+      'natural order':TIER_S,'birthing pod':TIER_S,'eldritch evolution':TIER_A,
+      'tooth and nail':TIER_S,'beseech the queen':TIER_A
+    },
+    counter:{
+      'counterspell':TIER_S,'force of will':TIER_S,'force of negation':TIER_S,
+      'mana drain':TIER_S,'flusterstorm':TIER_S,'pact of negation':TIER_S,
+      'fierce guardianship':TIER_S,'mental misstep':TIER_S,
+      'swan song':TIER_A,'dovin\'s veto':TIER_A,'arcane denial':TIER_B
+    },
+    landFix:{
+      // Lands — sources fixing/manabase
+      'command tower':TIER_S,'exotic orchard':TIER_A,'mana confluence':TIER_A,
+      'city of brass':TIER_A,'reflecting pool':TIER_S,'forbidden orchard':TIER_B,
+      // Fetches
+      'arid mesa':TIER_S,'bloodstained mire':TIER_S,'flooded strand':TIER_S,
+      'marsh flats':TIER_S,'misty rainforest':TIER_S,'polluted delta':TIER_S,
+      'scalding tarn':TIER_S,'verdant catacombs':TIER_S,'windswept heath':TIER_S,
+      'wooded foothills':TIER_S,'prismatic vista':TIER_S,'evolving wilds':TIER_C,
+      'terramorphic expanse':TIER_C,'fabled passage':TIER_A,
+      // Shock lands
+      'hallowed fountain':TIER_S,'watery grave':TIER_S,'blood crypt':TIER_S,
+      'breeding pool':TIER_S,'godless shrine':TIER_S,'overgrown tomb':TIER_S,
+      'sacred foundry':TIER_S,'steam vents':TIER_S,'stomping ground':TIER_S,
+      'temple garden':TIER_S,
+      // Dual lands (originals)
+      'tundra':TIER_S,'underground sea':TIER_S,'badlands':TIER_S,
+      'taiga':TIER_S,'savannah':TIER_S,'scrubland':TIER_S,
+      'volcanic island':TIER_S,'bayou':TIER_S,'plateau':TIER_S,'tropical island':TIER_S,
+      // Pain/check lands
+      'adarkar wastes':TIER_A,'underground river':TIER_A,'sulfurous springs':TIER_A,
+      'karplusan forest':TIER_A,'brushland':TIER_A,'caves of koilos':TIER_A,
+      'shivan reef':TIER_A,'llanowar wastes':TIER_A,'yavimaya coast':TIER_A,
+      'battlefield forge':TIER_A
+    }
+  };
+
   // Cartes Mass Land Denial (MLD) — bracket 4+ indicateur fort.
   var MLD_CARDS = [
     'armageddon','ravages of war','catastrophe','wildfire','obliterate',
@@ -806,7 +922,100 @@ window.mlAnaPro = (function(){
     };
   }
 
-  // ─── 8. RAPPORT GLOBAL ─────────────────────────────────────────────────
+  // ─── 8. LÉGALITÉ DE FORMAT (build 90) ──────────────────────────────────
+  // Utilise dCardMeta.legalities (Scryfall) pour vérifier que chaque carte
+  // est légale dans le format du deck. Format keys = scryfall format ids.
+  var FORMAT_TO_LEGALITY_KEY = {
+    'standard':'standard','pioneer':'pioneer','modern':'modern',
+    'legacy':'legacy','vintage':'vintage','pauper':'pauper',
+    'commander':'commander','paupercmd':'paupercommander',
+    'brawl':'brawl','historic':'historic','alchemy':'alchemy',
+    'oathbreaker':'oathbreaker','duel':'duel','premodern':'premodern'
+  };
+  function legalityCheck(rows,deck){
+    var fmt=(deck&&deck.format||'').toLowerCase();
+    var legKey=FORMAT_TO_LEGALITY_KEY[fmt];
+    if(!legKey)return {fmt:fmt,checked:false,issues:[]};
+    var issues=[];
+    rows.forEach(function(r){
+      var m=r.meta||{};var leg=m.legalities;
+      if(!leg)return; // pas de données legalities pour cette carte
+      var status=leg[legKey];
+      if(status==='banned'){
+        issues.push({card:(r.card&&r.card.name||r.name),sev:'high',status:'banned',msg:'BANNED en '+fmt});
+      }else if(status==='restricted'){
+        issues.push({card:(r.card&&r.card.name||r.name),sev:'med',status:'restricted',msg:'restricted (1× max) en '+fmt});
+      }else if(status==='not_legal'){
+        issues.push({card:(r.card&&r.card.name||r.name),sev:'high',status:'not_legal',msg:'pas légal en '+fmt});
+      }
+    });
+    return {fmt:fmt,checked:true,issues:issues};
+  }
+
+  // ─── 9. SUGGESTIONS DE SWAP (build 90) ─────────────────────────────────
+  // Pour chaque rôle (ramp/draw/removal/etc.), identifie les cartes faibles
+  // du deck (tier C ou inférieur) et propose des alternatives S/A non-présentes.
+  function _detectCardRole(meta){
+    var ot=(meta&&meta.oracleText||'').toLowerCase();
+    var tl=(meta&&meta.typeLine||'').toLowerCase();
+    if(/land/.test(tl)){
+      // Si fixer (multilands / fetches) → landFix
+      if(/add (one|two|three) mana of any|search your library for a.* land|\{t\}.*add.*or.*\{[wubrg]\}/.test(ot))return 'landFix';
+      return null;
+    }
+    if(/search your library for .* land|add \{[wubrg]\}|add one mana of any/.test(ot))return 'ramp';
+    if(/draw (a|two|three|x|that many) cards?/.test(ot))return 'draw';
+    if(/counter target spell/.test(ot))return 'counter';
+    if(/destroy all|exile all/.test(ot))return 'wipe';
+    if(/destroy target|exile target/.test(ot))return 'removal';
+    if(/search your library for a/.test(ot))return 'tutor';
+    return null;
+  }
+  function _powerOfCard(nl,role){
+    if(!CARD_TIERS[role])return TIER_BASE;
+    return CARD_TIERS[role][nl]||TIER_BASE;
+  }
+  function suggestSwaps(rows,deck){
+    if(!deck)return {byRole:{}};
+    // Identifie pour chaque rôle :
+    // 1. Les cartes du deck classées par tier (du plus faible au plus fort)
+    // 2. Les suggestions S/A non-présentes
+    var inDeck={};rows.forEach(function(r){
+      var nl=_nlOf(r.card&&r.card.name||r.name);if(nl)inDeck[nl]=true;
+    });
+    var byRole={};
+    Object.keys(CARD_TIERS).forEach(function(role){
+      var deckCards=[];
+      rows.forEach(function(r){
+        var nl=_nlOf(r.card&&r.card.name||r.name);
+        var detRole=_detectCardRole(r.meta);
+        // On compte la carte si son rôle détecté match OU si elle est dans le tier
+        if(detRole===role||CARD_TIERS[role][nl]){
+          deckCards.push({name:r.card&&r.card.name||r.name,nl:nl,power:_powerOfCard(nl,role),qty:r.qty||1});
+        }
+      });
+      deckCards.sort(function(a,b){return a.power-b.power;});
+      var weak=deckCards.filter(function(c){return c.power<=TIER_C;});
+      // Suggestions : cartes Tier S ou A du dictionnaire pas dans le deck
+      var suggestions=[];
+      Object.keys(CARD_TIERS[role]).forEach(function(nl){
+        if(inDeck[nl])return;
+        if(CARD_TIERS[role][nl]>=TIER_A){
+          suggestions.push({name:nl.replace(/\b./g,function(c){return c.toUpperCase();}),nl:nl,power:CARD_TIERS[role][nl]});
+        }
+      });
+      suggestions.sort(function(a,b){return b.power-a.power;});
+      byRole[role]={
+        count:deckCards.length,
+        weak:weak.slice(0,5),
+        suggest:suggestions.slice(0,6),
+        topInDeck:deckCards.slice(-3).reverse()
+      };
+    });
+    return {byRole:byRole};
+  }
+
+  // ─── 10. RAPPORT GLOBAL ────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
     var winCons=detectWinCons(rows,deck);
@@ -816,6 +1025,8 @@ window.mlAnaPro = (function(){
     var anti=antiSynergies(rows,deck);
     var keywords=keywordsAlignment(rows,winCons);
     var robust=robustness(rows,deck);
+    var legality=legalityCheck(rows,deck);
+    var swaps=suggestSwaps(rows,deck);
     return {
       winCons:winCons,
       manabase:mana,
@@ -824,6 +1035,8 @@ window.mlAnaPro = (function(){
       antiSynergies:anti,
       keywords:keywords,
       robustness:robust,
+      legality:legality,
+      swaps:swaps,
       timestamp:Date.now()
     };
   }
@@ -990,6 +1203,67 @@ window.mlAnaPro = (function(){
       h+='</div>';
       h+='</div>';
     }
+    // ─ 8. Légalité de format (build 90) ─
+    if(report.legality&&report.legality.checked){
+      if(report.legality.issues.length){
+        h+='<div class="anapro-card" style="border-color:rgba(232,132,123,.55);background:linear-gradient(135deg,rgba(232,132,123,.10),rgba(232,132,123,.02))">';
+        h+='<div class="anapro-cat" style="color:#e8847b">🚫 Légalité '+_esc(report.legality.fmt)+' — '+report.legality.issues.length+' carte(s) hors-format</div>';
+        report.legality.issues.forEach(function(iss){
+          var col=iss.sev==='high'?'#e8847b':'#f0c84a';
+          h+='<div style="padding:7px 11px;background:rgba(232,132,123,.06);border-left:3px solid '+col+';border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.84rem;color:var(--tx)"><b>'+_esc(iss.card)+'</b> — '+_esc(iss.msg)+'</div>';
+        });
+        h+='</div>';
+      }else{
+        h+='<div class="anapro-card" style="border-color:rgba(126,200,106,.35)">';
+        h+='<div class="anapro-cat" style="color:#9ddf8c">✓ Légalité '+_esc(report.legality.fmt)+'</div>';
+        h+='<div style="font-size:.82rem;color:var(--tx2)">Toutes les cartes sont légales dans ce format.</div>';
+        h+='</div>';
+      }
+    }
+    // ─ 9. Suggestions de swap par tier (build 90) ─
+    if(report.swaps&&report.swaps.byRole){
+      var roleLabels={ramp:'⛰ Ramp',draw:'📜 Pioche',removal:'🗡 Removal',interaction:'🛡 Interaction',
+        wipe:'💥 Wraths',tutor:'🔮 Tutors',counter:'✋ Contresorts',landFix:'🌐 Fixers terrains'};
+      var hasAnySwap=false;
+      Object.keys(report.swaps.byRole).forEach(function(role){
+        var data=report.swaps.byRole[role];
+        if(data.weak.length||data.suggest.length)hasAnySwap=true;
+      });
+      if(hasAnySwap){
+        h+='<div class="anapro-card">';
+        h+='<div class="anapro-cat">🔄 Suggestions de swap — par rôle</div>';
+        h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.5;margin-bottom:10px">Pour chaque rôle, les cartes <b style="color:#e8847b">faibles</b> de ton deck à envisager pour upgrade, et des <b style="color:#9ddf8c">staples manquants</b> à considérer. Source : tier list S/A/B/C consensus communautaire.</div>';
+        Object.keys(report.swaps.byRole).forEach(function(role){
+          var data=report.swaps.byRole[role];
+          if(!data.weak.length&&!data.suggest.length)return;
+          h+='<details style="margin-bottom:8px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:8px;padding:6px 10px">';
+          h+='<summary style="cursor:pointer;font-size:.86rem;color:var(--tx);font-weight:700;list-style:none">'+_esc(roleLabels[role]||role)+' <span style="color:var(--tx3);font-weight:400;font-size:.74rem">· '+data.count+' carte(s)'+(data.weak.length?' · <span style="color:#e8847b">'+data.weak.length+' faible(s)</span>':'')+(data.suggest.length?' · <span style="color:#9ddf8c">'+data.suggest.length+' staple(s) manquant(s)</span>':'')+'</span></summary>';
+          h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">';
+          // Faibles
+          h+='<div><div style="font-size:.68rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:5px">À envisager pour upgrade</div>';
+          if(data.weak.length){
+            data.weak.forEach(function(c){
+              h+='<div style="font-size:.78rem;color:var(--tx2);padding:3px 7px;border-radius:5px;background:rgba(232,132,123,.06);margin-bottom:3px"><b style="color:#e8847b;font-family:var(--ff-mono,monospace);font-size:.66rem">'+c.power+'</b> '+_esc(c.name)+'</div>';
+            });
+          }else{
+            h+='<div style="font-size:.74rem;color:var(--tx3);font-style:italic">Pas de faibles détectés</div>';
+          }
+          h+='</div>';
+          // Suggestions
+          h+='<div><div style="font-size:.68rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:5px">Staples manquants</div>';
+          if(data.suggest.length){
+            data.suggest.forEach(function(c){
+              h+='<div style="font-size:.78rem;color:var(--tx2);padding:3px 7px;border-radius:5px;background:rgba(126,200,106,.06);margin-bottom:3px"><b style="color:#9ddf8c;font-family:var(--ff-mono,monospace);font-size:.66rem">'+c.power+'</b> '+_esc(c.name)+'</div>';
+            });
+          }else{
+            h+='<div style="font-size:.74rem;color:var(--tx3);font-style:italic">Tous les staples sont présents</div>';
+          }
+          h+='</div>';
+          h+='</div></details>';
+        });
+        h+='</div>';
+      }
+    }
     h+='</div>';
     return h;
   }
@@ -1002,11 +1276,14 @@ window.mlAnaPro = (function(){
     antiSynergies:antiSynergies,
     keywordsAlignment:keywordsAlignment,
     robustness:robustness,
+    legalityCheck:legalityCheck,
+    suggestSwaps:suggestSwaps,
     analyze:analyze,
     render:render,
     COMBOS:COMBOS,
     GAME_CHANGERS:GAME_CHANGERS,
     MLD_CARDS:MLD_CARDS,
-    KEYWORDS_BY_PLAN:KEYWORDS_BY_PLAN
+    KEYWORDS_BY_PLAN:KEYWORDS_BY_PLAN,
+    CARD_TIERS:CARD_TIERS
   };
 })();
