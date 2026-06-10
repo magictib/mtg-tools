@@ -589,7 +589,7 @@ window.mlChart=(function(){
     var clickAttr=typeof opts.onClick==='function'?' style="cursor:pointer" data-clickable="1"':'';
     var uid='kvg-'+Math.random().toString(36).slice(2,8);
     var sparkH=opts.spark&&opts.spark.length?24:0;
-    var html='<div class="ml-kpi-card ml-reveal" '+clickAttr+' style="padding:14px 16px;background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(0,0,0,.15));border:1px solid '+col+';border-radius:11px;min-height:80px;position:relative;overflow:hidden;transition:transform .2s ease-out,box-shadow .2s ease-out,border-color .15s">'
+    var html='<div class="ml-kpi-card ml-reveal" '+clickAttr+' style="padding:14px 16px;background:linear-gradient(180deg,rgba(74,160,232,.10) 0%,rgba(255,255,255,.02) 30%,rgba(0,0,0,.22) 100%);border:1px solid '+col+';border-radius:11px;min-height:88px;position:relative;overflow:hidden;transition:transform .2s ease-out,box-shadow .2s ease-out,border-color .15s;box-shadow:0 3px 14px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.04)">'
       +(opts.icon?'<div class="ml-kpi-ico" style="position:absolute;top:8px;right:10px;font-size:1.2rem;opacity:.4;transition:opacity .2s">'+opts.icon+'</div>':'')
       +'<div style="font-size:.66rem;color:'+PAL.textDim+';letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:4px">'+_esc(opts.label||'')+'</div>'
       +'<div class="ml-kpi-val" id="'+uid+'" style="font-size:1.7rem;color:'+col+';font-weight:700;line-height:1.1">'+(hasNumValue?'0':_esc(opts.value||''))+(opts.unit?'<span style="font-size:.7em;opacity:.7;margin-left:3px">'+opts.unit+'</span>':'')+'</div>'
