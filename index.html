@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-10-86';
+window.APP_BUILD='2026-06-10-87';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -9412,6 +9412,8 @@ function goTab(id, fromHistory) {
   _goTabImpl(id,fromHistory);
 }
 function _goTabImpl(id, fromHistory) {
+  // Build 87 : cleanup tour highlight pour éviter les fantômes cyan
+  try{if(typeof _mlTourCleanup==='function')_mlTourCleanup();}catch(_){}
   document.querySelectorAll('.page').forEach(function(el){el.classList.remove('active');});
   document.querySelectorAll('.tab-btn').forEach(function(el){el.classList.remove('active');});
   var pg=document.getElementById('pg-'+id);if(pg)pg.classList.add('active');
@@ -10209,16 +10211,23 @@ function mlPageTourHasSeen(pageId){
 function mlPageTourMarkSeen(pageId){
   try{localStorage.setItem(_mlPageTourKey(pageId),'1');}catch(_){}
 }
+// Build 87 : nettoyage forcé pour éviter les fantômes (highlight cyan resté
+// à l'écran après navigation). Appelable depuis n'importe où.
+function _mlTourCleanup(){
+  ['ml-tour-ov','ml-tour-bubble','ml-tour-hl'].forEach(function(id){
+    var el=document.getElementById(id);if(el)el.remove();
+  });
+}
 function mlPageTour(pageId,hints,opts){
   opts=opts||{};
   if(mlPageTourHasSeen(pageId)&&!opts.force)return;
   if(!Array.isArray(hints)||!hints.length)return;
+  // Cleanup d'éventuels résidus d'un tour précédent avant de démarrer
+  _mlTourCleanup();
   // Construit l'overlay + la première bulle
   var idx=0;
   function dismiss(){
-    var ov=document.getElementById('ml-tour-ov');if(ov)ov.remove();
-    var bb=document.getElementById('ml-tour-bubble');if(bb)bb.remove();
-    var hl=document.getElementById('ml-tour-hl');if(hl)hl.remove();
+    _mlTourCleanup();
     mlPageTourMarkSeen(pageId);
     document.removeEventListener('keydown',keyHandler);
   }
@@ -10246,11 +10255,11 @@ function mlPageTour(pageId,hints,opts){
     var bbTop=below?(r.bottom+18):(r.top-160);
     var bbLeft=Math.max(10,Math.min(window.innerWidth-280,r.left+r.width/2-130));
     bb.style.cssText='position:fixed;z-index:99999;width:260px;background:linear-gradient(180deg,#1a1f2a,#13171f);border:1.5px solid #4aa0e8;border-radius:11px;padding:14px 16px;box-shadow:0 12px 38px rgba(0,0,0,.78),0 0 28px rgba(74,160,232,.22);color:var(--tx);font-family:var(--ff-body);animation:ml-tour-pop .25s cubic-bezier(.34,1.56,.64,1);top:'+bbTop+'px;left:'+bbLeft+'px';
-    bb.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px"><span style="font-size:.62rem;color:#6cb4ef;letter-spacing:.1em;text-transform:uppercase;font-weight:700">Étape '+(idx+1)+'/'+hints.length+'</span><span style="flex:1"></span><button onclick="(function(){var h=document.getElementById(\'ml-tour-hl\');if(h)h.remove();var b=document.getElementById(\'ml-tour-bubble\');if(b)b.remove();try{localStorage.setItem(\''+_mlPageTourKey(pageId)+'\',\'1\')}catch(_){}})()" title="Fermer" style="background:none;border:none;color:var(--tx3);font-size:1rem;cursor:pointer;line-height:1">✕</button></div>'
+    bb.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px"><span style="font-size:.62rem;color:#6cb4ef;letter-spacing:.1em;text-transform:uppercase;font-weight:700">Étape '+(idx+1)+'/'+hints.length+'</span><span style="flex:1"></span><button onclick="(function(){if(typeof _mlTourCleanup===\'function\')_mlTourCleanup();try{localStorage.setItem(\''+_mlPageTourKey(pageId)+'\',\'1\')}catch(_){}})()" title="Fermer" style="background:none;border:none;color:var(--tx3);font-size:1rem;cursor:pointer;line-height:1">✕</button></div>'
       +'<div style="font-family:var(--ff-head);font-size:1rem;color:#fff;font-weight:700;margin-bottom:5px;letter-spacing:-0.01em">'+esc(hint.title||'')+'</div>'
       +'<div style="font-size:.82rem;color:var(--tx2);line-height:1.5;margin-bottom:11px">'+(hint.text||'')+'</div>'
       +'<div style="display:flex;gap:6px;justify-content:flex-end">'
-      +(idx<hints.length-1?'<button onclick="(function(){var b=document.getElementById(\'ml-tour-bubble\');if(b)b.dataset.next=\'1\'})();void(document.getElementById(\'ml-tour-bubble\')&&document.getElementById(\'ml-tour-bubble\').dispatchEvent(new Event(\'next\')))" style="background:#4aa0e8;border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600">Suivant →</button>':'<button onclick="(function(){var h=document.getElementById(\'ml-tour-hl\');if(h)h.remove();var b=document.getElementById(\'ml-tour-bubble\');if(b)b.remove();try{localStorage.setItem(\''+_mlPageTourKey(pageId)+'\',\'1\')}catch(_){}})()" style="background:#4aa0e8;border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600">✓ Terminé</button>')
+      +(idx<hints.length-1?'<button onclick="(function(){var b=document.getElementById(\'ml-tour-bubble\');if(b)b.dataset.next=\'1\'})();void(document.getElementById(\'ml-tour-bubble\')&&document.getElementById(\'ml-tour-bubble\').dispatchEvent(new Event(\'next\')))" style="background:#4aa0e8;border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600">Suivant →</button>':'<button onclick="(function(){if(typeof _mlTourCleanup===\'function\')_mlTourCleanup();try{localStorage.setItem(\''+_mlPageTourKey(pageId)+'\',\'1\')}catch(_){}})()" style="background:#4aa0e8;border:none;color:#fff;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600">✓ Terminé</button>')
       +'</div>';
     // Wire next button properly (via event listener — JS-clean)
     bb.addEventListener('next',next);
