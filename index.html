@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-10-95';
+window.APP_BUILD='2026-06-10-96';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -44177,6 +44177,80 @@ function anaRunPro(){
   },80);
 }
 // Build 92 : Export PDF du rapport Analyse Pro via html2canvas (déjà chargé)
+// Build 96 : Charge les combos Commander Spellbook en arrière-plan
+// Si l'utilisateur active la couverture étendue (opt-in via setting),
+// on enrichit la liste hardcodée avec ~2000 combos de l'API CSB.
+(function(){
+  if(typeof mlAnaPro==='undefined'||typeof mlAnaPro.loadCommanderSpellbookCombos!=='function')return;
+  // Chargement async non-bloquant. Cache 30j en localStorage.
+  setTimeout(function(){
+    try{
+      mlAnaPro.loadCommanderSpellbookCombos(function(combos){
+        if(combos&&combos.length){
+          var added=mlAnaPro.extendCombosFromCSB(combos);
+          if(added>0)console.log('[mlAnaPro] +' + added + ' combos chargés depuis Commander Spellbook');
+        }
+      });
+    }catch(_){}
+  },3000);
+})();
+
+// Build 96 : Compare 2 decks distincts (UI)
+function anaProCompareDecks(){
+  // Modal de sélection de 2 decks
+  var ov=document.getElementById('anapro-cmp-ov');
+  if(ov){ov.classList.remove('show');setTimeout(function(){ov.remove();},250);}
+  ov=document.createElement('div');ov.id='anapro-cmp-ov';ov.className='ml-modal-ov center';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov){ov.classList.remove('show');setTimeout(function(){ov.remove();},250);}});
+  var deckOpts='';
+  Object.keys(decks||{}).filter(function(id){return typeof _deckBelongsTo==='function'?_deckBelongsTo(decks[id],0):true;})
+    .sort(function(a,b){return (decks[b].updatedAt||0)-(decks[a].updatedAt||0);})
+    .forEach(function(id){
+      deckOpts+='<option value="'+esc(id)+'">'+esc(decks[id].name||'(sans nom)')+'</option>';
+    });
+  ov.innerHTML='<div class="ml-modal" style="max-width:520px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><span style="font-family:var(--ff-head);color:#b48cdc;font-size:1.05rem;flex:1">🆚 Comparer 2 decks</span><button onclick="document.getElementById(\'anapro-cmp-ov\').classList.remove(\'show\');setTimeout(function(){var o=document.getElementById(\'anapro-cmp-ov\');if(o)o.remove();},250)" style="background:none;border:none;color:var(--tx3);font-size:1.1rem;cursor:pointer">✕</button></div>'
+    +'<div style="font-size:.84rem;color:var(--tx2);line-height:1.5;margin-bottom:12px">Sélectionne deux decks pour les comparer sur 18 métriques pro (bracket, robustesse, mulligan, curve-out, etc.). Le verdict global pointe le winner sur chaque axe.</div>'
+    +'<div style="margin-bottom:10px"><label style="font-size:.74rem;color:var(--tx3);display:block;margin-bottom:4px">Deck A</label><select id="anapro-cmp-a" class="psel hub-set-sel" style="width:100%">'+deckOpts+'</select></div>'
+    +'<div style="margin-bottom:14px"><label style="font-size:.74rem;color:var(--tx3);display:block;margin-bottom:4px">Deck B</label><select id="anapro-cmp-b" class="psel hub-set-sel" style="width:100%">'+deckOpts+'</select></div>'
+    +'<button class="btn btnp btnsm" onclick="_anaProDoCompare()" style="width:100%;padding:10px">🆚 Comparer</button>'
+    +'</div>';
+  setTimeout(function(){ov.classList.add('show');},10);
+  // Set deck B to a different one by default
+  setTimeout(function(){
+    var a=document.getElementById('anapro-cmp-a');var b=document.getElementById('anapro-cmp-b');
+    if(a&&b&&a.options.length>=2)b.selectedIndex=1;
+  },20);
+}
+function _anaProDoCompare(){
+  var aId=document.getElementById('anapro-cmp-a').value;
+  var bId=document.getElementById('anapro-cmp-b').value;
+  if(!aId||!bId){toastError&&toastError('Sélectionne 2 decks');return;}
+  if(aId===bId){toastWarning&&toastWarning('Choisis 2 decks différents');return;}
+  var deckA=decks[aId],deckB=decks[bId];
+  if(!deckA||!deckB)return;
+  function _rowsFromDeck(dk){
+    return (dk.cards||[]).map(function(c){
+      var nl=c.nl||(c.name||'').toLowerCase();
+      var meta=(typeof dCardMeta!=='undefined')?dCardMeta[nl]:null;
+      return {card:c,name:c.name,nl:nl,qty:c.qty||1,meta:meta||{}};
+    });
+  }
+  var rowsA=_rowsFromDeck(deckA),rowsB=_rowsFromDeck(deckB);
+  var reportA=mlAnaPro.analyze(deckA,rowsA);
+  var reportB=mlAnaPro.analyze(deckB,rowsB);
+  var diff=mlAnaPro.compareTwoDecks(reportA,reportB,deckA.name,deckB.name);
+  var target=document.getElementById('anapro-report');
+  if(!target)return;
+  var html=mlAnaPro.renderCompareTwoDecks(diff);
+  target.innerHTML=html+'<div style="margin-top:14px;text-align:center"><button class="btn btnsm" onclick="anaRunPro()">← Revenir au rapport simple</button></div>';
+  // Fermer modal
+  var ov=document.getElementById('anapro-cmp-ov');if(ov){ov.classList.remove('show');setTimeout(function(){ov.remove();},250);}
+  // Scroll vers le résultat
+  setTimeout(function(){target.scrollIntoView({behavior:'smooth',block:'start'});},100);
+  try{if(typeof mlTrack==='function')mlTrack('Ana Pro Compare2Decks',{a:deckA.name,b:deckB.name});}catch(_){}
+}
+
 // Build 95 : Analyse EDHrec contextuelle par commandant
 function anaProRunEdhrec(){
   var placeholder=document.getElementById('anapro-edhrec-placeholder');

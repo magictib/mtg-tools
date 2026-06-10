@@ -2191,10 +2191,13 @@ window.mlAnaPro = (function(){
   function coachNarrative(report){
     if(!report)return '';
     var parts=[];
-    // Identité du deck
-    var arch=report.curve&&report.curve.archetype||'midrange';
+    // Identité du deck — priorité à l'archétype détecté par clustering
+    var arch=report.archetype&&report.archetype.primary?report.archetype.primary.archetype:(report.curve&&report.curve.archetype||'midrange');
     var primary=report.winCons&&report.winCons.primary?report.winCons.primary.label:'plan flou';
     parts.push('Ton deck est un <b>'+arch+'</b> qui gagne via <b>'+primary+'</b>.');
+    if(report.archetype&&report.archetype.tribalSubtype){
+      parts.push('Profil tribal : <b>'+report.archetype.tribalSubtype.type+'</b> ('+report.archetype.tribalSubtype.count+' cartes).');
+    }
     // Force principale
     if(report.robustness&&report.robustness.score>=70){
       parts.push('<b>Force :</b> deck robuste (score '+report.robustness.score+'/100), résistant face aux contre-mesures.');
@@ -2317,6 +2320,257 @@ window.mlAnaPro = (function(){
     try{var raw=localStorage.getItem('mlapro_last_'+deckId);if(raw)return JSON.parse(raw).report;}catch(_){}
     return null;
   }
+  // ─── 33b. COMPARE 2 DECKS DISTINCTS (build 96) ─────────────────────────
+  // Diff étendu pour comparaison side-by-side entre deux decks distincts
+  // (vs compareReports qui compare avant/après le MÊME deck).
+  // Retourne une grille richesse de métriques avec verdict A/B/match.
+  function compareTwoDecks(reportA,reportB,nameA,nameB){
+    if(!reportA||!reportB)return null;
+    var rows=[];
+    function _row(label,va,vb,unit,higherBetter){
+      if(va==null||vb==null)return;
+      var win=null;
+      if(va!==vb){
+        if(higherBetter==null)win='neutral';
+        else if(higherBetter)win=va>vb?'A':'B';
+        else win=va<vb?'A':'B';
+      }
+      rows.push({label:label,a:va,b:vb,unit:unit||'',win:win});
+    }
+    // Bracket (lower = casual, higher = cEDH — pas universellement « mieux »)
+    if(reportA.bracket&&reportB.bracket)_row('Bracket',reportA.bracket.bracket,reportB.bracket.bracket,'',null);
+    // Plans viables (higher = better)
+    if(reportA.redundancy&&reportB.redundancy)_row('Plans viables',reportA.redundancy.count,reportB.redundancy.count,'',true);
+    // Robustesse (higher = better)
+    if(reportA.robustness&&reportB.robustness)_row('Robustesse',reportA.robustness.score,reportB.robustness.score,'/100',true);
+    // Mulligan keepable (higher = better)
+    if(reportA.mulligan&&reportB.mulligan&&reportA.mulligan.checked&&reportB.mulligan.checked)_row('Mains keepables',reportA.mulligan.keepablePct,reportB.mulligan.keepablePct,'%',true);
+    // Curve out (higher = better)
+    if(reportA.curveOut&&reportB.curveOut&&reportA.curveOut.checked&&reportB.curveOut.checked)_row('Curve-out parfait',reportA.curveOut.perfectPct,reportB.curveOut.perfectPct,'%',true);
+    // Card advantage (higher = better)
+    if(reportA.cardAdvantage&&reportB.cardAdvantage)_row('Card advantage',reportA.cardAdvantage.caScore,reportB.cardAdvantage.caScore,'pts',true);
+    // Stack interaction (higher = better — plus de présence)
+    if(reportA.stackInteraction&&reportB.stackInteraction)_row('Stack interaction',reportA.stackInteraction.instantPct,reportB.stackInteraction.instantPct,'%',true);
+    // Velocity (higher = better — plus de digging)
+    if(reportA.velocity&&reportB.velocity)_row('Velocity',parseFloat(reportA.velocity.velocity),parseFloat(reportB.velocity.velocity),'/tour',true);
+    // Recovery T post-wrath (lower = better — recover plus vite)
+    if(reportA.recovery&&reportB.recovery)_row('Recovery T post-wrath',reportA.recovery.earliestRebuild,reportB.recovery.earliestRebuild,'',false);
+    // Inevitability (higher = better)
+    if(reportA.inevitability&&reportB.inevitability)_row('Inevitability cards',reportA.inevitability.count,reportB.inevitability.count,'',true);
+    // Combos (higher = better selon stratégie)
+    if(reportA.combos&&reportB.combos)_row('Combos détectés',reportA.combos.count,reportB.combos.count,'',true);
+    // Must-answer threats (higher = better — épuise les réponses adverses)
+    if(reportA.mustAnswerThreats&&reportB.mustAnswerThreats)_row('Must-answer threats',reportA.mustAnswerThreats.count,reportB.mustAnswerThreats.count,'',true);
+    // Mana T4 max (higher = better — production explosive)
+    if(reportA.manaProduction&&reportB.manaProduction)_row('Mana T4 max',reportA.manaProduction.productionByTurn[4],reportB.manaProduction.productionByTurn[4],'',true);
+    // Anti-meta coverage (higher = better)
+    if(reportA.antiMeta&&reportB.antiMeta)_row('Anti-meta coverage',reportA.antiMeta.coverage,reportB.antiMeta.coverage,'%',true);
+    // Removal universal % (higher = better)
+    if(reportA.threatsKillableScope&&reportB.threatsKillableScope)_row('Removal universel',reportA.threatsKillableScope.universalPct,reportB.threatsKillableScope.universalPct,'%',true);
+    // Synergy orphans (lower = better — moins d'orphelines)
+    if(reportA.synergyOrphans&&reportB.synergyOrphans)_row('Synergy orphans',reportA.synergyOrphans.count,reportB.synergyOrphans.count,'',false);
+    // Tempo loss (lower = better)
+    if(reportA.tempoLoss&&reportB.tempoLoss)_row('Cartes tempo-loss',reportA.tempoLoss.count,reportB.tempoLoss.count,'',false);
+    // Densité staples (≤15 créatif, >25 staple-driven — pas universellement mieux)
+    if(reportA.edhrecInclusion&&reportB.edhrecInclusion)_row('Densité staples',reportA.edhrecInclusion.density,reportB.edhrecInclusion.density,'%',null);
+    // Compute winner global
+    var aWins=rows.filter(function(r){return r.win==='A';}).length;
+    var bWins=rows.filter(function(r){return r.win==='B';}).length;
+    var ties=rows.filter(function(r){return r.win==='neutral'||r.win===null;}).length;
+    var globalWinner=aWins>bWins+2?'A':bWins>aWins+2?'B':'close';
+    return {
+      rows:rows,nameA:nameA||'Deck A',nameB:nameB||'Deck B',
+      aWins:aWins,bWins:bWins,ties:ties,globalWinner:globalWinner,
+      verdict:globalWinner==='A'?nameA+' domine sur '+aWins+'/'+(aWins+bWins+ties)+' axes':globalWinner==='B'?nameB+' domine sur '+bWins+'/'+(aWins+bWins+ties)+' axes':'Match serré ('+aWins+' vs '+bWins+')'
+    };
+  }
+  function renderCompareTwoDecks(diff){
+    if(!diff)return '';
+    var h='<div class="anapro-card" style="border-color:rgba(180,140,220,.42);background:linear-gradient(135deg,rgba(180,140,220,.06),rgba(74,160,232,.02))">';
+    h+='<div class="anapro-cat" style="color:#b48cdc">🆚 Comparaison '+_esc(diff.nameA)+' vs '+_esc(diff.nameB)+'</div>';
+    var verdictCol=diff.globalWinner==='close'?'#f0c84a':'#9ddf8c';
+    h+='<div style="font-size:.9rem;color:'+verdictCol+';font-weight:700;margin-bottom:10px">'+_esc(diff.verdict)+'</div>';
+    h+='<div style="overflow-x:auto"><table style="width:100%;font-size:.82rem;border-collapse:collapse">';
+    h+='<thead><tr style="font-size:.66rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em">'
+      +'<th style="text-align:left;padding:6px 8px">Axe</th>'
+      +'<th style="text-align:right;padding:6px 8px">'+_esc(diff.nameA)+'</th>'
+      +'<th style="text-align:right;padding:6px 8px">'+_esc(diff.nameB)+'</th>'
+      +'<th style="text-align:center;padding:6px 8px">Winner</th>'
+      +'</tr></thead><tbody>';
+    diff.rows.forEach(function(r){
+      var aCol=r.win==='A'?'#9ddf8c':'var(--tx)';
+      var bCol=r.win==='B'?'#9ddf8c':'var(--tx)';
+      var aBold=r.win==='A'?'700':'400';
+      var bBold=r.win==='B'?'700':'400';
+      var winIco=r.win==='A'?'◀':r.win==='B'?'▶':'=';
+      var winCol=r.win==='A'||r.win==='B'?'#9ddf8c':'#7e8696';
+      h+='<tr style="border-top:.5px solid var(--bd)">'
+        +'<td style="padding:6px 8px;color:var(--tx2)">'+_esc(r.label)+'</td>'
+        +'<td style="text-align:right;padding:6px 8px;color:'+aCol+';font-weight:'+aBold+';font-family:var(--ff-mono,monospace)">'+r.a+r.unit+'</td>'
+        +'<td style="text-align:right;padding:6px 8px;color:'+bCol+';font-weight:'+bBold+';font-family:var(--ff-mono,monospace)">'+r.b+r.unit+'</td>'
+        +'<td style="text-align:center;padding:6px 8px;color:'+winCol+';font-weight:700">'+winIco+'</td>'
+        +'</tr>';
+    });
+    h+='</tbody></table></div>';
+    h+='</div>';
+    return h;
+  }
+
+  // ─── 33c. COMMANDER SPELLBOOK API (build 96) ───────────────────────────
+  // Fetch les combos depuis l'API Commander Spellbook + cache localStorage
+  // 30 jours. Étend dynamiquement la liste COMBOS sans changer la signature
+  // de detectCombos. Fonctionne en best-effort : si API down, garde les 100+
+  // combos hardcodés.
+  function loadCommanderSpellbookCombos(callback){
+    var cacheKey='mlapro_csb_combos';
+    var cacheTTL=30*86400000; // 30 jours
+    try{
+      var raw=localStorage.getItem(cacheKey);
+      if(raw){
+        var cached=JSON.parse(raw);
+        if(cached&&cached.ts&&Date.now()-cached.ts<cacheTTL){
+          callback&&callback(cached.combos||[]);
+          return;
+        }
+      }
+    }catch(_){}
+    // Fetch async (best-effort). L'API renvoie un JSON volumineux ~10 MB.
+    // On utilise un endpoint plus léger : variants compactes.
+    fetch('https://json.commanderspellbook.com/variants/').then(function(r){
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      return r.json();
+    }).then(function(data){
+      var combos=[];
+      // Parser le JSON Commander Spellbook (format variants)
+      if(Array.isArray(data)){
+        data.slice(0,2000).forEach(function(v){
+          if(!v.uses||v.uses.length<2)return;
+          var cards=v.uses.map(function(u){return (u.card&&u.card.name||'').toLowerCase();}).filter(Boolean);
+          if(cards.length<2)return;
+          var result=(v.produces||[]).map(function(p){return p.feature&&p.feature.name||'';}).filter(Boolean).join(', ')||'combo';
+          var types=[];
+          if(/infinite/i.test(result))types.push('mana');
+          if(/damage/i.test(result))types.push('drain','combat');
+          if(/draw/i.test(result))types.push('draw');
+          if(/mill/i.test(result))types.push('mill');
+          if(/win/i.test(result)||/alternate/i.test(result))types.push('alt-win');
+          combos.push({
+            n:cards.slice(0,2).map(function(c){return c.charAt(0).toUpperCase()+c.slice(1);}).join(' + '),
+            cards:cards,
+            result:result.slice(0,80),
+            mana:v.manaValueNeeded||5,
+            turn:Math.min(7,Math.max(3,Math.round((v.manaValueNeeded||5)/1.5))),
+            types:types.length?types:['combo']
+          });
+        });
+      }
+      try{localStorage.setItem(cacheKey,JSON.stringify({ts:Date.now(),combos:combos}));}catch(_){}
+      callback&&callback(combos);
+    }).catch(function(e){
+      console.warn('[Commander Spellbook] fetch failed:',e&&e.message||e);
+      callback&&callback([]); // fallback : on garde juste les combos hardcodés
+    });
+  }
+  // Étend COMBOS avec les combos chargés (mutation en place)
+  function extendCombosFromCSB(extraCombos){
+    if(!Array.isArray(extraCombos)||!extraCombos.length)return 0;
+    var existing={};COMBOS.forEach(function(c){existing[c.cards.sort().join('|')]=true;});
+    var added=0;
+    extraCombos.forEach(function(c){
+      var key=c.cards.slice().sort().join('|');
+      if(existing[key])return;
+      COMBOS.push(c);existing[key]=true;added++;
+    });
+    return added;
+  }
+
+  // ─── 33d. AUTO-DÉTECTION D'ARCHÉTYPE PAR CLUSTERING (build 96) ─────────
+  // Score 10 archétypes sur la base de signaux quantifiés. Retourne le top
+  // 3 avec confiance. Plus fin que le mapping basé sur winCons.primary.
+  function detectArchetype(rows,deck){
+    var sig={
+      aggro:0,control:0,combo:0,midrange:0,ramp:0,
+      voltron:0,stax:0,tribal:0,tokens:0,spellslinger:0,reanimator:0,landfall:0
+    };
+    var typeCount={creature:0,instant:0,sorcery:0,artifact:0,enchantment:0,planeswalker:0,land:0};
+    var cmcSum=0,cmcN=0;var lowCmcCreatures=0,highCmcCreatures=0;
+    var counters=0,wraths=0,removalCount=0;
+    var tutors=0,combos2Cards=0;
+    var anthems=0,tokenGen=0;
+    var taxEffects=0,lockPieces=0;
+    var instOrSorc=0,spellTriggers=0;
+    var graveyardRef=0,reanimEffects=0;
+    var landRamp=0,landfallRef=0;
+    var typeCluster={};
+    var keyword={};
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var cmc=m.cmc||0;var qty=r.qty||1;
+      if(/creature/.test(tl)){typeCount.creature+=qty;if(cmc<=2)lowCmcCreatures+=qty;if(cmc>=5)highCmcCreatures+=qty;}
+      if(/instant/.test(tl)){typeCount.instant+=qty;instOrSorc+=qty;}
+      if(/sorcery/.test(tl)){typeCount.sorcery+=qty;instOrSorc+=qty;}
+      if(/artifact/.test(tl))typeCount.artifact+=qty;
+      if(/enchantment/.test(tl))typeCount.enchantment+=qty;
+      if(/planeswalker/.test(tl))typeCount.planeswalker+=qty;
+      if(/land/.test(tl))typeCount.land+=qty;
+      else{cmcSum+=cmc*qty;cmcN+=qty;}
+      // Type cluster : extrait les sub-types tribaux (Goblin, Elf, etc.)
+      var subMatch=tl.match(/—\s*(.+?)(?:\s*\/|$)/);
+      if(subMatch){
+        var subs=subMatch[1].split(/\s+/);
+        subs.forEach(function(s){if(s.length>2)typeCluster[s]=(typeCluster[s]||0)+qty;});
+      }
+      // Keywords / themes
+      if(/counter target spell/.test(ot))counters+=qty;
+      if(/destroy all|exile all/.test(ot))wraths+=qty;
+      if(/destroy target|exile target/.test(ot))removalCount+=qty;
+      if(/search your library for a/.test(ot))tutors+=qty;
+      if(/creatures you control get \+|other creatures you control get \+/.test(ot)){anthems+=qty;sig.tokens+=qty;}
+      if(/create .* token/.test(ot))tokenGen+=qty;
+      if(/skip your.* phase|sacrifice .* unless|lands? don\'t untap|spells.* cost.* more/.test(ot)){taxEffects+=qty;lockPieces+=qty;}
+      if(/whenever you cast (a|an) (instant|sorcery)/.test(ot))spellTriggers+=qty;
+      if(/from your graveyard|in your graveyard/.test(ot))graveyardRef+=qty;
+      if(/return target creature.*graveyard.*battlefield|put target creature.*graveyard.*battlefield/.test(ot))reanimEffects+=qty;
+      if(/search your library for a.* land|landfall|whenever a land.* enters/.test(ot)){landRamp+=qty;if(/landfall|whenever a land/.test(ot))landfallRef+=qty;}
+    });
+    var totalNonLand=cmcN;
+    var avgCmc=cmcN?cmcSum/cmcN:0;
+    // ─ Scoring par archétype ─
+    // Aggro : beaucoup de créatures cheap, low CMC, anthems
+    sig.aggro=lowCmcCreatures*2+anthems*3+(avgCmc<3?15:0);
+    // Control : counters, wraths, instant speed, high removal
+    sig.control=counters*4+wraths*5+typeCount.instant*1.5+(removalCount>=10?15:removalCount);
+    // Combo : tutors, low CMC engines, combos détectés
+    sig.combo=tutors*5+(avgCmc<3.5?10:0);
+    // Midrange : équilibre threats + interaction
+    sig.midrange=(typeCount.creature>=20&&typeCount.creature<=30?20:0)+(removalCount>=6?10:0)+(avgCmc>=2.5&&avgCmc<=4?15:0);
+    // Ramp : ramp 1-2 CMC + gros payoffs
+    sig.ramp=landRamp*2+highCmcCreatures*3;
+    // Voltron : 1 commandant + équipements + protection
+    sig.voltron=(deck&&deck.commander?15:0)+typeCount.artifact*0.5;
+    // Stax : taxes + lock
+    sig.stax=taxEffects*5+lockPieces*3;
+    // Tribal : forte concentration sur 1 sub-type
+    var topTribe=Object.keys(typeCluster).sort(function(a,b){return typeCluster[b]-typeCluster[a];})[0];
+    if(topTribe&&typeCluster[topTribe]>=15){sig.tribal=typeCluster[topTribe]*2;}
+    // Tokens : générateurs + anthems
+    sig.tokens+=tokenGen*3+anthems*4;
+    // Spellslinger : instants/sorceries + spell triggers
+    sig.spellslinger=instOrSorc*1.5+spellTriggers*8;
+    // Reanimator : références cimetière + effets de reanim
+    sig.reanimator=graveyardRef*1.5+reanimEffects*4;
+    // Landfall : landfall references
+    sig.landfall=landfallRef*5+landRamp*1.5;
+    // Top 3
+    var sorted=Object.keys(sig).map(function(k){return {archetype:k,score:Math.round(sig[k])};}).sort(function(a,b){return b.score-a.score;});
+    var primary=sorted[0];
+    var confidence=primary&&sorted[1]?Math.min(100,Math.round((primary.score-sorted[1].score)/Math.max(1,primary.score)*100)+40):50;
+    return {
+      primary:primary,top3:sorted.slice(0,3),confidence:confidence,
+      tribalSubtype:topTribe&&typeCluster[topTribe]>=15?{type:topTribe,count:typeCluster[topTribe]}:null,
+      verdict:confidence>=70?'✓ Archétype clair : '+primary.archetype:confidence>=50?'~ Profil dominant : '+primary.archetype:'⚠ Archétype hybride / peu cohérent'
+    };
+  }
   // Rendu HTML pour la card « Diff avant/après »
   function renderDiff(diff){
     if(!diff||!diff.diffs||!diff.diffs.length)return '';
@@ -2377,6 +2631,7 @@ window.mlAnaPro = (function(){
     var combat=combatMath(rows,deck);
     var killScope=threatsKillableScope(rows);
     var edhrec=edhrecInclusion(rows,deck);
+    var archetype=detectArchetype(rows,deck);
     var report={
       winCons:winCons,
       redundancy:redundancy,
@@ -2409,6 +2664,7 @@ window.mlAnaPro = (function(){
       combatMath:combat,
       threatsKillableScope:killScope,
       edhrecInclusion:edhrec,
+      archetype:archetype,
       timestamp:Date.now()
     };
     // Build 94 : narrative est calculée APRÈS car elle synthétise tout
@@ -2477,6 +2733,7 @@ window.mlAnaPro = (function(){
     h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
     h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · 15 axes</span>';
     h+='<span style="flex:1"></span>';
+    h+='<button onclick="if(typeof anaProCompareDecks===\'function\')anaProCompareDecks()" style="font-size:.72rem;padding:4px 10px;background:rgba(180,140,220,.14);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#b48cdc;cursor:pointer;font-family:inherit;margin-right:6px" title="Comparer ce deck avec un autre side-by-side">🆚 Compare</button>';
     h+='<button onclick="if(typeof anaProRunEdhrec===\'function\')anaProRunEdhrec()" style="font-size:.72rem;padding:4px 10px;background:rgba(126,200,106,.14);border:.5px solid rgba(126,200,106,.4);border-radius:6px;color:#9ddf8c;cursor:pointer;font-family:inherit;margin-right:6px" title="Analyse contextuelle EDHrec par commandant">🌐 EDHrec</button>';
     h+='<button onclick="if(typeof anaProExportPdf===\'function\')anaProExportPdf()" style="font-size:.72rem;padding:4px 10px;background:rgba(74,160,232,.14);border:.5px solid rgba(74,160,232,.4);border-radius:6px;color:#7ec0f0;cursor:pointer;font-family:inherit" title="Exporter le rapport en PDF">📄 PDF</button>';
     h+='</div>';
@@ -2999,6 +3256,14 @@ window.mlAnaPro = (function(){
         col:er.density<=15?'#9ddf8c':er.density<=25?'#f0c84a':'#e8847b',
         sub:er.stapleCount+'/'+er.uniqueCards+' staples'});
     }
+    // Archétype clustering (build 96)
+    if(report.archetype&&report.archetype.primary){
+      var ar=report.archetype;
+      var arCol=ar.confidence>=70?'#9ddf8c':ar.confidence>=50?'#f0c84a':'#e8847b';
+      insights.push({title:'🎭 Archétype détecté',value:ar.primary.archetype,
+        col:arCol,
+        sub:'Confiance '+ar.confidence+'% · top : '+ar.top3.slice(0,3).map(function(t){return t.archetype;}).join(' / ')});
+    }
     insights.forEach(function(ins){
       h+='<div style="padding:10px 13px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.22);border-left:3px solid '+ins.col+';border-radius:8px">';
       h+='<div style="font-size:.66rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700;margin-bottom:4px">'+_esc(ins.title)+'</div>';
@@ -3069,6 +3334,11 @@ window.mlAnaPro = (function(){
     edhrecInclusion:edhrecInclusion,
     coachNarrative:coachNarrative,
     compareReports:compareReports,
+    compareTwoDecks:compareTwoDecks,
+    renderCompareTwoDecks:renderCompareTwoDecks,
+    loadCommanderSpellbookCombos:loadCommanderSpellbookCombos,
+    extendCombosFromCSB:extendCombosFromCSB,
+    detectArchetype:detectArchetype,
     edhrecCommanderAnalysis:edhrecCommanderAnalysis,
     mulliganProbabilityAsync:mulliganProbabilityAsync,
     renderDiff:renderDiff,
