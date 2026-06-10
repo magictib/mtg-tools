@@ -1047,9 +1047,28 @@ window.mlAnaPro = (function(){
     if(/search your library for a/.test(ot))return 'tutor';
     return null;
   }
-  function _powerOfCard(nl,role){
-    if(!CARD_TIERS[role])return TIER_BASE;
-    return CARD_TIERS[role][nl]||TIER_BASE;
+  // Build 95 : tier dynamique via EDHREC rank
+  // Si dCardMeta.edhrecRank disponible, on attribue un tier auto :
+  // Rank 1-150 → S+ (95), 151-500 → S (88), 501-1500 → A (78),
+  // 1501-3000 → B (68), 3001-6000 → C+ (60), 6001-15000 → C (52), >15000 → 45
+  function _tierFromEdhrecRank(rank){
+    if(!rank||rank<=0)return null;
+    if(rank<=150)return 95;
+    if(rank<=500)return 88;
+    if(rank<=1500)return 78;
+    if(rank<=3000)return 68;
+    if(rank<=6000)return 60;
+    if(rank<=15000)return 52;
+    return 45;
+  }
+  function _powerOfCard(nl,role,meta){
+    if(CARD_TIERS[role]&&CARD_TIERS[role][nl])return CARD_TIERS[role][nl];
+    // Fallback EDHREC rank si disponible
+    if(meta&&meta.edhrecRank){
+      var dyn=_tierFromEdhrecRank(meta.edhrecRank);
+      if(dyn)return dyn;
+    }
+    return TIER_BASE;
   }
   function suggestSwaps(rows,deck){
     if(!deck)return {byRole:{}};
@@ -1067,7 +1086,7 @@ window.mlAnaPro = (function(){
         var detRole=_detectCardRole(r.meta);
         // On compte la carte si son rôle détecté match OU si elle est dans le tier
         if(detRole===role||CARD_TIERS[role][nl]){
-          deckCards.push({name:r.card&&r.card.name||r.name,nl:nl,power:_powerOfCard(nl,role),qty:r.qty||1});
+          deckCards.push({name:r.card&&r.card.name||r.name,nl:nl,power:_powerOfCard(nl,role,r.meta),qty:r.qty||1});
         }
       });
       deckCards.sort(function(a,b){return a.power-b.power;});
@@ -1115,7 +1134,7 @@ window.mlAnaPro = (function(){
       if(!role)return;
       var cmc=(r.meta&&typeof r.meta.cmc==='number')?r.meta.cmc:null;
       // Power = tier connu, sinon base
-      var power=_powerOfCard(nl,role);
+      var power=_powerOfCard(nl,role,r.meta);
       var impact=cmc!=null?_impactScore(power,cmc):power;
       byRole[role]=byRole[role]||{cards:[]};
       byRole[role].cards.push({name:r.card&&r.card.name||r.name,nl:nl,cmc:cmc,power:power,impact:impact});
@@ -2122,6 +2141,52 @@ window.mlAnaPro = (function(){
     };
   }
 
+  // ─── 32a. EDHREC PAR COMMANDANT (build 95) ─────────────────────────────
+  // Utilise le module mlEdhrec (déjà chargé) pour récupérer les cartes top
+  // par commandant et croiser avec ce que joue l'utilisateur. Retourne :
+  // - Cartes recommandées par EDHrec mais absentes du deck
+  // - Cartes présentes dans le deck mais rares dans la communauté EDHrec
+  function edhrecCommanderAnalysis(rows,deck,callback){
+    if(!deck||!deck.commander||!deck.commander.name){callback&&callback({checked:false,reason:'Pas de commandant'});return;}
+    if(typeof window.mlEdhrecFetch!=='function'){callback&&callback({checked:false,reason:'Module EDHrec non chargé'});return;}
+    var cmdName=deck.commander.name;
+    window.mlEdhrecFetch(cmdName,function(err,data){
+      if(err||!data){callback&&callback({checked:false,reason:'EDHrec indisponible: '+(err&&err.message||'erreur')});return;}
+      // Extrait les cartes recommandées
+      var topRecs=[];
+      try{
+        var cardlists=(data.container&&data.container.json_dict&&data.container.json_dict.cardlists)||[];
+        cardlists.forEach(function(list){
+          (list.cardviews||[]).forEach(function(cv){
+            if(cv.name&&!cv.cmc_only)topRecs.push({name:cv.name,inclusion:cv.inclusion||0,synergy:cv.synergy||0,category:list.header||'?'});
+          });
+        });
+      }catch(_){}
+      // Croisement avec le deck
+      var deckSet={};rows.forEach(function(r){var nl=_nlOf(r.card&&r.card.name||r.name);if(nl)deckSet[nl]=true;});
+      var missing=topRecs.filter(function(c){return !deckSet[_nlOf(c.name)];}).slice(0,12);
+      var rare=[];
+      // Cartes présentes dans deck mais low-inclusion sur EDHrec
+      var inclusionMap={};
+      topRecs.forEach(function(c){inclusionMap[_nlOf(c.name)]=c.inclusion;});
+      rows.forEach(function(r){
+        var nl=_nlOf(r.card&&r.card.name||r.name);
+        var meta=r.meta||{};var tl=(meta.typeLine||'').toLowerCase();
+        if(/land/.test(tl))return;
+        // Carte « rare » : présente dans EDHrec data mais inclusion < 5%
+        if(inclusionMap[nl]!=null&&inclusionMap[nl]<5)rare.push({name:r.card&&r.card.name||r.name,inclusion:inclusionMap[nl]});
+      });
+      callback&&callback({
+        checked:true,
+        commander:cmdName,
+        topRecommendations:missing,
+        spicyCards:rare.slice(0,8),
+        totalAnalyzed:topRecs.length,
+        verdict:missing.length===0?'✓ Tu as déjà tous les staples EDHrec':'Top '+missing.length+' staples EDHrec absents'
+      });
+    });
+  }
+
   // ─── 32. COACH NARRATIF ────────────────────────────────────────────────
   function coachNarrative(report){
     if(!report)return '';
@@ -2155,6 +2220,76 @@ window.mlAnaPro = (function(){
     return parts.join(' ');
   }
 
+  // ─── 32b. WEB WORKER pour sims lourdes (build 95) ─────────────────────
+  // Offload mulligan + curveOut sur un worker pour ne pas freezer le main
+  // thread (~400 ms cumulé). Worker créé à la volée via Blob URL — pas de
+  // fichier séparé à servir. Fallback sync si Worker indisponible.
+  var _mlWorker=null;
+  function _getMlWorker(){
+    if(_mlWorker)return _mlWorker;
+    if(typeof Worker==='undefined')return null;
+    var src=
+      'function _shuf(a,s){s|=0;function r(){s=s+0x6D2B79F5|0;var t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296;}'+
+      'var b=a.slice();for(var i=b.length-1;i>0;i--){var j=Math.floor(r()*(i+1));var x=b[i];b[i]=b[j];b[j]=x;}return b;}'+
+      'function simMull(library){'+
+      ' var keepable=0,kp=0,avgL=0,avgR=0,avgA=0,scr=0,fld=0;'+
+      ' for(var s=0;s<10000;s++){'+
+      '  var h=_shuf(library,s+1).slice(0,7);'+
+      '  var l=0,rmp=0,ac=0;h.forEach(function(c){if(c.isLand)l++;if(c.isRamp)rmp++;if(c.isEarlyAction)ac++;});'+
+      '  avgL+=l;avgR+=rmp;avgA+=ac;if(l<=1)scr++;if(l>=6)fld++;'+
+      '  if((l>=2&&l<=5)&&(rmp>=1||ac>=1))kp++;'+
+      ' }'+
+      ' return {keepablePct:Math.round(kp/100),avgLands:(avgL/10000).toFixed(2),avgRamp:(avgR/10000).toFixed(2),avgAction:(avgA/10000).toFixed(2),manaScrewPct:Math.round(scr/100),manaFloodPct:Math.round(fld/100)};'+
+      '}'+
+      'function simCurve(library){'+
+      ' var perf=0,dec=0;'+
+      ' for(var s=0;s<5000;s++){'+
+      '  var sh=_shuf(library,s+7919);var h=sh.slice(0,7);var d=sh.slice(7);'+
+      '  var av={1:0,2:0,3:0};var lc=0;'+
+      '  h.forEach(function(c){if(c.isLand)lc++;else if(c.cmc>=1&&c.cmc<=3)av[c.cmc]++;});'+
+      '  for(var t=2;t<=3;t++){var dd=d.shift();if(dd){if(dd.isLand)lc++;else if(dd.cmc>=1&&dd.cmc<=3)av[dd.cmc]++;}}'+
+      '  if(lc>=3&&av[1]>=1&&av[2]>=1&&av[3]>=1)perf++;'+
+      '  if(lc>=2&&(av[1]+av[2]+av[3]>=2))dec++;'+
+      ' }'+
+      ' return {perfectPct:Math.round(perf/50),decentPct:Math.round(dec/50)};'+
+      '}'+
+      'self.onmessage=function(e){'+
+      ' var d=e.data;'+
+      ' if(d.type==="mulligan")self.postMessage({type:"mulligan",result:simMull(d.library)});'+
+      ' else if(d.type==="curveOut")self.postMessage({type:"curveOut",result:simCurve(d.library)});'+
+      '};';
+    try{
+      var blob=new Blob([src],{type:'application/javascript'});
+      _mlWorker=new Worker(URL.createObjectURL(blob));
+    }catch(e){console.warn('[mlAnaPro] Worker init failed',e);return null;}
+    return _mlWorker;
+  }
+  // Versions async via worker (utilisables si on veut vraiment offload)
+  function mulliganProbabilityAsync(rows,deck,callback){
+    var library=[];
+    rows.forEach(function(r){
+      var qty=r.qty||1;var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var cmc=typeof m.cmc==='number'?m.cmc:0;
+      var role=_detectCardRole(m);
+      var isLand=/land/.test(tl);var isRamp=role==='ramp'&&cmc<=2;
+      var isEarlyAction=(/creature|instant|sorcery/.test(tl))&&cmc<=3;
+      for(var i=0;i<qty;i++){library.push({isLand:isLand,isRamp:isRamp,isEarlyAction:isEarlyAction,cmc:cmc});}
+    });
+    if(library.length<7){callback({checked:false});return;}
+    var w=_getMlWorker();
+    if(!w){callback(mulliganProbability(rows,deck));return;}
+    var handler=function(e){
+      if(e.data.type==='mulligan'){
+        w.removeEventListener('message',handler);
+        var r=e.data.result;r.checked=true;
+        r.verdict=r.keepablePct>=85?'✓ Mains d\'ouverture solides':r.keepablePct>=70?'~ Mulligan occasionnel':'⚠ Mulligan fréquent';
+        callback(r);
+      }
+    };
+    w.addEventListener('message',handler);
+    w.postMessage({type:'mulligan',library:library});
+  }
+
   // ─── 33. COMPARE 2 REPORTS (before / after) ───────────────────────────
   function compareReports(prev,current){
     if(!prev||!current)return null;
@@ -2168,7 +2303,42 @@ window.mlAnaPro = (function(){
     if(prev.robustness&&current.robustness)_diff('Robustesse',prev.robustness.score,current.robustness.score,true);
     if(prev.mulligan&&current.mulligan)_diff('Keepable %',prev.mulligan.keepablePct,current.mulligan.keepablePct,true);
     if(prev.redundancy&&current.redundancy)_diff('Plans viables',prev.redundancy.count,current.redundancy.count,true);
-    return {diffs:diffs};
+    if(prev.curveOut&&current.curveOut&&prev.curveOut.checked&&current.curveOut.checked)_diff('Curve-out parfait %',prev.curveOut.perfectPct,current.curveOut.perfectPct,true);
+    if(prev.cardAdvantage&&current.cardAdvantage)_diff('Card advantage',prev.cardAdvantage.caScore,current.cardAdvantage.caScore,true);
+    if(prev.stackInteraction&&current.stackInteraction)_diff('Stack interaction %',prev.stackInteraction.instantPct,current.stackInteraction.instantPct,true);
+    if(prev.velocity&&current.velocity)_diff('Velocity',parseFloat(prev.velocity.velocity),parseFloat(current.velocity.velocity),true);
+    return {diffs:diffs,prevTs:prev.timestamp,currentTs:current.timestamp};
+  }
+  // Stockage du dernier rapport par deck pour comparaison
+  function _saveLastReport(deckId,report){
+    try{localStorage.setItem('mlapro_last_'+deckId,JSON.stringify({report:report,ts:Date.now()}));}catch(_){}
+  }
+  function _loadLastReport(deckId){
+    try{var raw=localStorage.getItem('mlapro_last_'+deckId);if(raw)return JSON.parse(raw).report;}catch(_){}
+    return null;
+  }
+  // Rendu HTML pour la card « Diff avant/après »
+  function renderDiff(diff){
+    if(!diff||!diff.diffs||!diff.diffs.length)return '';
+    var h='<div class="anapro-card" style="border-color:rgba(126,200,106,.42);background:linear-gradient(135deg,rgba(126,200,106,.06),rgba(74,160,232,.02))">';
+    h+='<div class="anapro-cat" style="color:#9ddf8c">📊 Diff vs analyse précédente</div>';
+    h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px">Comparaison automatique avec la dernière analyse de ce deck. Les changements positifs (verts) confirment ton swap, les négatifs (rouges) suggèrent de revenir en arrière.</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">';
+    diff.diffs.forEach(function(d){
+      var col=d.positive?'#9ddf8c':'#e8847b';
+      var arrow=d.delta>0?'▲':'▼';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-left:3px solid '+col+';border-radius:7px">';
+      h+='<div style="font-size:.66rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700;margin-bottom:3px">'+_esc(d.label)+'</div>';
+      h+='<div style="display:flex;align-items:baseline;gap:6px">';
+      h+='<span style="font-size:.84rem;color:var(--tx3);text-decoration:line-through;font-family:var(--ff-mono,monospace)">'+d.prev+'</span>';
+      h+='<span style="font-size:.7rem;color:'+col+'">→</span>';
+      h+='<span style="font-size:1rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace)">'+d.current+'</span>';
+      h+='<span style="font-size:.74rem;color:'+col+';font-weight:700;margin-left:auto">'+arrow+' '+(d.delta>0?'+':'')+d.delta+'</span>';
+      h+='</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+    return h;
   }
 
   // ─── 34. RAPPORT GLOBAL ────────────────────────────────────────────────
@@ -2243,6 +2413,14 @@ window.mlAnaPro = (function(){
     };
     // Build 94 : narrative est calculée APRÈS car elle synthétise tout
     report.narrative=coachNarrative(report);
+    // Build 95 : diff vs analyse précédente du même deck (si dispo)
+    if(deck&&deck.id){
+      var prev=_loadLastReport(deck.id);
+      if(prev&&prev.timestamp&&Date.now()-prev.timestamp<7*86400000){
+        report.diff=compareReports(prev,report);
+      }
+      _saveLastReport(deck.id,report);
+    }
     // Coach mode : top 5 fixes prioritaires
     report.coach=coachTopFixes(report);
     return report;
@@ -2299,10 +2477,13 @@ window.mlAnaPro = (function(){
     h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
     h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · 15 axes</span>';
     h+='<span style="flex:1"></span>';
+    h+='<button onclick="if(typeof anaProRunEdhrec===\'function\')anaProRunEdhrec()" style="font-size:.72rem;padding:4px 10px;background:rgba(126,200,106,.14);border:.5px solid rgba(126,200,106,.4);border-radius:6px;color:#9ddf8c;cursor:pointer;font-family:inherit;margin-right:6px" title="Analyse contextuelle EDHrec par commandant">🌐 EDHrec</button>';
     h+='<button onclick="if(typeof anaProExportPdf===\'function\')anaProExportPdf()" style="font-size:.72rem;padding:4px 10px;background:rgba(74,160,232,.14);border:.5px solid rgba(74,160,232,.4);border-radius:6px;color:#7ec0f0;cursor:pointer;font-family:inherit" title="Exporter le rapport en PDF">📄 PDF</button>';
     h+='</div>';
     h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.5">Diagnostic complet déterministe : plan A + Plan B / manabase / bracket / combos / anti-synergies / mulligan probability / threat density / lissage courbe / removal coverage. Aucun LLM, résultats reproductibles, cache localStorage.</div>';
     h+='</div>';
+    // ─ Placeholder pour analyse EDHrec async (build 95) ─
+    h+='<div id="anapro-edhrec-placeholder"></div>';
     // ─ COACH MODE — top 5 fixes en tête (build 92) ─
     if(report.coach&&report.coach.length){
       h+='<div class="anapro-card" style="border:1.5px solid rgba(74,160,232,.55);background:linear-gradient(135deg,rgba(74,160,232,.10),rgba(74,160,232,.02))">';
@@ -2704,6 +2885,8 @@ window.mlAnaPro = (function(){
       });
       h+='</div>';
     }
+    // ─ Diff vs analyse précédente (build 95) ─
+    if(report.diff)h+=renderDiff(report.diff);
     // ─ Coach narratif (build 94) ─
     if(report.narrative){
       h+='<div class="anapro-card" style="background:linear-gradient(135deg,rgba(126,200,106,.08),rgba(126,200,106,.02));border-color:rgba(126,200,106,.42)">';
@@ -2886,6 +3069,9 @@ window.mlAnaPro = (function(){
     edhrecInclusion:edhrecInclusion,
     coachNarrative:coachNarrative,
     compareReports:compareReports,
+    edhrecCommanderAnalysis:edhrecCommanderAnalysis,
+    mulliganProbabilityAsync:mulliganProbabilityAsync,
+    renderDiff:renderDiff,
     coachTopFixes:coachTopFixes,
     analyzeCached:analyzeCached,
     analyze:analyze,
