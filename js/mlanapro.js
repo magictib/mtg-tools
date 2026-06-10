@@ -1458,6 +1458,256 @@ window.mlAnaPro = (function(){
     return fixes.slice(0,5);
   }
 
+  // ─── 17. UPGRADES DE TERRAINS (build 93) ───────────────────────────────
+  // Recommande de remplacer X basics par des bilands/tribands selon :
+  // - Couleurs requises par le deck (depuis pip counts)
+  // - Budget de « ETB tapped » : pas plus de 30 % de la manabase
+  // - Pertinence du type de biland (cycling, pain, check, shock, fetch)
+  // Évite de sur-recommander (équilibre nb basics restants vs fixers).
+  //
+  // Catalogue de bilands rangés par PAIRE de couleurs (10 paires). Chaque
+  // biland a un type (shock/fetch/pain/check/ETBuntapped/cycling/manlands)
+  // et une « qualité » 0-100 (S=85+/A=70-84/B=55-69/C=<55).
+  var BILAND_CATALOG = {
+    // Format : 'WU' : [ {name, type, quality, etbTapped} ]
+    'WU':[
+      {name:'Hallowed Fountain',type:'shock',quality:95,etbTapped:false,note:'2 vie pour ETB untapped'},
+      {name:'Tundra',type:'dual',quality:100,etbTapped:false,note:'dual original (cher)'},
+      {name:'Flooded Strand',type:'fetch',quality:95,etbTapped:false,note:'fetch Onslaught/Khans'},
+      {name:'Adarkar Wastes',type:'pain',quality:75,etbTapped:false,note:'1 dégât quand utilisée colorée'},
+      {name:'Glacial Fortress',type:'check',quality:78,etbTapped:'cond',note:'untapped si Plains/Island'},
+      {name:'Mystic Gate',type:'filter',quality:80,etbTapped:false,note:'Shadowmoor filter'},
+      {name:'Seachrome Coast',type:'fast',quality:80,etbTapped:'cond',note:'untapped sur 2 premiers tours'},
+      {name:'Hengegate Pathway',type:'pathway',quality:78,etbTapped:false,note:'au choix Plains OU Island'},
+      {name:'Port Town',type:'reveal',quality:65,etbTapped:'cond',note:'reveal Plains/Island'},
+      {name:'Tranquil Cove',type:'lifeland',quality:55,etbTapped:true,note:'ETB tapped + 1 vie'},
+      {name:'Azorius Chancery',type:'bounce',quality:55,etbTapped:true,note:'ETB tapped + bounce'}
+    ],
+    'UB':[
+      {name:'Watery Grave',type:'shock',quality:95,etbTapped:false,note:'2 vie pour ETB untapped'},
+      {name:'Underground Sea',type:'dual',quality:100,etbTapped:false,note:'dual original (cher)'},
+      {name:'Polluted Delta',type:'fetch',quality:95,etbTapped:false,note:'fetch Onslaught/Khans'},
+      {name:'Underground River',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Drowned Catacomb',type:'check',quality:78,etbTapped:'cond',note:'untapped si Island/Swamp'},
+      {name:'Sunken Ruins',type:'filter',quality:80,etbTapped:false,note:'Shadowmoor filter'},
+      {name:'Darkslick Shores',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Clearwater Pathway',type:'pathway',quality:78,etbTapped:false,note:'au choix Island OU Swamp'},
+      {name:'River of Tears',type:'special',quality:72,etbTapped:false,note:'situational'},
+      {name:'Choked Estuary',type:'reveal',quality:65,etbTapped:'cond',note:'reveal Island/Swamp'},
+      {name:'Dimir Aqueduct',type:'bounce',quality:55,etbTapped:true,note:'ETB tapped + bounce'}
+    ],
+    'BR':[
+      {name:'Blood Crypt',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Badlands',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Bloodstained Mire',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Sulfurous Springs',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Dragonskull Summit',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Graven Cairns',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Blackcleave Cliffs',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Blightstep Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Foreboding Ruins',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Akoum Refuge',type:'lifeland',quality:55,etbTapped:true,note:'ETB tapped + 1 vie'},
+      {name:'Rakdos Carnarium',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ],
+    'RG':[
+      {name:'Stomping Ground',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Taiga',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Wooded Foothills',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Karplusan Forest',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Rootbound Crag',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Fire-Lit Thicket',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Copperline Gorge',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Cragcrown Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Game Trail',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Gruul Turf',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ],
+    'GW':[
+      {name:'Temple Garden',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Savannah',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Windswept Heath',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Brushland',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Sunpetal Grove',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Wooded Bastion',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Razorverge Thicket',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Branchloft Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Fortified Village',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Selesnya Sanctuary',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ],
+    'WB':[
+      {name:'Godless Shrine',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Scrubland',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Marsh Flats',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Caves of Koilos',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Isolated Chapel',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Fetid Heath',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Concealed Courtyard',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Brightclimb Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Shineshadow Snarl',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Orzhov Basilica',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ],
+    'UR':[
+      {name:'Steam Vents',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Volcanic Island',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Scalding Tarn',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Shivan Reef',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Sulfur Falls',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Cascade Bluffs',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Spirebluff Canal',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Riverglide Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Frostboil Snarl',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Izzet Boilerworks',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ],
+    'BG':[
+      {name:'Overgrown Tomb',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Bayou',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Verdant Catacombs',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Llanowar Wastes',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Woodland Cemetery',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Twilight Mire',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Blooming Marsh',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Darkbore Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Necroblossom Snarl',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Golgari Rot Farm',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ],
+    'RW':[
+      {name:'Sacred Foundry',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Plateau',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Arid Mesa',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Battlefield Forge',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Clifftop Retreat',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Rugged Prairie',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Inspiring Vantage',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Needleverge Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Furycalm Snarl',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Boros Garrison',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ],
+    'UG':[
+      {name:'Breeding Pool',type:'shock',quality:95,etbTapped:false,note:'2 vie'},
+      {name:'Tropical Island',type:'dual',quality:100,etbTapped:false,note:'dual original'},
+      {name:'Misty Rainforest',type:'fetch',quality:95,etbTapped:false,note:'fetch'},
+      {name:'Yavimaya Coast',type:'pain',quality:75,etbTapped:false,note:'1 dégât'},
+      {name:'Hinterland Harbor',type:'check',quality:78,etbTapped:'cond',note:'check'},
+      {name:'Flooded Grove',type:'filter',quality:80,etbTapped:false,note:'filter'},
+      {name:'Botanical Sanctum',type:'fast',quality:80,etbTapped:'cond',note:'fast land'},
+      {name:'Barkchannel Pathway',type:'pathway',quality:78,etbTapped:false,note:'pathway'},
+      {name:'Lavascarred Snarl',type:'reveal',quality:65,etbTapped:'cond',note:'reveal'},
+      {name:'Simic Growth Chamber',type:'bounce',quality:55,etbTapped:true,note:'bounce'}
+    ]
+  };
+  // Détecte un basic land par nom
+  function _isBasic(name){
+    var n=_nlOf(name);
+    return /^(plains|island|swamp|mountain|forest|wastes|snow-covered plains|snow-covered island|snow-covered swamp|snow-covered mountain|snow-covered forest)$/i.test(n);
+  }
+  function _basicColor(name){
+    var n=_nlOf(name);
+    if(/plains/i.test(n))return 'W';
+    if(/island/i.test(n))return 'U';
+    if(/swamp/i.test(n))return 'B';
+    if(/mountain/i.test(n))return 'R';
+    if(/forest/i.test(n))return 'G';
+    return null;
+  }
+  function landUpgrades(rows,deck,manaReport){
+    if(!deck)return null;
+    // Détermine les couleurs principales du deck (depuis pipCount)
+    var pc=manaReport&&manaReport.pipCount||{W:0,U:0,B:0,R:0,G:0};
+    var active=Object.keys(pc).filter(function(c){return pc[c]>0;});
+    if(active.length<2)return {checked:true,reason:'Deck mono-couleur, peu d\'intérêt aux bilands',suggestions:[]};
+    // Compte basics actuels par couleur + total ETB tapped
+    var basicByColor={W:0,U:0,B:0,R:0,G:0};
+    var tappedLands=0;var fixers=0;var totalLands=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();
+      if(!/land/.test(tl))return;
+      totalLands+=r.qty||1;
+      var n=r.card&&r.card.name||r.name;
+      if(_isBasic(n)){
+        var c=_basicColor(n);if(c)basicByColor[c]+=r.qty||1;
+      }
+      // Détection ETB tapped (lifeland / bounce land / triome / etc.)
+      var ot=(m.oracleText||'').toLowerCase();
+      if(/enters the battlefield tapped/.test(ot)&&!/unless|or/.test(ot.split('enters the battlefield tapped')[1]||'')){
+        tappedLands+=r.qty||1;
+      }
+      // Compte les fixers existants
+      if(/add (one|two|three) mana of any|search your library for a.* land|\{t\}.*add.*or.*\{[wubrg]\}/.test(ot)){
+        fixers+=r.qty||1;
+      }
+    });
+    var tappedPct=totalLands?Math.round(tappedLands/totalLands*100):0;
+    // Trie les paires de couleurs par poids (somme des pips W+U pour 'WU')
+    var pairs=[];
+    var colorList=['W','U','B','R','G'];
+    for(var i=0;i<colorList.length;i++){
+      for(var j=i+1;j<colorList.length;j++){
+        var key=colorList[i]+colorList[j];
+        var alt=colorList[j]+colorList[i];
+        var cat=BILAND_CATALOG[key]||BILAND_CATALOG[alt];
+        if(!cat)continue;
+        // Score paire = combien de pips dans ces 2 couleurs
+        var score=pc[colorList[i]]+pc[colorList[j]];
+        // Quelle clé existe dans le catalog
+        var realKey=BILAND_CATALOG[key]?key:alt;
+        pairs.push({pair:realKey,c1:colorList[i],c2:colorList[j],score:score,catalog:cat});
+      }
+    }
+    pairs=pairs.filter(function(p){return p.score>0;});
+    pairs.sort(function(a,b){return b.score-a.score;});
+    // Quel set de bilands existe déjà dans le deck
+    var existing={};
+    rows.forEach(function(r){
+      var n=_nlOf(r.card&&r.card.name||r.name);
+      pairs.forEach(function(p){
+        p.catalog.forEach(function(b){
+          if(_nlOf(b.name)===n)existing[n]=true;
+        });
+      });
+    });
+    // Suggestions : pour chaque paire dans les top 3, propose les 2 meilleurs
+    // bilands NON présents ET avec note « pas trop tapped »
+    var suggestions=[];
+    var tappedBudget=Math.max(0,Math.floor(totalLands*0.30)-tappedLands); // budget restant ≤ 30 % tapped
+    pairs.slice(0,5).forEach(function(p){
+      var alreadyHave=p.catalog.filter(function(b){return existing[_nlOf(b.name)];}).length;
+      // On veut idéalement 3-4 bilands par paire active
+      if(alreadyHave>=4)return;
+      var slotsNeeded=Math.min(2,4-alreadyHave);
+      // Sélection : meilleur biland disponible non-tapped d'abord, sinon tapped
+      var candidates=p.catalog
+        .filter(function(b){return !existing[_nlOf(b.name)];})
+        .filter(function(b){
+          // Si tapped budget = 0, on filtre les ETB tapped purs
+          if(tappedBudget<=0&&b.etbTapped===true)return false;
+          return true;
+        })
+        .sort(function(a,b){return b.quality-a.quality;});
+      candidates.slice(0,slotsNeeded).forEach(function(b){
+        suggestions.push({
+          pair:p.pair,
+          name:b.name,
+          type:b.type,
+          quality:b.quality,
+          etbTapped:b.etbTapped,
+          note:b.note,
+          weight:p.score,
+          replaces:'basic '+({W:'Plains',U:'Island',B:'Swamp',R:'Mountain',G:'Forest'}[basicByColor[p.c1]>=basicByColor[p.c2]?p.c1:p.c2]||'?')
+        });
+        if(b.etbTapped===true)tappedBudget--;
+      });
+    });
+    return {
+      checked:true,
+      totalLands:totalLands,
+      basicByColor:basicByColor,
+      tappedPct:tappedPct,
+      existingFixers:fixers,
+      suggestions:suggestions.slice(0,8),
+      tappedBudgetRemaining:Math.max(0,tappedBudget),
+      verdict:suggestions.length===0?'✓ Manabase déjà bien fixée':suggestions.length+' upgrade(s) possible(s)'+(tappedPct>40?' · ⚠ déjà '+tappedPct+'% ETB tapped (limite recommandée 30%)':'')
+    };
+  }
+
   // ─── 17. RAPPORT GLOBAL ────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
@@ -1477,6 +1727,7 @@ window.mlAnaPro = (function(){
     var threats=threatDensityByTurn(rows);
     var curve=curveSmoothness(rows,deck,winCons);
     var removalCov=removalCoverage(rows);
+    var landUpg=landUpgrades(rows,deck,mana);
     var report={
       winCons:winCons,
       redundancy:redundancy,
@@ -1493,6 +1744,7 @@ window.mlAnaPro = (function(){
       threats:threats,
       curve:curve,
       removalCoverage:removalCov,
+      landUpgrades:landUpg,
       timestamp:Date.now()
     };
     // Coach mode : top 5 fixes prioritaires
@@ -1922,6 +2174,40 @@ window.mlAnaPro = (function(){
       }
       h+='</div>';
     }
+    // ─ Land upgrades (build 93) — bilands recommandés avec budget tapped ─
+    if(report.landUpgrades&&report.landUpgrades.checked&&report.landUpgrades.suggestions&&report.landUpgrades.suggestions.length){
+      var lu=report.landUpgrades;
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🏔 Upgrades de terrains — basics → bilands</div>';
+      h+='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:.74rem;color:var(--tx2);margin-bottom:10px">';
+      h+='<span>📊 <b style="color:#fff">'+lu.totalLands+'</b> terrains</span>';
+      h+='<span>🌐 <b style="color:#fff">'+lu.existingFixers+'</b> fixers existants</span>';
+      var tappedCol=lu.tappedPct<=30?'#9ddf8c':lu.tappedPct<=40?'#f0c84a':'#e8847b';
+      h+='<span>⏱ <b style="color:'+tappedCol+'">'+lu.tappedPct+'%</b> ETB tapped (cible ≤30%)</span>';
+      h+='<span>💰 budget tapped restant : <b style="color:#7ec0f0">'+lu.tappedBudgetRemaining+'</b> slot(s)</span>';
+      h+='</div>';
+      h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.55;margin-bottom:10px">Pour chaque paire de couleurs présente, on suggère les meilleurs bilands NON présents — priorisés par <b>qualité</b> (shock/dual/fetch en tête) et filtrés selon le budget « ETB tapped » (≤30% de la manabase). Chaque suggestion remplace un basic land.</div>';
+      lu.suggestions.forEach(function(s){
+        var qCol=s.quality>=85?'#9ddf8c':s.quality>=70?'#f0c84a':'#e8847b';
+        var tCol=s.etbTapped===false?'#9ddf8c':s.etbTapped==='cond'?'#f0c84a':'#e8847b';
+        var tLbl=s.etbTapped===false?'untapped':s.etbTapped==='cond'?'conditionnel':'ETB tapped';
+        h+='<div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 12px;background:rgba(74,160,232,.04);border-left:3px solid '+qCol+';border-radius:0 8px 8px 0;margin-bottom:5px">';
+        // Pair tag
+        h+='<div style="font-size:.66rem;font-weight:700;color:#7ec0f0;background:rgba(74,160,232,.10);padding:3px 8px;border-radius:99px;font-family:var(--ff-mono,monospace);min-width:32px;text-align:center">'+_esc(s.pair)+'</div>';
+        // Nom + meta
+        h+='<div style="min-width:0">';
+        h+='<div style="font-size:.86rem;color:#fff;font-weight:700">'+_esc(s.name)+'</div>';
+        h+='<div style="font-size:.72rem;color:var(--tx3);margin-top:2px"><span style="color:'+tCol+';font-weight:600">'+tLbl+'</span> · '+_esc(s.note)+' · remplace 1 '+_esc(s.replaces)+'</div>';
+        h+='</div>';
+        // Qualité
+        h+='<div style="text-align:right">';
+        h+='<div style="font-size:.7rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase">qualité</div>';
+        h+='<div style="font-size:1rem;font-weight:700;color:'+qCol+';font-family:var(--ff-mono,monospace)">'+s.quality+'</div>';
+        h+='</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
     // ─ Removal coverage matrix (build 92) ─
     if(report.removalCoverage){
       var rc=report.removalCoverage;
@@ -1966,6 +2252,7 @@ window.mlAnaPro = (function(){
     threatDensityByTurn:threatDensityByTurn,
     curveSmoothness:curveSmoothness,
     removalCoverage:removalCoverage,
+    landUpgrades:landUpgrades,
     coachTopFixes:coachTopFixes,
     analyzeCached:analyzeCached,
     analyze:analyze,
