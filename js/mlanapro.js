@@ -332,6 +332,82 @@ window.mlAnaPro = (function(){
     }
   };
 
+  // ─── MANA EFFICIENCY BENCHMARKS PAR RÔLE (build 91) ────────────────────
+  // Définit pour chaque rôle :
+  //  - `unitValue` : la « valeur référence » d'un effet de base dans ce rôle
+  //  - `goodCmc`   : le CMC où l'effet devient « overcost »
+  // Permet de calculer, pour chaque carte, un IMPACT SCORE = valeur/CMC.
+  // Exemples :
+  //   Sol Ring (cmc 1, ramp +2) → impact 200 (élite)
+  //   Arcane Signet (cmc 2, ramp +1) → impact 50 (top staple)
+  //   Manalith (cmc 3, ramp +1) → impact 33 (médiocre)
+  //   Wrath of God (cmc 4, wipe sweep) → impact 100/4=25, mais effet majeur
+  // Note : pour les wraths/tutors, l'effet est binaire (oui/non),
+  // donc on compare juste le CMC vs le « goodCmc » du rôle.
+  var ROLE_BENCHMARKS = {
+    ramp:       {goodCmc:2,baseUnitValue:1,description:'1 mana généré'},
+    draw:       {goodCmc:2,baseUnitValue:2,description:'2 cartes piochées'},
+    removal:    {goodCmc:2,baseUnitValue:1,description:'1 permanent removed'},
+    interaction:{goodCmc:2,baseUnitValue:1,description:'1 sort géré'},
+    counter:    {goodCmc:2,baseUnitValue:1,description:'1 sort countered'},
+    wipe:       {goodCmc:4,baseUnitValue:1,description:'1 sweep'},
+    tutor:      {goodCmc:2,baseUnitValue:1,description:'1 carte cherchée'},
+    landFix:    {goodCmc:0,baseUnitValue:1,description:'1 fixer mana'}
+  };
+  // CMC connu des staples (pour comparer le ratio carte-vs-staple). Sert
+  // de fallback quand la carte de l'utilisateur a un CMC connu mais qu'on
+  // veut comparer à un staple. Format : nom → cmc.
+  var STAPLE_CMC = {
+    // Ramp
+    'sol ring':1,'mana crypt':0,'mana vault':1,'jeweled lotus':0,
+    'arcane signet':2,'mox diamond':0,'chrome mox':0,'mox opal':0,
+    'dockside extortionist':2,'fellwar stone':2,'thought vessel':2,
+    'mind stone':2,'wayfarer\'s bauble':1,'commander\'s sphere':3,
+    'nature\'s lore':2,'three visits':2,'farseek':2,'rampant growth':2,
+    'cultivate':3,'kodama\'s reach':3,'sakura-tribe elder':2,
+    'birds of paradise':1,'noble hierarch':1,'llanowar elves':1,
+    'elvish mystic':1,'fyndhorn elves':1,'arbor elf':1,
+    'deathrite shaman':1,'orcish lumberjack':1,
+    'talisman of progress':2,'talisman of dominance':2,'talisman of resilience':2,
+    'talisman of curiosity':2,'talisman of indulgence':2,'talisman of impulse':2,
+    'talisman of hierarchy':2,'talisman of conviction':2,'talisman of creativity':2,
+    'talisman of unity':2,
+    'lotus petal':0,'mox amber':0,'simian spirit guide':3,
+    // Draw
+    'rhystic study':3,'mystic remora':1,'sylvan library':2,
+    'esper sentinel':1,'smothering tithe':4,
+    'necropotence':3,'consecrated sphinx':6,'phyrexian arena':3,
+    'brainstorm':1,'ponder':1,'preordain':1,
+    'sign in blood':2,'night\'s whisper':2,'read the bones':3,
+    'painful truths':3,'wheel of fortune':3,'tymna the weaver':3,
+    'thrasios, triton hero':2,
+    'harmonize':4,'concentrate':4,'fact or fiction':4,
+    // Removal
+    'swords to plowshares':1,'path to exile':1,'generous gift':3,
+    'beast within':3,'chaos warp':3,'krosan grip':2,
+    'cyclonic rift':2,'assassin\'s trophy':2,'anguished unmaking':3,
+    'lightning bolt':1,'go for the throat':2,'doom blade':2,
+    'nature\'s claim':1,'force of vigor':3,'pongify':2,'rapid hybridization':2,
+    'feed the swarm':2,'utter end':4,'despark':2,
+    // Interaction / Counter
+    'force of will':5,'force of negation':3,'mana drain':2,
+    'mental misstep':1,'flusterstorm':1,'pact of negation':0,
+    'counterspell':2,'mana leak':2,'negate':2,
+    'fierce guardianship':3,'deflecting swat':3,
+    'swan song':1,'dovin\'s veto':2,'arcane denial':2,
+    'an offer you can\'t refuse':1,'spell pierce':1,
+    // Wipe
+    'wrath of god':4,'damnation':4,'supreme verdict':4,'farewell':6,
+    'austere command':6,'toxic deluge':3,'blasphemous act':9,
+    'living death':5,'cyclonic rift':2,'damn':4,
+    // Tutor
+    'demonic tutor':2,'vampiric tutor':1,'imperial seal':1,
+    'grim tutor':3,'enlightened tutor':1,'mystical tutor':1,
+    'worldly tutor':1,'idyllic tutor':3,'green sun\'s zenith':2,
+    'eladamri\'s call':2,'survival of the fittest':2,
+    'natural order':4,'birthing pod':3,'tooth and nail':9
+  };
+
   // Cartes Mass Land Denial (MLD) — bracket 4+ indicateur fort.
   var MLD_CARDS = [
     'armageddon','ravages of war','catastrophe','wildfire','obliterate',
@@ -1015,7 +1091,66 @@ window.mlAnaPro = (function(){
     return {byRole:byRole};
   }
 
-  // ─── 10. RAPPORT GLOBAL ────────────────────────────────────────────────
+  // ─── 10. MANA EFFICIENCY (build 91) ────────────────────────────────────
+  // Calcule, pour chaque carte rangée par rôle, son IMPACT SCORE :
+  //   impact = (powerTier * unitValue) / max(1, cmc)
+  // Permet de dire « ton Manalith (cmc=3, impact=33) coûte 1 mana de
+  // trop par rapport à Arcane Signet (cmc=2, impact=50) — switche ».
+  //
+  // Détecte aussi les cartes « overcost » du deck (impact très bas) et
+  // propose des alternatives staples au CMC inférieur du même rôle.
+  function _impactScore(power,cmc){
+    if(cmc==null||cmc<0)cmc=0;
+    // Évite la division par zéro : Mana Crypt / Mox a un impact infini sinon
+    if(cmc===0)return power*1.5; // bonus 0-CMC
+    return Math.round((power/cmc)*10)/1;
+  }
+  function manaEfficiency(rows,deck){
+    if(!Array.isArray(rows))return {byRole:{}};
+    // Indice par rôle des cartes du deck
+    var byRole={};
+    rows.forEach(function(r){
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      var role=_detectCardRole(r.meta);
+      if(!role)return;
+      var cmc=(r.meta&&typeof r.meta.cmc==='number')?r.meta.cmc:null;
+      // Power = tier connu, sinon base
+      var power=_powerOfCard(nl,role);
+      var impact=cmc!=null?_impactScore(power,cmc):power;
+      byRole[role]=byRole[role]||{cards:[]};
+      byRole[role].cards.push({name:r.card&&r.card.name||r.name,nl:nl,cmc:cmc,power:power,impact:impact});
+    });
+    // Pour chaque rôle, classe par impact (low → high), repère les overcost
+    Object.keys(byRole).forEach(function(role){
+      var bench=ROLE_BENCHMARKS[role];
+      var goodCmc=bench?bench.goodCmc:2;
+      byRole[role].cards.sort(function(a,b){return a.impact-b.impact;});
+      byRole[role].overcost=byRole[role].cards.filter(function(c){
+        return c.cmc!=null && c.cmc>goodCmc && c.power<=TIER_C;
+      }).slice(0,5);
+      byRole[role].topImpact=byRole[role].cards.slice().sort(function(a,b){return b.impact-a.impact;}).slice(0,3);
+      byRole[role].avgImpact=byRole[role].cards.length?Math.round(byRole[role].cards.reduce(function(s,c){return s+c.impact;},0)/byRole[role].cards.length):0;
+      byRole[role].goodCmc=goodCmc;
+      byRole[role].bench=bench;
+      // Trouve, pour chaque overcost, le meilleur staple alternatif (CMC ≤ overcost.cmc)
+      byRole[role].overcost.forEach(function(c){
+        var bestAlt=null,bestAltImpact=-1;
+        Object.keys(CARD_TIERS[role]||{}).forEach(function(nl){
+          if(nl===c.nl)return;
+          var altPower=CARD_TIERS[role][nl];
+          var altCmc=STAPLE_CMC[nl];
+          if(altCmc==null)return;
+          if(altCmc>=c.cmc)return; // cherche moins cher
+          var altImpact=_impactScore(altPower,altCmc);
+          if(altImpact>bestAltImpact){bestAltImpact=altImpact;bestAlt={name:nl,cmc:altCmc,power:altPower,impact:altImpact};}
+        });
+        if(bestAlt)c.suggestedSwap=bestAlt;
+      });
+    });
+    return {byRole:byRole};
+  }
+
+  // ─── 11. RAPPORT GLOBAL ────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
     var winCons=detectWinCons(rows,deck);
@@ -1027,6 +1162,7 @@ window.mlAnaPro = (function(){
     var robust=robustness(rows,deck);
     var legality=legalityCheck(rows,deck);
     var swaps=suggestSwaps(rows,deck);
+    var efficiency=manaEfficiency(rows,deck);
     return {
       winCons:winCons,
       manabase:mana,
@@ -1037,6 +1173,7 @@ window.mlAnaPro = (function(){
       robustness:robust,
       legality:legality,
       swaps:swaps,
+      efficiency:efficiency,
       timestamp:Date.now()
     };
   }
@@ -1220,6 +1357,48 @@ window.mlAnaPro = (function(){
         h+='</div>';
       }
     }
+    // ─ 9b. Efficience mana (build 91) ─ avant les suggestions par tier
+    if(report.efficiency&&report.efficiency.byRole){
+      var eff=report.efficiency.byRole;
+      var hasOvercost=Object.keys(eff).some(function(r){return eff[r].overcost&&eff[r].overcost.length;});
+      if(hasOvercost){
+        var roleEffLbl={ramp:'⛰ Ramp',draw:'📜 Pioche',removal:'🗡 Removal',interaction:'🛡 Interaction',
+          wipe:'💥 Wraths',tutor:'🔮 Tutors',counter:'✋ Contresorts',landFix:'🌐 Fixers'};
+        h+='<div class="anapro-card" style="border-color:rgba(240,200,74,.42)">';
+        h+='<div class="anapro-cat" style="color:#f0c84a">⚡ Efficience mana — coût / effet</div>';
+        h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.55;margin-bottom:10px">Cartes dont le <b>CMC est élevé pour l\'effet rendu</b>. Pour chacune, on propose un staple <b style="color:#9ddf8c">à coût inférieur ou égal</b> avec un impact supérieur. <span style="color:var(--tx3);font-style:italic">Score impact = power_tier ÷ CMC</span></div>';
+        Object.keys(eff).forEach(function(role){
+          var data=eff[role];
+          if(!data.overcost||!data.overcost.length)return;
+          h+='<div style="margin-bottom:12px">';
+          h+='<div style="font-size:.74rem;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'+_esc(roleEffLbl[role]||role)+' <span style="color:var(--tx3);font-weight:400;font-size:.66rem">· '+data.cards.length+' carte(s) · impact moy '+data.avgImpact+'</span></div>';
+          data.overcost.forEach(function(c){
+            h+='<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;padding:8px 11px;background:rgba(240,200,74,.04);border:.5px solid rgba(240,200,74,.20);border-radius:8px;margin-bottom:5px">';
+            // Current card (faible impact)
+            h+='<div>';
+            h+='<div style="font-size:.84rem;color:var(--tx)"><b>'+_esc(c.name)+'</b></div>';
+            h+='<div style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-mono,monospace)">cmc '+c.cmc+' · impact '+c.impact+'</div>';
+            h+='</div>';
+            // Arrow
+            h+='<div style="font-size:1.2rem;color:#9ddf8c">→</div>';
+            // Suggested swap
+            if(c.suggestedSwap){
+              var s=c.suggestedSwap;
+              var gain=s.impact-c.impact;
+              h+='<div>';
+              h+='<div style="font-size:.84rem;color:#9ddf8c"><b>'+_esc(s.name.replace(/\b./g,function(x){return x.toUpperCase();}))+'</b></div>';
+              h+='<div style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-mono,monospace)">cmc '+s.cmc+' · impact '+s.impact+' <b style="color:#9ddf8c">(+'+gain.toFixed(0)+')</b></div>';
+              h+='</div>';
+            }else{
+              h+='<div style="font-size:.74rem;color:var(--tx3);font-style:italic">Pas d\'alternative low-CMC</div>';
+            }
+            h+='</div>';
+          });
+          h+='</div>';
+        });
+        h+='</div>';
+      }
+    }
     // ─ 9. Suggestions de swap par tier (build 90) ─
     if(report.swaps&&report.swaps.byRole){
       var roleLabels={ramp:'⛰ Ramp',draw:'📜 Pioche',removal:'🗡 Removal',interaction:'🛡 Interaction',
@@ -1278,12 +1457,15 @@ window.mlAnaPro = (function(){
     robustness:robustness,
     legalityCheck:legalityCheck,
     suggestSwaps:suggestSwaps,
+    manaEfficiency:manaEfficiency,
     analyze:analyze,
     render:render,
     COMBOS:COMBOS,
     GAME_CHANGERS:GAME_CHANGERS,
     MLD_CARDS:MLD_CARDS,
     KEYWORDS_BY_PLAN:KEYWORDS_BY_PLAN,
-    CARD_TIERS:CARD_TIERS
+    CARD_TIERS:CARD_TIERS,
+    ROLE_BENCHMARKS:ROLE_BENCHMARKS,
+    STAPLE_CMC:STAPLE_CMC
   };
 })();
