@@ -76,7 +76,110 @@ window.mlAnaPro = (function(){
     {n:'Triskaidekaphobia (13 PV)',cards:['triskaidekaphobia'],result:'alt-win',mana:3,turn:5,types:['alt-win']},
     {n:'Coalition Victory',cards:['coalition victory'],result:'alt-win 5-couleurs',mana:8,turn:7,types:['alt-win']},
     {n:'Felidar Sovereign',cards:['felidar sovereign'],result:'alt-win (40+ PV)',mana:6,turn:5,types:['alt-win']},
-    {n:'Test of Endurance',cards:['test of endurance'],result:'alt-win (50+ PV)',mana:4,turn:5,types:['alt-win']}
+    {n:'Test of Endurance',cards:['test of endurance'],result:'alt-win (50+ PV)',mana:4,turn:5,types:['alt-win']},
+    // ─── Build 89 : extension à 100+ combos (Commander Spellbook + cEDH staples) ───
+    {n:'Basalt Monolith + Rings of Brighthearth',cards:['basalt monolith','rings of brighthearth'],
+      result:'mana infini',mana:8,turn:6,types:['mana']},
+    {n:'Grand Architect + Pili-Pala',cards:['grand architect','pili-pala'],
+      result:'mana bleu infini',mana:6,turn:5,types:['mana']},
+    {n:'Phyrexian Devourer + Triskelion',cards:['phyrexian devourer','triskelion'],
+      result:'dmg infini',mana:10,turn:6,types:['combat']},
+    {n:'Marwyn + Staff of Domination',cards:['marwyn, the nurturer','staff of domination'],
+      result:'mana vert infini + pioche',mana:8,turn:6,types:['mana','combat']},
+    {n:'Eldrazi Displacer + Drowner of Hope',cards:['eldrazi displacer','drowner of hope'],
+      result:'mana incolore infini',mana:8,turn:6,types:['mana']},
+    {n:'Animar + Ancestral Statue',cards:['animar, soul of elements','ancestral statue'],
+      result:'tour infinie',mana:7,turn:5,types:['combat']},
+    {n:'Karn + Mycosynth Lattice',cards:['karn, the great creator','mycosynth lattice'],
+      result:'soft-lock terrains',mana:10,turn:7,types:['lock']},
+    {n:'Felidar Sovereign + life gain engine',cards:['felidar sovereign','aetherflux reservoir'],
+      result:'alt-win (40+ PV)',mana:10,turn:6,types:['alt-win']},
+    {n:'Polymorph + créature unique',cards:['polymorph','blightsteel colossus'],
+      result:'cheat creature in',mana:4,turn:4,types:['combat']},
+    {n:'Sneak Attack + Emrakul',cards:['sneak attack','emrakul, the aeons torn'],
+      result:'one-shot',mana:5,turn:5,types:['combat']},
+    {n:'Show and Tell + Omniscience',cards:['show and tell','omniscience'],
+      result:'cheat + free casts',mana:6,turn:6,types:['combo']},
+    {n:'Doomsday pile (Thoracle)',cards:['doomsday','thassa\'s oracle'],
+      result:'win T4 garanti',mana:7,turn:4,types:['alt-win']},
+    {n:'Birgi + Glorious End',cards:['birgi, god of storytelling','grapeshot'],
+      result:'storm win',mana:5,turn:5,types:['storm']},
+    {n:'Aluren + Cavern Harpy',cards:['aluren','cavern harpy'],
+      result:'loop drain',mana:6,turn:5,types:['drain']},
+    {n:'Aluren + Parasitic Strix',cards:['aluren','parasitic strix'],
+      result:'drain infini',mana:6,turn:5,types:['drain']},
+    {n:'Painter\'s Servant + Grindstone',cards:['painter\'s servant','grindstone'],
+      result:'mill instantané',mana:5,turn:5,types:['mill','alt-win']},
+    {n:'Hermit Druid (mono color)',cards:['hermit druid'],
+      result:'mill self → win',mana:2,turn:3,types:['mill','alt-win']},
+    {n:'Earthcraft + Squirrel Nest',cards:['earthcraft','squirrel nest'],
+      result:'tokens infinis',mana:6,turn:5,types:['tokens']},
+    {n:'Pestilence + Vampiric Link',cards:['pestilence','vampiric link'],
+      result:'drain control',mana:5,turn:5,types:['drain']},
+    {n:'Necropotence + Yawgmoth\'s Bargain',cards:['necropotence'],
+      result:'card advantage massive',mana:3,turn:4,types:['draw']},
+    {n:'Sanctum Weaver + infinite untaps',cards:['sanctum weaver','staff of domination'],
+      result:'mana vert infini',mana:9,turn:6,types:['mana']},
+    {n:'Codie + Krark-Clan Ironworks',cards:['codie, vociferous codex','krark-clan ironworks'],
+      result:'storm chain',mana:6,turn:6,types:['storm']},
+    {n:'Mishra\'s Workshop + Forsaken Monument',cards:['mishra\'s workshop','forsaken monument'],
+      result:'mana incolore infini',mana:5,turn:4,types:['mana']},
+    {n:'Tymna + Thrasios (cEDH staples)',cards:['tymna the weaver','thrasios, triton hero'],
+      result:'commandants synergiques',mana:5,turn:4,types:['draw','mana']},
+    {n:'Dockside Extortionist + Temur Sabertooth',cards:['dockside extortionist','temur sabertooth'],
+      result:'mana infini (≥3 artefacts adv.)',mana:7,turn:5,types:['mana']},
+    {n:'Auriok Salvagers + Lion\'s Eye Diamond',cards:['auriok salvagers','lion\'s eye diamond'],
+      result:'mana infini',mana:5,turn:5,types:['mana']},
+    {n:'Bishop of Wings + Divine Visitation',cards:['bishop of wings','divine visitation'],
+      result:'angel infinis',mana:9,turn:6,types:['combat']},
+    {n:'Glasspool Mimic + Spark Double',cards:['glasspool mimic','spark double'],
+      result:'tokens légendaires infinis',mana:7,turn:5,types:['combat']},
+    {n:'Worldly Tutor (cEDH staple)',cards:['worldly tutor'],
+      result:'fetch creature combo',mana:1,turn:1,types:['tutor']},
+    {n:'Skullclamp + small creature engine',cards:['skullclamp'],
+      result:'draw engine',mana:1,turn:2,types:['draw']},
+    {n:'Tymna draw engine',cards:['tymna the weaver'],
+      result:'cmd draw engine',mana:3,turn:3,types:['draw']},
+    {n:'Najeela attack triggers + mana sources',cards:['najeela, the blade-blossom'],
+      result:'extra turns + win',mana:7,turn:5,types:['combo','combat']},
+    {n:'Kinnan + Bloom Tender',cards:['kinnan, bonder prodigy','bloom tender'],
+      result:'mana 5-couleurs explosif',mana:5,turn:4,types:['mana']},
+    {n:'Yawgmoth + Strionic Resonator',cards:['yawgmoth, thran physician','strionic resonator'],
+      result:'mass drain',mana:6,turn:5,types:['drain']},
+    {n:'Painful Truths + Necropotence',cards:['necropotence'],
+      result:'card draw engine',mana:3,turn:4,types:['draw']},
+    {n:'Aetherflux Reservoir alone (50+ life)',cards:['aetherflux reservoir'],
+      result:'alt-win',mana:4,turn:6,types:['drain']},
+    {n:'Magus of the Wheel (chain)',cards:['magus of the wheel','wheel of fortune'],
+      result:'card advantage wheel',mana:6,turn:5,types:['draw']},
+    {n:'Bolas\'s Citadel + Sensei\'s Top',cards:['bolas\'s citadel','sensei\'s divining top'],
+      result:'card draw infini',mana:7,turn:5,types:['draw']},
+    {n:'Bolas\'s Citadel + Aetherflux Reservoir',cards:['bolas\'s citadel','aetherflux reservoir'],
+      result:'storm drain',mana:8,turn:6,types:['drain']},
+    {n:'Captain Sisay tutor chain',cards:['captain sisay'],
+      result:'legendary tutor',mana:4,turn:4,types:['tutor']},
+    {n:'Selvala Heart of Wilds + Umbral Mantle',cards:['selvala, heart of the wilds','umbral mantle'],
+      result:'mana vert infini',mana:7,turn:5,types:['mana']},
+    {n:'Cloudstone Curio + bounce loop',cards:['cloudstone curio','peregrine drake'],
+      result:'mana infini',mana:9,turn:6,types:['mana']},
+    {n:'Peregrine Drake + Deadeye Navigator',cards:['peregrine drake','deadeye navigator'],
+      result:'mana bleu infini',mana:11,turn:6,types:['mana']},
+    {n:'Karmic Guide + Body Double',cards:['karmic guide','body double'],
+      result:'reanimation loop',mana:10,turn:6,types:['combo']},
+    {n:'Lifeline + creature loop',cards:['lifeline','phantom nishoba'],
+      result:'recursion infinie',mana:8,turn:6,types:['combo']},
+    {n:'Glissa, the Traitor + recursion',cards:['glissa, the traitor','mindslaver'],
+      result:'mass control',mana:8,turn:6,types:['lock']},
+    {n:'Phantasmal Image + Mirror Gallery',cards:['phantasmal image','mirror gallery'],
+      result:'légendaire copies',mana:6,turn:5,types:['combat']},
+    {n:'Mox Amber + commanders cheap',cards:['mox amber'],
+      result:'fast mana legendary',mana:0,turn:1,types:['mana']},
+    {n:'Top of the deck stack (Mystical Tutor → Demonic Tutor)',cards:['mystical tutor','demonic tutor'],
+      result:'tutor chain',mana:3,turn:3,types:['tutor']},
+    {n:'Lab Maniac + Demonic Consultation',cards:['laboratory maniac','demonic consultation'],
+      result:'alt-win T4',mana:4,turn:4,types:['alt-win']},
+    {n:'Cephalid Illusionist + Nomads en-Kor',cards:['cephalid illusionist','nomads en-kor'],
+      result:'mill self pour Lab Maniac',mana:4,turn:4,types:['mill']}
   ];
 
   // Mots-clés MTG par stratégie. Permet de détecter si les keywords du deck
@@ -382,59 +485,328 @@ window.mlAnaPro = (function(){
   }
 
   // ─── 5. ANTI-SYNERGIES — commandant vs payoff manquant ─────────────────
+  // Build 89 : élargi à 50+ commandants populaires + rules-based génériques.
+  // Format unifié : chaque rule scanne les rows et déduit des issues.
+  function _countMatches(rows,patterns){
+    var n=0;
+    rows.forEach(function(r){
+      var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+      var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      patterns.forEach(function(p){
+        if(p.re&&p.re.test(p.target==='type'?tl:p.target==='name'?nl:ot))n++;
+        else if(p.in&&p.in.indexOf(nl)>=0)n++;
+      });
+    });
+    return n;
+  }
+  // Helper : compte avec ou (au moins une des conditions)
+  function _scanWith(rows,scanFn){
+    var n=0;rows.forEach(function(r){if(scanFn(r))n++;});return n;
+  }
   function antiSynergies(rows,deck){
     var issues=[];
     if(!deck||!deck.commander||!deck.commander.name)return {issues:[]};
     var cmd=deck.commander.name.toLowerCase();
-    var set=_cardSet(rows);
-    // Quelques règles ciblées de cohérence
-    // Atraxa, Praetors' Voice → besoin de proliferate + +1+1
-    if(/atraxa.*praetors/.test(cmd)){
-      var prolifCount=0,countersGen=0;
-      rows.forEach(function(r){
-        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
-        if(/proliferate/.test(ot))prolifCount++;
-        if(/\+1\/\+1 counter/.test(ot))countersGen++;
-      });
-      if(prolifCount<5)issues.push({sev:'high',msg:'Atraxa → seulement '+prolifCount+' sources de proliferate (idéal 10+)'});
-      if(countersGen<8)issues.push({sev:'med',msg:'Atraxa → seulement '+countersGen+' sources de +1/+1 counters (idéal 15+)'});
+    // ─── Règles par commandant (50+ populaires) ───
+    // Helper pour pousser des règles standard
+    function push(sev,msg){issues.push({sev:sev,msg:msg});}
+    function need(label,actual,target,sev){
+      sev=sev||(actual<target/2?'high':'med');
+      push(sev,label+' → '+actual+' (idéal '+target+'+)');
     }
-    // Yuriko → besoin de créatures évasives
-    if(/yuriko, the tiger/.test(cmd)){
-      var evasive=0,bigTop=0;
-      rows.forEach(function(r){
-        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
-        var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
-        var cmc=r.meta&&r.meta.cmc||0;
-        if(/creature/.test(tl)&&/flying|menace|unblockable|shadow|horsemanship|skulk/.test(ot))evasive++;
-        if(/creature/.test(tl)&&cmc>=5)bigTop++;
-      });
-      if(evasive<8)issues.push({sev:'high',msg:'Yuriko → seulement '+evasive+' créatures évasives (idéal 15+ pour déclencher le ninjutsu)'});
-      if(bigTop<10)issues.push({sev:'med',msg:'Yuriko → seulement '+bigTop+' « gros » en top (idéal 15+ pour dmg burst)'});
+    // ── COUNTERS / +1/+1 / Proliferate ──
+    if(/atraxa.*praetors|atraxa.*grand unifier|hadana.*climb|ezuri.*claw|ghave|ghalta.*mavren|kalonian|marath|inalla|toothy/.test(cmd)){
+      var prolif=_scanWith(rows,function(r){return /proliferate/.test((r.meta&&r.meta.oracleText||'').toLowerCase());});
+      var ctr=_scanWith(rows,function(r){return /\+1\/\+1 counter/.test((r.meta&&r.meta.oracleText||'').toLowerCase());});
+      if(/atraxa|ezuri.*claw|ghave|hadana/.test(cmd)&&prolif<5)need('Proliferate',prolif,10,'high');
+      if(ctr<8)need('+1/+1 counters',ctr,15);
     }
-    // Edric → besoin de petites créatures unblockable
-    if(/edric, spymaster/.test(cmd)){
-      var unblock=0;
-      rows.forEach(function(r){
-        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
-        var cmc=r.meta&&r.meta.cmc||0;
-        if(cmc<=2&&/can't be blocked|unblockable|shadow|skulk/.test(ot))unblock++;
+    // ── Ninjutsu / Evasive ──
+    if(/yuriko|ink-eyes|silver-fur master|satoru umezawa|kaito|ninja/.test(cmd)){
+      var evas=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
+        return /creature/.test(tl)&&/flying|menace|unblockable|shadow|horsemanship|skulk|can't be blocked/.test(ot);
       });
-      if(unblock<12)issues.push({sev:'high',msg:'Edric → seulement '+unblock+' créatures unblockable ≤2 mana (idéal 20+)'});
+      var bigTop=_scanWith(rows,function(r){
+        var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();var cmc=r.meta&&r.meta.cmc||0;
+        return /creature/.test(tl)&&cmc>=5;
+      });
+      if(evas<8)need('Créatures évasives',evas,15,'high');
+      if(/yuriko/.test(cmd)&&bigTop<10)need('Gros en top (Yuriko)',bigTop,15);
     }
-    // Krenko → besoin de créatures Goblin
-    if(/krenko/.test(cmd)){
-      var goblins=0;
-      rows.forEach(function(r){
-        var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
-        if(/goblin/.test(tl))goblins++;
+    // ── Edric / Unblockable spam ──
+    if(/edric|tetsuko|coastal piracy|reconnaissance/.test(cmd)){
+      var unblock=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();var cmc=r.meta&&r.meta.cmc||0;
+        return cmc<=2&&/can't be blocked|unblockable|shadow|skulk|menace/.test(ot);
       });
-      if(goblins<20)issues.push({sev:'high',msg:'Krenko → seulement '+goblins+' Goblins (idéal 30+)'});
+      if(unblock<12)need('Créatures unblockable ≤2',unblock,20,'high');
+    }
+    // ── Tribal Goblins (Krenko, Wort, Muxus, Grenzo) ──
+    if(/krenko|wort.*raidmother|muxus|grenzo|skirk prospector|goblin chieftain|squee.*goblin/.test(cmd)){
+      var goblins=_scanWith(rows,function(r){return /goblin/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(goblins<20)need('Goblins',goblins,30,'high');
+    }
+    // ── Tribal Slivers ──
+    if(/sliver|the first sliver|sliver legion|sliver overlord/.test(cmd)){
+      var slivers=_scanWith(rows,function(r){return /sliver/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(slivers<25)need('Slivers',slivers,35,'high');
+    }
+    // ── Tribal Elves (Ezuri, Marwyn, Lathril) ──
+    if(/ezuri.*renegade|marwyn|lathril|gilt-leaf winnower|nath.*leaves|seton/.test(cmd)){
+      var elves=_scanWith(rows,function(r){return /elf|elves/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(elves<22)need('Elfes',elves,32,'high');
+    }
+    // ── Tribal Dragons (The Ur-Dragon, Scion, Tiamat, Niv) ──
+    if(/the ur-dragon|scion of the ur-dragon|tiamat|niv-mizzet reborn|miirym/.test(cmd)){
+      var dragons=_scanWith(rows,function(r){return /dragon/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(dragons<20)need('Dragons',dragons,28);
+    }
+    // ── Tribal Vampires (Edgar, Olivia, Sorin) ──
+    if(/edgar markov|edgar.*charmed|olivia.*vampire|sorin lord of innistrad/.test(cmd)){
+      var vamps=_scanWith(rows,function(r){return /vampire/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(vamps<22)need('Vampires',vamps,30,'high');
+    }
+    // ── Tribal Zombies (Wilhelt, Varina, Sidisi) ──
+    if(/wilhelt|varina|sidisi.*brood tyrant|gisa|geralf|grimgrin/.test(cmd)){
+      var zomb=_scanWith(rows,function(r){return /zombie/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(zomb<22)need('Zombies',zomb,30,'high');
+    }
+    // ── Tribal Knights / Soldiers (Aragorn, Sram, Syr Gwyn) ──
+    if(/aragorn|syr gwyn|knights/.test(cmd)){
+      var kts=_scanWith(rows,function(r){return /knight/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(kts<18)need('Chevaliers',kts,25);
+    }
+    // ── Tribal Cats (Arahbo, Mirri) ──
+    if(/arahbo|mirri.*weatherlight|kaheera/.test(cmd)){
+      var cats=_scanWith(rows,function(r){return /cat/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(cats<20)need('Chats',cats,28);
+    }
+    // ── Sacrifice / Aristocrats (Korvold, Meren, Teysa) ──
+    if(/korvold|meren|teysa.*orzhov|teysa.*karlov|judith|savra|prossh|ognis/.test(cmd)){
+      var sacOut=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /sacrifice (a|another) (creature|permanent)/.test(ot);
+      });
+      var sacPay=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /whenever.* dies|sacrificed/.test(ot);
+      });
+      var tokenGen=_scanWith(rows,function(r){return /create .* token/.test((r.meta&&r.meta.oracleText||'').toLowerCase());});
+      if(sacOut<5)need('Sacrifice outlets',sacOut,8,'high');
+      if(sacPay<6)need('Payoffs « dies/sacrificed »',sacPay,10);
+      if(tokenGen<8)need('Générateurs de tokens (fodder)',tokenGen,12);
+    }
+    // ── Graveyard (Muldrotha, Karador, Tasigur, Sidisi) ──
+    if(/muldrotha|karador|tasigur|sidisi|haakon|kess|the gitrog|jarad/.test(cmd)){
+      var recur=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /return target .* from your graveyard|return .* graveyard to your hand|return .* graveyard to the battlefield/.test(ot);
+      });
+      var selfMill=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /mill (one|two|three|four|five|six|seven|eight|nine|ten)|put .* into your graveyard|surveil [2-9]/.test(ot);
+      });
+      if(recur<8)need('Effets de récursion cimetière',recur,12,'high');
+      if(selfMill<5)need('Self-mill pour alimenter le cimetière',selfMill,8);
+    }
+    // ── Spellslinger (Niv-Mizzet, Mizzix, Veyran, Kalamax) ──
+    if(/niv-mizzet|mizzix|veyran|kalamax|adeliz|kykar|krark.*thumb/.test(cmd)){
+      var inst=_scanWith(rows,function(r){return /instant|sorcery/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(inst<25)need('Instants/Sorceries',inst,32,'high');
+    }
+    // ── Voltron (Uril, Sram, Rafiq, Tiana, Bruna, Sigarda) ──
+    if(/uril|sram|rafiq|tiana|bruna.*light of alabaster|sigarda|kemba|chishiro|halvar/.test(cmd)){
+      var equip=_scanWith(rows,function(r){return /equipment/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      var aura=_scanWith(rows,function(r){return /aura/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      var prot=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /hexproof|shroud|protection from|indestructible/.test(ot);
+      });
+      if(/sram|uril|rafiq|bruna/.test(cmd)&&aura+equip<15)need('Auras/Équipements',aura+equip,20,'high');
+      if(prot<6)need('Sources de protection (hexproof/shroud/indestructible)',prot,10,'high');
+    }
+    // ── Group hug / Politics (Phelddagrif, Selvala) ──
+    if(/phelddagrif|selvala.*explorer|edric.*spymaster|kynaios/.test(cmd)){
+      var groupDraw=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /each player draws|all players draw|each opponent draws/.test(ot);
+      });
+      if(groupDraw<6)need('Effets de pioche partagée',groupDraw,10);
+    }
+    // ── Storm (Birgi, Codie, Yuriko-storm, Krark) ──
+    if(/birgi|codie|grenzo.*havoc raiser|krark.*thumb/.test(cmd)){
+      var cheapInst=_scanWith(rows,function(r){
+        var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();var cmc=r.meta&&r.meta.cmc||99;
+        return /instant|sorcery/.test(tl)&&cmc<=2;
+      });
+      if(cheapInst<20)need('Sorts ≤2 mana (storm count)',cheapInst,28,'high');
+    }
+    // ── Stax (Winter, Glissa Sunslayer, Tergrid) ──
+    if(/winter|glissa.*sunslayer|tergrid|root maze|smokestack|stax/.test(cmd)){
+      var lock=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /lands don't untap|skip your.* phase|sacrifice a permanent.*unless/.test(ot);
+      });
+      if(lock<6)need('Pièces de stax / lock',lock,10,'med');
+    }
+    // ── Landfall (Omnath, Aesi, Tatyova, Lord Windgrace) ──
+    if(/omnath.*landfall|omnath.*roil|aesi|tatyova|lord windgrace|nissa.*vital force/.test(cmd)){
+      var land=_scanWith(rows,function(r){return /land/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      var landRamp=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /search your library for .* land|put .* land.* battlefield/.test(ot);
+      });
+      if(land<38)need('Terrains (landfall need ≥38)',land,40,'high');
+      if(landRamp<10)need('Effets « extra land drop / fetch »',landRamp,15,'high');
+    }
+    // ── Treasures (Magda, Lord Xander, Goldspan Dragon, Brago, Captain Hook) ──
+    if(/magda|lord xander|goldspan|brass\'s tunnel|captain hook|admiral beckett brass/.test(cmd)){
+      var trea=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /treasure token|treasure/.test(ot);
+      });
+      if(trea<12)need('Effets Treasure',trea,18);
+    }
+    // ── Equipment matter (Wyleth, Akiri, Nazahn) ──
+    if(/wyleth|akiri|nazahn|valduk|halvar|kelsien|godo/.test(cmd)){
+      var eq=_scanWith(rows,function(r){return /equipment/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(eq<15)need('Équipements',eq,22,'high');
+    }
+    // ── Enchantress (Sythis, Sigarda host, Tuvasa, Light-Paws) ──
+    if(/sythis|tuvasa|sigarda.*host|light-paws|sanctum weaver|argothian enchantress|setessan champion/.test(cmd)){
+      var enc=_scanWith(rows,function(r){return /enchantment/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(enc<25)need('Enchantements',enc,32,'high');
+    }
+    // ── Lifegain (Karlov, Oloro, Heliod, Trostani) ──
+    if(/karlov|oloro|trostani|heliod.*god of the sun|ayli/.test(cmd)){
+      var lg=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /gain (one|two|three|four|five|x|that much) life|lifelink|whenever you gain life/.test(ot);
+      });
+      if(lg<14)need('Effets de gain de vie / payoffs',lg,20,'high');
+    }
+    // ── Blink / ETB (Roon, Brago, Aminatou, Norin, Yorion) ──
+    if(/roon|brago|aminatou|norin|yorion|teleportation circle|conjurer's closet/.test(cmd)){
+      var blink=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /exile target.*creature.*return.*battlefield|flicker|blink/.test(ot);
+      });
+      var etb=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /when .* enters the battlefield/.test(ot);
+      });
+      if(blink<6)need('Effets blink/flicker',blink,10,'high');
+      if(etb<15)need('Créatures ETB-payoff',etb,22);
+    }
+    // ── Token spam (Rhys, Krenko, Adriana, Anim Pakal) ──
+    if(/rhys|adriana|anim pakal|chatterfang|jetmir|emmara|trostani/.test(cmd)){
+      var tg=_scanWith(rows,function(r){return /create .* token/.test((r.meta&&r.meta.oracleText||'').toLowerCase());});
+      var anth=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /creatures you control get \+|other creatures you control get \+/.test(ot);
+      });
+      if(tg<14)need('Générateurs de tokens',tg,20,'high');
+      if(anth<5)need('Anthems',anth,8);
+    }
+    // ── Reanimator (Chainer, Sheoldred, Karador, Sedris) ──
+    if(/chainer|sheoldred|karador|sedris|alesha|reanimator/.test(cmd)){
+      var fattie=_scanWith(rows,function(r){
+        var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();var cmc=r.meta&&r.meta.cmc||0;
+        return /creature/.test(tl)&&cmc>=6;
+      });
+      var reanim=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /return target creature from your graveyard|put target creature card from .* graveyard/.test(ot);
+      });
+      if(fattie<10)need('Grosses créatures cibles (CMC≥6)',fattie,15);
+      if(reanim<5)need('Effets de reanimation',reanim,8,'high');
+    }
+    // ── Wheels (Nekusar, Magus of Wheel, Narset, Notion Thief) ──
+    if(/nekusar|jace.*archmage eternal|kydele|sami/.test(cmd)){
+      var wh=_scanWith(rows,function(r){
+        var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+        return /each player.*discards.*draws|wheel of fortune|windfall|magus of the wheel/.test(ot);
+      });
+      if(wh<5)need('Effets wheel/windfall',wh,8,'high');
+    }
+    // ── Mono color (Karametra → vert, Heliod → blanc, etc.) ──
+    if(/talrand/.test(cmd)){
+      var inst2=_scanWith(rows,function(r){return /instant|sorcery/.test((r.meta&&r.meta.typeLine||'').toLowerCase());});
+      if(inst2<28)need('Instants/Sorceries (Talrand)',inst2,35,'high');
     }
     return {issues:issues};
   }
 
-  // ─── 6. RAPPORT GLOBAL ─────────────────────────────────────────────────
+  // ─── 6. KEYWORDS vs PLAN DE JEU (build 89) ─────────────────────────────
+  // Compare les keywords détectés sur les créatures du deck à ceux qu'on
+  // attendrait selon le plan de victoire principal. Soulève les mismatchs.
+  function keywordsAlignment(rows,winConsReport){
+    if(!winConsReport||!winConsReport.primary)return {primary:null,present:[],expected:[],missing:[]};
+    var primary=winConsReport.primary.kind;
+    var expected=KEYWORDS_BY_PLAN[primary]||[];
+    // Détection des keywords dans le deck
+    var presentMap={};
+    rows.forEach(function(r){
+      var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+      Object.keys(KEYWORDS_BY_PLAN).forEach(function(p){
+        KEYWORDS_BY_PLAN[p].forEach(function(kw){
+          var re=new RegExp('\\b'+kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','i');
+          if(re.test(ot)){presentMap[kw]=(presentMap[kw]||0)+(r.qty||1);}
+        });
+      });
+    });
+    var present=Object.keys(presentMap);
+    var missing=expected.filter(function(kw){return !presentMap[kw];});
+    return {
+      primary:primary,
+      present:present,
+      expected:expected,
+      missing:missing,
+      counts:presentMap
+    };
+  }
+
+  // ─── 7. ROBUSTESSE — résistance aux menaces classiques ────────────────
+  // Évalue la résilience du deck face à 3 scenarios concrets :
+  // - Wrath T4 (mass removal) : capacité à recover
+  // - Combo T3-T4 adverse : capacité à interagir
+  // - Stax / lock pieces : capacité à briser
+  function robustness(rows,deck){
+    var nRecur=0,nInteraction=0,nProtection=0,nWipe=0,nThreatsCheap=0;
+    rows.forEach(function(r){
+      var ot=(r.meta&&r.meta.oracleText||'').toLowerCase();
+      var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
+      var cmc=r.meta&&r.meta.cmc||99;
+      // Récursion (recover du wrath)
+      if(/return.* from your graveyard.*battlefield|return.*creature card.*battlefield|recur/.test(ot))nRecur++;
+      // Interaction instant-speed
+      if((/instant/.test(tl)||/flash/.test(ot))&&/counter target|destroy target|exile target|return target/.test(ot))nInteraction++;
+      // Protection (indestructible / hexproof / phasing / etc.)
+      if(/indestructible|hexproof|shroud|protection from|phasing|can't be the target/.test(ot))nProtection++;
+      // Mass removal (notre propre wrath)
+      if(/destroy all|exile all|each creature.*-x\/-x|all creatures get -/.test(ot))nWipe++;
+      // Threats légers (rapide)
+      if(/creature/.test(tl)&&cmc<=3)nThreatsCheap++;
+    });
+    // Score wrath recovery
+    var wrathScore=Math.min(100,Math.round(nRecur*6+nProtection*4+nThreatsCheap*1.5));
+    // Score combo interaction
+    var comboScore=Math.min(100,Math.round(nInteraction*12));
+    // Score stax breaker
+    var staxScore=Math.min(100,Math.round(nWipe*15+nProtection*3));
+    var overallRobust=Math.round((wrathScore+comboScore+staxScore)/3);
+    return {
+      score:overallRobust,
+      wrathRecovery:{score:wrathScore,recursion:nRecur,protection:nProtection,cheapThreats:nThreatsCheap},
+      comboInteraction:{score:comboScore,instantInteraction:nInteraction},
+      staxBreaker:{score:staxScore,wipes:nWipe,protection:nProtection},
+      verdict:overallRobust>=70?'✓ Deck robuste':overallRobust>=45?'~ Robustesse moyenne':'⚠ Deck fragile face aux menaces classiques'
+    };
+  }
+
+  // ─── 8. RAPPORT GLOBAL ─────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
     var winCons=detectWinCons(rows,deck);
@@ -442,12 +814,16 @@ window.mlAnaPro = (function(){
     var bracket=bracketEDH(rows,deck);
     var combos=detectCombos(rows,deck,winCons);
     var anti=antiSynergies(rows,deck);
+    var keywords=keywordsAlignment(rows,winCons);
+    var robust=robustness(rows,deck);
     return {
       winCons:winCons,
       manabase:mana,
       bracket:bracket,
       combos:combos,
       antiSynergies:anti,
+      keywords:keywords,
+      robustness:robust,
       timestamp:Date.now()
     };
   }
@@ -562,6 +938,58 @@ window.mlAnaPro = (function(){
       });
       h+='</div>';
     }
+    // ─ 6. Mots-clés vs plan (build 89) ─
+    if(report.keywords&&report.keywords.primary){
+      var kw=report.keywords;
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🏷 Mots-clés vs plan « '+_esc(kw.primary)+' »</div>';
+      if(kw.expected.length===0){
+        h+='<div style="font-size:.78rem;color:var(--tx2)">Pas de keywords standards attendus pour ce plan.</div>';
+      }else{
+        h+='<div style="margin-bottom:8px"><span style="font-size:.74rem;color:var(--tx3)">Attendus pour ce plan : </span>';
+        kw.expected.forEach(function(k){
+          var has=kw.counts[k]||0;
+          var col=has>=3?'#9ddf8c':has>=1?'#f0c84a':'#e8847b';
+          var bg=has>=3?'rgba(126,200,106,.10)':has>=1?'rgba(240,200,74,.10)':'rgba(232,132,123,.10)';
+          h+='<span style="display:inline-block;padding:3px 9px;background:'+bg+';border:.5px solid '+col+';border-radius:99px;font-size:.72rem;margin:2px;color:var(--tx)">'+_esc(k)+' <b style="color:'+col+';font-family:var(--ff-mono,monospace)">'+has+'</b></span>';
+        });
+        h+='</div>';
+        if(kw.missing.length){
+          h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.5"><b style="color:#e8847b">'+kw.missing.length+'</b> mot(s)-clé(s) attendus mais absents du deck : <span style="color:var(--tx)">'+kw.missing.map(_esc).join(', ')+'</span></div>';
+        }else{
+          h+='<div style="font-size:.78rem;color:#9ddf8c">✓ Tous les keywords du plan sont présents</div>';
+        }
+      }
+      h+='</div>';
+    }
+    // ─ 7. Robustesse (build 89) ─
+    if(report.robustness){
+      var rb=report.robustness;
+      var rCol=rb.score>=70?'#9ddf8c':rb.score>=45?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🛡 Robustesse face aux menaces</div>';
+      h+='<div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">';
+      h+='<div style="font-size:2rem;font-weight:700;color:'+rCol+';font-family:var(--ff-mono,monospace);text-shadow:0 0 14px '+rCol+'66;line-height:1">'+rb.score+'<span style="font-size:.9rem;opacity:.7">/100</span></div>';
+      h+='<div style="color:'+rCol+';font-weight:700;font-size:.94rem">'+_esc(rb.verdict)+'</div>';
+      h+='</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px">';
+      [['💥 Recovery wrath',rb.wrathRecovery,'recursion','protection','cheapThreats'],
+       ['🛡 Stop combo T3-T4',rb.comboInteraction,'instantInteraction'],
+       ['⛓ Break stax / lock',rb.staxBreaker,'wipes','protection']].forEach(function(t){
+        var label=t[0],data=t[1];
+        h+='<div style="padding:9px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:8px">';
+        h+='<div style="font-size:.7rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:600;margin-bottom:3px">'+label+'</div>';
+        h+='<div style="font-size:1.05rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace)">'+data.score+'<span style="font-size:.7rem;opacity:.6">/100</span></div>';
+        var details=[];
+        for(var i=2;i<t.length;i++){
+          var key=t[i];if(data[key]!=null)details.push(key+': '+data[key]);
+        }
+        if(details.length)h+='<div style="font-size:.66rem;color:var(--tx3);margin-top:2px">'+details.join(' · ')+'</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+      h+='</div>';
+    }
     h+='</div>';
     return h;
   }
@@ -572,10 +1000,13 @@ window.mlAnaPro = (function(){
     bracketEDH:bracketEDH,
     detectCombos:detectCombos,
     antiSynergies:antiSynergies,
+    keywordsAlignment:keywordsAlignment,
+    robustness:robustness,
     analyze:analyze,
     render:render,
     COMBOS:COMBOS,
     GAME_CHANGERS:GAME_CHANGERS,
-    MLD_CARDS:MLD_CARDS
+    MLD_CARDS:MLD_CARDS,
+    KEYWORDS_BY_PLAN:KEYWORDS_BY_PLAN
   };
 })();
