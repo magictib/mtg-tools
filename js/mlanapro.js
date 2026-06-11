@@ -3976,7 +3976,55 @@ window.mlAnaPro = (function(){
     'ward':{voltron:10,combat:6},
     'evasion':{combat:8,mill:10,voltron:10}
   };
-  function _detectDeckPlans(report){
+  // Build 108 : extraction des SIGNAUX SPÉCIFIQUES du deck (commandant + cartes)
+  // Ces signaux nuancent le scoring beaucoup mieux que juste "plan combat".
+  function _detectDeckSignals(rows,deck){
+    var sig={
+      cascadeCount:0,        // Cascade keyword density
+      recursionCount:0,      // Cartes qui retournent du graveyard
+      bigCreatureCount:0,    // Créatures power ≥ 4
+      fightSpellsCount:0,    // Fight/damage equal to power spells
+      rampSpellsCount:0,
+      lifegainCount:0,
+      sacOutletCount:0,
+      // Payoff du commandant : power threshold (ex. Cactusfolk Sureshot
+      // "creatures with power 4 or greater have haste/trample")
+      cmdPowerThreshold:null,
+      cmdGivesHasteOnThreshold:false,
+      cmdGivesTrampleOnThreshold:false
+    };
+    // Parse commander oracle pour power threshold
+    if(deck&&deck.commander&&deck.commander.name){
+      var cmdNl=_nlOf(deck.commander.name);
+      var cmdRow=rows.find(function(r){return _nlOf(r.card&&r.card.name||r.name)===cmdNl;});
+      var cmdOt=cmdRow&&cmdRow.meta?(cmdRow.meta.oracleText||'').toLowerCase():'';
+      // "creatures you control with power N or greater"
+      var m=cmdOt.match(/creatures? (you control )?with power (\d) or greater/);
+      if(m){
+        sig.cmdPowerThreshold=parseInt(m[2],10);
+        // Quels keywords donne-t-il à ces creatures ?
+        var afterThreshold=cmdOt.substring(cmdOt.indexOf(m[0]));
+        if(/haste/.test(afterThreshold))sig.cmdGivesHasteOnThreshold=true;
+        if(/trample/.test(afterThreshold))sig.cmdGivesTrampleOnThreshold=true;
+      }
+    }
+    // Scan deck cards for signals
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var qty=r.qty||1;
+      if(/cascade/.test(ot))sig.cascadeCount+=qty;
+      if(/return target .* from your graveyard|return .* creature card from your graveyard|reanimate|persist|unearth|encore|disturb|flashback/.test(ot))sig.recursionCount+=qty;
+      if(/fight (target|another)|deals damage equal to its power/.test(ot))sig.fightSpellsCount+=qty;
+      if(/add (one|two|three) mana|search your library for a.* land/.test(ot))sig.rampSpellsCount+=qty;
+      if(/gain \d+ life|lifelink/.test(ot))sig.lifegainCount+=qty;
+      if(/sacrifice a creature[:.]/.test(ot))sig.sacOutletCount+=qty;
+      // Big creatures
+      var p=parseInt(m.power||'0',10)||0;
+      if(/creature/.test(tl)&&p>=4)sig.bigCreatureCount+=qty;
+    });
+    return sig;
+  }
+  function _detectDeckPlans(report,signals){
     var plans=[];
     if(report&&report.winCons&&report.winCons.plans){
       report.winCons.plans.forEach(function(p){plans.push(p.kind);});
@@ -3992,6 +4040,14 @@ window.mlAnaPro = (function(){
       if(/mill/.test(ar))plans.push('mill');
       if(/spell/.test(ar)||/storm/.test(ar))plans.push('spellslinger');
     }
+    // Build 108 : plans secondaires détectés via signaux
+    if(signals){
+      if(signals.cascadeCount>=4&&plans.indexOf('cascade')<0)plans.push('cascade');
+      if(signals.recursionCount>=5&&plans.indexOf('recursion')<0)plans.push('recursion');
+      if(signals.bigCreatureCount>=10&&plans.indexOf('stomp')<0)plans.push('stomp');
+      if(signals.cmdPowerThreshold!=null&&plans.indexOf('stomp')<0)plans.push('stomp');
+      if(signals.lifegainCount>=8&&plans.indexOf('lifegain')<0)plans.push('lifegain');
+    }
     if(!plans.length)plans.push('combat'); // default
     return plans;
   }
@@ -4006,18 +4062,20 @@ window.mlAnaPro = (function(){
     return {bonus:bonus,matched:matched};
   }
   function individualCardScoring(rows,deck,reportFragments){
-    var plans=_detectDeckPlans(reportFragments);
+    var signals=_detectDeckSignals(rows,deck);
+    var plans=_detectDeckPlans(reportFragments,signals);
     var cmdName=deck&&deck.commander&&deck.commander.name?_nlOf(deck.commander.name):null;
     var cmdMeta=null;
-    // Détecter si cmd attaque/inflige combat dmg (pour valoriser les buffs/protections)
     rows.forEach(function(r){
       if(_nlOf(r.card&&r.card.name||r.name)===cmdName)cmdMeta=r.meta||{};
     });
     var cmdHasCombatTrigger=cmdMeta?/whenever .* (attacks|deals combat damage)/.test((cmdMeta.oracleText||'').toLowerCase()):false;
-    var cmdName_lc=cmdName;
     var hasMillPlan=plans.indexOf('mill')>=0;
-    var hasCombatPlan=plans.indexOf('combat')>=0||plans.indexOf('voltron')>=0||plans.indexOf('mill')>=0||plans.indexOf('tribal')>=0;
+    var hasCombatPlan=plans.indexOf('combat')>=0||plans.indexOf('voltron')>=0||plans.indexOf('mill')>=0||plans.indexOf('tribal')>=0||plans.indexOf('stomp')>=0;
     var hasVoltronPlan=plans.indexOf('voltron')>=0;
+    var hasCascadePlan=plans.indexOf('cascade')>=0;
+    var hasRecursionPlan=plans.indexOf('recursion')>=0;
+    var hasStompPlan=plans.indexOf('stomp')>=0;
     var scored=[];
     rows.forEach(function(r){
       var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
@@ -4026,6 +4084,8 @@ window.mlAnaPro = (function(){
       var role=_detectCardRole(m);
       var cmc=m.cmc||0;
       var rank=m.edhrecRank||999999;
+      var power=parseInt(m.power||'0',10)||0;
+      var isCreature=/creature/.test(tl);
       var reasons=[];
       // 1. Score base : tier de la carte
       var tierScore=50;
@@ -4036,8 +4096,11 @@ window.mlAnaPro = (function(){
       else if(rank<=5000)rankBonus=8;
       else if(rank<=20000)rankBonus=0;
       else rankBonus=-6;
-      // 3. CMC penalty
-      var cmcPenalty=cmc>=6?-8:cmc>=4?-2:0;
+      // 3. CMC penalty — INVERSÉ si plan cascade (jouer du gros = good)
+      var cmcPenalty;
+      if(hasCascadePlan&&cmc>=4&&cmc<=6){cmcPenalty=4;reasons.push('CMC dans la cible cascade');}
+      else if(hasStompPlan&&isCreature&&power>=4){cmcPenalty=Math.max(-2,cmc>=6?-3:0);}
+      else cmcPenalty=cmc>=6?-8:cmc>=4?-2:0;
       // 4. CONTEXTUEL : keywords vs plans
       var kwResult=_scoreKeywords(ot,plans);
       if(kwResult.bonus>0)reasons.push('keywords '+kwResult.matched.join('/')+' alignés '+plans.join('/'));
@@ -4051,25 +4114,65 @@ window.mlAnaPro = (function(){
       if(hasMillPlan&&/whenever .* deals combat damage/.test(ot)){triggerBonus+=15;reasons.push('payoff combat-damage (plan mill)');}
       if(hasMillPlan&&/discard/.test(ot)&&/whenever/.test(ot)){triggerBonus+=10;reasons.push('discard trigger (synergie mill)');}
       if(plans.indexOf('drain')>=0&&/whenever .* (deals damage|dies)/.test(ot)){triggerBonus+=8;reasons.push('trigger drain');}
-      // 7. Protège le commandant (hexproof, indestructible, regen, protection)
+      // 7. Protège le commandant
       var protectBonus=0;
       if((hasVoltronPlan||cmdHasCombatTrigger)&&/(equipped|enchanted) creature has (hexproof|indestructible|protection|shroud|ward)/.test(ot)){
         protectBonus+=10;reasons.push('protège le commandant');
       }
-      // 8. Cheap (1-2 CMC) + buff = excellent en combat
+      // 8. Cheap buff
       if(cmc<=2&&hasCombatPlan&&/\+\d\/\+\d|gets \+/.test(ot)){
         equipAuraBonus+=6;reasons.push('buff cheap (plan combat)');
       }
-      // 9. Carte explicitement listée dans synergie tribal du deck
-      // (déjà géré ailleurs, on n'ajoute pas)
-      var contextBonus=kwResult.bonus+equipAuraBonus+triggerBonus+protectBonus;
+      // BUILD 108 — Bonus contextuels manquants :
+      // 9. Stomp / power threshold du commandant (Cactusfolk Sureshot etc.)
+      var stompBonus=0;
+      if(hasStompPlan&&isCreature&&power>=4){
+        stompBonus+=12;reasons.push('créature 4+ power (plan stomp)');
+      }
+      if(signals.cmdPowerThreshold&&isCreature&&power>=signals.cmdPowerThreshold){
+        var keywordsGiven=[];
+        if(signals.cmdGivesHasteOnThreshold)keywordsGiven.push('haste');
+        if(signals.cmdGivesTrampleOnThreshold)keywordsGiven.push('trample');
+        stompBonus+=10;
+        reasons.push('power ≥'+signals.cmdPowerThreshold+' → reçoit '+(keywordsGiven.join('+')||'bonus cmd'));
+      }
+      // 10. Fight / damage-equal-to-power spells (Ram Through, Rabid Bite)
+      if(/fight (target|another)|deals damage equal to (its power|the power of)/.test(ot)){
+        if(hasCombatPlan||hasStompPlan){
+          stompBonus+=10;reasons.push('fight spell (synergie power)');
+        }
+      }
+      // 11. Removal spell qui exploite le combat (Ram Through avec trample)
+      if(/this spell deals (excess|trample) damage|trample damage/.test(ot)&&hasStompPlan){
+        stompBonus+=6;reasons.push('exploit du trample');
+      }
+      // 12. Cascade keyword (carte cascade dans plan cascade)
+      var cascadeBonus=0;
+      if(/cascade/.test(ot)&&hasCascadePlan){cascadeBonus+=12;reasons.push('cascade (plan cascade)');}
+      // 13. Gros sort = "cascade hit" pertinent
+      if(hasCascadePlan&&!isCreature&&cmc>=3&&cmc<=6){cascadeBonus+=4;reasons.push('hit cascade potentiel');}
+      // 14. Récursion du graveyard
+      var recursionBonus=0;
+      if(hasRecursionPlan&&/return target .* from your graveyard|return .* creature card from your graveyard|reanimate|persist|unearth|encore|flashback|escape/.test(ot)){
+        recursionBonus+=10;reasons.push('récursion cimetière');
+      }
+      // 15. Sorts qui mettent les cartes au top de la lib (Reclaim, Brainstorm setup)
+      // → tutor-like, utile en deck tutor/cascade
+      if(/put .* (on top of|onto the top of) your library/.test(ot)&&(hasCascadePlan||hasRecursionPlan||plans.indexOf('control')>=0)){
+        recursionBonus+=6;reasons.push('manipulation top deck');
+      }
+      // 16. Tax / dommages adversaires + plan lifegain
+      if(plans.indexOf('lifegain')>=0&&/gain \d+ life|whenever you gain life/.test(ot)){
+        triggerBonus+=8;reasons.push('lifegain payoff');
+      }
+      var contextBonus=kwResult.bonus+equipAuraBonus+triggerBonus+protectBonus+stompBonus+cascadeBonus+recursionBonus;
       var score=Math.max(0,Math.min(100,tierScore+rankBonus+cmcPenalty+contextBonus+25));
       // Reasons baseline
       if(tierScore>=60)reasons.unshift('staple reconnu');
       else if(tierScore<=30&&contextBonus<10)reasons.push('faible tier hors-contexte');
       if(rankBonus>=10)reasons.push('top EDHrec');
       else if(rankBonus<=-5&&contextBonus<5)reasons.push('rarement jouée');
-      if(cmcPenalty<-5)reasons.push('cher hors-plan');
+      if(cmcPenalty<-5&&!hasCascadePlan&&!hasStompPlan)reasons.push('cher hors-plan');
       if(!reasons.length)reasons.push('score neutre');
       scored.push({name:r.card&&r.card.name||r.name,nl:nl,score:score,role:role,cmc:cmc,reasons:reasons,contextBonus:contextBonus});
     });
