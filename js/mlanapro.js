@@ -1070,8 +1070,45 @@ window.mlAnaPro = (function(){
     }
     return TIER_BASE;
   }
+  // ─── DÉTECTION TRIBALE (build 97) ──────────────────────────────────────
+  // Identifie le sub-type tribal dominant (Rogue, Goblin, Elf, etc.) si ≥12
+  // cartes le partagent. Sert à protéger les créatures du tribe contre les
+  // suggestions de swap qui briseraient l'identité du deck.
+  function _detectDominantTribe(rows){
+    var tribeCount={};
+    rows.forEach(function(r){
+      var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
+      // Extract sub-types après le tiret cadratin
+      var subMatch=tl.match(/—\s*(.+?)(?:\s*\/|$)/);
+      if(!subMatch)return;
+      var subs=subMatch[1].split(/\s+/);
+      subs.forEach(function(s){
+        s=s.trim();
+        if(s.length<3)return;
+        // Filtre les types non-tribaux (legendary, snow, etc.)
+        if(/^(token|legendary|snow|basic|tribal)$/.test(s))return;
+        tribeCount[s]=(tribeCount[s]||0)+(r.qty||1);
+      });
+    });
+    var sorted=Object.keys(tribeCount).sort(function(a,b){return tribeCount[b]-tribeCount[a];});
+    var top=sorted[0];
+    if(top&&tribeCount[top]>=12)return {tribe:top,count:tribeCount[top]};
+    return null;
+  }
+  // Vérifie si une carte appartient au tribe dominant
+  function _isInTribe(meta,tribe){
+    if(!tribe||!meta||!meta.typeLine)return false;
+    var tl=meta.typeLine.toLowerCase();
+    var t=tribe.toLowerCase();
+    // Match comme sub-type (après tiret cadratin)
+    var subMatch=tl.match(/—\s*(.+?)(?:\s*\/|$)/);
+    if(subMatch&&subMatch[1].toLowerCase().indexOf(t)>=0)return true;
+    return false;
+  }
   function suggestSwaps(rows,deck){
     if(!deck)return {byRole:{}};
+    // Build 97 : détection tribale pour protéger les créatures du tribe
+    var dominantTribe=_detectDominantTribe(rows);
     // Identifie pour chaque rôle :
     // 1. Les cartes du deck classées par tier (du plus faible au plus fort)
     // 2. Les suggestions S/A non-présentes
@@ -1081,11 +1118,19 @@ window.mlAnaPro = (function(){
     var byRole={};
     Object.keys(CARD_TIERS).forEach(function(role){
       var deckCards=[];
+      var tribeProtected=0;
       rows.forEach(function(r){
         var nl=_nlOf(r.card&&r.card.name||r.name);
         var detRole=_detectCardRole(r.meta);
         // On compte la carte si son rôle détecté match OU si elle est dans le tier
         if(detRole===role||CARD_TIERS[role][nl]){
+          // Build 97 : protection tribale — créatures du tribe dominant ne sont
+          // PAS considérées comme « faibles à swap » même si elles ont un tier
+          // bas. Elles sont des payoffs tribaux non-interchangeables.
+          var isTribal=dominantTribe&&_isInTribe(r.meta,dominantTribe.tribe);
+          var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
+          var isCreature=/creature/.test(tl);
+          if(isTribal&&isCreature){tribeProtected++;return;}
           deckCards.push({name:r.card&&r.card.name||r.name,nl:nl,power:_powerOfCard(nl,role,r.meta),qty:r.qty||1});
         }
       });
@@ -1104,10 +1149,11 @@ window.mlAnaPro = (function(){
         count:deckCards.length,
         weak:weak.slice(0,5),
         suggest:suggestions.slice(0,6),
-        topInDeck:deckCards.slice(-3).reverse()
+        topInDeck:deckCards.slice(-3).reverse(),
+        tribeProtected:tribeProtected
       };
     });
-    return {byRole:byRole};
+    return {byRole:byRole,dominantTribe:dominantTribe};
   }
 
   // ─── 10. MANA EFFICIENCY (build 91) ────────────────────────────────────
@@ -1126,12 +1172,23 @@ window.mlAnaPro = (function(){
   }
   function manaEfficiency(rows,deck){
     if(!Array.isArray(rows))return {byRole:{}};
+    // Build 97 : détection tribale — protection des créatures du tribe
+    var dominantTribe=_detectDominantTribe(rows);
+    var tribeProtectedCount=0;
     // Indice par rôle des cartes du deck
     var byRole={};
     rows.forEach(function(r){
       var nl=_nlOf(r.card&&r.card.name||r.name);
       var role=_detectCardRole(r.meta);
       if(!role)return;
+      // Protection : si la carte est une créature du tribe dominant, on l'exclut
+      // des suggestions d'overcost. Les tribal payoffs ne sont pas interchangeables.
+      var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
+      var isCreature=/creature/.test(tl);
+      if(dominantTribe&&isCreature&&_isInTribe(r.meta,dominantTribe.tribe)){
+        tribeProtectedCount++;
+        return;
+      }
       var cmc=(r.meta&&typeof r.meta.cmc==='number')?r.meta.cmc:null;
       // Power = tier connu, sinon base
       var power=_powerOfCard(nl,role,r.meta);
@@ -1166,7 +1223,7 @@ window.mlAnaPro = (function(){
         if(bestAlt)c.suggestedSwap=bestAlt;
       });
     });
-    return {byRole:byRole};
+    return {byRole:byRole,dominantTribe:dominantTribe,tribeProtectedCount:tribeProtectedCount};
   }
 
   // ─── 11. REDONDANCE WINCONS (build 92) ─────────────────────────────────
@@ -2947,6 +3004,11 @@ window.mlAnaPro = (function(){
           wipe:'💥 Wraths',tutor:'🔮 Tutors',counter:'✋ Contresorts',landFix:'🌐 Fixers'};
         h+='<div class="anapro-card" style="border-color:rgba(240,200,74,.42)">';
         h+='<div class="anapro-cat" style="color:#f0c84a">⚡ Efficience mana — coût / effet</div>';
+        // Build 97 : avis de protection tribale
+        if(report.efficiency.dominantTribe){
+          var dt=report.efficiency.dominantTribe;
+          h+='<div style="padding:8px 12px;background:rgba(180,140,220,.06);border:.5px solid rgba(180,140,220,.30);border-radius:7px;margin-bottom:10px;font-size:.78rem;color:var(--tx2);line-height:1.5">🛡 <b style="color:#b48cdc">Thème tribal détecté : '+_esc(dt.tribe)+'</b> ('+dt.count+' cartes). Les créatures '+_esc(dt.tribe)+' sont <b>protégées des suggestions de swap</b> — elles sont des payoffs tribaux, pas des cartes interchangeables. '+report.efficiency.tribeProtectedCount+' créature(s) exclue(s) du diagnostic.</div>';
+        }
         h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.55;margin-bottom:10px">Cartes dont le <b>CMC est élevé pour l\'effet rendu</b>. Pour chacune, on propose un staple <b style="color:#9ddf8c">à coût inférieur ou égal</b> avec un impact supérieur. <span style="color:var(--tx3);font-style:italic">Score impact = power_tier ÷ CMC</span></div>';
         Object.keys(eff).forEach(function(role){
           var data=eff[role];
@@ -2992,6 +3054,11 @@ window.mlAnaPro = (function(){
       if(hasAnySwap){
         h+='<div class="anapro-card">';
         h+='<div class="anapro-cat">🔄 Suggestions de swap — par rôle</div>';
+        // Build 97 : avis tribal protection
+        if(report.swaps&&report.swaps.dominantTribe){
+          var dts=report.swaps.dominantTribe;
+          h+='<div style="padding:8px 12px;background:rgba(180,140,220,.06);border:.5px solid rgba(180,140,220,.30);border-radius:7px;margin-bottom:10px;font-size:.78rem;color:var(--tx2);line-height:1.5">🛡 <b style="color:#b48cdc">Thème tribal détecté : '+_esc(dts.tribe)+'</b> ('+dts.count+' cartes). Les créatures '+_esc(dts.tribe)+' sont <b>protégées des suggestions de swap</b> pour préserver l\'identité du deck.</div>';
+        }
         h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.5;margin-bottom:10px">Pour chaque rôle, les cartes <b style="color:#e8847b">faibles</b> de ton deck à envisager pour upgrade, et des <b style="color:#9ddf8c">staples manquants</b> à considérer. Source : tier list S/A/B/C consensus communautaire.</div>';
         Object.keys(report.swaps.byRole).forEach(function(role){
           var data=report.swaps.byRole[role];
