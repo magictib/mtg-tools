@@ -1404,21 +1404,56 @@ window.mlAnaPro = (function(){
     var inDeck={};rows.forEach(function(r){
       var nl=_nlOf(r.card&&r.card.name||r.name);if(nl)inDeck[nl]=true;
     });
+    // Build 99 : indexe les staples du catalogue pour lookup rapide
+    var catalogSet={};
+    (catalog.creatures||[]).forEach(function(c){catalogSet[_nlOf(c)]='staple';});
     var missingCreatures=(catalog.creatures||[]).filter(function(c){return !inDeck[_nlOf(c)];});
     var missingPayoffs=(catalog.payoffs||[]).filter(function(c){return !inDeck[_nlOf(c)];});
+    // ─── Distinction staples vs faibles tribaux dans le deck ────────────
+    // Une créature tribale est :
+    // - « STAPLE » si elle apparaît dans TRIBAL_CATALOG.creatures
+    // - « WEAK » sinon (dans le tribe mais pas dans notre catalogue de top)
+    // Les WEAK sont des candidates à l'upgrade vers les staples manquants.
+    var tribalStaplesInDeck=[];
+    var weakTribalInDeck=[];
+    rows.forEach(function(r){
+      var meta=r.meta||{};var tl=(meta.typeLine||'').toLowerCase();
+      if(!/creature/.test(tl))return;
+      if(!_isInTribe(meta,dominantTribe.tribe))return;
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      var name=r.card&&r.card.name||r.name;
+      var cmc=meta.cmc||0;
+      var entry={name:name,nl:nl,cmc:cmc,edhrecRank:meta.edhrecRank||0};
+      if(catalogSet[nl])tribalStaplesInDeck.push(entry);
+      else weakTribalInDeck.push(entry);
+    });
+    // Trie les faibles par CMC élevé d'abord (= les plus problématiques)
+    // puis par EDHREC rank haut (= moins populaires sur ce commandant)
+    weakTribalInDeck.sort(function(a,b){
+      if(b.cmc!==a.cmc)return b.cmc-a.cmc;
+      return (b.edhrecRank||9999)-(a.edhrecRank||9999);
+    });
     return {
       tribe:dominantTribe.tribe,
       count:dominantTribe.count,
       catalog:true,
       missingCreatures:missingCreatures.slice(0,12),
       missingPayoffs:missingPayoffs.slice(0,8),
+      tribalStaplesInDeck:tribalStaplesInDeck.slice(0,15),
+      weakTribalInDeck:weakTribalInDeck.slice(0,10),
       verdict:(missingCreatures.length+missingPayoffs.length)+' carte(s) tribales « '+dominantTribe.tribe+' » absente(s) du deck'
     };
   }
   function suggestSwaps(rows,deck){
     if(!deck)return {byRole:{}};
-    // Build 97 : détection tribale pour protéger les créatures du tribe
+    // Build 99 : détection tribale + protection FINE (staples du catalogue uniquement)
     var dominantTribe=_detectDominantTribe(rows);
+    var tribeKey=dominantTribe?dominantTribe.tribe.toLowerCase():null;
+    var tribalCatalog=tribeKey?TRIBAL_CATALOG[tribeKey]:null;
+    var tribalStaplesSet={};
+    if(tribalCatalog&&tribalCatalog.creatures){
+      tribalCatalog.creatures.forEach(function(c){tribalStaplesSet[_nlOf(c)]=true;});
+    }
     // Identifie pour chaque rôle :
     // 1. Les cartes du deck classées par tier (du plus faible au plus fort)
     // 2. Les suggestions S/A non-présentes
@@ -1434,14 +1469,15 @@ window.mlAnaPro = (function(){
         var detRole=_detectCardRole(r.meta);
         // On compte la carte si son rôle détecté match OU si elle est dans le tier
         if(detRole===role||CARD_TIERS[role][nl]){
-          // Build 97 : protection tribale — créatures du tribe dominant ne sont
-          // PAS considérées comme « faibles à swap » même si elles ont un tier
-          // bas. Elles sont des payoffs tribaux non-interchangeables.
+          // Build 99 : protection FINE — seuls les staples tribaux reconnus sont
+          // protégés du swap (ex. Soaring Thought-Thief). Les créatures du tribe
+          // hors-catalogue (ex. Vectis Agents) restent éligibles.
           var isTribal=dominantTribe&&_isInTribe(r.meta,dominantTribe.tribe);
           var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
           var isCreature=/creature/.test(tl);
-          if(isTribal&&isCreature){tribeProtected++;return;}
-          deckCards.push({name:r.card&&r.card.name||r.name,nl:nl,power:_powerOfCard(nl,role,r.meta),qty:r.qty||1});
+          var isStaple=isTribal&&isCreature&&tribalStaplesSet[nl];
+          if(isStaple){tribeProtected++;return;}
+          deckCards.push({name:r.card&&r.card.name||r.name,nl:nl,power:_powerOfCard(nl,role,r.meta),qty:r.qty||1,isWeakTribe:isTribal&&isCreature&&!isStaple});
         }
       });
       deckCards.sort(function(a,b){return a.power-b.power;});
@@ -1482,8 +1518,17 @@ window.mlAnaPro = (function(){
   }
   function manaEfficiency(rows,deck){
     if(!Array.isArray(rows))return {byRole:{}};
-    // Build 97 : détection tribale — protection des créatures du tribe
+    // Build 99 : protection tribale FINE — seuls les staples du catalogue
+    // sont protégés. Les créatures du tribe NON-staples (ex. Vectis Agents
+    // dans un deck Rogue) restent éligibles au swap, mais leur swap sera
+    // suggéré vers un autre Rogue (handled by suggestTribalCards section).
     var dominantTribe=_detectDominantTribe(rows);
+    var tribeKey=dominantTribe?dominantTribe.tribe.toLowerCase():null;
+    var tribalCatalog=tribeKey?TRIBAL_CATALOG[tribeKey]:null;
+    var tribalStaplesSet={};
+    if(tribalCatalog&&tribalCatalog.creatures){
+      tribalCatalog.creatures.forEach(function(c){tribalStaplesSet[_nlOf(c)]=true;});
+    }
     var tribeProtectedCount=0;
     // Indice par rôle des cartes du deck
     var byRole={};
@@ -1491,20 +1536,23 @@ window.mlAnaPro = (function(){
       var nl=_nlOf(r.card&&r.card.name||r.name);
       var role=_detectCardRole(r.meta);
       if(!role)return;
-      // Protection : si la carte est une créature du tribe dominant, on l'exclut
-      // des suggestions d'overcost. Les tribal payoffs ne sont pas interchangeables.
+      // Protection FINE : seules les créatures tribales reconnues comme staples
+      // dans TRIBAL_CATALOG sont protégées. Les autres restent éligibles —
+      // leur faible impact sera signalé.
       var tl=(r.meta&&r.meta.typeLine||'').toLowerCase();
       var isCreature=/creature/.test(tl);
-      if(dominantTribe&&isCreature&&_isInTribe(r.meta,dominantTribe.tribe)){
+      var isInTribe=dominantTribe&&isCreature&&_isInTribe(r.meta,dominantTribe.tribe);
+      var isStaple=isInTribe&&tribalStaplesSet[nl];
+      if(isStaple){
         tribeProtectedCount++;
-        return;
+        return; // protection forte
       }
       var cmc=(r.meta&&typeof r.meta.cmc==='number')?r.meta.cmc:null;
       // Power = tier connu, sinon base
       var power=_powerOfCard(nl,role,r.meta);
       var impact=cmc!=null?_impactScore(power,cmc):power;
       byRole[role]=byRole[role]||{cards:[]};
-      byRole[role].cards.push({name:r.card&&r.card.name||r.name,nl:nl,cmc:cmc,power:power,impact:impact});
+      byRole[role].cards.push({name:r.card&&r.card.name||r.name,nl:nl,cmc:cmc,power:power,impact:impact,isWeakTribe:isInTribe&&!isStaple});
     });
     // Pour chaque rôle, classe par impact (low → high), repère les overcost
     Object.keys(byRole).forEach(function(role){
@@ -3327,14 +3375,37 @@ window.mlAnaPro = (function(){
         }
         if(ts.missingPayoffs.length){
           h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🎯 Payoffs / enablers '+_esc(ts.tribe)+' manquants</div>';
-          h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+          h+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">';
           ts.missingPayoffs.forEach(function(name){
             var pretty=name.replace(/\b./g,function(c){return c.toUpperCase();});
             h+='<span style="padding:4px 11px;background:rgba(126,200,106,.08);border:.5px solid rgba(126,200,106,.30);border-radius:99px;font-size:.78rem;color:var(--tx)">'+_esc(pretty)+'</span>';
           });
           h+='</div>';
         }
-        if(!ts.missingCreatures.length&&!ts.missingPayoffs.length){
+        // Build 99 : créatures tribales FAIBLES (dans le tribe mais hors catalog)
+        if(ts.weakTribalInDeck&&ts.weakTribalInDeck.length){
+          h+='<div style="margin-top:12px;padding-top:12px;border-top:.5px solid rgba(180,140,220,.2)">';
+          h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:4px">🔄 Créatures '+_esc(ts.tribe)+' à reconsidérer</div>';
+          h+='<div style="font-size:.74rem;color:var(--tx3);line-height:1.5;margin-bottom:8px">Ces créatures sont du tribe mais <b>pas dans nos staples du catalogue</b>. À swapper contre les Rogues manquants ci-dessus si tu veux monter en puissance.</div>';
+          ts.weakTribalInDeck.forEach(function(c){
+            h+='<div style="display:flex;align-items:center;gap:9px;padding:6px 11px;background:rgba(232,132,123,.04);border-left:3px solid #e8847b;border-radius:0 6px 6px 0;margin-bottom:4px;font-size:.82rem">';
+            h+='<span style="color:var(--tx);font-weight:600;flex:1">'+_esc(c.name)+'</span>';
+            h+='<span style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-mono,monospace)">cmc '+c.cmc+(c.edhrecRank?' · rank '+c.edhrecRank:'')+'</span>';
+            h+='</div>';
+          });
+          h+='</div>';
+        }
+        // Build 99 : staples tribaux confirmés (en vert)
+        if(ts.tribalStaplesInDeck&&ts.tribalStaplesInDeck.length){
+          h+='<div style="margin-top:10px;padding-top:10px;border-top:.5px solid rgba(180,140,220,.2)">';
+          h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">✓ Staples '+_esc(ts.tribe)+' déjà présents — protégés du swap</div>';
+          h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+          ts.tribalStaplesInDeck.forEach(function(c){
+            h+='<span style="padding:2px 9px;background:rgba(126,200,106,.10);border:.5px solid rgba(126,200,106,.30);border-radius:99px;font-size:.72rem;color:#9ddf8c">'+_esc(c.name)+'</span>';
+          });
+          h+='</div></div>';
+        }
+        if(!ts.missingCreatures.length&&!ts.missingPayoffs.length&&!ts.weakTribalInDeck.length){
           h+='<div style="font-size:.86rem;color:#9ddf8c;font-weight:700">✓ Tu joues déjà tous les staples '+_esc(ts.tribe)+' de notre catalogue !</div>';
         }
       }
@@ -3349,10 +3420,10 @@ window.mlAnaPro = (function(){
           wipe:'💥 Wraths',tutor:'🔮 Tutors',counter:'✋ Contresorts',landFix:'🌐 Fixers'};
         h+='<div class="anapro-card" style="border-color:rgba(240,200,74,.42)">';
         h+='<div class="anapro-cat" style="color:#f0c84a">⚡ Efficience mana — coût / effet</div>';
-        // Build 97 : avis de protection tribale
+        // Build 99 : avis tribal raffiné — seuls les staples sont protégés
         if(report.efficiency.dominantTribe){
           var dt=report.efficiency.dominantTribe;
-          h+='<div style="padding:8px 12px;background:rgba(180,140,220,.06);border:.5px solid rgba(180,140,220,.30);border-radius:7px;margin-bottom:10px;font-size:.78rem;color:var(--tx2);line-height:1.5">🛡 <b style="color:#b48cdc">Thème tribal détecté : '+_esc(dt.tribe)+'</b> ('+dt.count+' cartes). Les créatures '+_esc(dt.tribe)+' sont <b>protégées des suggestions de swap</b> — elles sont des payoffs tribaux, pas des cartes interchangeables. '+report.efficiency.tribeProtectedCount+' créature(s) exclue(s) du diagnostic.</div>';
+          h+='<div style="padding:8px 12px;background:rgba(180,140,220,.06);border:.5px solid rgba(180,140,220,.30);border-radius:7px;margin-bottom:10px;font-size:.78rem;color:var(--tx2);line-height:1.5">🛡 <b style="color:#b48cdc">Tribe '+_esc(dt.tribe)+'</b> ('+dt.count+' cartes). Seuls les '+_esc(dt.tribe)+'s <b>reconnus comme staples</b> de notre catalogue sont protégés ('+report.efficiency.tribeProtectedCount+' créature(s)). Les autres restent éligibles au swap — vers d\'autres '+_esc(dt.tribe)+'s, listés dans la card « 🦅 Suggestions tribales » plus haut.</div>';
         }
         h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.55;margin-bottom:10px">Cartes dont le <b>CMC est élevé pour l\'effet rendu</b>. Pour chacune, on propose un staple <b style="color:#9ddf8c">à coût inférieur ou égal</b> avec un impact supérieur. <span style="color:var(--tx3);font-style:italic">Score impact = power_tier ÷ CMC</span></div>';
         Object.keys(eff).forEach(function(role){
