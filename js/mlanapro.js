@@ -3592,7 +3592,583 @@ window.mlAnaPro = (function(){
     };
   }
 
-  // ─── 40. RAPPORT GLOBAL ────────────────────────────────────────────────
+  // ─── 41. HAND EVALUATION (build 103) ───────────────────────────────────
+  // Sample 3 mains representatives + score 0-100 par main avec verdict.
+  // Score = lands*8 + ramp_2cmc*10 + interaction*8 + drawEngine*12 + curve_smooth*15
+  function _scoreHand(hand,deck){
+    var lands=0,ramp1=0,ramp2=0,ramp3plus=0,interact=0,drawEng=0,cmd=0,bombs=0;
+    var cmcs=[];
+    var hasCmd=deck&&deck.commander&&deck.commander.name;
+    var cmdName=hasCmd?_nlOf(deck.commander.name):null;
+    hand.forEach(function(c){
+      cmcs.push(c.cmc);
+      if(c.isLand)lands++;
+      else if(c.isRamp){if(c.cmc<=1)ramp1++;else if(c.cmc===2)ramp2++;else ramp3plus++;}
+      else if(c.isInteract)interact++;
+      else if(c.isDraw)drawEng++;
+      if(cmdName&&c.name===cmdName)cmd++;
+      if(c.cmc>=6)bombs++;
+    });
+    var score=0;
+    score+=Math.min(40,lands*8);
+    score+=ramp1*12+ramp2*10+ramp3plus*4;
+    score+=Math.min(24,interact*8);
+    score+=Math.min(24,drawEng*12);
+    if(cmd>0)score+=10;
+    score-=Math.max(0,bombs-1)*8; // 2+ bombs = brick
+    if(lands<2||lands>5)score=Math.max(0,score-25); // mauvaise main mana
+    // Lissage courbe : variance des CMC < 4 = bonus
+    var avgCmc=cmcs.reduce(function(s,c){return s+c;},0)/cmcs.length;
+    var variance=cmcs.reduce(function(s,c){return s+(c-avgCmc)*(c-avgCmc);},0)/cmcs.length;
+    if(variance<=2.5)score+=10;
+    return Math.max(0,Math.min(100,Math.round(score)));
+  }
+  function _handVerdict(score,lands){
+    if(score>=70)return {label:'✓ Keep — main de qualité',col:'#9ddf8c'};
+    if(score>=50)return {label:'~ Keep marginal — possible mull to 6',col:'#f0c84a'};
+    if(lands<2||lands>5)return {label:'⚠ Mull — mauvaise distribution lands ('+lands+')',col:'#e8847b'};
+    return {label:'⚠ Mull to 6 — main faible',col:'#e8847b'};
+  }
+  function _handReasons(hand,score){
+    var reasons=[];
+    var lands=hand.filter(function(c){return c.isLand;}).length;
+    var ramp=hand.filter(function(c){return c.isRamp;}).length;
+    var interact=hand.filter(function(c){return c.isInteract;}).length;
+    var drawEng=hand.filter(function(c){return c.isDraw;}).length;
+    if(lands>=3&&lands<=4)reasons.push({txt:'✓ Manabase équilibrée ('+lands+' lands)',col:'#9ddf8c'});
+    else if(lands<2)reasons.push({txt:'⚠ Trop peu de lands ('+lands+')',col:'#e8847b'});
+    else if(lands>5)reasons.push({txt:'⚠ Flood (lands '+lands+')',col:'#e8847b'});
+    if(ramp>=1)reasons.push({txt:'✓ Ramp early présent',col:'#9ddf8c'});
+    else reasons.push({txt:'~ Pas de ramp',col:'#f0c84a'});
+    if(interact>=1)reasons.push({txt:'✓ Interaction ('+interact+')',col:'#9ddf8c'});
+    else reasons.push({txt:'~ Pas d\'interaction',col:'#f0c84a'});
+    if(drawEng>=1)reasons.push({txt:'✓ Engine draw présent',col:'#9ddf8c'});
+    return reasons;
+  }
+  function handEvaluation(rows,deck){
+    var library=[];
+    rows.forEach(function(r){
+      var qty=r.qty||1;var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var cmc=Math.max(0,Math.floor(m.cmc||0));
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      var isLand=/land/.test(tl);
+      var isRamp=!isLand&&/add (one|two|three) mana|search your library for a.* land|\{t\}.*add.*\{[wubrgc]\}/.test(ot);
+      var isDraw=!isLand&&/draw .* cards?/.test(ot);
+      var isInteract=!isLand&&/destroy target|exile target|counter target|return target.*to.*hand/.test(ot);
+      for(var i=0;i<qty;i++){
+        library.push({name:nl,cmc:cmc,isLand:isLand,isRamp:isRamp,isDraw:isDraw,isInteract:isInteract});
+      }
+    });
+    if(library.length<60)return {checked:false,reason:'Deck incomplet'};
+    function mkRand(seed){var s=seed|0;return function(){s|=0;s=s+0x6D2B79F5|0;var t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296;};}
+    function shuffle(arr,rnd){
+      var a=arr.slice();
+      for(var i=a.length-1;i>0;i--){var j=Math.floor(rnd()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}
+      return a;
+    }
+    // Sample 100 mains, garde best/median/worst
+    var samples=[];
+    for(var sim=0;sim<100;sim++){
+      var rnd=mkRand(sim*1009+3);
+      var shuf=shuffle(library,rnd);
+      var hand=shuf.slice(0,7);
+      var score=_scoreHand(hand,deck);
+      samples.push({hand:hand,score:score});
+    }
+    samples.sort(function(a,b){return b.score-a.score;});
+    var best=samples[0];
+    var median=samples[50];
+    var worst=samples[99];
+    function _formatHand(sample){
+      var lands=sample.hand.filter(function(c){return c.isLand;}).length;
+      var verdict=_handVerdict(sample.score,lands);
+      return {
+        score:sample.score,
+        lands:lands,
+        verdict:verdict,
+        reasons:_handReasons(sample.hand,sample.score),
+        cards:sample.hand.map(function(c){return {name:c.name,cmc:c.cmc,isLand:c.isLand,isRamp:c.isRamp,isDraw:c.isDraw,isInteract:c.isInteract};})
+      };
+    }
+    var avgScore=Math.round(samples.reduce(function(s,x){return s+x.score;},0)/samples.length);
+    var keepablePct=Math.round(samples.filter(function(s){return s.score>=50;}).length/samples.length*100);
+    return {
+      checked:true,
+      avgScore:avgScore,
+      keepablePct:keepablePct,
+      best:_formatHand(best),
+      median:_formatHand(median),
+      worst:_formatHand(worst),
+      verdict:avgScore>=65?'✓ Mains moyennes solides ('+avgScore+'/100, '+keepablePct+'% gardables)':avgScore>=50?'~ Mains correctes ('+avgScore+'/100, '+keepablePct+'% gardables)':'⚠ Mains faibles ('+avgScore+'/100) — manabase ou répartition à revoir'
+    };
+  }
+
+  // ─── 42. POLITIQUE MULTIJOUEUR (build 103) ─────────────────────────────
+  // 3 axes : threat-deal density, goad/redirect, pillow-fort.
+  // Pertinent uniquement formats multijoueur (commander).
+  var PILLOW_FORT_CARDS = [
+    'propaganda','ghostly prison','sphere of safety','dissipation field',
+    'no mercy','windborn muse','crawlspace','silent arbiter','meekstone',
+    'norn\'s annex','aura of silence','mystic barrier','isperia\'s tutelage',
+    'baird, steward of argive','michiko konda, truth seeker','solitary confinement',
+    'maze of ith','glacial chasm','peacekeeper','moat','teferi\'s protection',
+    'arcane lighthouse','homeward path','reverse the sands','divine deflection',
+    'shahrazad'
+  ];
+  var KINGMAKER_CARDS = [
+    'edric, spymaster of trest','wedding ring','illicit auction',
+    'donate','captive audience','keiga, the tide star','akroma\'s memorial donate',
+    'puca\'s mischief','homeward path','propaganda donation','treacherous link',
+    'forbidden orchard','tempting wurm','vow of duty','vow of flight','vow of malice','vow of lightning','vow of wildness'
+  ];
+  var GOAD_REDIRECT_CARDS = [
+    'agitator ant','disrupt decorum','grenzo, havoc raiser','goad','propaganda',
+    'arcane lighthouse','marisi, breaker of the coil','kardur, doomscourge',
+    'frenzied saddlebrute','keep watch','curse of disturbance','curse of opulence',
+    'curse of vengeance','curse of misfortunes','grand melee'
+  ];
+  function politicsMultiplayer(rows,deck){
+    var fmt=(deck&&deck.format||'').toLowerCase();
+    var isMulti=fmt==='commander'||fmt==='paupercmd'||fmt==='brawl'||fmt==='oathbreaker';
+    if(!isMulti)return {checked:false,reason:'Format mono-adversaire'};
+    var set=_cardSet(rows);
+    var pf=PILLOW_FORT_CARDS.filter(function(n){return set[n];});
+    var km=KINGMAKER_CARDS.filter(function(n){return set[n];});
+    var gr=GOAD_REDIRECT_CARDS.filter(function(n){return set[n];});
+    var pfScore=pf.length>=3?'fort':pf.length>=1?'modéré':'aucun';
+    var politicalSignals=pf.length+km.length+gr.length;
+    var verdict;
+    if(politicalSignals===0)verdict='⚠ Deck purement aggro — aucune dimension politique (deals/goad/pillow-fort)';
+    else if(politicalSignals<=3)verdict='~ Signal politique léger ('+politicalSignals+' cartes)';
+    else verdict='✓ Deck politique armé ('+politicalSignals+' outils sociaux)';
+    return {
+      checked:true,
+      pillowFort:pf,
+      kingmaker:km,
+      goadRedirect:gr,
+      pillowFortScore:pfScore,
+      totalPoliticalCards:politicalSignals,
+      verdict:verdict
+    };
+  }
+
+  // ─── 43. COACHING SYNERGY-AWARE (build 103) ────────────────────────────
+  // Utilise les données EDHrec (synergy par carte avec ce commandant) pour
+  // dire : "Cette carte vaut X avec [Cmd] alors qu'elle vaut Y en général".
+  // Async — appelle EDHrec, callback.
+  function coachSynergyAware(rows,deck,callback){
+    if(!deck||!deck.commander||!deck.commander.name){callback&&callback({checked:false,reason:'Pas de commandant'});return;}
+    if(typeof window.mlEdhrecFetch!=='function'){callback&&callback({checked:false,reason:'Module EDHrec non chargé'});return;}
+    var cmdName=deck.commander.name;
+    window.mlEdhrecFetch(cmdName,function(err,data){
+      if(err||!data){callback&&callback({checked:false,reason:'EDHrec indisponible'});return;}
+      var synergyMap={};
+      try{
+        var cardlists=(data.container&&data.container.json_dict&&data.container.json_dict.cardlists)||[];
+        cardlists.forEach(function(list){
+          (list.cardviews||[]).forEach(function(cv){
+            if(cv.name)synergyMap[_nlOf(cv.name)]={synergy:cv.synergy||0,inclusion:cv.inclusion||0,category:list.header||''};
+          });
+        });
+      }catch(_){}
+      // Pour chaque carte du deck, regarde synergy
+      var lowSynergy=[];
+      var highSynergy=[];
+      rows.forEach(function(r){
+        var nl=_nlOf(r.card&&r.card.name||r.name);
+        var meta=r.meta||{};var tl=(meta.typeLine||'').toLowerCase();
+        if(/land/.test(tl))return;
+        var entry=synergyMap[nl];
+        if(!entry)return;
+        var name=r.card&&r.card.name||r.name;
+        if(entry.synergy<=-15&&entry.inclusion<20){
+          lowSynergy.push({name:name,synergy:entry.synergy,inclusion:entry.inclusion,category:entry.category});
+        }
+        if(entry.synergy>=30){
+          highSynergy.push({name:name,synergy:entry.synergy,inclusion:entry.inclusion,category:entry.category});
+        }
+      });
+      lowSynergy.sort(function(a,b){return a.synergy-b.synergy;});
+      highSynergy.sort(function(a,b){return b.synergy-a.synergy;});
+      callback&&callback({
+        checked:true,
+        commander:cmdName,
+        lowSynergyInDeck:lowSynergy.slice(0,10),
+        highSynergyInDeck:highSynergy.slice(0,10),
+        verdict:lowSynergy.length===0?'✓ Aucune carte "off-commander" identifiée':lowSynergy.length+' carte(s) jouées hors-synergie avec '+cmdName
+      });
+    });
+  }
+
+  // ─── 44. FORMAT-AWARE (build 104) ──────────────────────────────────────
+  // Switch des seuils selon le format. Permet aux formats non-EDH d'avoir
+  // une analyse adaptée (life total, nombre adversaires, méta connu).
+  var FORMAT_PROFILES = {
+    'commander':{lifeTotal:40,opponents:3,decksize:100,sideboard:0,banList:[]},
+    'paupercmd':{lifeTotal:40,opponents:3,decksize:100,sideboard:0,banList:[]},
+    'brawl':{lifeTotal:40,opponents:1,decksize:100,sideboard:0,banList:[]},
+    'oathbreaker':{lifeTotal:20,opponents:3,decksize:60,sideboard:0,banList:[]},
+    'modern':{lifeTotal:20,opponents:1,decksize:60,sideboard:15,banList:['arcum\'s astrolabe','splinter twin','birthing pod','sensei\'s divining top','dread return','mind\'s desire','golgari grave-troll','mental misstep','seething song','treasure cruise','dig through time','grief','fury']},
+    'pioneer':{lifeTotal:20,opponents:1,decksize:60,sideboard:15,banList:['oko, thief of crowns','field of the dead','smuggler\'s copter','once upon a time','uro, titan of nature\'s wrath','lurrus of the dream-den','geological appraiser','karn, the great creator (pioneer)']},
+    'pauper':{lifeTotal:20,opponents:1,decksize:60,sideboard:15,banList:['cranial plating','daze','sinkhole','frantic search','arcum\'s astrolabe','gush','treasure cruise','temporal fissure','grapeshot','high tide','mystical tutor']},
+    'legacy':{lifeTotal:20,opponents:1,decksize:60,sideboard:15,banList:['ancestral recall','black lotus','library of alexandria','mox sapphire','time walk']},
+    'vintage':{lifeTotal:20,opponents:1,decksize:60,sideboard:15,banList:[]},
+    'standard':{lifeTotal:20,opponents:1,decksize:60,sideboard:15,banList:[]},
+    'historic':{lifeTotal:20,opponents:1,decksize:60,sideboard:15,banList:[]}
+  };
+  // Métagame top decks par format (sample, à mettre à jour trimestriellement)
+  var FORMAT_METAGAME = {
+    'modern':[{deck:'Murktide Regent',share:'12%'},{deck:'Living End',share:'9%'},{deck:'Hammer Time',share:'8%'},{deck:'Domain Zoo',share:'7%'},{deck:'Yawgmoth',share:'7%'},{deck:'Rakdos Scam',share:'6%'},{deck:'Tron',share:'6%'},{deck:'Amulet Titan',share:'5%'}],
+    'pioneer':[{deck:'Izzet Phoenix',share:'14%'},{deck:'Rakdos Vampires',share:'10%'},{deck:'Lotus Field',share:'9%'},{deck:'Mono-Green Devotion',share:'8%'},{deck:'Boros Heroic',share:'7%'},{deck:'Spirits',share:'7%'},{deck:'Azorius Control',share:'6%'}],
+    'pauper':[{deck:'Mono-U Faeries',share:'14%'},{deck:'Affinity',share:'12%'},{deck:'Burn',share:'10%'},{deck:'Caw-Gates',share:'8%'},{deck:'Tortured Existence',share:'7%'},{deck:'Dimir Terror',share:'7%'}],
+    'legacy':[{deck:'UR Delver',share:'15%'},{deck:'Painter',share:'10%'},{deck:'Reanimator',share:'9%'},{deck:'4c Beanstalk',share:'8%'},{deck:'Death \'n Taxes',share:'7%'},{deck:'Lands',share:'6%'}],
+    'standard':[{deck:'Esper Pixie',share:'12%'},{deck:'Domain Ramp',share:'10%'},{deck:'Mono-Red Aggro',share:'9%'},{deck:'Dimir Midrange',share:'8%'}]
+  };
+  function formatAware(rows,deck){
+    var fmt=(deck&&deck.format||'').toLowerCase();
+    var profile=FORMAT_PROFILES[fmt];
+    if(!profile)return {checked:false,reason:'Format inconnu: '+fmt};
+    var set=_cardSet(rows);
+    var bansFound=[];
+    (profile.banList||[]).forEach(function(b){
+      if(set[b])bansFound.push(b);
+    });
+    var meta=FORMAT_METAGAME[fmt]||null;
+    // Decksize check
+    var totalCards=rows.reduce(function(s,r){return s+(r.qty||1);},0);
+    var sideCount=(deck.sideboard||[]).reduce(function(s,c){return s+(c.qty||1);},0);
+    var sizeWarnings=[];
+    if(totalCards!==profile.decksize)sizeWarnings.push(totalCards+'/'+profile.decksize+' cartes mainboard');
+    if(profile.sideboard&&sideCount!==profile.sideboard&&sideCount!==0)sizeWarnings.push(sideCount+'/'+profile.sideboard+' cartes sideboard');
+    return {
+      checked:true,
+      format:fmt,
+      lifeTotal:profile.lifeTotal,opponents:profile.opponents,
+      decksize:profile.decksize,sideboardExpected:profile.sideboard,
+      bansFound:bansFound,
+      sizeWarnings:sizeWarnings,
+      metagame:meta,
+      verdict:bansFound.length?'⚠ '+bansFound.length+' carte(s) bannie(s) en '+fmt:sizeWarnings.length?'~ '+sizeWarnings.join(' · '):'✓ Format '+fmt+' — conforme'
+    };
+  }
+
+  // ─── 45. SEQUENCING TURN-BY-TURN (build 104) ───────────────────────────
+  // Plan de jeu T1-T7 narratif. Reprend simulatedGameMetrics et formule
+  // un play optimal en texte.
+  function sequencingPlan(rows,deck,simReport,manaReport){
+    if(!simReport||!simReport.checked)return {checked:false,reason:'Sim non disponible'};
+    var plan=[];
+    var avgCmd=simReport.avgCmdTurn;
+    var avgFirstRamp=simReport.avgFirstRampTurn;
+    var avgWincon=simReport.avgFirstWinconTurn;
+    var cmdCmc=deck&&deck.commander&&deck.commander.cmc||4;
+    // T1
+    plan.push({turn:1,action:'Play land',details:'Drop land #1, pass. Si tu as un cantrip/scry cheap, jette-le maintenant.',pri:'land'});
+    // T2
+    if(avgFirstRamp&&avgFirstRamp<=2){
+      plan.push({turn:2,action:'Ramp 2-CMC',details:'Pose 2e land, cast Arcane Signet / Sol Ring si en main. Sinon développement.',pri:'ramp'});
+    }else{
+      plan.push({turn:2,action:'Setup',details:'Pose land, joue interaction cheap si en main (Counterspell, Path).',pri:'interact'});
+    }
+    // T3
+    plan.push({turn:3,action:avgFirstRamp&&avgFirstRamp<=2?'Engine draw':'Ramp tardif',details:avgFirstRamp&&avgFirstRamp<=2?'Pose 3e land + cast Rhystic / Esper Sentinel / Mystic Remora. Priorité absolue.':'Pose land, cast Cultivate / Kodama\'s Reach / Signet 3-CMC.',pri:'draw'});
+    // T-cmd
+    if(avgCmd){
+      plan.push({turn:avgCmd,action:'Cast commandant',details:'Premier deploy attendu T'+avgCmd+' ('+simReport.cmdHitPct+'% des parties). Garde mana ouvert pour protection si possible.',pri:'cmd'});
+    }
+    // T5
+    plan.push({turn:5,action:'Pression / défense',details:'Soit tu mets pression (bombs 5-CMC, anthem, board wipe préventif), soit tu te prépares à wrather.',pri:'mid'});
+    // T-wincon
+    if(avgWincon){
+      plan.push({turn:avgWincon,action:'Wincon visible',details:'T'+avgWincon+' tu vois ta première winning piece. Protège-la (instants).',pri:'wincon'});
+    }
+    // Conseil mana base
+    var fixWarn=null;
+    if(manaReport&&manaReport.issues&&manaReport.issues.length){
+      fixWarn='⚠ Attention manabase : '+manaReport.issues.map(function(i){return i.color;}).join(', ')+' sous-représenté(s).';
+    }
+    return {
+      checked:true,
+      plan:plan,fixWarn:fixWarn,
+      avgCmd:avgCmd,avgWincon:avgWincon,
+      verdict:'Plan de play T1-T'+(avgWincon||7)+' tracé'
+    };
+  }
+
+  // ─── 46. MANABASE OPTIMISATION (build 104) ─────────────────────────────
+  // Au-delà de bilands : ratio fetch / shock / triome / pain idéal selon
+  // nombre de couleurs ET format. Recommandations targetées.
+  var FETCH_LANDS = ['flooded strand','polluted delta','bloodstained mire','wooded foothills','windswept heath','marsh flats','scalding tarn','verdant catacombs','arid mesa','misty rainforest','prismatic vista','fabled passage','evolving wilds','terramorphic expanse'];
+  var SHOCK_LANDS = ['hallowed fountain','watery grave','blood crypt','stomping ground','temple garden','overgrown tomb','steam vents','godless shrine','sacred foundry','breeding pool'];
+  var TRIOME_LANDS = ['ketria triome','indatha triome','savai triome','raugrin triome','zagoth triome','spara\'s headquarters','xander\'s lounge','jetmir\'s garden','raffine\'s tower','ziatora\'s proving ground'];
+  var PAIN_LANDS = ['adarkar wastes','underground river','sulfurous springs','karplusan forest','llanowar wastes','battlefield forge','brushland','caves of koilos','shivan reef','yavimaya coast'];
+  function manabaseOptimisation(rows,deck,manaReport){
+    var fmt=(deck&&deck.format||'').toLowerCase();
+    var colorCount=manaReport&&manaReport.colorReqs?Object.keys(manaReport.colorReqs).filter(function(c){return c!=='C'&&manaReport.colorReqs[c]>0;}).length:0;
+    var set=_cardSet(rows);
+    var fetches=FETCH_LANDS.filter(function(n){return set[n];});
+    var shocks=SHOCK_LANDS.filter(function(n){return set[n];});
+    var triomes=TRIOME_LANDS.filter(function(n){return set[n];});
+    var pains=PAIN_LANDS.filter(function(n){return set[n];});
+    // Ratios optimaux selon couleurs + format
+    var idealFetches=0,idealShocks=0,idealTriomes=0;
+    if(fmt==='commander'){
+      if(colorCount===1)idealFetches=0;
+      else if(colorCount===2){idealFetches=4;idealShocks=2;}
+      else if(colorCount===3){idealFetches=6;idealShocks=3;idealTriomes=1;}
+      else if(colorCount===4){idealFetches=8;idealShocks=4;idealTriomes=2;}
+      else if(colorCount===5){idealFetches=8;idealShocks=5;idealTriomes=3;}
+    }else if(fmt==='modern'||fmt==='pioneer'||fmt==='legacy'){
+      if(colorCount===2){idealFetches=6;idealShocks=4;}
+      else if(colorCount===3){idealFetches=9;idealShocks=6;idealTriomes=2;}
+      else if(colorCount>=4){idealFetches=10;idealShocks=8;idealTriomes=3;}
+    }
+    var fetchGap=Math.max(0,idealFetches-fetches.length);
+    var shockGap=Math.max(0,idealShocks-shocks.length);
+    var triomeGap=Math.max(0,idealTriomes-triomes.length);
+    var recs=[];
+    if(fetchGap>0)recs.push({type:'fetch',gap:fetchGap,msg:'Ajoute '+fetchGap+' fetch land(s) — fix les couleurs ET thin la lib'});
+    if(shockGap>0)recs.push({type:'shock',gap:shockGap,msg:'Ajoute '+shockGap+' shock land(s) — entrée untapped si tu paies 2 PV'});
+    if(triomeGap>0&&colorCount>=3)recs.push({type:'triome',gap:triomeGap,msg:'Ajoute '+triomeGap+' triome(s) — fix 3 couleurs + cycling'});
+    if(colorCount>=3&&pains.length===0&&fmt==='commander')recs.push({type:'pain',gap:1,msg:'Considère pain lands (Underground River etc.) si budget limité — entrée untapped'});
+    return {
+      checked:true,
+      colorCount:colorCount,
+      fetches:{count:fetches.length,ideal:idealFetches,gap:fetchGap},
+      shocks:{count:shocks.length,ideal:idealShocks,gap:shockGap},
+      triomes:{count:triomes.length,ideal:idealTriomes,gap:triomeGap},
+      pains:pains.length,
+      recommendations:recs,
+      verdict:recs.length===0?'✓ Manabase optimisée pour '+colorCount+' couleur(s) en '+(fmt||'?'):recs.length+' suggestion(s) d\'upgrade manabase'
+    };
+  }
+
+  // ─── 47. INDIVIDUAL CARD SCORING (build 104) ───────────────────────────
+  // Pour chaque carte, score 0-100 + raison + alternative si dispo.
+  // Coûteux : on limite aux 20 cartes les plus "fragiles" (faible tier).
+  function individualCardScoring(rows,deck){
+    var scored=[];
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();
+      if(/land/.test(tl))return;
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      var role=_detectCardRole(m);
+      var cmc=m.cmc||0;
+      var rank=m.edhrecRank||999999;
+      // Score base : tier de la carte si connue
+      var tierScore=50;
+      if(role&&CARD_TIERS[role]&&CARD_TIERS[role][nl])tierScore=CARD_TIERS[role][nl]*15;
+      // Bonus EDHrec rank (top 1000 = +20)
+      var rankBonus=0;
+      if(rank<=1000)rankBonus=20;
+      else if(rank<=5000)rankBonus=10;
+      else if(rank<=20000)rankBonus=0;
+      else rankBonus=-10;
+      // Penalty CMC élevé sans payoff
+      var cmcPenalty=cmc>=6?-10:cmc>=4?-3:0;
+      var score=Math.max(0,Math.min(100,tierScore+rankBonus+cmcPenalty+25));
+      var reasons=[];
+      if(tierScore>=60)reasons.push('staple reconnu');
+      else if(tierScore>=45)reasons.push('solide');
+      else reasons.push('faible tier');
+      if(rankBonus>=10)reasons.push('top EDHrec');
+      else if(rankBonus<=-10)reasons.push('rarement jouée');
+      if(cmcPenalty<-5)reasons.push('cher hors-plan');
+      scored.push({name:r.card&&r.card.name||r.name,nl:nl,score:score,role:role,cmc:cmc,reasons:reasons});
+    });
+    scored.sort(function(a,b){return a.score-b.score;});
+    return {
+      checked:true,
+      weakest:scored.slice(0,12),
+      strongest:scored.slice(-8).reverse(),
+      avgScore:scored.length?Math.round(scored.reduce(function(s,c){return s+c.score;},0)/scored.length):0,
+      verdict:'Score moyen carte : '+(scored.length?Math.round(scored.reduce(function(s,c){return s+c.score;},0)/scored.length):0)+'/100'
+    };
+  }
+
+  // ─── 48. REPLAY ANALYSIS (build 105) ───────────────────────────────────
+  // Parseur de game log texte simple. Format attendu (ligne par tour) :
+  //   T1: Land - Forest | Cast - Llanowar Elves
+  //   T2: Land - Forest | Cast - Elvish Mystic
+  //   ...
+  // Détecte les erreurs classiques : skip land drop, hold-up mana inutile,
+  // sequencing sous-optimal.
+  function replayAnalysis(gameLog){
+    if(!gameLog||typeof gameLog!=='string')return {checked:false,reason:'Pas de game log fourni'};
+    var lines=gameLog.split(/\n/).map(function(l){return l.trim();}).filter(Boolean);
+    var turns=[];
+    lines.forEach(function(line){
+      var m=line.match(/^T(\d+):\s*(.+)$/i);
+      if(!m)return;
+      var t=parseInt(m[1],10);
+      var actions=m[2].split('|').map(function(s){return s.trim();});
+      var landDrops=0,casts=[];
+      actions.forEach(function(a){
+        var lm=a.match(/^Land\s*[-:]?\s*(.+)$/i);if(lm){landDrops++;return;}
+        var cm=a.match(/^Cast\s*[-:]?\s*(.+)$/i);if(cm){casts.push(cm[1].trim());return;}
+      });
+      turns.push({t:t,landDrops:landDrops,casts:casts,raw:line});
+    });
+    if(!turns.length)return {checked:false,reason:'Format game log non reconnu. Utilise "T1: Land - Forest | Cast - Llanowar Elves"'};
+    var issues=[];
+    var praises=[];
+    var lastTurn=0;
+    turns.forEach(function(turn,i){
+      // Skip land drop
+      if(turn.landDrops===0&&i<7)issues.push({turn:turn.t,sev:'high',msg:'Pas de land drop T'+turn.t+' — perte de tempo critique early'});
+      // Multiple land drops in a turn (illégal sauf effet)
+      if(turn.landDrops>=2)issues.push({turn:turn.t,sev:'info',msg:'T'+turn.t+' : '+turn.landDrops+' land drops — assure-toi d\'avoir un effet "extra land drop"'});
+      // No casts (passive turn)
+      if(turn.casts.length===0&&turn.t<=4)issues.push({turn:turn.t,sev:'med',msg:'T'+turn.t+' : aucun cast — hold-up mana ou main mauvaise ?'});
+      if(turn.casts.length>=2)praises.push({turn:turn.t,msg:'T'+turn.t+' : '+turn.casts.length+' casts — bon développement'});
+      lastTurn=turn.t;
+    });
+    return {
+      checked:true,
+      turnsParsed:turns.length,
+      issues:issues,
+      praises:praises,
+      totalCasts:turns.reduce(function(s,t){return s+t.casts.length;},0),
+      totalLandDrops:turns.reduce(function(s,t){return s+t.landDrops;},0),
+      verdict:issues.length===0?'✓ Aucune erreur évidente sur '+turns.length+' tours analysés':issues.length+' erreur(s) sur '+turns.length+' tours'
+    };
+  }
+
+  // ─── 49. SIDEBOARD ANALYSIS (build 105) ────────────────────────────────
+  // Analyse les 15 cartes du sideboard si format compétitif. Check :
+  //  - taille exacte (15)
+  //  - couverture des matchups méta
+  //  - graveyard hate, artifact hate, counter density
+  var SIDE_HATE_TYPES = {
+    'graveyard':['rest in peace','leyline of the void','grafdigger\'s cage','tormod\'s crypt','soul-guide lantern','relic of progenitus','endurance','silent gravestone'],
+    'artifact':['stony silence','collector ouphe','null rod','shattering spree','meltdown','seal of cleansing','disenchant','natural state','force of vigor'],
+    'creature':['celestial purge','disfigure','fatal push','prismatic ending','solitude','engineered explosives','toxic deluge'],
+    'counter':['mindbreak trap','negate','dispel','spell pierce','pyroblast','red elemental blast','flusterstorm','force of negation','veil of summer']
+  };
+  function sideboardAnalysis(deck){
+    var fmt=(deck&&deck.format||'').toLowerCase();
+    var profile=FORMAT_PROFILES[fmt];
+    if(!profile||!profile.sideboard)return {checked:false,reason:'Format sans sideboard'};
+    var side=deck.sideboard||[];
+    var sideCount=side.reduce(function(s,c){return s+(c.qty||1);},0);
+    var coverage={};
+    Object.keys(SIDE_HATE_TYPES).forEach(function(k){coverage[k]=0;});
+    side.forEach(function(c){
+      var nl=_nlOf(c.name);
+      Object.keys(SIDE_HATE_TYPES).forEach(function(k){
+        if(SIDE_HATE_TYPES[k].indexOf(nl)>=0)coverage[k]+=c.qty||1;
+      });
+    });
+    var blindSpots=[];
+    if(coverage.graveyard<2)blindSpots.push('graveyard');
+    if(coverage.artifact<1)blindSpots.push('artifact/enchant');
+    if(coverage.counter<2&&fmt!=='pauper')blindSpots.push('counters');
+    return {
+      checked:true,
+      sideCount:sideCount,expected:profile.sideboard,
+      coverage:coverage,
+      blindSpots:blindSpots,
+      verdict:sideCount!==profile.sideboard?'⚠ Sideboard '+sideCount+'/'+profile.sideboard+' cartes':blindSpots.length===0?'✓ Sideboard couvre les angles classiques':blindSpots.length+' angle(s) mort(s) : '+blindSpots.join(', ')
+    };
+  }
+
+  // ─── 50. TOURNAMENT VIABILITY (build 105) ──────────────────────────────
+  // Pour formats compétitifs : check le deck contre les Tier 1 du méta.
+  // Heuristique : un deck est "tournament-viable" s'il a au moins :
+  //   - 60% des cartes Tier 1 du méta connu (proxy via STAPLE_CMC + GAME_CHANGERS)
+  //   - removal + counter coverage suffisante
+  //   - mana base optimisée
+  function tournamentViability(rows,deck,reportFragments){
+    var fmt=(deck&&deck.format||'').toLowerCase();
+    if(!FORMAT_METAGAME[fmt])return {checked:false,reason:'Format non-compétitif ou méta non tracé'};
+    // Score 0-100 :
+    //  - efficacité (manaEfficiency.score) : 30 pts
+    //  - removal quality : 25 pts
+    //  - mana base : 20 pts
+    //  - card advantage : 15 pts
+    //  - stack interaction : 10 pts
+    var score=0;
+    var notes=[];
+    if(reportFragments){
+      var eff=reportFragments.efficiency;
+      var killScope=reportFragments.threatsKillableScope;
+      var manabase=reportFragments.manabase;
+      var cardAdv=reportFragments.cardAdvantage;
+      var stack=reportFragments.stackInteraction;
+      if(eff&&eff.score!=null){var s=Math.min(30,eff.score*0.3);score+=s;if(s<15)notes.push('Efficience mana faible');}
+      else score+=15;
+      if(killScope&&killScope.qualityScore!=null){var s2=Math.min(25,killScope.qualityScore*0.4);score+=s2;if(s2<12)notes.push('Removal sous-dimensionné');}
+      else score+=12;
+      if(manabase&&manabase.issues&&manabase.issues.length===0)score+=20;
+      else{score+=10;notes.push('Manabase à fixer');}
+      if(cardAdv&&cardAdv.caScore!=null){var s3=Math.min(15,cardAdv.caScore*0.5);score+=s3;if(s3<7)notes.push('Card advantage faible');}
+      else score+=7;
+      if(stack&&stack.instantPct){var s4=Math.min(10,stack.instantPct*0.25);score+=s4;}
+      else score+=3;
+    }
+    score=Math.round(score);
+    var meta=FORMAT_METAGAME[fmt]||[];
+    return {
+      checked:true,
+      format:fmt,
+      score:score,
+      notes:notes,
+      topMetaDecks:meta.slice(0,5),
+      verdict:score>=75?'✓ Profil tournament-viable en '+fmt+' (score '+score+'/100)':score>=55?'~ Compétitif local mais sub-tier ('+score+'/100)':'⚠ Pas prêt pour tournoi '+fmt+' ('+score+'/100)'
+    };
+  }
+
+  // ─── 51. DECK COST OPTIMIZATION (build 105) ────────────────────────────
+  // Pour chaque carte chère du deck, propose un downgrade budget équivalent.
+  // Source : dict statique de fallbacks budget par staple.
+  var BUDGET_DOWNGRADES = {
+    'mana crypt':{cheap:'sol ring',role:'fast mana 0-CMC',savings:200},
+    'jeweled lotus':{cheap:'arcane signet',role:'ramp commander',savings:150},
+    'mana vault':{cheap:'mind stone',role:'mana rock',savings:80},
+    'mox diamond':{cheap:'fellwar stone',role:'mana rock 1-CMC',savings:550},
+    'dockside extortionist':{cheap:'jeska\'s will',role:'ramp explosif',savings:90},
+    'force of will':{cheap:'mana drain',role:'counterspell',savings:90},
+    'force of negation':{cheap:'arcane denial',role:'counter free',savings:50},
+    'mana drain':{cheap:'counterspell',role:'counter premium',savings:50},
+    'demonic tutor':{cheap:'diabolic tutor',role:'tutor noir',savings:50},
+    'vampiric tutor':{cheap:'mastermind\'s acquisition',role:'tutor noir cheap',savings:90},
+    'imperial seal':{cheap:'diabolic intent',role:'tutor noir',savings:300},
+    'mystical tutor':{cheap:'merchant scroll',role:'tutor bleu instant',savings:30},
+    'enlightened tutor':{cheap:'idyllic tutor',role:'tutor blanc',savings:40},
+    'cyclonic rift':{cheap:'evacuation',role:'bounce mass',savings:25},
+    'rhystic study':{cheap:'mystic remora',role:'tax draw',savings:25},
+    'smothering tithe':{cheap:'monologue tax',role:'tax ramp',savings:30},
+    'underworld breach':{cheap:'mizzix\'s mastery',role:'graveyard recur',savings:15},
+    'craterhoof behemoth':{cheap:'overwhelming stampede',role:'finisher',savings:25},
+    'finale of devastation':{cheap:'green sun\'s zenith',role:'tutor créature',savings:20},
+    'rishadan port':{cheap:'wasteland',role:'land control',savings:25},
+    'wasteland':{cheap:'strip mine',role:'mld land',savings:25}
+  };
+  function deckCostOptimization(rows){
+    var suggestions=[];
+    var totalSavings=0;
+    rows.forEach(function(r){
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      var dg=BUDGET_DOWNGRADES[nl];
+      if(!dg)return;
+      suggestions.push({
+        original:r.card&&r.card.name||r.name,
+        cheap:dg.cheap.replace(/\b./g,function(c){return c.toUpperCase();}),
+        role:dg.role,
+        savings:dg.savings
+      });
+      totalSavings+=dg.savings*(r.qty||1);
+    });
+    suggestions.sort(function(a,b){return b.savings-a.savings;});
+    return {
+      checked:true,
+      suggestions:suggestions,
+      totalSavings:totalSavings,
+      verdict:suggestions.length===0?'✓ Aucune carte premium évidente à downgrader':'Économies potentielles : ~$'+totalSavings+' sur '+suggestions.length+' carte(s)'
+    };
+  }
+
+  // ─── 52. RAPPORT GLOBAL ────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
     var winCons=detectWinCons(rows,deck);
@@ -3638,6 +4214,17 @@ window.mlAnaPro = (function(){
     var threatLevel=tableThreatLevel(rows,deck,winCons,combos);
     // Build 102 : simulation 50 parties
     var simMetrics=simulatedGameMetrics(rows,deck);
+    // Build 103 : hand evaluation + politique + (synergy-aware = async, séparé)
+    var handEval=handEvaluation(rows,deck);
+    var politics=politicsMultiplayer(rows,deck);
+    // Build 104 : format-aware + sequencing + manabase opt + card scoring
+    var fmtAware=formatAware(rows,deck);
+    var sequencing=sequencingPlan(rows,deck,simMetrics,mana);
+    var manaOpt=manabaseOptimisation(rows,deck,mana);
+    var cardScores=individualCardScoring(rows,deck);
+    // Build 105 : sideboard + tournament viability + cost downgrade
+    var sideAna=sideboardAnalysis(deck);
+    var costOpt=deckCostOptimization(rows);
     var report={
       winCons:winCons,
       redundancy:redundancy,
@@ -3677,9 +4264,19 @@ window.mlAnaPro = (function(){
       internalSabotage:sabotage,
       tableThreatLevel:threatLevel,
       simulatedGameMetrics:simMetrics,
+      handEvaluation:handEval,
+      politicsMultiplayer:politics,
+      formatAware:fmtAware,
+      sequencingPlan:sequencing,
+      manabaseOptimisation:manaOpt,
+      individualCardScoring:cardScores,
+      sideboardAnalysis:sideAna,
+      deckCostOptimization:costOpt,
       timestamp:Date.now()
     };
     // Build 94 : narrative est calculée APRÈS car elle synthétise tout
+    // Build 105 : tournament viability needs the assembled report
+    report.tournamentViability=tournamentViability(rows,deck,report);
     report.narrative=coachNarrative(report);
     // Build 95 : diff vs analyse précédente du même deck (si dispo)
     if(deck&&deck.id){
@@ -3743,11 +4340,13 @@ window.mlAnaPro = (function(){
     // ─ Header global ─
     h+='<div style="background:linear-gradient(135deg,rgba(74,160,232,.14),rgba(74,160,232,.03));border:1px solid rgba(74,160,232,.42);border-radius:12px;padding:14px 18px">';
     h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">';
-    h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · 40 axes</span>';
+    h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · 51 axes</span>';
     h+='<span style="font-size:.6rem;color:var(--tx3);padding:2px 7px;background:rgba(180,140,220,.10);border:.5px solid rgba(180,140,220,.30);border-radius:99px;font-family:var(--ff-mono,monospace)" title="Version des dictionnaires méta (cartes, bombs, must-answer). MAJ trimestrielle.">méta '+META_VERSION+' · MAJ '+META_UPDATED+'</span>';
     h+='<span style="flex:1"></span>';
     h+='<button onclick="if(typeof anaProCompareDecks===\'function\')anaProCompareDecks()" style="font-size:.72rem;padding:4px 10px;background:rgba(180,140,220,.14);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#b48cdc;cursor:pointer;font-family:inherit;margin-right:6px" title="Comparer ce deck avec un autre side-by-side">🆚 Compare</button>';
     h+='<button onclick="if(typeof anaProRunEdhrec===\'function\')anaProRunEdhrec()" style="font-size:.72rem;padding:4px 10px;background:rgba(126,200,106,.14);border:.5px solid rgba(126,200,106,.4);border-radius:6px;color:#9ddf8c;cursor:pointer;font-family:inherit;margin-right:6px" title="Analyse contextuelle EDHrec par commandant">🌐 EDHrec</button>';
+    h+='<button onclick="if(typeof anaProRunSynergy===\'function\')anaProRunSynergy()" style="font-size:.72rem;padding:4px 10px;background:rgba(180,140,220,.14);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#b48cdc;cursor:pointer;font-family:inherit;margin-right:6px" title="Coaching synergy-aware (EDHrec synergy par commandant)">🧠 Synergy</button>';
+    h+='<button onclick="if(typeof anaProOpenReplay===\'function\')anaProOpenReplay()" style="font-size:.72rem;padding:4px 10px;background:rgba(240,200,74,.14);border:.5px solid rgba(240,200,74,.4);border-radius:6px;color:#f0c84a;cursor:pointer;font-family:inherit;margin-right:6px" title="Analyse de game log (importer une partie jouée)">🎮 Replay</button>';
     h+='<button onclick="if(typeof anaProExportPdf===\'function\')anaProExportPdf()" style="font-size:.72rem;padding:4px 10px;background:rgba(74,160,232,.14);border:.5px solid rgba(74,160,232,.4);border-radius:6px;color:#7ec0f0;cursor:pointer;font-family:inherit" title="Exporter le rapport en PDF">📄 PDF</button>';
     h+='</div>';
     h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.5">Diagnostic complet déterministe : plan A + Plan B / manabase / bracket / combos / anti-synergies / mulligan probability / threat density / lissage courbe / removal coverage. Aucun LLM, résultats reproductibles, cache localStorage.</div>';
@@ -4485,6 +5084,215 @@ window.mlAnaPro = (function(){
       });
       h+='</div>';
     }
+    // ─ Build 103 : Hand evaluation ─
+    if(report.handEvaluation&&report.handEvaluation.checked){
+      var he=report.handEvaluation;
+      var heCol=he.avgScore>=65?'#9ddf8c':he.avgScore>=50?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🃏 Hand evaluation — 3 mains représentatives</div>';
+      h+='<div style="color:'+heCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(he.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:12px;line-height:1.5">Sur 100 mains simulées : best/median/worst. Score 0-100 selon lands + ramp + interaction + draw + courbe.</div>';
+      ['best','median','worst'].forEach(function(key){
+        var sample=he[key];if(!sample)return;
+        var label={best:'🏆 Best',median:'⚖ Median',worst:'💀 Worst'}[key];
+        h+='<div style="padding:9px 12px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-left:3px solid '+sample.verdict.col+';border-radius:7px;margin-bottom:7px">';
+        h+='<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:5px">';
+        h+='<span style="font-size:.7rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">'+label+'</span>';
+        h+='<span style="font-size:1rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace)">'+sample.score+'/100</span>';
+        h+='<span style="font-size:.78rem;color:'+sample.verdict.col+';font-weight:700;margin-left:auto">'+_esc(sample.verdict.label)+'</span>';
+        h+='</div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px">';
+        sample.cards.forEach(function(c){
+          var ic=c.isLand?'🏔':c.isRamp?'⛰':c.isDraw?'📖':c.isInteract?'✋':'·';
+          h+='<span style="padding:2px 7px;background:rgba(180,180,200,.06);border:.5px solid rgba(180,180,200,.20);border-radius:4px;font-size:.7rem;color:var(--tx2)">'+ic+' '+_esc(c.name)+' <span style="color:var(--tx3);font-family:var(--ff-mono,monospace)">'+c.cmc+'</span></span>';
+        });
+        h+='</div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+        sample.reasons.forEach(function(r){
+          h+='<span style="padding:1px 8px;background:rgba(255,255,255,.03);border-radius:99px;font-size:.7rem;color:'+r.col+'">'+_esc(r.txt)+'</span>';
+        });
+        h+='</div></div>';
+      });
+      h+='</div>';
+    }
+    // ─ Build 103 : Politique multijoueur ─
+    if(report.politicsMultiplayer&&report.politicsMultiplayer.checked){
+      var pm=report.politicsMultiplayer;
+      var pmCol=pm.totalPoliticalCards===0?'#e8847b':pm.totalPoliticalCards>=4?'#9ddf8c':'#f0c84a';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🤝 Politique multijoueur — outils sociaux</div>';
+      h+='<div style="color:'+pmCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(pm.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">Un EDH se joue à 4. Sans dimension politique, tu peins une cible — adversaires se liguent contre la menace n°1.</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">';
+      function _pmCat(title,col,arr){
+        var h2='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px">';
+        h2+='<div style="font-size:.66rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700;margin-bottom:5px">'+title+' ('+arr.length+')</div>';
+        if(arr.length){
+          arr.forEach(function(n){
+            h2+='<div style="font-size:.74rem;color:var(--tx);margin-bottom:2px">'+_esc(n)+'</div>';
+          });
+        }else{
+          h2+='<div style="font-size:.72rem;color:var(--tx3);font-style:italic">aucun</div>';
+        }
+        h2+='</div>';return h2;
+      }
+      h+=_pmCat('🛡 Pillow-fort',pmCol,pm.pillowFort);
+      h+=_pmCat('🎁 Kingmaker / deals',pmCol,pm.kingmaker);
+      h+=_pmCat('🎯 Goad / redirect',pmCol,pm.goadRedirect);
+      h+='</div>';
+      h+='</div>';
+    }
+    // ─ Build 104 : Format-aware ─
+    if(report.formatAware&&report.formatAware.checked){
+      var fa=report.formatAware;
+      var faCol=fa.bansFound.length?'#e8847b':fa.sizeWarnings.length?'#f0c84a':'#9ddf8c';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🎲 Format — '+_esc(fa.format)+' ('+fa.lifeTotal+' PV · '+fa.opponents+' adv · '+fa.decksize+' cartes)</div>';
+      h+='<div style="color:'+faCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(fa.verdict)+'</div>';
+      if(fa.bansFound.length){
+        h+='<div style="padding:8px 11px;background:rgba(232,132,123,.06);border-left:3px solid #e8847b;border-radius:0 6px 6px 0;margin-bottom:8px">';
+        h+='<div style="font-size:.74rem;color:#e8847b;font-weight:700;margin-bottom:5px">🚫 Cartes bannies détectées</div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+        fa.bansFound.forEach(function(b){
+          h+='<span style="padding:2px 9px;background:rgba(232,132,123,.10);border:.5px solid rgba(232,132,123,.30);border-radius:99px;font-size:.74rem;color:#e8847b">'+_esc(b)+'</span>';
+        });
+        h+='</div></div>';
+      }
+      if(fa.metagame){
+        h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:5px">📊 Méta '+_esc(fa.format)+' — top decks attendus</div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+        fa.metagame.forEach(function(d){
+          h+='<span style="padding:3px 9px;background:rgba(74,160,232,.06);border:.5px solid rgba(74,160,232,.30);border-radius:99px;font-size:.74rem;color:var(--tx)">'+_esc(d.deck)+' <b style="color:#7ec0f0;font-family:var(--ff-mono,monospace);font-size:.66rem">'+_esc(d.share)+'</b></span>';
+        });
+        h+='</div>';
+      }
+      h+='</div>';
+    }
+    // ─ Build 104 : Sequencing plan ─
+    if(report.sequencingPlan&&report.sequencingPlan.checked){
+      var sq=report.sequencingPlan;
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">📋 Sequencing — plan de play T1-T'+(sq.avgWincon||7)+'</div>';
+      h+='<div style="color:#9ddf8c;font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(sq.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">Plan de jeu optimal déduit du sim 50 parties. Suis-le tour par tour pour maximiser ton expected value.</div>';
+      sq.plan.forEach(function(step){
+        var stepCol={land:'#9ddf8c',ramp:'#7ec0f0',interact:'#b48cdc',draw:'#f0c84a',cmd:'#9ddf8c',mid:'#7ec0f0',wincon:'#e8847b'}[step.pri]||'#7ec0f0';
+        h+='<div style="display:flex;gap:11px;padding:8px 11px;background:rgba(74,160,232,.04);border-left:3px solid '+stepCol+';border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.82rem">';
+        h+='<div style="font-family:var(--ff-mono,monospace);color:'+stepCol+';font-weight:700;min-width:30px">T'+step.turn+'</div>';
+        h+='<div style="flex:1"><div style="color:#fff;font-weight:600">'+_esc(step.action)+'</div><div style="font-size:.74rem;color:var(--tx2);line-height:1.5;margin-top:2px">'+_esc(step.details)+'</div></div>';
+        h+='</div>';
+      });
+      if(sq.fixWarn){
+        h+='<div style="margin-top:8px;padding:7px 11px;background:rgba(232,132,123,.06);border-left:3px solid #e8847b;border-radius:0 6px 6px 0;font-size:.78rem;color:#e8847b;line-height:1.5">'+_esc(sq.fixWarn)+'</div>';
+      }
+      h+='</div>';
+    }
+    // ─ Build 104 : Manabase optimisation ─
+    if(report.manabaseOptimisation&&report.manabaseOptimisation.checked){
+      var mo=report.manabaseOptimisation;
+      var moCol=mo.recommendations.length===0?'#9ddf8c':mo.recommendations.length<=2?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🏞 Manabase optimisée — fetches / shocks / triomes</div>';
+      h+='<div style="color:'+moCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(mo.verdict)+'</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:7px;margin-bottom:11px">';
+      function _moBox(label,emoji,obj){
+        var col=obj.gap===0?'#9ddf8c':obj.gap<=2?'#f0c84a':'#e8847b';
+        return '<div style="padding:8px 10px;background:rgba(74,160,232,.04);border:.5px solid '+col+';border-radius:8px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">'+emoji+' '+label+'</div><div style="font-size:1.15rem;font-weight:700;color:'+col+';font-family:var(--ff-mono,monospace);margin-top:2px">'+obj.count+'/'+obj.ideal+'</div><div style="font-size:.6rem;color:var(--tx3)">gap '+obj.gap+'</div></div>';
+      }
+      h+=_moBox('Fetches','🔍',mo.fetches);
+      h+=_moBox('Shocks','⚡',mo.shocks);
+      h+=_moBox('Triomes','🔱',mo.triomes);
+      h+='</div>';
+      mo.recommendations.forEach(function(r){
+        h+='<div style="padding:7px 11px;background:rgba(74,160,232,.04);border-left:3px solid #7ec0f0;border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.78rem;color:var(--tx2);line-height:1.5">'+_esc(r.msg)+'</div>';
+      });
+      h+='</div>';
+    }
+    // ─ Build 104 : Individual card scoring ─
+    if(report.individualCardScoring&&report.individualCardScoring.checked){
+      var ics=report.individualCardScoring;
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🎴 Scoring individuel par carte</div>';
+      h+='<div style="color:#7ec0f0;font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(ics.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">Chaque carte notée 0-100 sur tier reconnu + popularité EDHrec + CMC cohérent. Top 12 faibles et top 8 fortes.</div>';
+      h+='<details open><summary style="cursor:pointer;font-size:.74rem;color:var(--tx3);font-weight:700;margin-bottom:6px">🟥 Cartes les plus faibles ('+ics.weakest.length+')</summary>';
+      ics.weakest.forEach(function(c){
+        var ccol=c.score>=60?'#9ddf8c':c.score>=40?'#f0c84a':'#e8847b';
+        h+='<div style="display:flex;gap:9px;padding:6px 11px;background:rgba(74,160,232,.04);border-left:3px solid '+ccol+';border-radius:0 6px 6px 0;margin-bottom:4px;font-size:.78rem;align-items:center">';
+        h+='<span style="color:#fff;font-weight:600;flex:1">'+_esc(c.name)+'</span>';
+        h+='<span style="font-size:.7rem;color:var(--tx3);font-family:var(--ff-mono,monospace)">'+c.role+' · cmc '+c.cmc+'</span>';
+        h+='<span style="font-size:.74rem;color:var(--tx3);font-style:italic">'+_esc(c.reasons.join(', '))+'</span>';
+        h+='<span style="font-size:.9rem;font-weight:700;color:'+ccol+';font-family:var(--ff-mono,monospace);min-width:38px;text-align:right">'+c.score+'</span>';
+        h+='</div>';
+      });
+      h+='</details>';
+      h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-size:.74rem;color:var(--tx3);font-weight:700">🟩 Top cartes fortes ('+ics.strongest.length+')</summary>';
+      ics.strongest.forEach(function(c){
+        h+='<div style="display:flex;gap:9px;padding:6px 11px;background:rgba(126,200,106,.04);border-left:3px solid #9ddf8c;border-radius:0 6px 6px 0;margin-bottom:4px;font-size:.78rem;align-items:center">';
+        h+='<span style="color:#fff;font-weight:600;flex:1">'+_esc(c.name)+'</span>';
+        h+='<span style="font-size:.9rem;font-weight:700;color:#9ddf8c;font-family:var(--ff-mono,monospace);min-width:38px;text-align:right">'+c.score+'</span>';
+        h+='</div>';
+      });
+      h+='</details>';
+      h+='</div>';
+    }
+    // ─ Build 105 : Sideboard analysis ─
+    if(report.sideboardAnalysis&&report.sideboardAnalysis.checked){
+      var sba=report.sideboardAnalysis;
+      var sbCol=sba.blindSpots.length===0?'#9ddf8c':sba.blindSpots.length<=2?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">📚 Sideboard ('+sba.sideCount+'/'+sba.expected+' cartes)</div>';
+      h+='<div style="color:'+sbCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(sba.verdict)+'</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:7px">';
+      Object.keys(sba.coverage).forEach(function(k){
+        var v=sba.coverage[k];var ok=v>=1;
+        h+='<div style="padding:8px 10px;background:rgba(74,160,232,.04);border:.5px solid '+(ok?'#9ddf8c':'#e8847b')+';border-radius:8px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">'+_esc(k)+' hate</div><div style="font-size:1.15rem;font-weight:700;color:'+(ok?'#9ddf8c':'#e8847b')+';font-family:var(--ff-mono,monospace);margin-top:2px">'+v+'</div></div>';
+      });
+      h+='</div>';
+      h+='</div>';
+    }
+    // ─ Build 105 : Tournament viability ─
+    if(report.tournamentViability&&report.tournamentViability.checked){
+      var tv=report.tournamentViability;
+      var tvCol=tv.score>=75?'#9ddf8c':tv.score>=55?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🏆 Tournament viability — '+_esc(tv.format)+'</div>';
+      h+='<div style="color:'+tvCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(tv.verdict)+'</div>';
+      h+='<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:9px"><span style="font-size:1.8rem;font-weight:700;color:'+tvCol+';font-family:var(--ff-mono,monospace)">'+tv.score+'</span><span style="font-size:.84rem;color:var(--tx3)">/100</span></div>';
+      if(tv.notes.length){
+        h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:5px">Points faibles</div>';
+        tv.notes.forEach(function(n){
+          h+='<div style="padding:6px 10px;background:rgba(240,200,74,.06);border-left:3px solid #f0c84a;border-radius:0 6px 6px 0;margin-bottom:4px;font-size:.78rem;color:var(--tx2)">'+_esc(n)+'</div>';
+        });
+      }
+      if(tv.topMetaDecks&&tv.topMetaDecks.length){
+        h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin:9px 0 5px 0">Adversaires probables ('+_esc(tv.format)+')</div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+        tv.topMetaDecks.forEach(function(d){
+          h+='<span style="padding:3px 9px;background:rgba(180,140,220,.06);border:.5px solid rgba(180,140,220,.30);border-radius:99px;font-size:.74rem;color:var(--tx)">'+_esc(d.deck)+' <b style="color:#b48cdc;font-family:var(--ff-mono,monospace);font-size:.66rem">'+_esc(d.share)+'</b></span>';
+        });
+        h+='</div>';
+      }
+      h+='</div>';
+    }
+    // ─ Build 105 : Deck cost optimization ─
+    if(report.deckCostOptimization&&report.deckCostOptimization.checked&&report.deckCostOptimization.suggestions.length){
+      var co=report.deckCostOptimization;
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">💰 Downgrade budget — économies potentielles</div>';
+      h+='<div style="color:#9ddf8c;font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(co.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">Pour chaque carte premium détectée, un remplaçant budget avec rôle équivalent.</div>';
+      co.suggestions.forEach(function(s){
+        h+='<div style="display:flex;align-items:center;gap:9px;padding:7px 11px;background:rgba(126,200,106,.04);border-left:3px solid #9ddf8c;border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.8rem">';
+        h+='<span style="color:#fff;font-weight:600">'+_esc(s.original)+'</span>';
+        h+='<span style="font-size:.7rem;color:var(--tx3)">→</span>';
+        h+='<span style="color:#9ddf8c;font-weight:600">'+_esc(s.cheap)+'</span>';
+        h+='<span style="font-size:.7rem;color:var(--tx3);font-style:italic;margin-left:auto">'+_esc(s.role)+'</span>';
+        h+='<span style="font-size:.78rem;font-weight:700;color:#9ddf8c;font-family:var(--ff-mono,monospace)">~$'+s.savings+'</span>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
     h+='</div>';
     return h;
   }
@@ -4537,6 +5345,17 @@ window.mlAnaPro = (function(){
     internalSabotage:internalSabotage,
     tableThreatLevel:tableThreatLevel,
     simulatedGameMetrics:simulatedGameMetrics,
+    handEvaluation:handEvaluation,
+    politicsMultiplayer:politicsMultiplayer,
+    coachSynergyAware:coachSynergyAware,
+    formatAware:formatAware,
+    sequencingPlan:sequencingPlan,
+    manabaseOptimisation:manabaseOptimisation,
+    individualCardScoring:individualCardScoring,
+    replayAnalysis:replayAnalysis,
+    sideboardAnalysis:sideboardAnalysis,
+    tournamentViability:tournamentViability,
+    deckCostOptimization:deckCostOptimization,
     renderDiff:renderDiff,
     coachTopFixes:coachTopFixes,
     analyzeCached:analyzeCached,

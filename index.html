@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-11-102';
+window.APP_BUILD='2026-06-11-105';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -44338,6 +44338,93 @@ function anaProRunEdhrec(){
     placeholder.innerHTML=h;
     try{if(typeof mlTrack==='function')mlTrack('Ana Pro EDHrec Run',{commander:deck.commander.name});}catch(_){}
   });
+}
+
+// Build 103 — coaching synergy-aware (EDHrec synergy par commandant)
+function anaProRunSynergy(){
+  var placeholder=document.getElementById('anapro-edhrec-placeholder');
+  if(!placeholder)return;
+  var deck=window._lastAnaProDeck;
+  if(!deck||!deck.commander||!deck.commander.name){
+    placeholder.innerHTML='<div class="anapro-card" style="border-color:rgba(240,200,74,.42)"><div class="anapro-cat" style="color:#f0c84a">🧠 Synergy-aware</div><div style="font-size:.86rem;color:var(--tx2)">Pas de commandant — analyse synergy-aware indisponible.</div></div>';
+    return;
+  }
+  if(typeof mlAnaPro==='undefined'||typeof mlAnaPro.coachSynergyAware!=='function'){
+    placeholder.innerHTML='<div class="anapro-card" style="border-color:rgba(232,132,123,.42)"><div class="anapro-cat" style="color:#e8847b">🧠 Synergy-aware</div><div style="font-size:.86rem;color:var(--rd2)">Module non chargé.</div></div>';
+    return;
+  }
+  placeholder.innerHTML='<div class="anapro-card"><div class="anapro-cat">🧠 Synergy-aware — '+esc(deck.commander.name)+'</div><div style="font-size:.84rem;color:var(--tx3);font-style:italic;padding:8px">⏳ Croisement EDHrec synergy par carte…</div></div>';
+  var rows=null;
+  if(_anaState&&_anaState.deck===deck&&Array.isArray(_anaState.rows))rows=_anaState.rows;
+  else rows=(deck.cards||[]).map(function(c){var nl=c.nl||(c.name||'').toLowerCase();var meta=(typeof dCardMeta!=='undefined')?dCardMeta[nl]:null;return {card:c,name:c.name,nl:nl,qty:c.qty||1,meta:meta||{}};});
+  mlAnaPro.coachSynergyAware(rows,deck,function(result){
+    if(!result.checked){
+      placeholder.innerHTML='<div class="anapro-card" style="border-color:rgba(240,200,74,.42)"><div class="anapro-cat" style="color:#f0c84a">🧠 Synergy-aware</div><div style="font-size:.84rem;color:var(--rd2)">'+esc(result.reason||'Analyse impossible')+'</div></div>';
+      return;
+    }
+    var h='<div class="anapro-card" style="border-color:rgba(180,140,220,.42);background:linear-gradient(135deg,rgba(180,140,220,.06),rgba(180,140,220,.01))">';
+    h+='<div class="anapro-cat" style="color:#b48cdc">🧠 Synergy-aware — '+esc(result.commander)+'</div>';
+    h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.5;margin-bottom:10px">'+esc(result.verdict)+'</div>';
+    h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:12px;line-height:1.5">Une carte avec <b>synergy -15%</b> ou moins sur ce commandant signifie qu\'elle est jouée significativement moins avec lui qu\'avec d\'autres. Probablement off-commander.</div>';
+    if(result.lowSynergyInDeck.length){
+      h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">⚠ Cartes off-commander dans le deck</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px;margin-bottom:14px">';
+      result.lowSynergyInDeck.forEach(function(c){
+        h+='<div style="padding:7px 10px;background:rgba(232,132,123,.04);border:.5px solid rgba(232,132,123,.30);border-left:3px solid #e8847b;border-radius:6px">';
+        h+='<div style="font-size:.82rem;color:#fff;font-weight:600">'+esc(c.name)+'</div>';
+        h+='<div style="font-size:.66rem;color:var(--tx3);margin-top:1px">synergy <b style="color:#e8847b">'+c.synergy+'%</b> · incl. '+c.inclusion+'% · '+esc(c.category)+'</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+    if(result.highSynergyInDeck.length){
+      h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🎯 Cartes high-synergy correctement jouées</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      result.highSynergyInDeck.forEach(function(c){
+        h+='<span style="padding:3px 9px;background:rgba(126,200,106,.06);border:.5px solid rgba(126,200,106,.30);border-radius:99px;font-size:.74rem;color:var(--tx)" title="synergy +'+c.synergy+'%">'+esc(c.name)+' <b style="color:#9ddf8c;font-family:var(--ff-mono,monospace);font-size:.66rem">+'+c.synergy+'%</b></span>';
+      });
+      h+='</div>';
+    }
+    h+='</div>';
+    placeholder.innerHTML=h;
+    try{if(typeof mlTrack==='function')mlTrack('Ana Pro Synergy Run',{commander:deck.commander.name});}catch(_){}
+  });
+}
+
+// Build 105 — replay analysis (game log parser)
+function anaProOpenReplay(){
+  var placeholder=document.getElementById('anapro-edhrec-placeholder');
+  if(!placeholder)return;
+  var sample='T1: Land - Forest | Cast - Llanowar Elves\nT2: Land - Forest | Cast - Elvish Mystic\nT3: Land - Plains | Cast - Selvala\nT4: Land - Plains | Cast - Beast Whisperer\nT5: Land - Forest | Cast - Toski\nT6: Land - Plains';
+  var h='<div class="anapro-card" style="border-color:rgba(240,200,74,.42)">';
+  h+='<div class="anapro-cat" style="color:#f0c84a">🎮 Replay analysis — colle ton game log</div>';
+  h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:8px;line-height:1.5">Format ligne par tour : <code style="background:rgba(255,255,255,.06);padding:1px 4px;border-radius:3px">T1: Land - X | Cast - Y</code>. Sépare actions avec <code style="background:rgba(255,255,255,.06);padding:1px 4px;border-radius:3px">|</code>.</div>';
+  h+='<textarea id="anapro-replay-input" placeholder="'+esc(sample)+'" style="width:100%;min-height:140px;padding:8px;background:rgba(0,0,0,.20);border:.5px solid rgba(240,200,74,.30);border-radius:6px;color:var(--tx);font-family:var(--ff-mono,monospace);font-size:.78rem;resize:vertical">'+sample+'</textarea>';
+  h+='<div style="display:flex;gap:6px;margin-top:8px"><button onclick="anaProRunReplay()" style="font-size:.74rem;padding:5px 12px;background:rgba(240,200,74,.18);border:.5px solid rgba(240,200,74,.4);border-radius:6px;color:#f0c84a;cursor:pointer;font-family:inherit">▶ Analyser</button></div>';
+  h+='<div id="anapro-replay-result" style="margin-top:11px"></div>';
+  h+='</div>';
+  placeholder.innerHTML=h;
+}
+function anaProRunReplay(){
+  var inp=document.getElementById('anapro-replay-input');
+  var res=document.getElementById('anapro-replay-result');
+  if(!inp||!res||typeof mlAnaPro==='undefined')return;
+  var result=mlAnaPro.replayAnalysis(inp.value);
+  if(!result.checked){res.innerHTML='<div style="padding:8px 11px;background:rgba(232,132,123,.06);border-left:3px solid #e8847b;border-radius:0 6px 6px 0;font-size:.78rem;color:#e8847b">'+esc(result.reason)+'</div>';return;}
+  var h='<div style="font-size:.84rem;color:'+(result.issues.length===0?'#9ddf8c':'#f0c84a')+';font-weight:700;margin-bottom:8px">'+esc(result.verdict)+'</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:7px;margin-bottom:10px">';
+  h+='<div style="padding:7px 10px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.6rem;color:var(--tx3);text-transform:uppercase;font-weight:700">Tours</div><div style="font-size:1.15rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace)">'+result.turnsParsed+'</div></div>';
+  h+='<div style="padding:7px 10px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.6rem;color:var(--tx3);text-transform:uppercase;font-weight:700">Casts</div><div style="font-size:1.15rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace)">'+result.totalCasts+'</div></div>';
+  h+='<div style="padding:7px 10px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.6rem;color:var(--tx3);text-transform:uppercase;font-weight:700">Land drops</div><div style="font-size:1.15rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace)">'+result.totalLandDrops+'</div></div>';
+  h+='</div>';
+  result.issues.forEach(function(iss){
+    var col={high:'#e8847b',med:'#f0c84a',low:'#9ddf8c',info:'#7ec0f0'}[iss.sev]||'#f0c84a';
+    h+='<div style="padding:6px 10px;background:rgba(74,160,232,.04);border-left:3px solid '+col+';border-radius:0 6px 6px 0;margin-bottom:4px;font-size:.78rem;color:var(--tx2)">'+esc(iss.msg)+'</div>';
+  });
+  result.praises.forEach(function(p){
+    h+='<div style="padding:6px 10px;background:rgba(126,200,106,.04);border-left:3px solid #9ddf8c;border-radius:0 6px 6px 0;margin-bottom:4px;font-size:.78rem;color:#9ddf8c">'+esc(p.msg)+'</div>';
+  });
+  res.innerHTML=h;
 }
 
 function anaProExportPdf(){
