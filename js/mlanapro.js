@@ -3943,46 +3943,144 @@ window.mlAnaPro = (function(){
     };
   }
 
-  // ─── 47. INDIVIDUAL CARD SCORING (build 104) ───────────────────────────
-  // Pour chaque carte, score 0-100 + raison + alternative si dispo.
-  // Coûteux : on limite aux 20 cartes les plus "fragiles" (faible tier).
-  function individualCardScoring(rows,deck){
+  // ─── 47. INDIVIDUAL CARD SCORING — CONTEXTUEL (build 106) ──────────────
+  // Refonte : le scoring lit MAINTENANT le PLAN du deck + KEYWORDS donnés
+  // + types (équipement, aura) + triggers (deal damage, attack).
+  //
+  // Ex. Helm of the Ghastlord dans un Soaring (mill/attaque chaque tour) :
+  //   - équipement → bonus combat/voltron : +12
+  //   - "whenever ... deals combat damage ... discard" → payoff mill : +15
+  //   - donne hexproof à la créature équipée → protège cmd : +10
+  //   - 4 CMC → -2 CMC
+  //   = score boosté de 25-30 pts par rapport au générique.
+  //
+  // Tables de signaux contextuels :
+  var CTX_KEYWORDS = {
+    'deathtouch':{combat:8,mill:10,voltron:6,drain:4,tribal:6},
+    'lifelink':{drain:12,lifegain:14,combat:6,voltron:8},
+    'flying':{combat:10,mill:12,voltron:14,tribal:8},
+    'menace':{combat:8,mill:10,voltron:8,tribal:6},
+    'unblockable':{combat:14,mill:18,voltron:16,tribal:10},
+    'can\'t be blocked':{combat:14,mill:18,voltron:16,tribal:10},
+    'trample':{combat:10,voltron:14,tokens:8,tribal:6},
+    'double strike':{combat:14,voltron:18,drain:8,tribal:8},
+    'first strike':{combat:8,voltron:10,tribal:6},
+    'hexproof':{voltron:14,combat:8,combo:10,tribal:8},
+    'indestructible':{voltron:14,combat:8,combo:8,tribal:8},
+    'shroud':{voltron:10,combo:8},
+    'protection':{voltron:12,combat:8,combo:8},
+    'haste':{combat:10,voltron:12,tokens:8,tribal:8},
+    'vigilance':{combat:8,voltron:8,tribal:6},
+    'regenerate':{combat:8,voltron:10,tribal:8,mill:6},
+    'goad':{politics:12,combat:8},
+    'ward':{voltron:10,combat:6},
+    'evasion':{combat:8,mill:10,voltron:10}
+  };
+  function _detectDeckPlans(report){
+    var plans=[];
+    if(report&&report.winCons&&report.winCons.plans){
+      report.winCons.plans.forEach(function(p){plans.push(p.kind);});
+    }
+    if(report&&report.archetype&&report.archetype.primary){
+      var ar=report.archetype.primary.archetype.toLowerCase();
+      if(/voltron/.test(ar))plans.push('voltron');
+      if(/aristocrat/.test(ar))plans.push('drain');
+      if(/token/.test(ar))plans.push('tokens');
+      if(/control/.test(ar))plans.push('control');
+      if(/combo/.test(ar))plans.push('combo');
+      if(/tribal/.test(ar))plans.push('tribal');
+      if(/mill/.test(ar))plans.push('mill');
+      if(/spell/.test(ar)||/storm/.test(ar))plans.push('spellslinger');
+    }
+    if(!plans.length)plans.push('combat'); // default
+    return plans;
+  }
+  function _scoreKeywords(ot,plans){
+    var bonus=0;var matched=[];
+    Object.keys(CTX_KEYWORDS).forEach(function(kw){
+      if(ot.indexOf(kw)<0)return;
+      var cur=0;
+      plans.forEach(function(p){if(CTX_KEYWORDS[kw][p])cur=Math.max(cur,CTX_KEYWORDS[kw][p]);});
+      if(cur>0){bonus+=cur;matched.push(kw);}
+    });
+    return {bonus:bonus,matched:matched};
+  }
+  function individualCardScoring(rows,deck,reportFragments){
+    var plans=_detectDeckPlans(reportFragments);
+    var cmdName=deck&&deck.commander&&deck.commander.name?_nlOf(deck.commander.name):null;
+    var cmdMeta=null;
+    // Détecter si cmd attaque/inflige combat dmg (pour valoriser les buffs/protections)
+    rows.forEach(function(r){
+      if(_nlOf(r.card&&r.card.name||r.name)===cmdName)cmdMeta=r.meta||{};
+    });
+    var cmdHasCombatTrigger=cmdMeta?/whenever .* (attacks|deals combat damage)/.test((cmdMeta.oracleText||'').toLowerCase()):false;
+    var cmdName_lc=cmdName;
+    var hasMillPlan=plans.indexOf('mill')>=0;
+    var hasCombatPlan=plans.indexOf('combat')>=0||plans.indexOf('voltron')>=0||plans.indexOf('mill')>=0||plans.indexOf('tribal')>=0;
+    var hasVoltronPlan=plans.indexOf('voltron')>=0;
     var scored=[];
     rows.forEach(function(r){
-      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
       if(/land/.test(tl))return;
       var nl=_nlOf(r.card&&r.card.name||r.name);
       var role=_detectCardRole(m);
       var cmc=m.cmc||0;
       var rank=m.edhrecRank||999999;
-      // Score base : tier de la carte si connue
+      var reasons=[];
+      // 1. Score base : tier de la carte
       var tierScore=50;
       if(role&&CARD_TIERS[role]&&CARD_TIERS[role][nl])tierScore=CARD_TIERS[role][nl]*15;
-      // Bonus EDHrec rank (top 1000 = +20)
+      // 2. Rank EDHrec
       var rankBonus=0;
-      if(rank<=1000)rankBonus=20;
-      else if(rank<=5000)rankBonus=10;
+      if(rank<=1000)rankBonus=15;
+      else if(rank<=5000)rankBonus=8;
       else if(rank<=20000)rankBonus=0;
-      else rankBonus=-10;
-      // Penalty CMC élevé sans payoff
-      var cmcPenalty=cmc>=6?-10:cmc>=4?-3:0;
-      var score=Math.max(0,Math.min(100,tierScore+rankBonus+cmcPenalty+25));
-      var reasons=[];
-      if(tierScore>=60)reasons.push('staple reconnu');
-      else if(tierScore>=45)reasons.push('solide');
-      else reasons.push('faible tier');
+      else rankBonus=-6;
+      // 3. CMC penalty
+      var cmcPenalty=cmc>=6?-8:cmc>=4?-2:0;
+      // 4. CONTEXTUEL : keywords vs plans
+      var kwResult=_scoreKeywords(ot,plans);
+      if(kwResult.bonus>0)reasons.push('keywords '+kwResult.matched.join('/')+' alignés '+plans.join('/'));
+      // 5. Équipement/aura dans deck combat/voltron
+      var equipAuraBonus=0;
+      if(/equipment/.test(tl)&&hasCombatPlan){equipAuraBonus+=10;reasons.push('équipement (plan combat)');}
+      if(/aura/.test(tl)&&hasCombatPlan){equipAuraBonus+=8;reasons.push('aura (plan combat)');}
+      if(/equipment/.test(tl)&&hasVoltronPlan)equipAuraBonus+=6;
+      // 6. Trigger "deal combat damage" → payoff mill/drain
+      var triggerBonus=0;
+      if(hasMillPlan&&/whenever .* deals combat damage/.test(ot)){triggerBonus+=15;reasons.push('payoff combat-damage (plan mill)');}
+      if(hasMillPlan&&/discard/.test(ot)&&/whenever/.test(ot)){triggerBonus+=10;reasons.push('discard trigger (synergie mill)');}
+      if(plans.indexOf('drain')>=0&&/whenever .* (deals damage|dies)/.test(ot)){triggerBonus+=8;reasons.push('trigger drain');}
+      // 7. Protège le commandant (hexproof, indestructible, regen, protection)
+      var protectBonus=0;
+      if((hasVoltronPlan||cmdHasCombatTrigger)&&/(equipped|enchanted) creature has (hexproof|indestructible|protection|shroud|ward)/.test(ot)){
+        protectBonus+=10;reasons.push('protège le commandant');
+      }
+      // 8. Cheap (1-2 CMC) + buff = excellent en combat
+      if(cmc<=2&&hasCombatPlan&&/\+\d\/\+\d|gets \+/.test(ot)){
+        equipAuraBonus+=6;reasons.push('buff cheap (plan combat)');
+      }
+      // 9. Carte explicitement listée dans synergie tribal du deck
+      // (déjà géré ailleurs, on n'ajoute pas)
+      var contextBonus=kwResult.bonus+equipAuraBonus+triggerBonus+protectBonus;
+      var score=Math.max(0,Math.min(100,tierScore+rankBonus+cmcPenalty+contextBonus+25));
+      // Reasons baseline
+      if(tierScore>=60)reasons.unshift('staple reconnu');
+      else if(tierScore<=30&&contextBonus<10)reasons.push('faible tier hors-contexte');
       if(rankBonus>=10)reasons.push('top EDHrec');
-      else if(rankBonus<=-10)reasons.push('rarement jouée');
+      else if(rankBonus<=-5&&contextBonus<5)reasons.push('rarement jouée');
       if(cmcPenalty<-5)reasons.push('cher hors-plan');
-      scored.push({name:r.card&&r.card.name||r.name,nl:nl,score:score,role:role,cmc:cmc,reasons:reasons});
+      if(!reasons.length)reasons.push('score neutre');
+      scored.push({name:r.card&&r.card.name||r.name,nl:nl,score:score,role:role,cmc:cmc,reasons:reasons,contextBonus:contextBonus});
     });
     scored.sort(function(a,b){return a.score-b.score;});
     return {
       checked:true,
+      detectedPlans:plans,
       weakest:scored.slice(0,12),
       strongest:scored.slice(-8).reverse(),
       avgScore:scored.length?Math.round(scored.reduce(function(s,c){return s+c.score;},0)/scored.length):0,
-      verdict:'Score moyen carte : '+(scored.length?Math.round(scored.reduce(function(s,c){return s+c.score;},0)/scored.length):0)+'/100'
+      verdict:'Score contextuel ('+plans.join('/')+') · moyenne '+(scored.length?Math.round(scored.reduce(function(s,c){return s+c.score;},0)/scored.length):0)+'/100'
     };
   }
 
@@ -4221,7 +4319,8 @@ window.mlAnaPro = (function(){
     var fmtAware=formatAware(rows,deck);
     var sequencing=sequencingPlan(rows,deck,simMetrics,mana);
     var manaOpt=manabaseOptimisation(rows,deck,mana);
-    var cardScores=individualCardScoring(rows,deck);
+    // Build 106 : scoring contextuel — passe le plan + archétype déjà calculés
+    var cardScores=individualCardScoring(rows,deck,{winCons:winCons,archetype:archetype});
     // Build 105 : sideboard + tournament viability + cost downgrade
     var sideAna=sideboardAnalysis(deck);
     var costOpt=deckCostOptimization(rows);

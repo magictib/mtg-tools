@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-11-105';
+window.APP_BUILD='2026-06-11-106';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -22118,7 +22118,10 @@ function attachCardAutocomplete(inputEl,opts){
       var cmcBadge=c.cmc?'<span style="color:var(--tx3);font-size:.72rem;margin-left:auto">'+c.cmc+'</span>':'';
       var typeShort=(c.type_line||'').split('—')[0].trim().split(' ').pop();
       var cls='ac-item'+(i===selIdx?' ac-active':'');
+      // Build 106 : indicateur 🌍 pour cartes non-anglaises (résolution serveur au pick)
+      var langBadge=c._remote?'<span style="color:#b48cdc;font-size:.62rem;margin-right:4px;font-family:var(--ff-mono,monospace)" title="Carte non-anglaise — résolution serveur à la sélection">🌍</span>':'';
       h+='<div class="'+cls+'" data-ac-idx="'+i+'" style="padding:7px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:.5px solid rgba(201,168,76,.1);color:var(--tx);font-size:.85rem'+(i===selIdx?';background:rgba(201,168,76,.18);color:var(--gold2)':'')+'">'
+        +langBadge
         +'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name||c.display_name)+'</span>'
         +(typeShort?'<span style="font-size:.7rem;color:var(--tx3)">'+esc(typeShort)+'</span>':'')
         +cmcBadge
@@ -22130,22 +22133,81 @@ function attachCardAutocomplete(inputEl,opts){
     if(idx<0||idx>=items.length)return;
     var c=items[idx];
     closeDropdown();
+    // Build 106 : si la carte vient du fallback multilingue (pas de meta IDB),
+    // on résout le nom EN canonique avant d'appeler onPick.
+    if(c._remote){
+      var typedName=c.name||c.display_name;
+      // Feedback : afficher dans l'input que l'on résout
+      var prev=inputEl.value;
+      inputEl.value='⏳ '+typedName+' …';
+      inputEl.disabled=true;
+      _resolveCanonicalName(typedName).then(function(canonical){
+        inputEl.disabled=false;
+        inputEl.value=canonical;
+        if(opts.onPick)opts.onPick(canonical,{name:canonical,display_name:canonical});
+      }).catch(function(){
+        inputEl.disabled=false;
+        inputEl.value=prev;
+      });
+      return;
+    }
     if(opts.onPick)opts.onPick(c.name||c.display_name,c);
     else inputEl.value=c.name||c.display_name;
   }
   function search(){
     var q=inputEl.value.trim();
     if(q.length<minChars){closeDropdown();return;}
-    // Recherche locale prioritaire (rapide). Fallback Scryfall si IDB vide.
+    // Recherche locale prioritaire (rapide). Fallback Scryfall API multilingue si IDB vide.
+    // Build 106 : fallback supporte recherche en français / allemand / italien / etc.
     scryfallSearchLocal(q,limit).then(function(res){
       if(res.length){
         items=res;selIdx=-1;renderDropdown();
-      } else {
-        // Fallback Scryfall : utile pour cartes très récentes pas encore dans le bulk local
-        items=[];closeDropdown();
-        // On lance la recherche mais on n'attend pas (UX subjective : éviter de bloquer)
+        return;
       }
+      // Loader pendant le fetch Scryfall
+      items=[];selIdx=-1;
+      if(!dropdown){
+        dropdown=document.createElement('div');
+        dropdown.className='card-autocomplete';
+        dropdown.style.cssText='position:absolute;z-index:9999;background:linear-gradient(180deg,#1a0e04,#0c0a07);border:1px solid var(--gold);border-radius:9px;box-shadow:0 12px 32px rgba(0,0,0,.7),0 0 18px rgba(201,168,76,.15);min-width:240px;max-height:380px;overflow-y:auto;font-family:Inter,system-ui,sans-serif';
+        document.body.appendChild(dropdown);
+        var rect=inputEl.getBoundingClientRect();
+        dropdown.style.top=(rect.bottom+window.scrollY+3)+'px';
+        dropdown.style.left=(rect.left+window.scrollX)+'px';
+        dropdown.style.width=Math.max(260,rect.width)+'px';
+      }
+      dropdown.innerHTML='<div style="padding:12px;color:var(--tx3);font-size:.82rem;font-style:italic;text-align:center">⏳ Recherche multilingue Scryfall…</div>';
+      // Scryfall autocomplete avec include_multilingual=true → propose FR/DE/IT/ES/JP/etc.
+      var url='https://api.scryfall.com/cards/autocomplete?q='+encodeURIComponent(q)+'&include_multilingual=true';
+      fetch(url).then(function(r){return r.json();}).then(function(json){
+        if(inputEl.value.trim()!==q)return; // user a tapé entre-temps, on lâche
+        if(!json||!json.data||!json.data.length){
+          items=[];renderDropdown();return;
+        }
+        // Pour chaque nom suggéré, on regarde s'il existe en IDB local (nom EN canonique)
+        // sinon on garde tel quel et on résoudra à la sélection.
+        var names=json.data.slice(0,limit);
+        Promise.all(names.map(function(n){
+          // Recherche par nom exact normalisé en local
+          return scryfallSearchLocal(n.toLowerCase(),1).then(function(r){
+            if(r.length)return r[0];
+            return {name:n,display_name:n,type_line:'',cmc:0,_remote:true};
+          });
+        })).then(function(resolved){
+          if(inputEl.value.trim()!==q)return;
+          items=resolved;selIdx=-1;renderDropdown();
+        });
+      }).catch(function(){
+        items=[];renderDropdown();
+      });
     });
+  }
+  function _resolveCanonicalName(name){
+    // Résout un nom (potentiellement français/étranger) en nom EN canonique via Scryfall
+    return fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(name)).then(function(r){return r.json();}).then(function(c){
+      if(c&&c.name)return c.name;
+      return name;
+    }).catch(function(){return name;});
   }
   inputEl.addEventListener('input',function(){
     clearTimeout(debTimer);
