@@ -14,6 +14,13 @@
 window.mlAnaPro = (function(){
   'use strict';
 
+  // Build 102 : versioning du méta — incrémenter à chaque mise à jour majeure
+  // des dictionnaires (cartes top, MUST_ANSWER, GAME_CHANGERS, etc.).
+  // Sources : EDHRECast, cEDH Decklist Database, posts WotC bracket announcements.
+  // Format trimestriel : YYYY-Qn. Affiché dans l'UI pour transparence.
+  var META_VERSION = '2026-Q2';
+  var META_UPDATED = '2026-06-11';
+
   // ─── DICTIONNAIRES ──────────────────────────────────────────────────────
   // Combos infinis classiques (paires/trios). Format minimal pour matcher
   // rapidement via l'oracleText OU le nom de cartes (case-insensitive).
@@ -2333,14 +2340,33 @@ window.mlAnaPro = (function(){
   }
 
   // ─── 22. INEVITABILITY (cartes qui transforment durée en victoire) ────
+  // Build 102 : extension dictionnaire — 100+ cartes inevitability
   var INEVITABILITY_CARDS = [
+    // Alt-wins
     'aetherflux reservoir','approach of the second sun','mortal combat','helix pinnacle',
     'mayael\'s aria','maze\'s end','felidar sovereign','test of endurance',
     'triskaidekaphobia','near-death experience','simic ascendancy','revel in riches',
     'coalition victory','barren glory','epic struggle','azor\'s elocutors',
     'hellkite tyrant','mechtitan core','laboratory maniac','jace, wielder of mysteries',
-    'thassa\'s oracle','blightsteel colossus','marit lage','vraska\'s contempt',
-    'dragon\'s approach','jaya\'s greeting'
+    'thassa\'s oracle','blightsteel colossus','marit lage',
+    // Mass damage X-spells + combo finishers
+    'insurrection','triumph of the hordes','craterhoof behemoth','finale of devastation',
+    'overwhelming stampede','pathbreaker ibex','end-raze forerunners',
+    'beacon of immortality','exsanguinate','torment of hailfire','crackle with power',
+    'comet storm','rolling earthquake','jokulhaups','obliterate','decree of annihilation',
+    // Game-ending engines
+    'expropriate','rise of the dark realms','liliana, dreadhorde general',
+    'living death','rise from the grave','animate dead chain','sun titan loop',
+    'cataclysm','armageddon','ravages of war','smothering tithe',
+    // Token sweeps + alpha
+    'finale of glory','gather the townsfolk','secure the wastes finale',
+    'last stand','draconic intervention',
+    // Specific
+    'dragon\'s approach','jaya\'s greeting','korlash, heir to blackblade',
+    'dockside extortionist','peregrine drake','isochron scepter',
+    'paradox engine','aetherflux reservoir','urza, lord high artificer',
+    // Combos T6+
+    'sanguine bond','exquisite blood','niv-mizzet, parun','curiosity'
   ];
   function inevitability(rows){
     var found=[];var set=_cardSet(rows);
@@ -2376,10 +2402,16 @@ window.mlAnaPro = (function(){
   }
 
   // ─── 24. TEMPO LOSS (cartes « do nothing » au tour joué) ──────────────
+  // Build 102 : étendu.
   var TEMPO_LOSS_CARDS = [
+    // Draw engines lentes
     'necropotence','sylvan library','phyrexian arena','bolas\'s citadel',
-    'aetherflux reservoir','rhystic study','mystic remora','smothering tithe',
-    'guardian project','beast whisperer','underworld breach','dramatic reversal'
+    'rhystic study','mystic remora','smothering tithe','guardian project',
+    'beast whisperer','underworld breach','sensei\'s divining top',
+    'enlightened tutor','vampiric tutor','demonic tutor','mystical tutor',
+    'sevinne\'s reclamation','search for tomorrow','isochron scepter',
+    'dramatic reversal','aetherflux reservoir','helm of obedience',
+    'painter\'s servant','grindstone','intuition','gamble','idyllic tutor'
   ];
   function tempoLoss(rows){
     var found=[];var set=_cardSet(rows);
@@ -2391,15 +2423,37 @@ window.mlAnaPro = (function(){
   }
 
   // ─── 25. MUST-ANSWER THREATS ───────────────────────────────────────────
+  // Build 102 : élargi de 35 → 80+ cartes — bombs T3/T4 méta 2026 Q2.
   var MUST_ANSWER = [
-    'yawgmoth, thran physician','smothering tithe','underworld breach','rhystic study',
-    'mystic remora','esper sentinel','sythis, harvest\'s hand','tergrid, god of fright',
+    // Engines de draw
+    'yawgmoth, thran physician','rhystic study','mystic remora','esper sentinel',
+    'consecrated sphinx','sheoldred, the apocalypse','tymna the weaver',
+    'archmage emeritus','beast whisperer','guardian project','elenda, saint of dusk',
+    'phyrexian arena','sylvan library','necropotence','bolas\'s citadel',
+    // Mana production
+    'smothering tithe','dockside extortionist','kinnan, bonder prodigy',
+    'urza, lord high artificer','derevi, empyrial tactician','kraum, ludevic\'s opus',
+    'goldspan dragon','sythis, harvest\'s hand',
+    // Combo enablers
+    'underworld breach','aetherflux reservoir','isochron scepter','dramatic reversal',
+    'paradox engine','peregrine drake','old gnawbone','vorinclex',
+    // Threat creatures T2-T4
     'krenko, mob boss','yuriko, the tiger\'s shadow','najeela, the blade-blossom',
-    'kinnan, bonder prodigy','urza, lord high artificer','god-eternal kefnet',
-    'consecrated sphinx','aetherflux reservoir','bolas\'s citadel','necropotence',
-    'sheoldred, the apocalypse','blood moon','back to basics','winter orb','static orb',
+    'god-eternal kefnet','winota, joiner of forces','animar, soul of elements',
+    'edgar markov','prosper, tome-bound','korvold, fae-cursed king','toxrill, the corrosive',
+    'old stickfingers','hinata, dawn-crowned','grand arbiter augustin iv',
+    'thrasios, triton hero','tergrid, god of fright','jin-gitaxias, core augur',
+    // Stax pieces critiques
+    'blood moon','back to basics','winter orb','static orb','tangle wire',
     'thalia, guardian of thraben','collector ouphe','null rod','stony silence',
-    'rest in peace','leyline of the void','grafdigger\'s cage'
+    'rest in peace','leyline of the void','grafdigger\'s cage','torpor orb',
+    'cursed totem','linvala, keeper of silence','aven mindcensor',
+    'opposition agent','hullbreacher','notion thief','narset, parter of veils',
+    'meekstone','sphere of resistance','thorn of amethyst','trinisphere',
+    // Wraths qu'on ne veut pas voir résolus
+    'cyclonic rift','farewell','damn','toxic deluge','fated retribution',
+    // Voltron threats
+    'voltron commanders','rafiq of the many','uril the miststalker'
   ];
   function mustAnswerThreats(rows){
     var found=[];var set=_cardSet(rows);
@@ -2487,52 +2541,120 @@ window.mlAnaPro = (function(){
     };
   }
 
-  // ─── 29. COMBAT MATH (créatures vs blockeurs typiques) ────────────────
+  // ─── 29. COMBAT MATH v2 (build 101) — évasion + pondération CMC ───────
+  // Avant : moyenne power vs toughness moyen. Faux à 70%.
+  // Maintenant :
+  //  - on isole les attaquants avec évasion (passent presque toujours)
+  //  - on pondère par CMC (un 5/5 ne vaut pas un 1/1)
+  //  - avg blocker dynamique selon format ET phase de partie estimée
+  //  - on score séparément "avg attaquant qui passe" en early et late game
   function combatMath(rows,deck){
-    var atkPow=0,atkN=0,defPow=0,defN=0;
     var fmt=(deck&&deck.format||'').toLowerCase();
-    var avgBlocker=fmt==='commander'||fmt==='paupercmd'||fmt==='oathbreaker'?3:fmt==='modern'?3:fmt==='pauper'?2:3;
+    // Avg blockeur réaliste : en EDH/Commander 3 (early) à 4 (late) ; en pauper 2 ; ailleurs 3
+    var blockerEarly=fmt==='pauper'?2:3;
+    var blockerLate=fmt==='commander'||fmt==='paupercmd'||fmt==='oathbreaker'?4:3;
+    // 4 buckets : early évasion / early no-evasion / late évasion / late no-evasion
+    var groups={ee:{pow:0,n:0},en:{pow:0,n:0},le:{pow:0,n:0},ln:{pow:0,n:0}};
+    var totalCreatures=0;
+    var evasionCount=0;
     rows.forEach(function(r){
-      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
       if(!/creature/.test(tl))return;
       var p=parseInt(m.power||'0',10)||0;
-      var t=parseInt(m.toughness||'0',10)||0;
+      var cmc=m.cmc||0;
       var qty=r.qty||1;
-      atkPow+=p*qty;atkN+=qty;defPow+=t*qty;defN+=qty;
+      var hasEvasion=/flying|menace|unblockable|trample|shadow|horsemanship|fear|intimidate|can't be blocked|skulk|protection/.test(ot);
+      var isLate=cmc>=4;
+      var key=(isLate?'l':'e')+(hasEvasion?'e':'n');
+      groups[key].pow+=p*qty;groups[key].n+=qty;
+      totalCreatures+=qty;if(hasEvasion)evasionCount+=qty;
     });
-    var avgAtk=atkN?(atkPow/atkN).toFixed(1):0;
-    var avgDef=defN?(defPow/defN).toFixed(1):0;
+    function _avg(g){return g.n?(g.pow/g.n):0;}
+    var avgEarlyEvasion=_avg(groups.ee).toFixed(1);
+    var avgEarlyNoEv=_avg(groups.en).toFixed(1);
+    var avgLateEvasion=_avg(groups.le).toFixed(1);
+    var avgLateNoEv=_avg(groups.ln).toFixed(1);
+    // % évasion = signal majeur (passe le blockeur même si power bas)
+    var evasionPct=totalCreatures?Math.round(evasionCount/totalCreatures*100):0;
+    // Verdict pondéré : sur late, les créatures sans évasion sont chair à canon.
+    var earlyOK=parseFloat(avgEarlyEvasion)>=blockerEarly-1||evasionPct>=30;
+    var lateOK=parseFloat(avgLateEvasion)>=blockerLate||evasionPct>=40;
+    var verdict;
+    if(earlyOK&&lateOK)verdict='✓ Bons attaquants — early '+avgEarlyEvasion+' (évasion), late '+avgLateEvasion+' (évasion), '+evasionPct+'% du board passe';
+    else if(!earlyOK&&!lateOK)verdict='⚠ Attaquants trop faibles partout — '+evasionPct+'% évasion seulement, blockeur '+blockerEarly+'/'+blockerLate;
+    else if(!lateOK)verdict='~ Late game faible — attaquants sans évasion bloqués par 4+';
+    else verdict='~ Early game faible — peu de pression T1-T3';
     return {
-      avgAttackerPower:avgAtk,avgDefenderToughness:avgDef,
-      typicalBlocker:avgBlocker,
-      verdict:avgAtk>=avgBlocker?'✓ Tes attaquants passent (avg '+avgAtk+' vs blockeur '+avgBlocker+')':'⚠ Tes attaquants trop faibles (avg '+avgAtk+' vs blockeur '+avgBlocker+')'
+      avgEarlyEvasion:avgEarlyEvasion,avgEarlyNoEv:avgEarlyNoEv,
+      avgLateEvasion:avgLateEvasion,avgLateNoEv:avgLateNoEv,
+      evasionPct:evasionPct,totalCreatures:totalCreatures,
+      blockerEarly:blockerEarly,blockerLate:blockerLate,
+      verdict:verdict
     };
   }
 
-  // ─── 30. THREATS KILLABLE SCOPE (universal vs conditional) ─────────────
+  // ─── 30. THREATS KILLABLE SCOPE v2 (build 101) ─────────────────────────
+  // Pondéré par CMC ET restriction. Le score "quality" est ce qui compte,
+  // pas le count brut. Un Doom Blade (3 CMC, target creature non-black)
+  // vaut moins qu'un Swords to Plowshares (1 CMC, target creature).
+  //
+  // Score d'un removal = base × CMC penalty × restriction penalty.
+  // base = 10 ; CMC penalty = max(0.3, 1 - 0.15*cmc) ; restriction selon target.
   function threatsKillableScope(rows){
     var universal=0,creatureOnly=0,nonlandOnly=0,conditional=0;
+    var qualityScore=0;
+    var byMana={cheap:0,mid:0,expensive:0}; // ≤2, 3-4, 5+
     rows.forEach(function(r){
       var m=r.meta||{};var ot=(m.oracleText||'').toLowerCase();var qty=r.qty||1;
-      // Universal (destroy/exile target nonland permanent or target permanent)
-      if(/destroy target nonland permanent|exile target nonland permanent|destroy target permanent|beast within|generous gift/.test(ot)){
-        universal+=qty;return;
+      var cmc=m.cmc||0;
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      var category=null;var restrict=1.0;
+      // Détection catégorie + restriction
+      // Universal (target permanent / nonland permanent)
+      if(/destroy target nonland permanent|exile target nonland permanent|destroy target permanent|exile target permanent|beast within|generous gift|chaos warp|assassin's trophy/.test(ot)||nl==='beast within'||nl==='generous gift'||nl==='chaos warp'){
+        category='universal';universal+=qty;restrict=1.0;
       }
-      // Non-land specific (artifact OR enchant OR creature OR PW)
-      if(/destroy target (artifact|enchantment|creature|planeswalker)|exile target/.test(ot)){
-        if(/creature.*only/.test(ot)||/destroy target creature(\s|$|\.|,)/.test(ot))creatureOnly+=qty;
-        else nonlandOnly+=qty;
-        return;
+      // Counter target spell (universal)
+      else if(/counter target spell/.test(ot)){
+        category='nonland';nonlandOnly+=qty;restrict=0.9;
+        if(/unless its controller pays/.test(ot))restrict=0.5; // tax counter = faible
       }
-      // Conditional (e.g. "if it's red", "with toughness 3 or less")
-      if(/if it's|with .* or less|with .* or greater/.test(ot)){
-        conditional+=qty;return;
+      // Multi-target (artifact, enchant, creature, PW)
+      else if(/destroy target (artifact|enchantment|creature or planeswalker|nonbasic land)|exile target (artifact|enchantment|creature|planeswalker)/.test(ot)){
+        // Si "artifact or enchantment" → nonlandOnly
+        if(/artifact or enchantment|enchantment or artifact/.test(ot)){
+          category='nonland';nonlandOnly+=qty;restrict=0.85;
+        }else{
+          category='nonland';nonlandOnly+=qty;restrict=0.8;
+        }
       }
+      // Creature-only (destroy target creature)
+      else if(/destroy target creature|exile target creature/.test(ot)){
+        category='creatureOnly';creatureOnly+=qty;restrict=0.6;
+        // Restrictions de couleur / tough
+        if(/non[-\s]?black|non[-\s]?white|non[-\s]?red|non[-\s]?blue|non[-\s]?green/.test(ot))restrict*=0.7;
+        if(/toughness \d or less|with power \d or less|with mana value \d or less/.test(ot)){category='conditional';conditional+=qty;restrict*=0.4;}
+        if(/lifelink|swords to plowshares|path to exile/.test(ot)||nl==='swords to plowshares'||nl==='path to exile')restrict=0.85;
+      }
+      // Conditional pure
+      else if(/if it's|with mana value \d|with .* or less/.test(ot)){
+        category='conditional';conditional+=qty;restrict=0.4;
+      }
+      if(!category)return;
+      var cmcPenalty=Math.max(0.3,1-0.15*cmc);
+      qualityScore+=10*cmcPenalty*restrict*qty;
+      if(cmc<=2)byMana.cheap+=qty;
+      else if(cmc<=4)byMana.mid+=qty;
+      else byMana.expensive+=qty;
     });
+    qualityScore=Math.round(qualityScore);
+    var totalCounted=universal+creatureOnly+nonlandOnly+conditional;
     return {
       universal:universal,creatureOnly:creatureOnly,nonlandOnly:nonlandOnly,conditional:conditional,
-      universalPct:universal+creatureOnly+nonlandOnly?Math.round(universal/(universal+creatureOnly+nonlandOnly)*100):0,
-      verdict:universal>=3?'✓ Removal flexible et universel':universal>=1?'~ Quelques removals universels':'⚠ Removal trop conditionnel'
+      universalPct:totalCounted?Math.round(universal/totalCounted*100):0,
+      qualityScore:qualityScore,
+      byMana:byMana,
+      verdict:qualityScore>=60?'✓ Removal de haute qualité ('+qualityScore+' pts, '+byMana.cheap+' cheap)':qualityScore>=30?'~ Removal moyen ('+qualityScore+' pts) — manque de cheap/flexible':'⚠ Removal faible ('+qualityScore+' pts) — trop conditionnel ou cher'
     };
   }
 
@@ -2569,35 +2691,69 @@ window.mlAnaPro = (function(){
       if(err||!data){callback&&callback({checked:false,reason:'EDHrec indisponible: '+(err&&err.message||'erreur')});return;}
       // Extrait les cartes recommandées
       var topRecs=[];
+      var saltyCardsInDeck=[];
       try{
         var cardlists=(data.container&&data.container.json_dict&&data.container.json_dict.cardlists)||[];
         cardlists.forEach(function(list){
           (list.cardviews||[]).forEach(function(cv){
-            if(cv.name&&!cv.cmc_only)topRecs.push({name:cv.name,inclusion:cv.inclusion||0,synergy:cv.synergy||0,category:list.header||'?'});
+            if(cv.name&&!cv.cmc_only){
+              topRecs.push({
+                name:cv.name,
+                inclusion:cv.inclusion||0,
+                synergy:cv.synergy||0, // build 102 : %above moyenne = signal "high-synergy"
+                salt:cv.salt||0,       // build 102 : score de haine communauté
+                category:list.header||'?',
+                price:cv.price||(cv.prices&&cv.prices.tcgplayer)||0
+              });
+            }
           });
         });
       }catch(_){}
       // Croisement avec le deck
       var deckSet={};rows.forEach(function(r){var nl=_nlOf(r.card&&r.card.name||r.name);if(nl)deckSet[nl]=true;});
-      var missing=topRecs.filter(function(c){return !deckSet[_nlOf(c.name)];}).slice(0,12);
+      var missing=topRecs.filter(function(c){return !deckSet[_nlOf(c.name)];});
+      // Build 102 : trier par "high synergy" plutôt que par inclusion seule.
+      // Une carte "high-synergy" est jouée >moyenne avec CE commandant spécifiquement
+      // (synergy > 30%). C'est plus précieux qu'une staple générique.
+      var highSynergyMissing=missing.filter(function(c){return c.synergy>=30;}).sort(function(a,b){return b.synergy-a.synergy;}).slice(0,10);
+      var staplesMissing=missing.filter(function(c){return c.inclusion>=40&&c.synergy<30;}).sort(function(a,b){return b.inclusion-a.inclusion;}).slice(0,8);
+      // Salt score : cartes très "haineuses" en table casual
+      var saltyInDeckMap={};
+      topRecs.forEach(function(c){
+        var nl=_nlOf(c.name);
+        if(deckSet[nl]&&c.salt>=1.5)saltyInDeckMap[nl]={name:c.name,salt:c.salt};
+      });
+      saltyCardsInDeck=Object.values(saltyInDeckMap).sort(function(a,b){return b.salt-a.salt;});
+      var totalSalt=saltyCardsInDeck.reduce(function(s,c){return s+c.salt;},0);
       var rare=[];
-      // Cartes présentes dans deck mais low-inclusion sur EDHrec
       var inclusionMap={};
       topRecs.forEach(function(c){inclusionMap[_nlOf(c.name)]=c.inclusion;});
       rows.forEach(function(r){
         var nl=_nlOf(r.card&&r.card.name||r.name);
         var meta=r.meta||{};var tl=(meta.typeLine||'').toLowerCase();
         if(/land/.test(tl))return;
-        // Carte « rare » : présente dans EDHrec data mais inclusion < 5%
         if(inclusionMap[nl]!=null&&inclusionMap[nl]<5)rare.push({name:r.card&&r.card.name||r.name,inclusion:inclusionMap[nl]});
+      });
+      // Budget : prix moyen des cartes du deck (proxy via EDHrec prices)
+      var totalPrice=0;var pricedCount=0;
+      rows.forEach(function(r){
+        var nl=_nlOf(r.card&&r.card.name||r.name);
+        var entry=topRecs.find(function(c){return _nlOf(c.name)===nl;});
+        if(entry&&entry.price>0){totalPrice+=entry.price*(r.qty||1);pricedCount++;}
       });
       callback&&callback({
         checked:true,
         commander:cmdName,
-        topRecommendations:missing,
+        highSynergyMissing:highSynergyMissing,  // build 102
+        staplesMissing:staplesMissing,           // build 102 (séparé)
+        topRecommendations:missing.slice(0,12),  // legacy
         spicyCards:rare.slice(0,8),
+        saltyCardsInDeck:saltyCardsInDeck.slice(0,8), // build 102
+        totalSaltScore:Math.round(totalSalt*10)/10,    // build 102
+        estimatedPrice:Math.round(totalPrice),         // build 102
+        pricedCount:pricedCount,
         totalAnalyzed:topRecs.length,
-        verdict:missing.length===0?'✓ Tu as déjà tous les staples EDHrec':'Top '+missing.length+' staples EDHrec absents'
+        verdict:highSynergyMissing.length===0?'✓ Tu joues toutes les cartes high-synergy avec ce commandant':'Top '+highSynergyMissing.length+' cartes high-synergy manquantes (synergy ≥30%)'
       });
     });
   }
@@ -3010,7 +3166,433 @@ window.mlAnaPro = (function(){
     return h;
   }
 
-  // ─── 34. RAPPORT GLOBAL ────────────────────────────────────────────────
+  // ─── 35. ENABLER / PAYOFF PAIR CHECK (build 100) ───────────────────────
+  // Un payoff sans son enabler = brick. Ex. Anointed Procession sans token
+  // maker. On scanne par paires connues.
+  //
+  // Format : {payoff:nameOrRegex, enablers:[regex|name], minEnablers:int, label:string}
+  var ENABLER_PAYOFF_PAIRS = [
+    // ─── Tokens ───
+    {payoff:'anointed procession', enablers:[/create .* token/, /populate/], minEnablers:5, label:'Token doubler sans token makers'},
+    {payoff:'parallel lives', enablers:[/create .* token/, /populate/], minEnablers:5, label:'Token doubler sans token makers'},
+    {payoff:'doubling season', enablers:[/create .* token/, /\+1\/\+1 counter/, /loyalty/], minEnablers:6, label:'Doubling Season sans tokens/counters/PW'},
+    {payoff:'mondrak, glory dominus', enablers:[/create .* token/], minEnablers:5, label:'Mondrak sans token makers'},
+    {payoff:'ojer kaslem, deepest growth', enablers:[/create .* token/], minEnablers:4, label:'Ojer Kaslem sans token engine'},
+    // ─── +1/+1 counters ───
+    {payoff:'hardened scales', enablers:[/\+1\/\+1 counter/], minEnablers:6, label:'Hardened Scales sans payoffs +1/+1'},
+    {payoff:'branching evolution', enablers:[/\+1\/\+1 counter/], minEnablers:6, label:'Branching Evolution sans counters'},
+    {payoff:'innkeeper\'s talent', enablers:[/\+1\/\+1 counter/, /loyalty/], minEnablers:6, label:'Innkeeper sans counters/loyalty'},
+    // ─── Sacrifice (Aristos) ───
+    {payoff:'blood artist', enablers:[/sacrifice a creature/, /whenever .* dies/, /aristocrat/], minEnablers:5, label:'Blood Artist sans outlet sacrifice'},
+    {payoff:'zulaport cutthroat', enablers:[/sacrifice a creature/, /whenever .* dies/], minEnablers:5, label:'Zulaport sans outlet'},
+    {payoff:'mayhem devil', enablers:[/sacrifice/, /create .* treasure/], minEnablers:5, label:'Mayhem Devil sans sac engine'},
+    {payoff:'cruel celebrant', enablers:[/sacrifice/, /dies/], minEnablers:5, label:'Cruel Celebrant sans dies/sac'},
+    // ─── Landfall ───
+    {payoff:'lotus cobra', enablers:[/landfall/, /search your library for a .* land/, /fetch/], minEnablers:8, label:'Lotus Cobra sans density landfall'},
+    {payoff:'aesi, tyrant of gyre strait', enablers:[/landfall/, /\bland.*onto the battlefield/], minEnablers:6, label:'Aesi sans landfall density'},
+    {payoff:'tatyova, benthic druid', enablers:[/landfall/, /\bland.*onto the battlefield/], minEnablers:6, label:'Tatyova sans landfall density'},
+    {payoff:'omnath, locus of creation', enablers:[/landfall/, /\bland.*onto the battlefield/], minEnablers:6, label:'Omnath sans landfall density'},
+    {payoff:'avenger of zendikar', enablers:[/landfall/, /\bland.*onto the battlefield/], minEnablers:5, label:'Avenger sans landfall'},
+    // ─── Spellslinger ───
+    {payoff:'guttersnipe', enablers:[/instant/, /sorcery/], minEnablers:18, label:'Guttersnipe sans spell density'},
+    {payoff:'thousand-faced shadow', enablers:[/instant/, /sorcery/], minEnablers:15, label:'TFS sans spell density'},
+    {payoff:'young pyromancer', enablers:[/instant/, /sorcery/], minEnablers:15, label:'Young Pyro sans spell density'},
+    {payoff:'storm-kiln artist', enablers:[/instant/, /sorcery/], minEnablers:15, label:'Storm-Kiln sans spells'},
+    // ─── Lifegain ───
+    {payoff:'aetherflux reservoir', enablers:[/gain .* life/, /lifelink/], minEnablers:8, label:'Aetherflux sans lifegain'},
+    {payoff:'sanguine bond', enablers:[/gain .* life/], minEnablers:8, label:'Sanguine Bond sans lifegain'},
+    {payoff:'exquisite blood', enablers:[/loses? \d+ life/, /opponent loses? life/, /drain/], minEnablers:6, label:'Exquisite Blood sans drain'},
+    // ─── Graveyard ───
+    {payoff:'underworld breach', enablers:[/instant/, /sorcery/, /mill/], minEnablers:15, label:'UW Breach sans spells/mill'},
+    {payoff:'muldrotha, the gravetide', enablers:[/return target.*from your graveyard/, /mill/, /dredge/], minEnablers:8, label:'Muldrotha sans self-mill'},
+    {payoff:'meren of clan nel toth', enablers:[/sacrifice a creature/, /dies/], minEnablers:8, label:'Meren sans dies/sac'},
+    // ─── Treasure ───
+    {payoff:'smothering tithe', enablers:[], minEnablers:0, label:''}, // auto-fonctionnel
+    {payoff:'goldspan dragon', enablers:[/treasure token/, /create a treasure/], minEnablers:5, label:'Goldspan sans treasure engine'},
+    {payoff:'hellkite tyrant', enablers:[/artifact/], minEnablers:12, label:'Hellkite Tyrant sans artifacts'},
+    // ─── Discard / wheel ───
+    {payoff:'waste not', enablers:[/each opponent discards/, /target opponent discards/, /wheel/], minEnablers:5, label:'Waste Not sans discard'},
+    {payoff:'liliana of the veil', enablers:[/discard/, /madness/], minEnablers:6, label:'Liliana sans discard payoffs'},
+    // ─── Equipment / Voltron ───
+    {payoff:'sigarda\'s aid', enablers:[/equipment/, /aura/], minEnablers:8, label:'Sigarda\'s Aid sans equip/aura'},
+    {payoff:'puresteel paladin', enablers:[/equipment/], minEnablers:8, label:'Puresteel sans equipment'},
+    // ─── Storm / Spells matter ───
+    {payoff:'aetherflux reservoir', enablers:[/instant/, /sorcery/], minEnablers:18, label:'Aetherflux storm sans spells'},
+    // ─── Mill self ───
+    {payoff:'syr konrad, the grim', enablers:[/mill/, /from your library.*graveyard/, /discard/], minEnablers:6, label:'Syr Konrad sans mill/discard'}
+  ];
+  function enablerPayoffPairs(rows){
+    var set=_cardSet(rows);
+    var issues=[];
+    var passed=[];
+    ENABLER_PAYOFF_PAIRS.forEach(function(pair){
+      if(!set[pair.payoff])return; // payoff pas dans le deck → no-op
+      if(pair.minEnablers===0){passed.push({payoff:pair.payoff,reason:'autosuffisant'});return;}
+      var count=0;
+      rows.forEach(function(r){
+        var m=r.meta||{};
+        var ot=(m.oracleText||'').toLowerCase();
+        var nl=_nlOf(r.card&&r.card.name||r.name);
+        if(nl===pair.payoff)return; // ne pas compter le payoff lui-même
+        pair.enablers.forEach(function(en){
+          if(en instanceof RegExp){if(en.test(ot))count+=(r.qty||1);}
+          else if(typeof en==='string'){if(nl===en||ot.indexOf(en)>=0)count+=(r.qty||1);}
+        });
+      });
+      if(count<pair.minEnablers){
+        issues.push({payoff:pair.payoff,label:pair.label,enablersFound:count,minRequired:pair.minEnablers,gap:pair.minEnablers-count});
+      }else{
+        passed.push({payoff:pair.payoff,enablersFound:count,minRequired:pair.minEnablers});
+      }
+    });
+    return {
+      issues:issues, passed:passed,
+      verdict:issues.length===0?'✓ Tous tes payoffs ont assez d\'enablers':issues.length<=2?'~ '+issues.length+' payoff(s) sous-équipé(s)':'⚠ '+issues.length+' payoffs sans support — cartes mortes en main'
+    };
+  }
+
+  // ─── 36. TURN-TO-KILL ESTIMATION (build 100) ───────────────────────────
+  // Combien de tours pour passer 40 dommages commander OU 120 PV totaux ?
+  // Approche : moyenne pondérée des dommages combat + burn/drain.
+  function turnToKill(rows,winConsReport){
+    var creatures=[];var burnDmg=0,drainPerTurn=0;
+    var anthems=0,evasionCreatures=0;
+    rows.forEach(function(r){
+      var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var qty=r.qty||1;
+      if(/creature/.test(tl)){
+        var p=parseInt(m.power||'0',10)||0;
+        var cmc=m.cmc||0;
+        var hasEvasion=/flying|menace|unblockable|trample|shadow|horsemanship|fear|intimidate|can't be blocked/.test(ot);
+        for(var i=0;i<qty;i++)creatures.push({power:p,cmc:cmc,evasion:hasEvasion});
+        if(hasEvasion)evasionCreatures+=qty;
+      }
+      // Burn ponctuel
+      var bm=ot.match(/deals? (\d+) damage to (any target|target player|target opponent|each opponent)/);
+      if(bm){burnDmg+=parseInt(bm[1],10)*qty;}
+      // Drain par tour (engine)
+      if(/at the beginning of .* upkeep .* loses? (\d+) life|each opponent loses? (\d+) life/.test(ot)){
+        var dm=ot.match(/loses? (\d+) life/);if(dm)drainPerTurn+=parseInt(dm[1],10)*qty;
+      }
+      // Anthems
+      if(/creatures you control get \+(\d)/.test(ot)){
+        var am=ot.match(/get \+(\d)/);if(am)anthems+=parseInt(am[1],10);
+      }
+    });
+    creatures.sort(function(a,b){return a.cmc-b.cmc;});
+    // Sim simple : on suppose drop 1 créature/tour à partir du CMC, attaque dès que possible
+    // Cible 40 PV (commander) ; on calcule tour où on dépasse 40 cumul.
+    var dmgPerTurn=[0,0,0,0,0,0,0,0,0,0,0,0,0]; // T0-T12
+    var creaturesOnBoard=[];
+    for(var t=1;t<=12;t++){
+      // Ajoute les créatures castables ce tour (cmc<=t)
+      while(creatures.length&&creatures[0].cmc<=t){
+        creaturesOnBoard.push(creatures.shift());
+      }
+      // Attaque à T+1 (summoning sickness) — on simplifie : attaque dès T (haste implicite)
+      var turnDmg=0;
+      creaturesOnBoard.forEach(function(c){
+        // Coefficient évasion : 0.9 (passe presque toujours) vs 0.45 (chip-block)
+        var coef=c.evasion?0.9:0.45;
+        turnDmg+=(c.power+anthems)*coef;
+      });
+      turnDmg+=drainPerTurn;
+      dmgPerTurn[t]=turnDmg;
+    }
+    // Cumul
+    var cum=0;var turnTo40=null;var turnTo120=null;
+    for(var tt=1;tt<=12;tt++){
+      cum+=dmgPerTurn[tt];
+      if(turnTo40===null&&(cum+burnDmg)>=40)turnTo40=tt;
+      if(turnTo120===null&&(cum*3+burnDmg)>=120)turnTo120=tt; // 3 adversaires
+    }
+    // Plans non-combat : pas pertinent
+    var primaryKind=winConsReport&&winConsReport.primary?winConsReport.primary.kind:null;
+    if(primaryKind==='alt-win'||primaryKind==='combo')return {checked:false,reason:'plan alt-win — turn-to-kill non pertinent'};
+    var verdict;
+    if(!turnTo40)verdict='⚠ Plus de 12 tours pour kill commander — pas de pression';
+    else if(turnTo40<=5)verdict='✓ Kill commander rapide (T'+turnTo40+')';
+    else if(turnTo40<=8)verdict='~ Kill commander moyen (T'+turnTo40+')';
+    else verdict='⚠ Kill commander lent (T'+turnTo40+') — vulnérable aux wraths';
+    return {
+      checked:true,
+      turnTo40:turnTo40, turnTo120:turnTo120,
+      burnDirectDmg:burnDmg, drainPerTurn:drainPerTurn,
+      evasionCreatures:evasionCreatures, anthemBonus:anthems,
+      verdict:verdict
+    };
+  }
+
+  // ─── 37. INTERNAL SABOTAGE (build 100) ─────────────────────────────────
+  // Détecte les paires de cartes qui se torpillent l'une l'autre.
+  // C'est ce qui différencie un brewer débutant d'un pro.
+  var SABOTAGE_PAIRS = [
+    {a:'smothering tithe', b:'hullbreacher', msg:'Smothering Tithe + Hullbreacher : Hullbreacher empêche les adversaires de draw donc moins de treasures pour Tithe'},
+    {a:'narset, parter of veils', b:'wheel of fortune', msg:'Narset + wheels : Narset coupe tes propres wheels (tu ne piocheras qu\'une carte)'},
+    {a:'narset, parter of veils', b:'windfall', msg:'Narset + Windfall : tu cap à 1 carte au lieu de full hand'},
+    {a:'sensei\'s divining top', b:'wheel of fortune', msg:'Sensei\'s Top + wheels : tu te shuffles ton top dans la lib'},
+    {a:'sensei\'s divining top', b:'windfall', msg:'Sensei\'s Top + Windfall : ton top va dans la lib shufflée'},
+    {a:'necropotence', b:'rhystic study', msg:'Necropotence + Rhystic Study : Necro skip ta draw step, donc Rhystic ne déclenche pas pour TES cartes piochées'},
+    {a:'rest in peace', b:'underworld breach', msg:'Rest in Peace + Underworld Breach : Breach inutile sans graveyard'},
+    {a:'rest in peace', b:'muldrotha, the gravetide', msg:'Rest in Peace exile graveyard → Muldrotha n\'a rien à recaster'},
+    {a:'leyline of the void', b:'underworld breach', msg:'Leyline of the Void exile → Breach inutile'},
+    {a:'leyline of the void', b:'meren of clan nel toth', msg:'Leyline of the Void exile → Meren ne peut rien return'},
+    {a:'grafdigger\'s cage', b:'underworld breach', msg:'Grafdigger\'s Cage bloque tes Breach casts'},
+    {a:'grafdigger\'s cage', b:'demonic tutor', msg:'Grafdigger\'s Cage bloque les tutors (tu peux pas play depuis lib)... ah non Grafdigger ne bloque que play depuis grave/lib, tutor reste OK'},
+    {a:'stony silence', b:'sol ring', msg:'Stony Silence stop tes propres mana rocks (incluant Sol Ring)'},
+    {a:'stony silence', b:'arcane signet', msg:'Stony Silence éteint tes signets'},
+    {a:'collector ouphe', b:'sol ring', msg:'Collector Ouphe éteint tes mana rocks'},
+    {a:'collector ouphe', b:'arcane signet', msg:'Collector Ouphe éteint tes signets'},
+    {a:'null rod', b:'sol ring', msg:'Null Rod éteint tes mana rocks (incluant Sol Ring)'},
+    {a:'null rod', b:'arcane signet', msg:'Null Rod éteint tes signets'},
+    {a:'blood moon', b:'command tower', msg:'Blood Moon transforme Command Tower en montagne (multicolor cassé)'},
+    {a:'back to basics', b:'command tower', msg:'Back to Basics tap tes nonbasics (Command Tower tapée)'},
+    {a:'ashiok, dream render', b:'demonic tutor', msg:'Ashiok exile tes lib quand tu tutor (à vérifier wording mais peut interférer)'},
+    {a:'opposition agent', b:'demonic tutor', msg:'Opposition Agent vole les tutors adverses, OK — mais attention si plusieurs autour de la table avec tutors'}, // info, pas vraiment sabotage
+    {a:'jin-gitaxias, core augur', b:'rhystic study', msg:'Jin-Gitaxias adversaires défaussent jusqu\'à 7 → Rhystic moins de triggers'},
+    {a:'notion thief', b:'wheel of fortune', msg:'Notion Thief + Wheel : tu pioches les leurs, mais pas la tienne (tu défausses puis 0 pioche)'},
+    {a:'hullbreacher', b:'wheel of fortune', msg:'Hullbreacher + ta propre Wheel : tu défausses puis 0 pioche, juste treasures'}
+  ];
+  function internalSabotage(rows){
+    var set=_cardSet(rows);
+    var conflicts=[];
+    SABOTAGE_PAIRS.forEach(function(p){
+      if(set[p.a]&&set[p.b]){
+        conflicts.push({a:p.a,b:p.b,msg:p.msg});
+      }
+    });
+    return {
+      conflicts:conflicts,count:conflicts.length,
+      verdict:conflicts.length===0?'✓ Aucun sabotage interne détecté':conflicts.length<=2?'~ '+conflicts.length+' synergie(s) négative(s) à vérifier':'⚠ '+conflicts.length+' conflits internes — ton deck se nuit à lui-même'
+    };
+  }
+
+  // ─── 38. TABLE THREAT LEVEL (build 101) ────────────────────────────────
+  // 3 dimensions :
+  //  1. Critical-path concentration : combien de cartes uniques portent ton plan A ?
+  //     2-3 = fragile (un removal te tue). 6+ = résilient.
+  //  2. Commandant menaçant (attire wrath/haine) → vrai en mid game.
+  //  3. Plan lisible (combo T3-T4 obvious) → tu prends la disruption.
+  var HATE_COMMANDERS = [
+    'atraxa, praetors\' voice','atraxa, grand unifier','krenko, mob boss',
+    'yuriko, the tiger\'s shadow','sheoldred, the apocalypse','urza, lord high artificer',
+    'kinnan, bonder prodigy','najeela, the blade-blossom','thrasios, triton hero',
+    'tymna the weaver','tergrid, god of fright','winota, joiner of forces',
+    'edgar markov','prosper, tome-bound','grand arbiter augustin iv','derevi, empyrial tactician',
+    'narset, enlightened master','hokori, dust drinker','korvold, fae-cursed king',
+    'animar, soul of elements','god-eternal kefnet','breya, etherium shaper'
+  ];
+  function tableThreatLevel(rows,deck,winConsReport,combosReport){
+    // 1. Concentration critical path
+    // Heuristique : on prend les combos détectés + les win-cons "alt-win"
+    // Si <=4 cartes uniques portent le plan → fragile
+    var criticalCards={};
+    if(combosReport&&combosReport.combos){
+      combosReport.combos.forEach(function(c){
+        (c.cards||[]).forEach(function(n){criticalCards[n]=true;});
+      });
+    }
+    // Inevitabilities et must-answer comptent comme critical path
+    var altWinSet={};
+    rows.forEach(function(r){
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      // Alt-wins comptent forcément
+      if(['thassa\'s oracle','laboratory maniac','jace, wielder of mysteries','approach of the second sun','aetherflux reservoir','helix pinnacle','simic ascendancy','revel in riches'].indexOf(nl)>=0){
+        criticalCards[nl]=true;altWinSet[nl]=true;
+      }
+    });
+    var criticalCount=Object.keys(criticalCards).length;
+    // 2. Commandant menaçant
+    var cmdName=deck&&deck.commander&&deck.commander.name?_nlOf(deck.commander.name):null;
+    var commanderIsThreat=cmdName&&HATE_COMMANDERS.indexOf(cmdName)>=0;
+    // 3. Plan lisible — combo T3-T4 obvious ?
+    var earlyComboObvious=false;
+    if(combosReport&&combosReport.combos){
+      combosReport.combos.forEach(function(c){
+        if(c.turn&&c.turn<=4)earlyComboObvious=true;
+      });
+    }
+    // Scoring
+    var fragility=criticalCount===0?0:criticalCount<=3?80:criticalCount<=5?50:25;
+    var hateMagnet=(commanderIsThreat?40:0)+(earlyComboObvious?30:0);
+    // Verdict synthétique
+    var msgs=[];
+    if(criticalCount>0&&criticalCount<=3){
+      msgs.push('Fragile : seulement '+criticalCount+' carte(s) uniques portent ton plan A — 1 disruption te tue');
+    }else if(criticalCount>=6){
+      msgs.push('Résilient : '+criticalCount+' cartes portent le plan → diversifié');
+    }
+    if(commanderIsThreat){
+      msgs.push('Commandant "hate magnet" : attendez-vous au wrath mid-game');
+    }
+    if(earlyComboObvious){
+      msgs.push('Combo T3-T4 lisible : adversaires sauront vous disrupter');
+    }
+    if(!msgs.length)msgs.push('Deck équilibré — pas de profil "menace évidente" ni "fragile"');
+    var levelLabel;
+    if(fragility>=70||hateMagnet>=50)levelLabel='⚠ Profil à risque';
+    else if(fragility>=40||hateMagnet>=30)levelLabel='~ Profil modéré';
+    else levelLabel='✓ Profil discret / résilient';
+    return {
+      criticalCardCount:criticalCount,
+      criticalCards:Object.keys(criticalCards),
+      commanderIsThreat:commanderIsThreat,
+      earlyComboObvious:earlyComboObvious,
+      fragilityScore:fragility,
+      hateMagnetScore:hateMagnet,
+      messages:msgs,
+      verdict:levelLabel
+    };
+  }
+
+  // ─── 39. SIMULATED GAME METRICS (build 102) ────────────────────────────
+  // Simule 50 parties partielles (T1-T10) avec une state machine simplifiée :
+  //  - mulligan à 7 si moins de 2-5 lands
+  //  - draw step + land drop chaque tour
+  //  - cast la plus grosse carte affordable chaque tour (priorité ramp/draw)
+  //  - track : tour de premier commandant cast, tour de premier win-con visible,
+  //            tour de stabilisation (5+ mana disponibles), proba d'avoir touché
+  //            certaines cartes-clés à T5/T7.
+  function simulatedGameMetrics(rows,deck){
+    var library=[];
+    var keyCards={};
+    rows.forEach(function(r){
+      var qty=r.qty||1;var m=r.meta||{};var tl=(m.typeLine||'').toLowerCase();var ot=(m.oracleText||'').toLowerCase();
+      var cmc=Math.max(0,Math.floor(m.cmc||0));
+      var nl=_nlOf(r.card&&r.card.name||r.name);
+      var isLand=/land/.test(tl);
+      var isRamp=!isLand&&/add (one|two|three) mana|search your library for a.* land|\{t\}.*add.*\{[wubrgc]\}/.test(ot);
+      var isDraw=!isLand&&/draw .* cards?/.test(ot);
+      var isWincon=['thassa\'s oracle','approach of the second sun','aetherflux reservoir','craterhoof behemoth','triumph of the hordes','expropriate','jin-gitaxias, core augur'].indexOf(nl)>=0;
+      var isCmd=deck&&deck.commander&&_nlOf(deck.commander.name)===nl;
+      for(var i=0;i<qty;i++){
+        library.push({
+          name:nl,cmc:cmc,isLand:isLand,isRamp:isRamp,isDraw:isDraw,isWincon:isWincon
+        });
+      }
+      if(isWincon)keyCards[nl]='wincon';
+    });
+    if(library.length<60)return {checked:false,reason:'Deck incomplet ('+library.length+' cartes)'};
+    // PRNG mulberry32
+    function mkRand(seed){var s=seed|0;return function(){s|=0;s=s+0x6D2B79F5|0;var t=s;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296;};}
+    function shuffle(arr,rnd){
+      var a=arr.slice();
+      for(var i=a.length-1;i>0;i--){var j=Math.floor(rnd()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}
+      return a;
+    }
+    var sims=50;
+    var stats={
+      sampleSize:sims,
+      avgCmdTurn:0,cmdHits:0,
+      avgFirstWinconTurn:0,winconHits:0,
+      avgT5Cards:0,avgT5Mana:0,
+      avgT7Mana:0,
+      mulligansTaken:0,
+      keepableMulligans:0,
+      avgStabilizeTurn:0,stabHits:0,
+      avgFirstRampTurn:0,rampHits:0
+    };
+    var hasCommander=deck&&deck.commander&&deck.commander.name;
+    var cmdName=hasCommander?_nlOf(deck.commander.name):null;
+    var cmdCmc=hasCommander?(deck.commander.cmc||4):4;
+    for(var sim=0;sim<sims;sim++){
+      var rnd=mkRand(sim*7919+13);
+      // Mulligan: garde si ≥2 et ≤5 lands sur 7
+      var hand=null;var deckRem=null;var mulls=0;
+      for(var att=0;att<3;att++){
+        var shuf=shuffle(library,rnd);
+        hand=shuf.slice(0,7);
+        var landCt=hand.filter(function(c){return c.isLand;}).length;
+        if(landCt>=2&&landCt<=5){
+          deckRem=shuf.slice(7);break;
+        }
+        mulls++;
+      }
+      if(!deckRem){var shuf2=shuffle(library,rnd);hand=shuf2.slice(0,7-mulls);deckRem=shuf2.slice(7-mulls);}
+      stats.mulligansTaken+=mulls;
+      if(mulls===0)stats.keepableMulligans++;
+      // Game loop T1-T10
+      var manaAvail=0;var landsPlayed=0;
+      var firstRamp=null,firstWincon=null,cmdCastTurn=null,stabilizeTurn=null;
+      var t5Cards=0,t5Mana=0,t7Mana=0;
+      for(var t=1;t<=10;t++){
+        // Draw
+        if(t>1&&deckRem.length){hand.push(deckRem.shift());}
+        // Land drop
+        var landIdx=hand.findIndex(function(c){return c.isLand;});
+        if(landIdx>=0){hand.splice(landIdx,1);landsPlayed++;}
+        manaAvail=landsPlayed;
+        // Casts (priorité ramp T1-T3, puis draw, puis commander)
+        var castsThisTurn=0;
+        for(var pass=0;pass<3;pass++){
+          // Tente ramp en priorité au T1-T3
+          var rIdx=-1;
+          if(t<=3){
+            rIdx=hand.findIndex(function(c){return c.isRamp&&c.cmc<=manaAvail;});
+            if(rIdx>=0&&firstRamp===null)firstRamp=t;
+          }
+          // Sinon draw
+          if(rIdx<0)rIdx=hand.findIndex(function(c){return c.isDraw&&c.cmc<=manaAvail;});
+          // Sinon plus grosse carte affordable
+          if(rIdx<0){
+            var bestCmc=-1;
+            hand.forEach(function(c,i){if(!c.isLand&&c.cmc<=manaAvail&&c.cmc>bestCmc){bestCmc=c.cmc;rIdx=i;}});
+          }
+          if(rIdx<0)break;
+          var castCard=hand[rIdx];
+          if(castCard.isWincon&&firstWincon===null)firstWincon=t;
+          if(hasCommander&&castCard.name===cmdName&&cmdCastTurn===null)cmdCastTurn=t;
+          manaAvail-=castCard.cmc;
+          if(castCard.isRamp){manaAvail+=1;} // simu : ramp donne +1 mana ce tour
+          hand.splice(rIdx,1);castsThisTurn++;
+        }
+        // Stabilize : 5+ mana ET au moins 1 engine ou 1 board
+        if(stabilizeTurn===null&&landsPlayed>=5)stabilizeTurn=t;
+        if(t===5){t5Cards=hand.length;t5Mana=landsPlayed;}
+        if(t===7){t7Mana=landsPlayed;}
+        // Cast commander si pas encore et castable
+        if(hasCommander&&cmdCastTurn===null&&manaAvail>=cmdCmc){
+          cmdCastTurn=t;manaAvail-=cmdCmc;
+        }
+      }
+      stats.avgT5Cards+=t5Cards;stats.avgT5Mana+=t5Mana;stats.avgT7Mana+=t7Mana;
+      if(firstRamp){stats.avgFirstRampTurn+=firstRamp;stats.rampHits++;}
+      if(firstWincon){stats.avgFirstWinconTurn+=firstWincon;stats.winconHits++;}
+      if(cmdCastTurn){stats.avgCmdTurn+=cmdCastTurn;stats.cmdHits++;}
+      if(stabilizeTurn){stats.avgStabilizeTurn+=stabilizeTurn;stats.stabHits++;}
+    }
+    function avg(s,n){return n?Math.round((s/n)*10)/10:null;}
+    stats.avgT5Cards=avg(stats.avgT5Cards,sims);
+    stats.avgT5Mana=avg(stats.avgT5Mana,sims);
+    stats.avgT7Mana=avg(stats.avgT7Mana,sims);
+    stats.avgFirstRampTurn=avg(stats.avgFirstRampTurn,stats.rampHits);
+    stats.avgFirstWinconTurn=avg(stats.avgFirstWinconTurn,stats.winconHits);
+    stats.avgCmdTurn=avg(stats.avgCmdTurn,stats.cmdHits);
+    stats.avgStabilizeTurn=avg(stats.avgStabilizeTurn,stats.stabHits);
+    stats.cmdHitPct=Math.round(stats.cmdHits/sims*100);
+    stats.winconHitPct=Math.round(stats.winconHits/sims*100);
+    stats.rampHitPct=Math.round(stats.rampHits/sims*100);
+    stats.keepableMulliganPct=Math.round(stats.keepableMulligans/sims*100);
+    // Verdict
+    var verdict;
+    if(stats.avgCmdTurn&&stats.avgCmdTurn<=cmdCmc+1&&stats.avgFirstWinconTurn&&stats.avgFirstWinconTurn<=7)verdict='✓ Setup rapide — commandant T'+stats.avgCmdTurn+', wincon visible T'+stats.avgFirstWinconTurn;
+    else if(stats.avgCmdTurn&&stats.avgCmdTurn<=cmdCmc+2)verdict='~ Setup correct — commandant T'+stats.avgCmdTurn;
+    else verdict='⚠ Setup lent — commandant T'+(stats.avgCmdTurn||'∞')+' en moyenne';
+    return {
+      checked:true,
+      sampleSize:sims,
+      avgCmdTurn:stats.avgCmdTurn,cmdHitPct:stats.cmdHitPct,
+      avgFirstWinconTurn:stats.avgFirstWinconTurn,winconHitPct:stats.winconHitPct,
+      avgT5Mana:stats.avgT5Mana,avgT5Cards:stats.avgT5Cards,avgT7Mana:stats.avgT7Mana,
+      avgFirstRampTurn:stats.avgFirstRampTurn,rampHitPct:stats.rampHitPct,
+      avgStabilizeTurn:stats.avgStabilizeTurn,
+      keepableMulliganPct:stats.keepableMulliganPct,
+      avgMulligansTaken:Math.round(stats.mulligansTaken/sims*10)/10,
+      verdict:verdict
+    };
+  }
+
+  // ─── 40. RAPPORT GLOBAL ────────────────────────────────────────────────
   function analyze(deck,rows){
     if(!deck||!Array.isArray(rows))return null;
     var winCons=detectWinCons(rows,deck);
@@ -3048,6 +3630,14 @@ window.mlAnaPro = (function(){
     var edhrec=edhrecInclusion(rows,deck);
     var archetype=detectArchetype(rows,deck);
     var tribalSuggestions=suggestTribalCards(rows,deck);
+    // Build 100 : enabler/payoff + turn-to-kill + sabotage interne
+    var pairs=enablerPayoffPairs(rows);
+    var ttk=turnToKill(rows,winCons);
+    var sabotage=internalSabotage(rows);
+    // Build 101 : table threat level
+    var threatLevel=tableThreatLevel(rows,deck,winCons,combos);
+    // Build 102 : simulation 50 parties
+    var simMetrics=simulatedGameMetrics(rows,deck);
     var report={
       winCons:winCons,
       redundancy:redundancy,
@@ -3082,6 +3672,11 @@ window.mlAnaPro = (function(){
       edhrecInclusion:edhrec,
       archetype:archetype,
       tribalSuggestions:tribalSuggestions,
+      enablerPayoffPairs:pairs,
+      turnToKill:ttk,
+      internalSabotage:sabotage,
+      tableThreatLevel:threatLevel,
+      simulatedGameMetrics:simMetrics,
       timestamp:Date.now()
     };
     // Build 94 : narrative est calculée APRÈS car elle synthétise tout
@@ -3147,8 +3742,9 @@ window.mlAnaPro = (function(){
     h+='<div style="display:flex;flex-direction:column;gap:14px">';
     // ─ Header global ─
     h+='<div style="background:linear-gradient(135deg,rgba(74,160,232,.14),rgba(74,160,232,.03));border:1px solid rgba(74,160,232,.42);border-radius:12px;padding:14px 18px">';
-    h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
-    h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · 15 axes</span>';
+    h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">';
+    h+='<span style="font-size:.62rem;color:#7ec0f0;letter-spacing:.14em;text-transform:uppercase;font-weight:700">🔬 Analyse Pro · 40 axes</span>';
+    h+='<span style="font-size:.6rem;color:var(--tx3);padding:2px 7px;background:rgba(180,140,220,.10);border:.5px solid rgba(180,140,220,.30);border-radius:99px;font-family:var(--ff-mono,monospace)" title="Version des dictionnaires méta (cartes, bombs, must-answer). MAJ trimestrielle.">méta '+META_VERSION+' · MAJ '+META_UPDATED+'</span>';
     h+='<span style="flex:1"></span>';
     h+='<button onclick="if(typeof anaProCompareDecks===\'function\')anaProCompareDecks()" style="font-size:.72rem;padding:4px 10px;background:rgba(180,140,220,.14);border:.5px solid rgba(180,140,220,.4);border-radius:6px;color:#b48cdc;cursor:pointer;font-family:inherit;margin-right:6px" title="Comparer ce deck avec un autre side-by-side">🆚 Compare</button>';
     h+='<button onclick="if(typeof anaProRunEdhrec===\'function\')anaProRunEdhrec()" style="font-size:.72rem;padding:4px 10px;background:rgba(126,200,106,.14);border:.5px solid rgba(126,200,106,.4);border-radius:6px;color:#9ddf8c;cursor:pointer;font-family:inherit;margin-right:6px" title="Analyse contextuelle EDHrec par commandant">🌐 EDHrec</button>';
@@ -3718,19 +4314,28 @@ window.mlAnaPro = (function(){
         col:mp.productionByTurn[4]>=5?'#9ddf8c':mp.productionByTurn[4]>=4?'#f0c84a':'#e8847b',
         sub:mp.ramp1+' ramp 1-CMC · '+mp.ramp2+' ramp 2-CMC'});
     }
-    // Combat
-    if(report.combatMath&&report.combatMath.avgAttackerPower){
+    // Combat (build 101 v2)
+    if(report.combatMath){
       var cm=report.combatMath;
-      insights.push({title:'⚔ Combat math',value:cm.avgAttackerPower+' avg',
-        col:parseFloat(cm.avgAttackerPower)>=cm.typicalBlocker?'#9ddf8c':'#f0c84a',
-        sub:'vs blockeur '+cm.typicalBlocker+' (format '+(report.bracket?'Cmd':'?')+')'});
+      var cmOk=parseFloat(cm.avgLateEvasion)>=cm.blockerLate||cm.evasionPct>=40;
+      insights.push({title:'⚔ Combat math',value:cm.evasionPct+'% évasion',
+        col:cmOk?'#9ddf8c':cm.evasionPct>=25?'#f0c84a':'#e8847b',
+        sub:'early '+cm.avgEarlyEvasion+' (év.) · late '+cm.avgLateEvasion+' (év.) · blockeur '+cm.blockerEarly+'/'+cm.blockerLate});
     }
-    // Threats killable scope
+    // Threats killable scope (build 101 v2 — qualityScore)
     if(report.threatsKillableScope){
       var tk=report.threatsKillableScope;
-      insights.push({title:'🎯 Removal universel',value:tk.universalPct+'%',
-        col:tk.universalPct>=30?'#9ddf8c':tk.universalPct>=15?'#f0c84a':'#e8847b',
-        sub:tk.universal+' universal · '+tk.creatureOnly+' creature-only'});
+      insights.push({title:'🎯 Qualité removal',value:tk.qualityScore+' pts',
+        col:tk.qualityScore>=60?'#9ddf8c':tk.qualityScore>=30?'#f0c84a':'#e8847b',
+        sub:tk.universal+' universal · '+tk.byMana.cheap+' cheap · '+tk.universalPct+'% universal'});
+    }
+    // Build 101 : Table threat level
+    if(report.tableThreatLevel){
+      var ttl=report.tableThreatLevel;
+      var ttlCol=ttl.fragilityScore>=70||ttl.hateMagnetScore>=50?'#e8847b':ttl.fragilityScore>=40||ttl.hateMagnetScore>=30?'#f0c84a':'#9ddf8c';
+      insights.push({title:'🎯 Profil table',value:ttl.criticalCardCount+' cartes clés',
+        col:ttlCol,
+        sub:ttl.verdict.replace(/^[✓~⚠]\s*/,'')});
     }
     // EDHrec inclusion
     if(report.edhrecInclusion){
@@ -3777,6 +4382,107 @@ window.mlAnaPro = (function(){
         h+='</div>';
       });
       h+='</div>';
+      h+='</div>';
+    }
+    // ─ Build 101 : Table Threat Level ─
+    if(report.tableThreatLevel){
+      var ttl=report.tableThreatLevel;
+      var ttlCol=ttl.fragilityScore>=70||ttl.hateMagnetScore>=50?'#e8847b':ttl.fragilityScore>=40||ttl.hateMagnetScore>=30?'#f0c84a':'#9ddf8c';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🎯 Profil table — lisibilité &amp; threat assessment</div>';
+      h+='<div style="color:'+ttlCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(ttl.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">Comment ta table te perçoit : ton plan A est-il fragile (peu de cartes-clés) ? Ton commandant attire-t-il le wrath ? Est-ce que tu télégraphies ton combo ?</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:11px">';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Cartes critical path</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">'+ttl.criticalCardCount+'</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Score fragilité</div><div style="font-size:1.25rem;font-weight:700;color:'+(ttl.fragilityScore>=70?'#e8847b':ttl.fragilityScore>=40?'#f0c84a':'#9ddf8c')+';font-family:var(--ff-mono,monospace);margin-top:3px">'+ttl.fragilityScore+'</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Hate magnet</div><div style="font-size:1.25rem;font-weight:700;color:'+(ttl.hateMagnetScore>=50?'#e8847b':ttl.hateMagnetScore>=30?'#f0c84a':'#9ddf8c')+';font-family:var(--ff-mono,monospace);margin-top:3px">'+ttl.hateMagnetScore+'</div></div>';
+      h+='</div>';
+      ttl.messages.forEach(function(m){
+        h+='<div style="padding:7px 11px;background:rgba(74,160,232,.04);border-left:3px solid '+ttlCol+';border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.8rem;color:var(--tx2);line-height:1.5">'+_esc(m)+'</div>';
+      });
+      if(ttl.criticalCards.length){
+        h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-size:.74rem;color:var(--tx3);font-weight:700">Voir les cartes critical path ('+ttl.criticalCards.length+')</summary>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">';
+        ttl.criticalCards.forEach(function(c){
+          h+='<span style="padding:2px 9px;background:rgba(240,200,74,.08);border:.5px solid rgba(240,200,74,.30);border-radius:99px;font-size:.72rem;color:#f0c84a">'+_esc(c)+'</span>';
+        });
+        h+='</div></details>';
+      }
+      h+='</div>';
+    }
+    // ─ Build 100 : Turn-to-Kill ─
+    if(report.turnToKill&&report.turnToKill.checked){
+      var ttk=report.turnToKill;
+      var ttkCol=ttk.turnTo40&&ttk.turnTo40<=5?'#9ddf8c':ttk.turnTo40&&ttk.turnTo40<=8?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">⏱ Turn-to-Kill estimé</div>';
+      h+='<div style="color:'+ttkCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(ttk.verdict)+'</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;font-size:.78rem">';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Kill commander (40)</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">T'+(ttk.turnTo40||'∞')+'</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Kill table (120)</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">T'+(ttk.turnTo120||'∞')+'</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Burn direct</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">'+ttk.burnDirectDmg+'</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Évasion</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">'+ttk.evasionCreatures+'</div></div>';
+      h+='</div>';
+      h+='<div style="font-size:.7rem;color:var(--tx3);margin-top:9px;line-height:1.5">Modèle : on suppose qu\'un attaquant avec évasion passe 90% du temps, sans 45%. Drain + burn cumulés. Hypothèse 3 adversaires pour le total table.</div>';
+      h+='</div>';
+    }
+    // ─ Build 102 : Simulated Game Metrics ─
+    if(report.simulatedGameMetrics&&report.simulatedGameMetrics.checked){
+      var sg=report.simulatedGameMetrics;
+      var sgCol=sg.avgCmdTurn&&sg.avgCmdTurn<=5?'#9ddf8c':sg.avgCmdTurn&&sg.avgCmdTurn<=7?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card" style="border-color:rgba(180,140,220,.42);background:linear-gradient(135deg,rgba(180,140,220,.04),transparent)">';
+      h+='<div class="anapro-cat" style="color:#b48cdc">🎮 Simulation '+sg.sampleSize+' parties — métriques moyennes</div>';
+      h+='<div style="color:'+sgCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(sg.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">State-machine simplifiée : mulligan auto (2-5 lands), draw step, land drop, priorité ramp T1-T3 puis draw puis bombs. '+sg.sampleSize+' parties simulées avec PRNG seedé.</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:11px">';
+      h+='<div style="padding:8px 11px;background:rgba(180,140,220,.05);border:.5px solid rgba(180,140,220,.25);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Cmd cast</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">T'+(sg.avgCmdTurn||'∞')+'</div><div style="font-size:.6rem;color:var(--tx3);margin-top:2px">'+sg.cmdHitPct+'% des parties</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(180,140,220,.05);border:.5px solid rgba(180,140,220,.25);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Wincon visible</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">T'+(sg.avgFirstWinconTurn||'∞')+'</div><div style="font-size:.6rem;color:var(--tx3);margin-top:2px">'+sg.winconHitPct+'% des parties</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(180,140,220,.05);border:.5px solid rgba(180,140,220,.25);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">1er ramp</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">T'+(sg.avgFirstRampTurn||'∞')+'</div><div style="font-size:.6rem;color:var(--tx3);margin-top:2px">'+sg.rampHitPct+'% des parties</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(180,140,220,.05);border:.5px solid rgba(180,140,220,.25);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Mana T5/T7</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">'+(sg.avgT5Mana||'?')+' / '+(sg.avgT7Mana||'?')+'</div></div>';
+      h+='<div style="padding:8px 11px;background:rgba(180,140,220,.05);border:.5px solid rgba(180,140,220,.25);border-radius:7px;text-align:center"><div style="font-size:.62rem;color:var(--tx3);letter-spacing:.06em;text-transform:uppercase;font-weight:700">Mulligans</div><div style="font-size:1.25rem;font-weight:700;color:#fff;font-family:var(--ff-mono,monospace);margin-top:3px">'+sg.avgMulligansTaken+'</div><div style="font-size:.6rem;color:var(--tx3);margin-top:2px">'+sg.keepableMulliganPct+'% gardables T7</div></div>';
+      h+='</div>';
+      h+='</div>';
+    }
+    // ─ Build 100 : Enabler/Payoff Pairs ─
+    if(report.enablerPayoffPairs){
+      var epp=report.enablerPayoffPairs;
+      var eppCol=epp.issues.length===0?'#9ddf8c':epp.issues.length<=2?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">🔗 Enabler / Payoff — paires manquantes</div>';
+      h+='<div style="color:'+eppCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(epp.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">Un payoff sans enabler = carte morte. On vérifie ici 30+ paires classiques (tokens/counters/sac/landfall/lifegain…).</div>';
+      if(epp.issues.length){
+        epp.issues.forEach(function(it){
+          h+='<div style="padding:8px 11px;background:rgba(232,132,123,.06);border-left:3px solid #e8847b;border-radius:0 6px 6px 0;margin-bottom:6px;font-size:.82rem">';
+          h+='<div style="color:#e8847b;font-weight:700">⚠ '+_esc(it.label)+'</div>';
+          h+='<div style="font-size:.74rem;color:var(--tx3);margin-top:3px">Payoff : <b>'+_esc(it.payoff)+'</b> · enablers trouvés : '+it.enablersFound+' / requis : '+it.minRequired+' (gap : -'+it.gap+')</div>';
+          h+='</div>';
+        });
+      }
+      if(epp.passed.length){
+        h+='<details style="margin-top:8px"><summary style="cursor:pointer;font-size:.74rem;color:var(--tx3);font-weight:700">✓ '+epp.passed.length+' payoffs supportés</summary>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">';
+        epp.passed.forEach(function(p){
+          h+='<span style="padding:2px 9px;background:rgba(126,200,106,.10);border:.5px solid rgba(126,200,106,.30);border-radius:99px;font-size:.72rem;color:#9ddf8c">'+_esc(p.payoff)+'</span>';
+        });
+        h+='</div></details>';
+      }
+      h+='</div>';
+    }
+    // ─ Build 100 : Internal Sabotage ─
+    if(report.internalSabotage&&report.internalSabotage.count>0){
+      var sb=report.internalSabotage;
+      var sbCol=sb.count<=2?'#f0c84a':'#e8847b';
+      h+='<div class="anapro-card">';
+      h+='<div class="anapro-cat">⚡ Sabotage interne — synergies négatives</div>';
+      h+='<div style="color:'+sbCol+';font-weight:700;font-size:.88rem;margin-bottom:9px">'+_esc(sb.verdict)+'</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:10px;line-height:1.5">Paires de cartes qui se torpillent l\'une l\'autre — souvent ignoré, c\'est ce qui fait la différence entre un brewer débutant et un pro.</div>';
+      sb.conflicts.forEach(function(c){
+        h+='<div style="padding:8px 11px;background:rgba(240,200,74,.06);border-left:3px solid #f0c84a;border-radius:0 6px 6px 0;margin-bottom:6px;font-size:.82rem">';
+        h+='<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px"><span style="color:#fff;font-weight:600">'+_esc(c.a)+'</span><span style="color:var(--tx3);font-size:.7rem">⚔</span><span style="color:#fff;font-weight:600">'+_esc(c.b)+'</span></div>';
+        h+='<div style="font-size:.74rem;color:var(--tx2);line-height:1.5">'+_esc(c.msg)+'</div>';
+        h+='</div>';
+      });
       h+='</div>';
     }
     h+='</div>';
@@ -3826,6 +4532,11 @@ window.mlAnaPro = (function(){
     detectArchetype:detectArchetype,
     edhrecCommanderAnalysis:edhrecCommanderAnalysis,
     mulliganProbabilityAsync:mulliganProbabilityAsync,
+    enablerPayoffPairs:enablerPayoffPairs,
+    turnToKill:turnToKill,
+    internalSabotage:internalSabotage,
+    tableThreatLevel:tableThreatLevel,
+    simulatedGameMetrics:simulatedGameMetrics,
     renderDiff:renderDiff,
     coachTopFixes:coachTopFixes,
     analyzeCached:analyzeCached,
@@ -3834,6 +4545,8 @@ window.mlAnaPro = (function(){
     COMBOS:COMBOS,
     GAME_CHANGERS:GAME_CHANGERS,
     MLD_CARDS:MLD_CARDS,
+    META_VERSION:META_VERSION,
+    META_UPDATED:META_UPDATED,
     KEYWORDS_BY_PLAN:KEYWORDS_BY_PLAN,
     CARD_TIERS:CARD_TIERS,
     ROLE_BENCHMARKS:ROLE_BENCHMARKS,

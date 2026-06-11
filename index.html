@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-11-99';
+window.APP_BUILD='2026-06-11-102';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -44282,10 +44282,25 @@ function anaProRunEdhrec(){
     var h='<div class="anapro-card" style="border-color:rgba(126,200,106,.42);background:linear-gradient(135deg,rgba(126,200,106,.06),rgba(126,200,106,.01))">';
     h+='<div class="anapro-cat" style="color:#9ddf8c">🌐 EDHrec — '+esc(result.commander)+'</div>';
     h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.5;margin-bottom:10px">'+esc(result.verdict)+' · '+result.totalAnalyzed+' cartes analysées sur EDHrec.</div>';
-    if(result.topRecommendations.length){
-      h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🌟 Staples EDHrec absents de ton deck</div>';
+    // Build 102 : high-synergy en premier (le vrai gold)
+    if(result.highSynergyMissing&&result.highSynergyMissing.length){
+      h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🎯 High-synergy avec '+esc(result.commander)+' (manquantes)</div>';
+      h+='<div style="font-size:.74rem;color:var(--tx3);margin-bottom:8px;line-height:1.5">Ces cartes sont jouées <b>significativement plus</b> avec ce commandant que la moyenne. Ce sont les vrais signaux EDHrec, pas les staples génériques.</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px;margin-bottom:14px">';
+      result.highSynergyMissing.forEach(function(c){
+        var synCol=c.synergy>=50?'#9ddf8c':c.synergy>=35?'#f0c84a':'#7ec0f0';
+        h+='<div style="padding:7px 10px;background:rgba(126,200,106,.04);border:.5px solid rgba(126,200,106,.30);border-left:3px solid '+synCol+';border-radius:6px">';
+        h+='<div style="font-size:.82rem;color:#fff;font-weight:600">'+esc(c.name)+'</div>';
+        h+='<div style="font-size:.66rem;color:var(--tx3);margin-top:1px">synergy <b style="color:'+synCol+'">+'+c.synergy+'%</b> · incl. '+c.inclusion+'% · '+esc(c.category)+'</div>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+    // Staples génériques en second
+    if(result.staplesMissing&&result.staplesMissing.length){
+      h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🌟 Staples génériques manquantes</div>';
       h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:6px;margin-bottom:12px">';
-      result.topRecommendations.forEach(function(c){
+      result.staplesMissing.forEach(function(c){
         var incCol=c.inclusion>=70?'#9ddf8c':c.inclusion>=40?'#f0c84a':'#7ec0f0';
         h+='<div style="padding:7px 10px;background:rgba(74,160,232,.04);border:.5px solid rgba(74,160,232,.20);border-left:3px solid '+incCol+';border-radius:6px">';
         h+='<div style="font-size:.82rem;color:#fff;font-weight:600">'+esc(c.name)+'</div>';
@@ -44293,6 +44308,23 @@ function anaProRunEdhrec(){
         h+='</div>';
       });
       h+='</div>';
+    }
+    // Build 102 : salt score (cartes "haineuses" en table casual)
+    if(result.saltyCardsInDeck&&result.saltyCardsInDeck.length){
+      var saltCol=result.totalSaltScore>=8?'#e8847b':result.totalSaltScore>=4?'#f0c84a':'#9ddf8c';
+      h+='<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,132,123,.04);border:.5px solid rgba(232,132,123,.25);border-radius:7px">';
+      h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🧂 Salt score — cartes "haineuses" en table casual</div>';
+      h+='<div style="font-size:.78rem;color:'+saltCol+';font-weight:700;margin-bottom:6px">Score total : '+result.totalSaltScore+' '+(result.totalSaltScore>=8?'(table risque la haine)':result.totalSaltScore>=4?'(quelques cartes mal vues)':'(deck sympathique)')+'</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      result.saltyCardsInDeck.forEach(function(c){
+        var cardCol=c.salt>=2.5?'#e8847b':c.salt>=1.8?'#f0c84a':'#7ec0f0';
+        h+='<span style="padding:3px 9px;background:rgba(232,132,123,.06);border:.5px solid '+cardCol+';border-radius:99px;font-size:.74rem;color:var(--tx)" title="Salt score '+c.salt+'">'+esc(c.name)+' <b style="color:'+cardCol+';font-family:var(--ff-mono,monospace);font-size:.66rem">'+c.salt.toFixed(1)+'</b></span>';
+      });
+      h+='</div></div>';
+    }
+    // Build 102 : prix estimé
+    if(result.estimatedPrice>0){
+      h+='<div style="margin-bottom:12px;padding:6px 10px;background:rgba(126,200,106,.04);border-radius:6px;font-size:.78rem;color:var(--tx2)">💰 Prix estimé (TCGPlayer/EDHrec) : <b style="color:#9ddf8c">$'+result.estimatedPrice+'</b> sur '+result.pricedCount+' cartes pricées</div>';
     }
     if(result.spicyCards.length){
       h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🌶 Cartes spicy (peu jouées sur ce commandant)</div>';
