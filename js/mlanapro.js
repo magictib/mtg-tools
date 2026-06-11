@@ -1070,6 +1070,292 @@ window.mlAnaPro = (function(){
     }
     return TIER_BASE;
   }
+  // ─── TRIBAL_CATALOG (build 98) ─────────────────────────────────────────
+  // Pour les 40+ tribes les plus joués en EDH, liste :
+  //  - `creatures` : top créatures du type (staples par EDHrec consensus)
+  //  - `payoffs`   : effets non-créatures liés au tribe (lords, anthems,
+  //                  tribal triggers, équipements tribaux)
+  //  - `keyCommanders` : commandants tribaux populaires
+  // Format clé = lowercase exact du sub-type.
+  // Utilisé par suggestSwaps pour proposer des cartes du MÊME tribe au lieu
+  // de juste protéger les existantes.
+  var TRIBAL_CATALOG = {
+    rogue:{
+      creatures:['anowon, the ruin thief','etrata, the silencer','notion thief','sygg, river guide',
+        'stenn, paranoid partisan','gonti, lord of luxury','soaring thought-thief','triton shorestalker',
+        'higure, the still wind','prowling pangolin','vega, the watcher','satoru umezawa',
+        'silver-fur master','geralf, the fleshwright','ingenious thief','glasspool mimic',
+        'nighthawk vigilante','professional face-breaker','obyra, dreaming duelist'],
+      payoffs:['rogues\' passage','curiosity','coastal piracy','reconnaissance mission',
+        'edric, spymaster of trest','revel in riches','treasure cruise']
+    },
+    goblin:{
+      creatures:['krenko, mob boss','muxus, goblin grandee','goblin chieftain','warren instigator',
+        'wily goblin','goblin warchief','siege-gang commander','krenko, baron of tin street',
+        'skirk prospector','goblin matron','goblin recruiter','squee, goblin nabob',
+        'pashalik mons','grenzo, dungeon warden','beetleback chief','goblin lackey',
+        'mogg war marshal','dockside extortionist','conspicuous snoop','goblin piledriver',
+        'goblin king','goblin sharpshooter','tarfire'],
+      payoffs:['coat of arms','urza\'s incubator','vanquisher\'s banner','door of destinies',
+        'goblin bombardment','goblin offensive','impact tremors','purphoros, god of the forge',
+        'goblin gathering','battle hymn']
+    },
+    elf:{
+      creatures:['ezuri, renegade leader','elvish archdruid','priest of titania','marwyn, the nurturer',
+        'lathril, blade of the elves','llanowar elves','elvish mystic','fyndhorn elves','arbor elf',
+        'heritage druid','wirewood symbiote','elvish visionary','imperious perfect','allosaurus shepherd',
+        'eladamri, lord of leaves','seton, krosan protector','nettle sentinel','dwynen, gilt-leaf daen',
+        'wellwisher','staff of the storyteller','quirion ranger','wood elves'],
+      payoffs:['coat of arms','urza\'s incubator','vanquisher\'s banner','door of destinies',
+        'shamanic revelation','craterhoof behemoth','sylvan messenger','beast whisperer','elvish promenade']
+    },
+    sliver:{
+      creatures:['the first sliver','sliver legion','sliver overlord','sliver queen',
+        'morophon, the boundless','sliver hivelord','muscle sliver','sinew sliver',
+        'predatory sliver','blade sliver','manaweft sliver','gemhide sliver','cloudshredder sliver',
+        'lavabelly sliver','venom sliver','striking sliver','syphon sliver','crystalline sliver',
+        'belligerent sliver','heart sliver','quick sliver','two-headed sliver','battering sliver'],
+      payoffs:['coat of arms','urza\'s incubator','vanquisher\'s banner','door of destinies',
+        'descendants\' path','training grounds','rhystic study']
+    },
+    dragon:{
+      creatures:['the ur-dragon','scion of the ur-dragon','tiamat','miirym, sentinel wyrm',
+        'niv-mizzet reborn','utvara hellkite','dragon tempest','old gnawbone','ancient brass dragon',
+        'ancient copper dragon','ancient gold dragon','ancient silver dragon','dragonlord ojutai',
+        'dragonlord atarka','dragonlord kolaghan','dragonlord silumgar','dragonlord dromoka',
+        'lathliss, dragon queen','sarkhan, fireblood','dragon\'s hoard','dragon broodmother',
+        'savage ventmaw','terror of the peaks','steel hellkite','dragon mage','balefire dragon'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','dragon tempest','crucible of fire',
+        'sarkhan unbroken','silumgar\'s scorn','door of destinies','training grounds']
+    },
+    vampire:{
+      creatures:['edgar markov','olivia voldaren','strefan, maurer progenitor','sorin, lord of innistrad',
+        'bloodlord of vaasgoth','blood artist','viscera seer','bloodghast','dusk legion zealot',
+        'twilight prophet','cordial vampire','vampire nocturnus','bloodthirsty aerialist',
+        'falkenrath gorger','captivating vampire','indulgent aristocrat','indulgent tormentor',
+        'sangromancer','vampire of the dire moon','vampire socialite','queen marchesa',
+        'malakir bloodwitch','knight of the ebon legion','crossway troublemakers'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'exquisite blood','sanguine bond','vito, thorn of the dusk rose','call the coppercoats']
+    },
+    zombie:{
+      creatures:['wilhelt, the rotcleaver','varina, lich queen','sidisi, brood tyrant','gisa, glorious resurrector',
+        'death baron','lord of the accursed','undead warchief','cemetery reaper','diregraf colossel',
+        'risen executioner','zombie master','rooftop storm','grimgrin, corpse-born','geralf\'s messenger',
+        'dread wanderer','gravecrawler','relentless dead','liliana\'s mastery','zombify',
+        'ghoulcaller gisa','sidisi, undead vizier','noxious ghoul','plague belcher','geralf\'s mindcrusher'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'death baron','lord of the accursed','rooftop storm','call to the grave','undead warchief',
+        'liliana, dreadhorde general','liliana, death\'s majesty']
+    },
+    wizard:{
+      creatures:['azami, lady of scrolls','baral, chief of compliance','adeliz, the cinder wind',
+        'inalla, archmage ritualist','docent of perfection','riptide laboratory','sigil tracer',
+        'patron wizard','meddling mage','snapcaster mage','arcanis the omnipotent','venser, shaper savant',
+        'naban, dean of iteration','sea gate stormcaller','wizened cenn','niblis of frost',
+        'mirran spy','jalira, master polymorphist','elite arcanist','jodah, the unifier'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'curiosity','azami\'s scroll','training grounds']
+    },
+    knight:{
+      creatures:['aragorn, the uniter','syr gwyn, hero of ashvale','knight of the white orchid',
+        'mirran crusader','student of warfare','knight exemplar','adriana, captain of the guard',
+        'kytheon, hero of akros','silverblade paladin','sigarda\'s aid','syr konrad, the grim',
+        'knights of the round table','first sphere gargantua','myrel, shield of argive',
+        'mentor of the meek','swift response','knight of grace','knight of malice','danitha capashen, paragon',
+        'history of benalia','beloved beggar'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'knight exemplar','metallic mimic','training grounds','haakon, stromgald scourge']
+    },
+    spirit:{
+      creatures:['kykar, wind\'s fury','geist of saint traft','drogskol captain','spell queller',
+        'rattlechains','supreme phantom','selfless spirit','mausoleum wanderer','spectral procession',
+        'unesh, criosphinx sovereign','niblis of frost','noble templar','umezawa\'s jitte',
+        'reborn hero','lingering souls','divine visitation','remorseful cleric','spectral steel'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'divine visitation','training grounds','spectral steel']
+    },
+    soldier:{
+      creatures:['catapult master','field marshal','daru warchief','preeminent captain',
+        'general kreat','captain of the watch','elite vanguard','aerial responder','elite inquisitor',
+        'first response','myrel, shield of argive','adeline, resplendent cathar','recruitment officer',
+        'darien, king of kjeldor','jhoira\'s familiar','ramos, dragon engine','iroas, god of victory',
+        'duty-bound dead'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'history of benalia','field marshal','catapult master']
+    },
+    cat:{
+      creatures:['arahbo, roar of the world','mirri, weatherlight duelist','kaheera, the orphanguard',
+        'leonin warleader','adorned pouncer','regal caracal','wasitora, nekoru queen','feline sovereign',
+        'jedit ojanen of efrava','pride sovereign','goldmeadow harrier','metallic mimic',
+        'qasali pridemage','brimaz, king of oreskos','jukai naturalist','seasoned hallowblade',
+        'jazal goldmane','king of the pride','tomik, distinguished advokist','leonin abunas',
+        'felidar guardian'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'shamanic revelation','training grounds']
+    },
+    cleric:{
+      creatures:['orah, skyclave hierophant','disciple of bolas','bishop of binding','priest of forgotten gods',
+        'cleric of life\'s bond','high priest of penance','rotlung reanimator','dawnglade regent',
+        'soul warden','blood scrivener','suture priest','sin prodder','soltari priest',
+        'priest of titania','ranger of eos','grand abolisher','cleric class','beckon apparition',
+        'kambal, consul of allocation','liesa, shroud of dusk'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms','obelisk of urd']
+    },
+    merfolk:{
+      creatures:['kopala, warden of waves','lord of atlantis','master of the pearl trident','merfolk sovereign',
+        'lord of the unreal','silvergill adept','tishana, voice of thunder','svyelun of sea and sky',
+        'tatyova, benthic druid','merrow reejerey','merrow commerce','seafloor oracle','seahunter',
+        'merfolk trickster','aether vial','urabrask the hidden','master of waves','harbinger of the tides',
+        'cursecatcher','phantasmal image','distinguished conjurer'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'aether vial','training grounds']
+    },
+    faerie:{
+      creatures:['oona, queen of the fae','alela, artful provocateur','spellstutter sprite','vendilion clique',
+        'mistbind clique','scion of oona','glen elendra archmage','ravenloft adventurer',
+        'pestermite','faerie miscreant','dreamstealer','bitterblossom','faerie conclave',
+        'spellstutter sprite','faerie vandal','venser, the sojourner','faerie squadron'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'bitterblossom','spell pierce']
+    },
+    treefolk:{
+      creatures:['doran, the siege tower','lord of extinction','treefolk harbinger','dauntless dourbark',
+        'leaf-crowned visionary','timber protector','rhys the redeemed','rishkar, peema renegade',
+        'great oak guardian','seedguide ash','sapling of colfenor','hythonia the cruel','bosk banneret',
+        'kalonian hydra','golgari grave-troll','greenwarden of murasa'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'doubling season','vorinclex, voice of hunger']
+    },
+    beast:{
+      creatures:['ruric thar, the unbowed','mayael the anima','wild pair','baloth woodcrasher',
+        'spearbreaker behemoth','rampaging baloths','garruk, primal hunter','rampaging brontodon',
+        'krosan tusker','silvos, rogue elemental','craterhoof behemoth','rampaging brontodon',
+        'wakeroot elemental','urabrask\'s forge'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms',
+        'beastmaster ascension','sylvan messenger']
+    },
+    sphinx:{
+      creatures:['unesh, criosphinx sovereign','sphinx of the second sun','sphinx of foresight',
+        'arcanis the omnipotent','consecrated sphinx','sphinx of the steel wind','medomai the ageless',
+        'sphinx of magosi','isperia, supreme judge','isperia the inscrutable'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    demon:{
+      creatures:['rakdos, lord of riots','razaketh, the foulblooded','griselbrand','demon of dark schemes',
+        'archfiend of depravity','rune-scarred demon','demon of catastrophes','liliana\'s contract',
+        'rakdos, the showstopper','rakdos pit dragon','shadowborn demon','overseer of the damned',
+        'reaper from the abyss','master of cruelties'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    angel:{
+      creatures:['lyra dawnbringer','akroma, vision of ixidor','linvala, keeper of silence','baneslayer angel',
+        'sephara, sky\'s blade','herald of war','requiem angel','aurelia, the warleader','iona, shield of emeria',
+        'kaalia of the vast','firja, judge of valor','righteous valkyrie','seraph sanctuary','platinum angel',
+        'shalai, voice of plenty','firemane angel'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms','urza\'s ruinous blast']
+    },
+    pirate:{
+      creatures:['admiral beckett brass','malcolm, keen-eyed navigator','vela the night-clad','breeches, brazen plunderer',
+        'ramirez depietro','captain lannery storm','rankle, master of pranks','hostage taker',
+        'admiral brass','dire fleet daredevil','admiral\'s order','glacial fortress','dockside extortionist'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    dinosaur:{
+      creatures:['gishath, sun\'s avatar','etali, primal storm','pantlaza, sun-favored','ghalta, primal hunger',
+        'forerunner of the empire','ranging raptors','regisaur alpha','marauding raptor','ripjaw raptor',
+        'thrashing brontodon','colossal dreadmaw','reckless rage'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    eldrazi:{
+      creatures:['emrakul, the aeons torn','ulamog, the ceaseless hunger','kozilek, butcher of truth',
+        'emrakul, the promised end','ulamog, the infinite gyre','kozilek, the great distortion',
+        'thought-knot seer','reality smasher','endbringer','it that betrays','artisan of kozilek'],
+      payoffs:['eldrazi conscription','all is dust','from beyond','blight herder']
+    },
+    werewolf:{
+      creatures:['tovolar, dire overlord','arlinn kord','tovolar\'s huntmaster','immerwolf','huntmaster of the fells',
+        'mayor of avabruck','ulrich of the krallenhorde','daybreak ranger','reckless waif',
+        'wolfir avenger','full moon\'s rise','village messenger'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','full moon\'s rise']
+    },
+    spider:{
+      creatures:['shelob, child of ungoliant','arachnogenesis','ishkanah, grafwidow','spider spawning',
+        'broodweaver','seshiro the anointed','silklash spider','obelisk spider','wasp\'s nest',
+        'mediating dryad','spider tactics'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','arachnogenesis']
+    },
+    snake:{
+      creatures:['hapatra, vizier of poisons','seshiro the anointed','sosuke, son of seshiro','sachi, daughter of seshiro',
+        'lotus cobra','jolrael, mwonvuli recluse','marauding raptor','ophidian','prowling serpopard',
+        'pharika, god of affliction'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    ninja:{
+      creatures:['yuriko, the tiger\'s shadow','ink-eyes, servant of oni','silver-fur master','satoru umezawa',
+        'kaito shizuki','higure, the still wind','prowling pangolin','triton shorestalker',
+        'cunning evasion','dokuchi silencer','okiba reckoner raid','azra oddsmaker','baleful strix'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','rogues\' passage']
+    },
+    centaur:{
+      creatures:['rhys the redeemed','centaur glade','centaur omenreader','heartwood storyteller'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    druid:{
+      creatures:['elvish archdruid','priest of titania','marwyn, the nurturer','seton, krosan protector',
+        'dwynen, gilt-leaf daen','lathril, blade of the elves','wirewood symbiote','heritage druid',
+        'circle of dreams druid','allosaurus shepherd','seton, krosan protector','farhaven elf'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    shaman:{
+      creatures:['krenko, mob boss','muxus, goblin grandee','silver-fur master','allosaurus shepherd',
+        'pillage','wirewood symbiote','huntmaster of the fells','farhaven elf','thunderhawk'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    warrior:{
+      creatures:['najeela, the blade-blossom','arvad the cursed','reyhan, last of the abzan',
+        'shaman of the great hunt','mardu woe-reaper','seasoned hallowblade','goblin warchief',
+        'rakka mar','iroas, god of victory','grand warlord radha','najeela\'s sentry'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    berserker:{
+      creatures:['urabrask\'s forge','berserkers\' onslaught','warbringer','barbarian shaman','urabrask, the great juggernaut'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    bird:{
+      creatures:['inniaz, the gale force','derevi, empyrial tactician','soulcatcher','sephara, sky\'s blade',
+        'storm crow','sungold sentinel','elgaud shieldmate','shorikai, genesis engine'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    ogre:{
+      creatures:['rakdos, lord of riots','ogre arsonist','grenzo, dungeon warden','rakdos pit dragon',
+        'mogis, god of slaughter','rakdos, the showstopper'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    insect:{
+      creatures:['hapatra, vizier of poisons','grist, the hunger tide','death-mask duplicant',
+        'jolrael, mwonvuli recluse','vile aggregate','arcades, the strategist','noble templar'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    plant:{
+      creatures:['shanna, sisay\'s legacy','greenwarden of murasa','life-bond','sapling of colfenor',
+        'lord of extinction','rampaging baloths','dryad of the ilysian grove'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    elemental:{
+      creatures:['horde of notions','omnath, locus of all','omnath, locus of creation','rakka mar',
+        'flickerwisp','soulscour','crackleburr','silvos, rogue elemental','soulscour',
+        'embodiment of insight','akoum hellhound','risen reef'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies']
+    },
+    human:{
+      creatures:['general kreat','captain of the watch','catapult master','field marshal','elite vanguard',
+        'esper sentinel','prosper, tome-bound','aragorn, the uniter','elite arcanist',
+        'thalia, guardian of thraben','grand abolisher','grand inquisitor','ranger of eos'],
+      payoffs:['urza\'s incubator','vanquisher\'s banner','door of destinies','coat of arms']
+    }
+  };
+
   // ─── DÉTECTION TRIBALE (build 97) ──────────────────────────────────────
   // Identifie le sub-type tribal dominant (Rogue, Goblin, Elf, etc.) si ≥12
   // cartes le partagent. Sert à protéger les créatures du tribe contre les
@@ -1104,6 +1390,30 @@ window.mlAnaPro = (function(){
     var subMatch=tl.match(/—\s*(.+?)(?:\s*\/|$)/);
     if(subMatch&&subMatch[1].toLowerCase().indexOf(t)>=0)return true;
     return false;
+  }
+  // ─── 33e. SUGGESTIONS TRIBALES (build 98) ──────────────────────────────
+  // Pour chaque tribe dominant détecté, propose les cartes du TRIBAL_CATALOG
+  // absentes du deck. Séparé en `missingCreatures` et `missingPayoffs`.
+  function suggestTribalCards(rows,deck){
+    var dominantTribe=_detectDominantTribe(rows);
+    if(!dominantTribe)return null;
+    var tribeKey=dominantTribe.tribe.toLowerCase();
+    var catalog=TRIBAL_CATALOG[tribeKey];
+    if(!catalog)return {tribe:dominantTribe.tribe,count:dominantTribe.count,catalog:false,
+      verdict:'Tribe « '+dominantTribe.tribe+' » détecté mais pas dans notre catalogue. Couverture future.'};
+    var inDeck={};rows.forEach(function(r){
+      var nl=_nlOf(r.card&&r.card.name||r.name);if(nl)inDeck[nl]=true;
+    });
+    var missingCreatures=(catalog.creatures||[]).filter(function(c){return !inDeck[_nlOf(c)];});
+    var missingPayoffs=(catalog.payoffs||[]).filter(function(c){return !inDeck[_nlOf(c)];});
+    return {
+      tribe:dominantTribe.tribe,
+      count:dominantTribe.count,
+      catalog:true,
+      missingCreatures:missingCreatures.slice(0,12),
+      missingPayoffs:missingPayoffs.slice(0,8),
+      verdict:(missingCreatures.length+missingPayoffs.length)+' carte(s) tribales « '+dominantTribe.tribe+' » absente(s) du deck'
+    };
   }
   function suggestSwaps(rows,deck){
     if(!deck)return {byRole:{}};
@@ -2689,6 +2999,7 @@ window.mlAnaPro = (function(){
     var killScope=threatsKillableScope(rows);
     var edhrec=edhrecInclusion(rows,deck);
     var archetype=detectArchetype(rows,deck);
+    var tribalSuggestions=suggestTribalCards(rows,deck);
     var report={
       winCons:winCons,
       redundancy:redundancy,
@@ -2722,6 +3033,7 @@ window.mlAnaPro = (function(){
       threatsKillableScope:killScope,
       edhrecInclusion:edhrec,
       archetype:archetype,
+      tribalSuggestions:tribalSuggestions,
       timestamp:Date.now()
     };
     // Build 94 : narrative est calculée APRÈS car elle synthétise tout
@@ -2994,6 +3306,39 @@ window.mlAnaPro = (function(){
         h+='<div style="font-size:.82rem;color:var(--tx2)">Toutes les cartes sont légales dans ce format.</div>';
         h+='</div>';
       }
+    }
+    // ─ Suggestions tribales (build 98) — affiché AVANT les autres swaps ─
+    if(report.tribalSuggestions){
+      var ts=report.tribalSuggestions;
+      h+='<div class="anapro-card" style="border-color:rgba(180,140,220,.42);background:linear-gradient(135deg,rgba(180,140,220,.06),rgba(74,160,232,.02))">';
+      h+='<div class="anapro-cat" style="color:#b48cdc">🦅 Suggestions tribales — '+_esc(ts.tribe)+' ('+ts.count+' cartes)</div>';
+      if(!ts.catalog){
+        h+='<div style="font-size:.84rem;color:var(--tx2);line-height:1.5">'+_esc(ts.verdict)+'</div>';
+      }else{
+        h+='<div style="font-size:.78rem;color:var(--tx2);line-height:1.5;margin-bottom:10px">Cartes <b style="color:#b48cdc">'+_esc(ts.tribe)+'</b> de notre catalogue NON présentes dans ton deck. Source : top staples tribaux du consensus EDHrec.</div>';
+        if(ts.missingCreatures.length){
+          h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🦅 Créatures '+_esc(ts.tribe)+' manquantes</div>';
+          h+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">';
+          ts.missingCreatures.forEach(function(name){
+            var pretty=name.replace(/\b./g,function(c){return c.toUpperCase();});
+            h+='<span style="padding:4px 11px;background:rgba(180,140,220,.10);border:.5px solid rgba(180,140,220,.40);border-radius:99px;font-size:.78rem;color:var(--tx);font-weight:500">'+_esc(pretty)+'</span>';
+          });
+          h+='</div>';
+        }
+        if(ts.missingPayoffs.length){
+          h+='<div style="font-size:.7rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px">🎯 Payoffs / enablers '+_esc(ts.tribe)+' manquants</div>';
+          h+='<div style="display:flex;flex-wrap:wrap;gap:5px">';
+          ts.missingPayoffs.forEach(function(name){
+            var pretty=name.replace(/\b./g,function(c){return c.toUpperCase();});
+            h+='<span style="padding:4px 11px;background:rgba(126,200,106,.08);border:.5px solid rgba(126,200,106,.30);border-radius:99px;font-size:.78rem;color:var(--tx)">'+_esc(pretty)+'</span>';
+          });
+          h+='</div>';
+        }
+        if(!ts.missingCreatures.length&&!ts.missingPayoffs.length){
+          h+='<div style="font-size:.86rem;color:#9ddf8c;font-weight:700">✓ Tu joues déjà tous les staples '+_esc(ts.tribe)+' de notre catalogue !</div>';
+        }
+      }
+      h+='</div>';
     }
     // ─ 9b. Efficience mana (build 91) ─ avant les suggestions par tier
     if(report.efficiency&&report.efficiency.byRole){
@@ -3401,6 +3746,8 @@ window.mlAnaPro = (function(){
     edhrecInclusion:edhrecInclusion,
     coachNarrative:coachNarrative,
     compareReports:compareReports,
+    suggestTribalCards:suggestTribalCards,
+    TRIBAL_CATALOG:TRIBAL_CATALOG,
     compareTwoDecks:compareTwoDecks,
     renderCompareTwoDecks:renderCompareTwoDecks,
     loadCommanderSpellbookCombos:loadCommanderSpellbookCombos,
