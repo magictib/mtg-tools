@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-11-108';
+window.APP_BUILD='2026-06-11-109';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -19193,7 +19193,8 @@ function dRetryNoPrice(){
         allPriceMap[item.nl]=p; // alias sur le nom utilisé par le user
       }
     }
-    if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||'',edhrecRank:card.edhrec_rank||0,power:card.power||'',toughness:card.toughness||'',legalities:card.legalities||{}};
+    // Build 109 : écrase meta vide
+    if(!dCardMeta[item.nl]||!dCardMeta[item.nl].typeLine)dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||'',edhrecRank:card.edhrec_rank||0,power:card.power||'',toughness:card.toughness||'',legalities:card.legalities||{}};
     return !!(card.prices&&(card.prices.eur||card.prices.usd||card.prices.eur_foil||card.prices.usd_foil));
   }
   function next(){
@@ -19225,8 +19226,14 @@ function dRetryNoPrice(){
 function fetchMissingPrices(){
   var todo=[];
   var seen={};
+  // Build 109 : considère une meta sans typeLine comme manquante (cartes
+  // ajoutées avant le build 107 ont un dCardMeta[nl] vide → faux positif).
+  function _metaIncomplete(nl){
+    var m=dCardMeta[nl];
+    return !m||!m.typeLine||(!m.colors&&!m.colorIdentity);
+  }
   dCards.forEach(function(c){
-    if((!allPriceMap[c.nl]||!dCardMeta[c.nl])&&!seen[c.nl]){seen[c.nl]=1;todo.push({nl:c.nl,name:c.name});}
+    if((!allPriceMap[c.nl]||_metaIncomplete(c.nl))&&!seen[c.nl]){seen[c.nl]=1;todo.push({nl:c.nl,name:c.name});}
   });
   if(!todo.length){renderDeckStats();return;}
   var batches=[];for(var i=0;i<todo.length;i+=75)batches.push(todo.slice(i,i+75));
@@ -19234,7 +19241,8 @@ function fetchMissingPrices(){
   function ingestCard(card){
     var nl=stripDFC(card.name).toLowerCase();
     if(!allPriceMap[nl]&&card.prices){var _pr=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;if(_pr>0)allPriceMap[nl]=_pr;}
-    if(!dCardMeta[nl])dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||'',edhrecRank:card.edhrec_rank||0,power:card.power||'',toughness:card.toughness||'',legalities:card.legalities||{}};
+    // Build 109 : écrase aussi les meta vides (typeLine manquant)
+    if(!dCardMeta[nl]||!dCardMeta[nl].typeLine)dCardMeta[nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||'',edhrecRank:card.edhrec_rank||0,power:card.power||'',toughness:card.toughness||'',legalities:card.legalities||{}};
     return nl;
   }
   function fuzzyFallback(){
@@ -19248,7 +19256,8 @@ function fetchMissingPrices(){
         var _pa=parseFloat(card.prices.eur)||parseFloat(card.prices.eur_foil)||(parseFloat(card.prices.usd)*0.92)||(parseFloat(card.prices.usd_foil)*0.92)||0;
         if(_pa>0)allPriceMap[item.nl]=_pa;
       }
-      if(!dCardMeta[item.nl])dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||'',edhrecRank:card.edhrec_rank||0,power:card.power||'',toughness:card.toughness||'',legalities:card.legalities||{}};
+      // Build 109 : écrase meta vide pour le nom local aussi
+      if(!dCardMeta[item.nl]||!dCardMeta[item.nl].typeLine)dCardMeta[item.nl]={cmc:card.cmc||0,typeLine:card.type_line||'',oracleText:_fullOracleText(card),colors:card.colors||[],colorIdentity:card.color_identity||[],manaCost:card.mana_cost||'',name:card.name||'',rarity:card.rarity||'',set:card.set||'',setNumber:card.collector_number||'',edhrecRank:card.edhrec_rank||0,power:card.power||'',toughness:card.toughness||'',legalities:card.legalities||{}};
       return true;
     }
     function tryMultilingual(item,then){
@@ -47635,6 +47644,8 @@ function anaTargets(fmt,totalCards,themes){
   var interactMult=th.interaction||1;var discardMult=th.discard||1;
   var sacrificeMult=th.sacrifice||1;var graveyardMult=th.graveyard||1;
   var protectionMult=th.protection||0;var countersMult=th.counters||1;
+  // Build 109 : nouveaux multiplicateurs
+  var stompMult=th.stomp||1;var cascadeMult=th.cascade||1;var recursionMult=th.recursion||1;
 
   // ─── 100 cartes singleton (Commander, Pauper Commander) ──────────────────
   if(fmt==='commander'||fmt==='paupercmd'||totalCards>=80){
@@ -47658,6 +47669,23 @@ function anaTargets(fmt,totalCards,themes){
     if(_speed==='fast'){base.land=[34,36];base.ramp=[Math.max(6,base.ramp[0]-2),Math.max(8,base.ramp[1]-2)];}
     else if(_speed==='slow'){base.land=[37,40];}
     if(_interact==='focused'){base.removal=[Math.max(4,base.removal[0]-1),Math.max(7,base.removal[1]-2)];base.interaction=[Math.max(5,base.interaction[0]-1),Math.max(8,base.interaction[1]-2)];}
+    // Build 109 : adaptations selon plans détectés
+    // Stomp / power-threshold (Cactusfolk) : beaucoup de menaces, moins de removal
+    if(stompMult>=2.0){
+      base.wincon=[15,25];
+      base.removal=[3,6];
+      base.interaction=[4,7];
+    }
+    // Cascade : tolère plus de "gros sorts" comme wincons + moins de cantrips
+    if(cascadeMult>=2.0){
+      base.wincon=[Math.max(base.wincon[0],8),Math.max(base.wincon[1],15)];
+      base.ramp=[Math.max(8,base.ramp[0]),Math.max(12,base.ramp[1])];
+    }
+    // Recursion : graveyard est une seconde pioche → bonus à draw + wincon
+    if(recursionMult>=1.8){
+      base.draw=[Math.max(7,base.draw[0]-1),Math.max(10,base.draw[1])];
+      base.wincon=[Math.max(base.wincon[0],6),Math.max(base.wincon[1],12)];
+    }
     return base;
   }
   // ─── 60 cartes singleton (Brawl, Oathbreaker) ───────────────────────────
@@ -47683,8 +47711,12 @@ function anaWeights(fmt,totalCards,themes){
   var drawMult=th.draw||1;var winconMult=th.wincon||1;
   var interactMult=th.interaction||1;var discardMult=th.discard||1;
   var sacrificeMult=th.sacrifice||1;var protectionMult=th.protection||0;
+  var stompMult=th.stomp||1;var cascadeMult=th.cascade||1;
   // ─── 100 cartes singleton ────────────────────────────────────────────────
   if(fmt==='commander'||fmt==='paupercmd'||totalCards>=80){
+    // Build 109 : plan stomp privilégie wincon, dévalue removal/interaction
+    if(stompMult>=2.0)return{land:.16,ramp:.16,draw:.14,removal:.10,interaction:.10,wincon:.34};
+    if(cascadeMult>=2.0)return{land:.15,ramp:.18,draw:.13,removal:.13,interaction:.13,wincon:.28};
     if(drawMult>=2.5)return{land:.14,ramp:.10,draw:.28,removal:.14,interaction:.17,wincon:.17};
     if(drawMult>=2.0)return{land:.15,ramp:.11,draw:.27,removal:.13,interaction:.18,wincon:.16};
     if(drawMult>=1.5)return{land:.15,ramp:.13,draw:.24,removal:.14,interaction:.18,wincon:.16};
@@ -49179,6 +49211,20 @@ function _anaApplyCommanderSignals(o,bump,labels){
   if(/deals? combat damage to (?:a player|target opponent|target player|that player|an opponent)/.test(o)){
     bump('_combatTrigger',1.8);lbl('Trigger combat');
   }
+  // Build 109 : Stomp / Big Creature plan — commandant donne keywords sur power threshold
+  // (Cactusfolk Sureshot, Surrak Dragonclaw, Ghalta Primal Hunger…). Le deck doit avoir
+  // BEAUCOUP de créatures 4+ power : wincon target gonflé, removal/interaction réduits.
+  if(/creatures? (?:you control )?with power (?:4|5|6|7|four|five|six|seven) or greater/.test(o)){
+    bump('stomp',2.2);bump('wincon',1.6);lbl('Power threshold');
+  }
+  // "Creature spells you cast have cascade" → plan cascade
+  if(/creature spells? you cast have cascade|each creature .* has cascade|cascade(?:[^.]+?){0,40}cast/.test(o)){
+    bump('cascade',2.0);lbl('Cascade');
+  }
+  // "When ~ enters, return target creature card from your graveyard"
+  if(/return target creature card from your graveyard|return .* creature card from your graveyard to the battlefield/.test(o)){
+    bump('recursion',1.8);lbl('Récursion');
+  }
 }
 // ----- Niveau de puissance estimé (bracket EDH 1-5) -----
 // Liste « Game Changers » des règles de brackets Commander de Wizards.
@@ -49646,7 +49692,11 @@ function _anaCommanderThemes(deck){
     voltron:1,         // commander damage focus (équipements/auras boost)
     treasure:1,        // treasure tokens engine (Goldspan, Old Gnawbone, Dockside)
     vehicle:1,         // vehicles + crew (Heart of Kiran, Smuggler's Copter)
-    fragile_commander:1 // commandant créature avec toughness ≤ 3 (Gelectrode, Sram, Edric…)
+    fragile_commander:1, // commandant créature avec toughness ≤ 3 (Gelectrode, Sram, Edric…)
+    // Build 109 : 3 nouveaux signaux
+    stomp:1,           // commandant donne keywords sur power threshold (Cactusfolk)
+    cascade:1,         // commandant donne cascade aux créatures (Maelstrom Wanderer-like)
+    recursion:1        // commandant fait du return-from-graveyard explicite
   };
   var labels=[];
   function bump(key,val){if((m[key]||1)<val)m[key]=val;}
