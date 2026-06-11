@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-11-106';
+window.APP_BUILD='2026-06-11-107';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -21852,13 +21852,32 @@ function _montageAddNewCard(name,inp){
       var realName=card.name,nl=stripDFC(realName).toLowerCase();
       var ex=dCards.find(function(c){return c.nl===nl;});
       if(ex){if(inp)inp.value='';montageInc(nl,1);return;}
-      dCards.push({name:realName,nl:nl,qty:1,sec:'Deck',set:'',num:''});
+      dCards.push({name:realName,nl:nl,qty:1,sec:'Deck',set:card.set||'',num:card.collector_number||''});
       var dk=decks[actDeck];
       dk.cards=dCards.map(function(c){return {name:c.name,nl:c.nl,qty:c.qty,set:c.set||'',num:c.num||'',sec:c.sec||'Deck'};});
       dk.rawName=(dk.rawName?dk.rawName.replace(/\s*$/,'')+'\n':'')+'1 '+realName;
       dk.updatedAt=Date.now();
       var iu=card.image_uris||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)||{};
       if(iu.normal)dImgCache[nl]=iu.normal;
+      // Build 107 : enrichit dCardMeta (idem bldAddCardByName)
+      if(typeof dCardMeta!=='undefined'&&!dCardMeta[nl]){
+        dCardMeta[nl]={
+          cmc:card.cmc||0,
+          typeLine:card.type_line||'',
+          oracleText:(typeof _fullOracleText==='function')?_fullOracleText(card):(card.oracle_text||''),
+          colors:card.colors||[],
+          colorIdentity:card.color_identity||[],
+          manaCost:card.mana_cost||'',
+          name:card.name||realName,
+          rarity:card.rarity||'',
+          set:card.set||'',
+          setNumber:card.collector_number||'',
+          edhrecRank:card.edhrec_rank||0,
+          power:card.power||'',
+          toughness:card.toughness||'',
+          legalities:card.legalities||{}
+        };
+      }
       saveDecks();
       var dd=_montageData();if(dd)dd[nl]=1;
       _montageSave();
@@ -21913,8 +21932,22 @@ function bldAddCardByName(name,opts){
         // Match exact (case-insensitive) prioritaire, sinon le premier résultat
         var exact=matches.filter(function(m){return (m.name||'').toLowerCase()===name.toLowerCase().trim();})[0];
         var pick=exact||matches[0];
-        // Adapte au format attendu (image_uris.normal)
-        return {name:pick.name,image_uris:pick.image_uri?{normal:pick.image_uri}:null,_fromLocalBulk:true};
+        // Build 107 : on transporte AUSSI les metas locales pour enrichir dCardMeta
+        // (type, cmc, couleurs) — sinon la carte tombe en "non reconnue" dans
+        // le rendu groupé.
+        return {
+          name:pick.name,
+          image_uris:pick.image_uri?{normal:pick.image_uri}:null,
+          type_line:pick.type_line||'',
+          cmc:pick.cmc||0,
+          colors:pick.colors||[],
+          color_identity:pick.color_identity||[],
+          mana_cost:pick.mana_cost||'',
+          oracle_text:pick.oracle_text||'',
+          set:pick.set||'',
+          prices:pick.prices||{},
+          _fromLocalBulk:true
+        };
       })
     :Promise.resolve(null);
   return lookupPromise.then(function(localCard){
@@ -21934,13 +21967,34 @@ function bldAddCardByName(name,opts){
       if(typeof toastSuccess==='function')toastSuccess('« '+realName+' » +1 (déjà dans le deck)');
       return true;
     }
-    dCards.push({name:realName,nl:nl,qty:1,sec:opts.sec||'Deck',set:'',num:''});
+    dCards.push({name:realName,nl:nl,qty:1,sec:opts.sec||'Deck',set:card.set||'',num:card.collector_number||''});
     var dk=decks[actDeck];
     dk.cards=dCards.map(function(c){return {name:c.name,nl:c.nl,qty:c.qty,set:c.set||'',num:c.num||'',sec:c.sec||'Deck'};});
     dk.rawName=(dk.rawName?dk.rawName.replace(/\s*$/,'')+'\n':'')+'1 '+realName;
     dk.updatedAt=Date.now();
     var iu=card.image_uris||(card.card_faces&&card.card_faces[0]&&card.card_faces[0].image_uris)||{};
     if(iu.normal&&typeof dImgCache!=='undefined')dImgCache[nl]=iu.normal;
+    // Build 107 : enrichit dCardMeta avec les metas dispo (locale OU API) pour
+    // que la carte soit classifiée correctement dans le rendu groupé (couleur,
+    // type, CMC). Sans ça, elle tombe en "Incolore / non reconnue".
+    if(typeof dCardMeta!=='undefined'&&!dCardMeta[nl]){
+      dCardMeta[nl]={
+        cmc:card.cmc||0,
+        typeLine:card.type_line||'',
+        oracleText:(typeof _fullOracleText==='function')?_fullOracleText(card):(card.oracle_text||''),
+        colors:card.colors||[],
+        colorIdentity:card.color_identity||[],
+        manaCost:card.mana_cost||'',
+        name:card.name||realName,
+        rarity:card.rarity||'',
+        set:card.set||'',
+        setNumber:card.collector_number||'',
+        edhrecRank:card.edhrec_rank||0,
+        power:card.power||'',
+        toughness:card.toughness||'',
+        legalities:card.legalities||{}
+      };
+    }
     if(typeof saveDecks==='function')saveDecks();
     var dd=_montageData();if(dd)dd[nl]=1;
     _montageSave();
