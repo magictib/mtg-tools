@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-11-109';
+window.APP_BUILD='2026-06-11-110';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -51166,6 +51166,53 @@ function _anaThemeSynergyScore(cardMeta,themes){
     else if(/gain \d+ life|gain that much life|gain life equal|whenever.*you gain/.test(o))s+=(lgStrong?3:1.5);
     // Drain : double effet (gain + perte adverse), souvent un wincon en deck lifegain
     if(/each opponent loses \d+ life|drain/.test(o))s+=(lgStrong?5:2.5);
+  }
+  // Build 109 : STOMP — commandant donne keywords sur power threshold
+  // (Cactusfolk Sureshot, Surrak Dragonclaw…). Big creatures + fight spells +
+  // trample damage spells deviennent les wincon-enablers du deck.
+  if((th.stomp||1)>1.5){
+    var stMult=(th.stomp||1)-1; // 0.5-1.5
+    var pwr=parseInt(cardMeta.power||'0',10)||0;
+    var isCre=t.indexOf('creature')>=0;
+    if(isCre){
+      if(pwr>=6)s+=7*stMult;       // gros stompers (Marauding Velociraptor, Pathbreaker Ibex)
+      else if(pwr>=4)s+=5*stMult;   // pile sur le threshold (Fangren Marauder)
+    }
+    // Fight spells (Ram Through, Rabid Bite, Prey Upon, Pounce)
+    if(/fight (?:target|another)|deals damage equal to (?:its power|the power of)/.test(o))s+=5*stMult;
+    // Trample damage spells (Ram Through's effect)
+    if(/excess damage|trample damage/.test(o))s+=4*stMult;
+    // Big creature tutors (Worldly Tutor, Green Sun's Zenith, Finale of Devastation)
+    if(/search your library for a (?:green )?creature card/.test(o))s+=3*stMult;
+    // Power-boosters (Berserk, Brawn, Overrun, Beastmaster Ascension)
+    if(/(?:creatures? you control )?get \+[2-9]\/\+\d|(?:gains?|has) (?:double strike|trample)/.test(o))s+=3*stMult;
+    // Counters synergie (gros body = counter doubler)
+    if(/double.*counter|(?:hardened scales|branching evolution|innkeeper)/.test(o))s+=3*stMult;
+    // Reach pour défense des gros (Spider, Vivien)
+    if(pwr>=4&&/reach/.test(o))s+=1*stMult;
+  }
+  // Build 109 : CASCADE — sorts non-créature 3-6 CMC sont des hits potentiels
+  if((th.cascade||1)>1.5){
+    var caMult=(th.cascade||1)-1;
+    if(/\bcascade\b/.test(o))s+=7*caMult;
+    // Sorts 3-6 CMC non-créature = hit cascade pertinent (PAS de chip 1-CMC qui rate)
+    if((cardMeta.cmc||0)>=3&&(cardMeta.cmc||0)<=6&&!isCre)s+=3*caMult;
+    if((cardMeta.cmc||0)>=4&&(cardMeta.cmc||0)<=6&&!isCre)s+=2*caMult;
+    // Big creatures 5+ CMC reviennent en hits
+    if(isCre&&(cardMeta.cmc||0)>=5)s+=3*caMult;
+    // Recasting / Maelstrom Wanderer style
+    if(/when this creature enters|when ~ enters/.test(o)&&isCre)s+=2*caMult;
+  }
+  // Build 109 : RECURSION — retours graveyard
+  if((th.recursion||1)>1.5){
+    var reMult=(th.recursion||1)-1;
+    if(/return target .* from your graveyard|return .* creature card from your graveyard|reanimate/.test(o))s+=5*reMult;
+    if(/persist|undying|unearth|encore|disturb/.test(o))s+=4*reMult;
+    if(/flashback|escape|jump-start/.test(o))s+=3*reMult;
+    // Mettre au top de la lib (Reclaim, Brainstorm setup)
+    if(/put .* (?:on top of|onto the top of) your library/.test(o))s+=4*reMult;
+    // Self-mill / dredge / surveil pour alimenter le graveyard
+    if(/mill \d+ cards?|surveil \d+|put the top \d+ cards.*library.*graveyard/.test(o))s+=3*reMult;
   }
   // Draw-as-wincon (Queza, Nekusar…)
   if((th.draw||1)>1.5){
