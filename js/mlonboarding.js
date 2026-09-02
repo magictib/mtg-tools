@@ -68,7 +68,7 @@ function mlOnboardingRender(step){
     }
   ];
   var s=steps[step-1]||steps[0];
-  var h='<div class="ml-modal ml-reveal" style="max-width:580px;width:96vw">'
+  var h='<div class="ml-modal" style="max-width:580px;width:96vw">'
     +'<div class="ml-modal-hdr" style="border-bottom:1px solid #4aa0e8">'
     +'<div style="display:flex;align-items:center;gap:12px;flex:1">'
     +'<div style="font-size:1.8rem;line-height:1">'+s.ico+'</div>'
@@ -126,16 +126,30 @@ function mlOnboardingComplete(){
   if(typeof toast==='function')toast('✓ Bienvenue ! Tu peux relancer le tutoriel depuis la home.');
   if(typeof mlTrack==='function')mlTrack('Onboarding Completed');
 }
-// Auto-trigger : 1.5s après le boot si conditions remplies
+// Auto-trigger : uniquement pour un utilisateur RÉELLEMENT connecté et une fois
+// les données chargées. Sans ces deux gardes, l'overlay s'ouvrait 1,5 s après le
+// load par-dessus l'écran de connexion (collection et decks vides = conditions
+// remplies) et bloquait tous les clics : impossible de se connecter.
 (function(){
-  function maybeStart(){
-    if(typeof renderHome==='function')renderHome.__onboardingChecked=renderHome.__onboardingChecked||false;
-    if(renderHome.__onboardingChecked)return;
-    renderHome.__onboardingChecked=true;
-    setTimeout(function(){
-      try{if(mlOnboardingShouldShow())mlOnboardingOpen(1);}catch(e){}
-    },1500);
+  var tries=0;
+  function loggedIn(){
+    if(typeof userId==='undefined'||!userId)return false;
+    var wrap=document.getElementById('wrap-main');
+    return !!wrap&&getComputedStyle(wrap).display!=='none';
   }
-  if(document.readyState==='complete')maybeStart();
-  else window.addEventListener('load',maybeStart);
+  function dataReady(){
+    return window._mlDecksLoaded===true&&window._mlProfsLoaded===true;
+  }
+  function maybeStart(){
+    if(maybeStart.__done)return;
+    if(!loggedIn()||!dataReady()){
+      if(++tries>60)return; // ~30 s puis on abandonne silencieusement
+      setTimeout(maybeStart,500);
+      return;
+    }
+    maybeStart.__done=true;
+    try{if(mlOnboardingShouldShow())mlOnboardingOpen(1);}catch(e){}
+  }
+  if(document.readyState==='complete')setTimeout(maybeStart,1500);
+  else window.addEventListener('load',function(){setTimeout(maybeStart,1500);});
 })();

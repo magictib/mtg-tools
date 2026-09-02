@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-06-11-110';
+window.APP_BUILD='2026-09-02-111';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -529,7 +529,11 @@ h1 span{font-weight:300;letter-spacing:.06em;color:var(--tx2)}
 }
 .ml-flask.cauldr-shaking{animation:cauldr-shake .65s ease-in-out;filter:drop-shadow(0 0 18px #c9a84c) drop-shadow(0 0 30px rgba(100,180,255,.65))!important}
 /* Auth */
-#auth-overlay{position:fixed;inset:0;z-index:5000;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:1.5rem;overflow-y:auto}
+/* `safe center` : centré quand ça tient, aligné en haut quand ça déborde. Avec un
+   simple `center`, la hauteur qui dépasse part au-dessus du bord haut et n'est
+   PAS atteignable au scroll — sur mobile le formulaire de connexion se retrouvait
+   hors écran. Les navigateurs sans support ignorent la 2e déclaration. */
+#auth-overlay{position:fixed;inset:0;z-index:5000;background:var(--bg);display:flex;align-items:center;align-items:safe center;justify-content:center;padding:1.5rem;overflow-y:auto}
 @property --bolt-a{syntax:'<angle>';initial-value:0deg;inherits:false}
 .auth-card{position:relative;background:linear-gradient(160deg,var(--s2),var(--s1));border:.5px solid var(--bd2);border-radius:12px;padding:1.5rem 1.25rem;width:100%;max-width:360px;box-shadow:0 12px 48px rgba(0,0,0,.7),0 0 28px rgba(30,100,255,.13)}
 .auth-card::before{content:'';position:absolute;inset:-1px;border-radius:13px;padding:1.5px;background:conic-gradient(from var(--bolt-a),transparent 0%,rgba(50,110,255,.08) 13%,rgba(130,185,255,.52) 15.5%,rgba(210,240,255,.76) 16.8%,rgba(130,185,255,.46) 18%,transparent 22%,rgba(20,70,255,0) 79%,rgba(55,130,255,.56) 81%,rgba(120,185,255,.92) 83%,rgba(215,243,255,1) 84.8%,rgba(255,255,255,1) 85.6%,rgba(215,243,255,1) 86.5%,rgba(120,185,255,.92) 88.5%,rgba(55,130,255,.5) 91%,rgba(20,70,255,0) 94%,transparent 100%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:bolt-go 2.2s linear infinite,bolt-flick .32s ease-in-out infinite alternate;filter:blur(.35px) brightness(1.3);pointer-events:none;z-index:0}
@@ -1226,6 +1230,12 @@ img[loading="lazy"]:not([src]),img[loading="lazy"][src=""]{opacity:0}
 @keyframes ml-fade-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
 /* Modales : animation pop élégante à l'ouverture */
 .ml-modal-ov.show .ml-modal{animation:ml-modal-pop-in .25s cubic-bezier(.34,1.56,.64,1)}
+/* Garde-fou : une modale ouverte est TOUJOURS visible. Sans ça, une boîte qui
+   porte aussi .ml-reveal (opacity:0 tant que l'IntersectionObserver ne l'a pas
+   marquée .ml-revealed) reste invisible — l'utilisateur ne voit qu'un voile
+   noir flouté qui bloque tous les clics. */
+.ml-modal-ov.show .ml-modal,
+.ml-modal-ov.show .ml-modal .ml-reveal{opacity:1;transform:none}
 @keyframes ml-modal-pop-in{0%{transform:scale(.92);opacity:0}100%{transform:scale(1);opacity:1}}
 /* Polish générique : focus visible doré sur les éléments focusables */
 button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:var(--r-sm)}
@@ -14193,8 +14203,9 @@ function loadProfs(){
     _renderBuildCollBtns();
     updPStat();_updateScryfallOfflineBtn();renderColl();enrichCollCache();
     _renderDeckListHeader();
+    window._mlProfsLoaded=true; // signal pour l'onboarding (voir js/mlonboarding.js)
     if(typeof renderHome==='function')try{renderHome();}catch(e){}
-  }).catch(function(){});
+  }).catch(function(){window._mlProfsLoaded=true;});
   // Load extra profile cards for all contexts
   var uidsLoaded={};
   Object.keys(_epSlots).forEach(function(ctx){
@@ -14432,12 +14443,13 @@ function loadDecks(){
         }
       }
       // Si premiere sync et que Firestore est vide mais qu'on a des donnees locales, synchro
-      if(snapshot.empty&&Object.keys(decks).length){saveDecks();return;}
+      if(snapshot.empty&&Object.keys(decks).length){window._mlDecksLoaded=true;saveDecks();return;}
       decks=d;
+      window._mlDecksLoaded=true; // signal pour l'onboarding (voir js/mlonboarding.js)
       try{localStorage.setItem('mtg_decks',JSON.stringify(decks));}catch(e){}
       renderDBar();_refreshAllDeckSelects();
       if(typeof renderHome==='function')try{renderHome();}catch(e){}
-    },function(err){console.warn('decks listener',err);});
+    },function(err){window._mlDecksLoaded=true;console.warn('decks listener',err);});
 }
 function _refreshAllDeckSelects(){
   // Analyse

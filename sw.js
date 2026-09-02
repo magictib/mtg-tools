@@ -1,4 +1,4 @@
-const CACHE = 'manalab-v403';
+const CACHE = 'manalab-v404';
 const STATIC = [
   './manifest.json',
   './icon.svg'
@@ -87,14 +87,32 @@ self.addEventListener('fetch', function(e) {
   // POST / non-GET → réseau direct
   if (e.request.method !== 'GET') return;
 
-  // HTML / index : TOUJOURS RÉSEAU UNIQUEMENT (jamais de cache)
-  // Garantit que les modifications du code sont vues immédiatement
+  // HTML + JS/CSS de l'app : TOUJOURS RÉSEAU D'ABORD (cache seulement hors ligne).
+  // Le JS était servi cache-first : un index.html tout frais se retrouvait couplé
+  // à un js/*.js périmé indéfiniment, et un correctif poussé n'atteignait jamais
+  // les utilisateurs déjà venus une fois.
   var isHtml = url.pathname.endsWith('/') || url.pathname.endsWith('.html') || url.pathname === '';
-  if (isHtml) {
+  var isAppCode = url.origin === self.location.origin
+    && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'));
+  if (isHtml || isAppCode) {
     e.respondWith(
-      fetch(e.request, {cache: 'no-store'}).catch(function() {
+      fetch(e.request, {cache: 'no-store'}).then(function(response) {
+        // On garde une copie du JS/CSS pour le mode hors ligne (jamais servie
+        // tant que le réseau répond).
+        if (isAppCode && response.ok) {
+          var clone = response.clone();
+          caches.open(CACHE).then(function(c) { c.put(e.request, clone); }).catch(function(){});
+        }
+        return response;
+      }).catch(function() {
         // Offline : on tente le cache (vieille version) plutôt que rien
-        return caches.match(e.request) || caches.match('./index.html') || new Response('<h1>Hors ligne</h1>', {headers:{'Content-Type':'text/html'}});
+        return caches.match(e.request).then(function(hit) {
+          if (hit) return hit;
+          if (!isHtml) return new Response('', {status: 504});
+          return caches.match('./index.html').then(function(idx) {
+            return idx || new Response('<h1>Hors ligne</h1>', {headers:{'Content-Type':'text/html'}});
+          });
+        });
       })
     );
     return;
