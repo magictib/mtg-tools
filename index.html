@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-09-04-114';
+window.APP_BUILD='2026-09-04-115';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -3486,6 +3486,7 @@ details > summary::-webkit-details-marker{display:none}
     <button class="cs-fil dvf-btn dvf-col" data-cs-col="B" title="Noir">⚫</button>
     <button class="cs-fil dvf-btn dvf-col" data-cs-col="R" title="Rouge">🔴</button>
     <button class="cs-fil dvf-btn dvf-col" data-cs-col="G" title="Vert">🟢</button>
+    <button class="cs-fil dvf-btn dvf-col" data-cs-col="C" title="Incolore">⬦</button>
     <select id="cs-only" onchange="_collSideRender()" title="Filtrer par disponibilité">
       <option value="all">Toutes</option>
       <option value="free">Disponibles (non engagées)</option>
@@ -21635,11 +21636,11 @@ function _collSideRender(){
   var arr=Object.values(byNl).filter(function(x){
     if(srch&&x.nl.indexOf(srch)<0&&(x.name||'').toLowerCase().indexOf(srch)<0)return false;
     if(_collSideColors.length){
-      var meta=dCardMeta[x.nl]||_anaData&&_anaData[x.nl]||{};
-      var cols=meta.colors||meta.color_identity||[];
-      for(var i=0;i<_collSideColors.length;i++){
-        if(cols.indexOf(_collSideColors[i])<0)return false;
-      }
+      // dCardMeta ne couvre que les cartes vues en deck : on retombe sur collCache,
+      // rempli par enrichCollCache() pour toute la collection.
+      var meta=dCardMeta[x.nl]||(_anaData&&_anaData[x.nl])
+        ||(typeof collCache!=='undefined'&&(collCache[x.nl]||collCache[(x.name||'').toLowerCase()]))||null;
+      if(!_colorSubsetPass(meta,_collSideColors))return false;
     }
     if(only==='indeck'){return inDeckMap[x.nl]>0;}
     if(only==='free'){
@@ -38945,6 +38946,20 @@ function _collRenderDebounce(){clearTimeout(_collRenderTO);_collRenderTO=setTime
 // Ordre couleur canonique de l'app : Blanc, Bleu, Noir, Rouge, Vert, Multicolore,
 // Incolore, Terrains — identique a _limColorOrder et aux sections de deck, pour que
 // « trier par couleur » donne le meme resultat partout. 98 = metadonnees absentes.
+// Filtre couleur « inclus dans » : une carte passe si son identite tient entierement
+// dans les couleurs cochees. Cocher R+U montre le mono-R, le mono-U et le RU, jamais
+// le RG ni le RB. L'incolore ne passe que si le bouton Incolore est coche aussi.
+// `sel` accepte un Set (onglet Collection) ou un tableau (sidebar Deck).
+function _colorSubsetPass(m,sel){
+  if(!m)return false;
+  var has=sel.has?function(c){return sel.has(c);}:function(c){return sel.indexOf(c)>=0;};
+  // On raisonne en identite de couleur : une bilande RU compte comme rouge/bleu,
+  // pas comme incolore. Repli sur `colors` si l'identite n'est pas connue.
+  var ci=(m.colorIdentity&&m.colorIdentity.length&&m.colorIdentity)||(m.color_identity&&m.color_identity.length&&m.color_identity)||m.colors||[];
+  if(!ci.length)return has('C');
+  for(var i=0;i<ci.length;i++)if(!has(ci[i]))return false;
+  return true;
+}
 function _collColorRank(m){
   if(!m)return 98;
   var tl=(m.typeLine||m.type||'').toLowerCase();
@@ -39016,11 +39031,7 @@ function renderColl(){
       // Couleur inconnue (metadonnees Scryfall pas encore chargees) : on masque, comme
       // le font les filtres CMC / type / texte plus bas. enrichCollCache() recharge le
       // cache puis relance le rendu, les cartes reapparaissent d'elles-memes.
-      if(!cached)return false;
-      var cols=cached.colors;
-      var ok=false;
-      collFiltColors.forEach(function(fc){if(fc==='C'?cols.length===0:cols.indexOf(fc)>=0)ok=true;});
-      if(!ok)return false;
+      if(!_colorSubsetPass(cached,collFiltColors))return false;
     }
     // CMC, type, oracle text : on a besoin du meta Scryfall complet (_anaData ou via collCache étendu)
     var meta=(typeof _anaData!=='undefined'&&_anaData[c.name.toLowerCase()])||cached||null;
@@ -39219,7 +39230,7 @@ function _buildDatFromAPI(c){
   var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
   // Texte oracle brut pour la recherche (les filtres avancés en ont besoin)
   var rawOracle=c.oracle_text||(c.card_faces&&c.card_faces.map(function(f){return f.oracle_text||'';}).filter(Boolean).join(' '))||'';
-  return {colors:c.colors||[],rarity:c.rarity||'',img:img,oracle:oracle,type:c.type_line||'',typeLine:c.type_line||'',cmc:c.cmc||0,oracleText:rawOracle,prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
+  return {colors:c.colors||[],colorIdentity:c.color_identity||[],rarity:c.rarity||'',img:img,oracle:oracle,type:c.type_line||'',typeLine:c.type_line||'',cmc:c.cmc||0,oracleText:rawOracle,prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
 }
 function _apiBatch(batch){
   fetch('https://api.scryfall.com/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -39346,7 +39357,7 @@ function toggleCollDetail(el,name){
       var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[card.rarity]||'';
       var pt=card.power!=null?card.power+'/'+card.toughness+'  ':card.loyalty?'Loyauté '+card.loyalty+'  ':'';
       var dat={img:img,oracle:oracle,type:card.type_line||'',prices:prices,rar:rar,pt:pt};
-      collCache[name.toLowerCase()]=Object.assign({colors:card.colors||[],rarity:card.rarity||'',scryfall_uri:card.scryfall_uri||''},dat);
+      collCache[name.toLowerCase()]=Object.assign({colors:card.colors||[],colorIdentity:card.color_identity||[],rarity:card.rarity||'',scryfall_uri:card.scryfall_uri||''},dat);
       d.innerHTML=_buildDetailHTML(card.name||name,dat,loanOpts);
     })
     .catch(function(){var d=document.getElementById('colldetail');if(d)d.innerHTML='<div style="color:var(--tx3);font-style:italic;font-size:.8rem">Données indisponibles</div>';});
@@ -41894,7 +41905,7 @@ function _cacheFromIDB(c){
   var pt=c.power!=null?c.power+'/'+c.toughness+' ':c.loyalty?'Loyauté '+c.loyalty+' ':'';
   var rar={common:'Commune',uncommon:'Peu commune',rare:'Rare',mythic:'Mythique'}[c.rarity]||'';
   var rawOracle=c.oracle_text||(c.faces&&c.faces.map(function(f){return f.oracle_text||'';}).filter(Boolean).join(' '))||'';
-  return {colors:c.colors||[],rarity:c.rarity||'',img:c.image_uri||'',oracle:oracle,type:c.type_line||'',typeLine:c.type_line||'',cmc:c.cmc||0,oracleText:rawOracle,prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
+  return {colors:c.colors||[],colorIdentity:c.color_identity||[],rarity:c.rarity||'',img:c.image_uri||'',oracle:oracle,type:c.type_line||'',typeLine:c.type_line||'',cmc:c.cmc||0,oracleText:rawOracle,prices:prices,pt:pt,rar:rar,scryfall_uri:c.scryfall_uri||''};
 }
 function _populateIDB(cards,onProg){
   return _openIDB().then(function(d){
