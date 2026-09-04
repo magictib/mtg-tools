@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-09-04-113';
+window.APP_BUILD='2026-09-04-114';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -38942,6 +38942,26 @@ function renderCollDashboard(){
 // à chaque frappe dans les filtres (jank sur grosse collection / mobile).
 var _collRenderTO=null;
 function _collRenderDebounce(){clearTimeout(_collRenderTO);_collRenderTO=setTimeout(renderColl,180);}
+// Ordre couleur canonique de l'app : Blanc, Bleu, Noir, Rouge, Vert, Multicolore,
+// Incolore, Terrains — identique a _limColorOrder et aux sections de deck, pour que
+// « trier par couleur » donne le meme resultat partout. 98 = metadonnees absentes.
+function _collColorRank(m){
+  if(!m)return 98;
+  var tl=(m.typeLine||m.type||'').toLowerCase();
+  if(tl.indexOf('land')>=0)return 7;
+  var cs=m.colors||[];
+  if(!cs.length)return 6;
+  if(cs.length>1)return 5;
+  var r={W:0,U:1,B:2,R:3,G:4}[cs[0]];
+  return r==null?6:r;
+}
+// Cle secondaire : regroupe les multicolores par combinaison (tous les WU ensemble,
+// puis les WB…), bicolores avant tricolores. Les chiffres sont les index WUBRG.
+function _collColorSig(m){
+  var CO=['W','U','B','R','G'],cs=(m&&m.colors)||[],idx=[];
+  for(var i=0;i<CO.length;i++)if(cs.indexOf(CO[i])>=0)idx.push(String(i));
+  return idx.length+':'+idx.join('');
+}
 function renderColl(){
   // Re-render profile slots to update info badges
   _syncProfsForCtx('coll');
@@ -38993,7 +39013,10 @@ function renderColl(){
     var cached=collCache[c.name.toLowerCase()];
     if(collFiltRar&&cached&&cached.rarity!==collFiltRar)return false;
     if(collFiltColors.size>0){
-      if(!cached)return true;
+      // Couleur inconnue (metadonnees Scryfall pas encore chargees) : on masque, comme
+      // le font les filtres CMC / type / texte plus bas. enrichCollCache() recharge le
+      // cache puis relance le rendu, les cartes reapparaissent d'elles-memes.
+      if(!cached)return false;
       var cols=cached.colors;
       var ok=false;
       collFiltColors.forEach(function(fc){if(fc==='C'?cols.length===0:cols.indexOf(fc)>=0)ok=true;});
@@ -39024,7 +39047,19 @@ function renderColl(){
     if(f==='foil'){va=fNF(a.finish)==='foil'?1:0;vb=fNF(b.finish)==='foil'?1:0;return (va-vb)*d;}
     if(f==='price'){return ((a.price||0)-(b.price||0))*d;}
     if(f==='rarity'){var ra=collCache[a.name.toLowerCase()]||{};var rb=collCache[b.name.toLowerCase()]||{};var rkA=_rRank(ra.rarity),rkB=_rRank(rb.rarity);if(rkA===99&&rkB===99)return (a.name||'').localeCompare(b.name||'');if(rkA===99)return 1;if(rkB===99)return -1;var _rc=(rkA-rkB)*d;return _rc!==0?_rc:(a.name||'').localeCompare(b.name||'');}
-    if(f==='color'){var _co=['W','U','B','R','G'];var ca2=collCache[a.name.toLowerCase()]||{};var cb2=collCache[b.name.toLowerCase()]||{};var cla=ca2.colors||[];var clb=cb2.colors||[];var ia=!cla.length?99:(cla.length>1?98:_co.indexOf(cla[0]));var ib=!clb.length?99:(clb.length>1?98:_co.indexOf(clb[0]));return (ia-ib)*d;}
+    if(f==='color'){
+      var ma=collCache[a.name.toLowerCase()],mb=collCache[b.name.toLowerCase()];
+      var ra=_collColorRank(ma),rb=_collColorRank(mb);
+      // Metadonnees pas encore chargees : toujours en fin de liste, quel que soit le sens
+      if(ra===98&&rb===98)return (a.name||'').localeCompare(b.name||'');
+      if(ra===98)return 1;
+      if(rb===98)return -1;
+      if(ra!==rb)return (ra-rb)*d;
+      // Meme groupe : on ordonne les combinaisons multicolores, puis par nom (tri stable)
+      var sa=_collColorSig(ma),sb=_collColorSig(mb);
+      if(sa!==sb)return (sa<sb?-1:1)*d;
+      return (a.name||'').localeCompare(b.name||'');
+    }
     return 0;
   });
   // Indicateurs de tri
