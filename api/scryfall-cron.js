@@ -8,6 +8,16 @@
 // Endpoint manuel : GET /api/scryfall-cron?force=1&secret=<CRON_SECRET>
 
 const { put, list, del } = require('@vercel/blob');
+const zlib = require('zlib');
+const { Readable } = require('stream');
+const readline = require('readline');
+
+// Scryfall demande un User-Agent explicite sur son API.
+const UA = 'ManaLAB/1.0 (+https://github.com/magictib/mtg-tools)';
+// Depuis 2026 le descripteur bulk expose `jsonl_download_uri` (JSONL gzippé)
+// à la place de `download_uri` (tableau JSON), et `compressed_size` à la place de `size`.
+const _bulkUri = b => (b && (b.jsonl_download_uri || b.download_uri)) || '';
+const _bulkSize = b => (b && (b.compressed_size || b.size)) || 0;
 
 const BULK_TYPE = process.env.SCRY_BULK_TYPE || 'oracle_cards';
 const SNAPSHOT_KEY = 'scryfall/snapshot.json';
@@ -54,17 +64,34 @@ function _trimCard(c) {
 }
 
 async function _fetchBulkMeta() {
-  const r = await fetch('https://api.scryfall.com/bulk-data');
+  const r = await fetch('https://api.scryfall.com/bulk-data', {
+    headers: { 'User-Agent': UA, 'Accept': 'application/json' }
+  });
+  if (!r.ok) throw new Error('Scryfall bulk-data HTTP ' + r.status);
   const data = await r.json();
   const bulk = (data.data || []).find(d => d.type === BULK_TYPE);
   if (!bulk) throw new Error(BULK_TYPE + ' not found in Scryfall response');
   return bulk;
 }
 
-async function _fetchBulkJson(uri) {
-  const r = await fetch(uri);
+// Le bulk est désormais du JSONL gzippé : on le lit en streaming (gunzip + ligne à ligne)
+// pour ne jamais matérialiser les ~200 Mo décompressés en une seule string.
+async function _fetchBulkCards(uri) {
+  if (!uri) throw new Error('Scryfall bulk download URI missing');
+  const r = await fetch(uri, { headers: { 'User-Agent': UA } });
   if (!r.ok) throw new Error('Bulk download failed: ' + r.status);
-  return r.json();
+  const isJsonl = /\.jsonl(\.gz)?(\?|$)/.test(uri);
+  if (!isJsonl) return r.json(); // ancien format : tableau JSON
+  let stream = Readable.fromWeb(r.body);
+  if (/\.gz(\?|$)/.test(uri)) stream = stream.pipe(zlib.createGunzip());
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  const cards = [];
+  for await (const line of rl) {
+    const t = line.trim();
+    if (!t || t === '[' || t === ']') continue;
+    try { cards.push(JSON.parse(t.replace(/,$/, ''))); } catch (_) {}
+  }
+  return cards;
 }
 
 async function _loadPrevSnapshot() {
@@ -113,8 +140,9 @@ module.exports = async function handler(req, res) {
     }
 
     // Télécharge le bulk complet
-    const bulkArr = await _fetchBulkJson(meta.download_uri);
+    const bulkArr = await _fetchBulkCards(_bulkUri(meta));
     if (!Array.isArray(bulkArr)) throw new Error('Bulk is not an array');
+    if (!bulkArr.length) throw new Error('Bulk is empty');
 
     // Index par nom (lowercase) avec hash
     const newIdx = {};
@@ -181,7 +209,7 @@ module.exports = async function handler(req, res) {
     await put(META_KEY, JSON.stringify({
       type: BULK_TYPE,
       updated_at: meta.updated_at,
-      size_bytes: meta.size || 0,
+      size_bytes: _bulkSize(meta),
       synced_at: new Date().toISOString()
     }), { access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true });
 

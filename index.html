@@ -40,7 +40,7 @@ window.addEventListener('appinstalled',function(){
   });
 })();
 // Build de cette page (bumpé à chaque push) — affiché dans l'admin pour vérifier la MAJ.
-window.APP_BUILD='2026-09-02-112';
+window.APP_BUILD='2026-09-04-113';
 /*
 ═══════════════════════════════════════════════════════════════════════════════
 INVENTAIRE PERSISTANCE — 3 couches utilisées par ManaLAB
@@ -10437,7 +10437,7 @@ function renderHome(){
       bn.style.cssText='margin-bottom:18px;padding:14px 18px;border:1.5px solid var(--gold);border-radius:12px;background:linear-gradient(135deg,rgba(201,168,76,.14),rgba(201,168,76,.03));display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 0 24px rgba(201,168,76,.15)';
       bn.innerHTML='<div style="font-size:2rem;line-height:1">⚡</div>'
         +'<div style="flex:1;min-width:220px"><div style="font-family:Inter,system-ui,sans-serif;color:var(--gold2);font-size:1.05rem;margin-bottom:3px">Active l\'autocomplete instantané</div>'
-        +'<div style="font-size:.83rem;color:var(--tx2);line-height:1.45">Télécharge le catalogue Scryfall (~85 Mo, une fois) pour une recherche de carte <b>10× plus rapide</b> partout — édition de deck, drag & drop, recherche commandant. Sans ça, chaque saisie attend un fetch réseau.</div></div>'
+        +'<div style="font-size:.83rem;color:var(--tx2);line-height:1.45">Télécharge le catalogue Scryfall (~23 Mo, une fois) pour une recherche de carte <b>10× plus rapide</b> partout — édition de deck, drag & drop, recherche commandant. Sans ça, chaque saisie attend un fetch réseau.</div></div>'
         +'<button class="btn btnp btnsm cat-install-btn">⚡ Activer maintenant</button>'
         +'<button class="cat-snooze-btn" style="background:none;border:.5px solid var(--bd2);color:var(--tx3);padding:6px 10px;border-radius:7px;cursor:pointer;font-size:.78rem">Plus tard</button>'
         +'<div class="cat-status" style="flex-basis:100%;font-size:.74rem;color:var(--tx3);font-style:italic;margin-top:4px"></div>';
@@ -41735,7 +41735,7 @@ function importPrelistToBld(){
 
 // ===== INDEXEDDB SCRYFALL CACHE =====
 var _idb=null;
-// Type de bulk Scryfall : 'oracle_cards' (~85 Mo) recommandé, 'default_cards' (~330 Mo), 'all_cards' (~2 Go)
+// Type de bulk Scryfall : 'oracle_cards' (~23 Mo gz) recommandé, 'default_cards' (~74 Mo gz), 'all_cards' (~374 Mo gz)
 // Stocké en localStorage pour permettre l'override admin
 var _SCRY_BULK_TYPE=(function(){try{var v=localStorage.getItem('mtg_scry_bulk_type');return v||'oracle_cards';}catch(_){return 'oracle_cards';}})();
 function _setScryBulkType(t){
@@ -41743,6 +41743,11 @@ function _setScryBulkType(t){
   _SCRY_BULK_TYPE=t;
   try{localStorage.setItem('mtg_scry_bulk_type',t);}catch(_){}
 }
+// Scryfall a changé le format de /bulk-data : `download_uri` (tableau JSON) a disparu
+// au profit de `jsonl_download_uri` (JSONL gzippé), et `size` est devenu `compressed_size`.
+// On lit les deux formes pour rester compatible dans les deux sens.
+function _scryBulkUri(b){return (b&&(b.jsonl_download_uri||b.download_uri))||'';}
+function _scryBulkSize(b){return (b&&(b.compressed_size||b.size))||0;}
 function _openIDB(){
   return new Promise(function(res,rej){
     // Vérifie que la connexion cachée n'est pas en train de se fermer
@@ -41892,10 +41897,26 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
   // so they never collide with UTF-8 multi-byte continuation bytes (0x80-0xFF).
   // This avoids creating any large string — only individual card slices (~15 KB) are decoded.
   var B_LBRACE=123,B_RBRACE=125,B_LBRACKET=91,B_RBRACKET=93,B_QUOTE=34,B_BACKSLASH=92;
+  if(!uri)return Promise.reject(new Error('URL de bulk Scryfall absente'));
+  // Nouveau format Scryfall : .jsonl.gz (un objet carte par ligne, gzippé).
+  // Ancien format : .json (tableau JSON). baseDepth = profondeur où commence une carte.
+  var _isGz=/\.gz(\?|$)/.test(uri),_isJsonl=/\.jsonl(\.gz)?(\?|$)/.test(uri);
+  var baseDepth=_isJsonl?0:1;
   return fetch(uri).then(function(r){
       if(!r.ok)throw new Error('HTTP '+r.status);
       var total=parseInt(r.headers.get('Content-Length'))||0,received=0,stored=0;
-      var reader=r.body.getReader(),decoder=new TextDecoder();
+      // Compte les octets AVANT décompression : Content-Length est la taille gzippée.
+      var _stream=r.body,_counted=(typeof TransformStream!=='undefined');
+      if(_counted){
+        _stream=_stream.pipeThrough(new TransformStream({transform:function(chunk,ctrl){
+          received+=chunk.length;if(onProg)onProg('dl',received,total);ctrl.enqueue(chunk);
+        }}));
+      }
+      if(_isGz){
+        if(typeof DecompressionStream==='undefined')throw new Error('Navigateur trop ancien : décompression gzip indisponible');
+        _stream=_stream.pipeThrough(new DecompressionStream('gzip'));
+      }
+      var reader=_stream.getReader(),decoder=new TextDecoder();
       var depth=0,inStr=false,esc=false;
       var cardStart=-1; // byte offset in current chunk where card started
       var cardParts=[];  // Uint8Array parts when a card spans multiple chunks
@@ -41960,12 +41981,12 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
           if(b===B_QUOTE){inStr=!inStr;i++;continue;}
           if(inStr){i++;continue;}
           if(b===B_LBRACE){
-            // Start a new card only if: depth===1, no card in progress
-            if(depth===1&&cardStart<0&&!cardParts.length)cardStart=i;
+            // Start a new card only if: depth===baseDepth, no card in progress
+            if(depth===baseDepth&&cardStart<0&&!cardParts.length)cardStart=i;
             depth++;
           }else if(b===B_RBRACE){
             depth--;
-            if(depth===1&&(cardStart>=0||cardParts.length)){
+            if(depth===baseDepth&&(cardStart>=0||cardParts.length)){
               // Card complete — assemble bytes and parse
               var cb;
               if(!cardParts.length){
@@ -42003,8 +42024,7 @@ function _downloadAndPopulateIDB(uri,updatedAt,onProg){
               return Promise.all([_idbSetMeta('updated_at',updatedAt),_idbSetMeta('card_count',stored)]);
             }).then(function(){return stored;});
           }
-          received+=chunk.value.length;
-          if(onProg)onProg('dl',received,total);
+          if(!_counted){received+=chunk.value.length;if(onProg)onProg('dl',received,total);}
           processChunk(chunk.value);
           return read();
         });
@@ -42113,10 +42133,11 @@ function adminSyncScryfall(){
   fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
     var oracle=(data.data||[]).find(function(d){return d.type===_SCRY_BULK_TYPE;});
     if(!oracle)throw new Error(_SCRY_BULK_TYPE+' introuvable dans la réponse Scryfall');
-    var upd=oracle.updated_at,uri=oracle.download_uri,sizeBytes=oracle.size||0;
+    var upd=oracle.updated_at,uri=_scryBulkUri(oracle),sizeBytes=_scryBulkSize(oracle);
+    if(!uri)throw new Error('Scryfall ne renvoie aucune URL de téléchargement pour '+_SCRY_BULK_TYPE);
     prog.textContent='Enregistrement des métadonnées…';
     return db.collection('meta').doc('scryfall').set({updated_at:upd,download_uri:uri,size_bytes:sizeBytes,bulk_type:_SCRY_BULK_TYPE,synced_at:new Date().toISOString()},{merge:true}).then(function(){
-      prog.textContent='Téléchargement '+_SCRY_BULK_TYPE+'.json (~'+Math.round(sizeBytes/1024/1024)+' Mo, patientez…)';
+      prog.textContent='Téléchargement '+_SCRY_BULK_TYPE+'.jsonl.gz (~'+Math.round(sizeBytes/1024/1024)+' Mo, patientez…)';
       return _downloadAndPopulateIDB(uri,upd,function(phase,a,b){
         if(phase==='dl')prog.textContent='Téléchargement… '+Math.round(a/1024/1024)+'/'+(b?Math.round(b/1024/1024):'?')+' Mo';
         else if(phase==='parse')prog.textContent='Analyse JSON…';
@@ -42148,7 +42169,7 @@ function _loadAdminScryfallStatus(){
     if(liveBulk){
       var ld=new Date(liveBulk.updated_at);
       var ldStr=ld.toLocaleDateString('fr-FR')+' '+('0'+ld.getHours()).slice(-2)+'h';
-      var mb=Math.round((liveBulk.size||0)/1024/1024);
+      var mb=Math.round(_scryBulkSize(liveBulk)/1024/1024);
       lines.push('Scryfall : '+mb+' Mo · MAJ '+ldStr);
     }
     if(meta&&meta.synced_at){
@@ -42183,8 +42204,10 @@ function installScryfallCatalog(onProg){
     .then(function(data){
       var bulk=(data.data||[]).find(function(d){return d.type===_SCRY_BULK_TYPE;});
       if(!bulk)throw new Error('Bulk introuvable');
-      if(onProg)onProg({phase:'download',sizeBytes:bulk.size||0});
-      return _downloadAndPopulateIDB(bulk.download_uri,bulk.updated_at,function(phase,a,b){
+      var bUri=_scryBulkUri(bulk);
+      if(!bUri)throw new Error('URL de téléchargement Scryfall absente');
+      if(onProg)onProg({phase:'download',sizeBytes:_scryBulkSize(bulk)});
+      return _downloadAndPopulateIDB(bUri,bulk.updated_at,function(phase,a,b){
         if(onProg)onProg({phase:phase,current:a,total:b});
       }).then(function(n){return {n:n};});
     })
@@ -42202,7 +42225,8 @@ function _checkScryfallIDB(){
   }catch(_){}
   fetch('https://api.scryfall.com/bulk-data?ts='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){
     var bulk=(data.data||[]).find(function(d){return d.type===_SCRY_BULK_TYPE;});
-    if(!bulk||!bulk.download_uri||!bulk.updated_at)return;
+    var bUri=_scryBulkUri(bulk);
+    if(!bUri||!bulk.updated_at)return;
     return _idbGetMeta('updated_at').then(function(local){
       if(local===bulk.updated_at)return; // déjà à jour
       // Données locales encore récentes → on ne dérange pas (sauf absence totale de cache)
@@ -42215,14 +42239,14 @@ function _checkScryfallIDB(){
       banner.id='scryfall-update-banner';
       banner.style.cssText='position:fixed;bottom:8px;left:50%;transform:translateX(-50%);background:var(--s2);border:.5px solid var(--bd2);border-radius:8px;padding:8px 14px;font-size:.75rem;color:var(--tx2);z-index:1500;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.55);max-width:94vw';
       banner.innerHTML='<span>Base de cartes : une mise à jour est disponible'+(localStr?' (tes données datent du '+esc(localStr)+')':'')+'</span>'
-        +'<button class="btn btnsm" style="font-size:.7rem;padding:2px 10px;white-space:nowrap" onclick="_startClientSync(\''+esc(bulk.download_uri)+'\',\''+esc(bulk.updated_at)+'\',this.closest(\'[id]\'))">Mettre à jour</button>'
+        +'<button class="btn btnsm" style="font-size:.7rem;padding:2px 10px;white-space:nowrap" onclick="_startClientSync(\''+esc(bUri)+'\',\''+esc(bulk.updated_at)+'\',this.closest(\'[id]\'))">Mettre à jour</button>'
         +'<button onclick="_dismissScryfallBanner(this)" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:1rem;padding:0 2px">✕</button>';
       document.body.appendChild(banner);
     });
   }).catch(function(){});
 }
 function _startClientSync(uri,updatedAt,banner){
-  var sizeHint={oracle_cards:'~85 Mo',default_cards:'~330 Mo',all_cards:'~2 Go',unique_artwork:'~135 Mo'}[_SCRY_BULK_TYPE]||'';
+  var sizeHint={oracle_cards:'~23 Mo',default_cards:'~74 Mo',all_cards:'~374 Mo',unique_artwork:'~36 Mo'}[_SCRY_BULK_TYPE]||'';
   banner.innerHTML='<span id="_sync-prog">Téléchargement '+sizeHint+'…</span>';
   _downloadAndPopulateIDB(uri,updatedAt,function(phase,a,b){
     var el=document.getElementById('_sync-prog');if(!el)return;
